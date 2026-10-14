@@ -3,13 +3,19 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
-The schema reserves `monitoring` and a nullable `monitoring_started_at`, but current report transitions do not enter that state. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats evaluation failures as disabled.
+Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
 
-Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
+Shared backend lifecycle handling supports Monitoring periods, preserves their original start through archive and restore, and clears the start on reopen. Enabled responses expose the server-owned start time. The single and bulk state APIs still accept only suppressed, potential, and resolved targets; neither manual entry controls nor automatic PR-merge entry are available.
+
+Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
+
+PR merges still resolve reports. A plan already in Monitoring waits for verification even after its steps close. Existing checks stay pending while Monitoring is enabled and start when the report resolves. If the rollout is disabled, existing Resolved check behavior applies to stored Monitoring reports; pending checks begin at the next coordinator tick, without using the Monitoring start as a measurement anchor. Expired checks stay expired. Monitoring entry, outcome checks, and automatic completion ship separately.
+
+Attaching a new open, draft, or unknown PR to a resolved or Monitoring report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
-A report merged into another report cannot be restored or resolved from the archive; act on the surviving report instead.
+A report merged into another report cannot be restored, resolved, or marked Monitoring from the archive; act on the surviving report instead.
 
 A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
 When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.

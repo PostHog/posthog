@@ -22,7 +22,7 @@ from functools import partial
 from typing import cast
 
 from django.db import transaction
-from django.db.models import F, Window
+from django.db.models import Exists, F, OuterRef, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -70,6 +70,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
     soak_minutes_from_gap,
 )
+from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metric_refresh import measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
 
@@ -343,7 +344,7 @@ def record_check_verdict(
 
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
             return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
@@ -439,7 +440,7 @@ def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
     return (
         verdict.outcome == "failed"
         and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
-        and check.report.status == SignalReport.Status.RESOLVED
+        and check.report.effective_status == SignalReport.Status.RESOLVED
     )
 
 
@@ -586,7 +587,9 @@ def _park_checks(active: Iterable[SignalReportCheck], now: datetime) -> int:
         parked += (
             SignalReportCheck.objects.for_team(check.team_id)
             .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
-            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .exclude(
+                report_status_filter([SignalReport.Status.RESOLVED], team_id=check.team_id, field="report__status")
+            )
             .update(
                 status=SignalReportCheck.Status.PENDING,
                 soak_minutes=soak_minutes,
@@ -624,7 +627,7 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
     """
     active = list(
         SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
-        .exclude(report__status=SignalReport.Status.RESOLVED)
+        .exclude(report_status_filter([SignalReport.Status.RESOLVED], field="report__status"))
         .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
             :MAX_CHECK_PARKS_PER_TICK
         ]
@@ -645,13 +648,13 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 
     candidates = (
         SignalReportCheck.all_teams.filter(
+            report_status_filter([SignalReport.Status.RESOLVED], field="report__status"),
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
             expires_at__gt=now,
             # A check re-measures a fix, so it runs only while its report is resolved. The park step
             # moves any other active row back to `pending`; this filter keeps a row it has not reached
             # yet out of the tick.
-            report__status=SignalReport.Status.RESOLVED,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -679,6 +682,29 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
     return due
 
 
+def _arm_disabled_monitoring_checks(now: datetime) -> None:
+    from products.signals.backend.report_check_authoring import arm_pending_checks
+
+    pending_checks = SignalReportCheck.all_teams.filter(
+        team_id=OuterRef("team_id"),
+        report_id=OuterRef("id"),
+        status=SignalReportCheck.Status.PENDING,
+        expires_at__gt=now,
+    )
+    reports = (
+        SignalReport.objects.filter(
+            report_status_filter([SignalReport.Status.RESOLVED]),
+            Exists(pending_checks),
+            status=SignalReport.Status.MONITORING,
+        )
+        .only("id", "status", "team_id")
+        .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
+    )
+    for report in reports:
+        if report.effective_status == SignalReport.Status.RESOLVED:
+            arm_pending_checks(team_id=report.team_id, report_id=report.id, resolved_at=now)
+
+
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
     """Expire what timed out, park what lost its resolve, then advance every due check by one step.
 
@@ -689,6 +715,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
 
     now = now or timezone.now()
     expired = expire_overdue_checks(now)
+    _arm_disabled_monitoring_checks(now)
     park_checks_on_unresolved_reports(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {

@@ -388,13 +388,21 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(ateam):
-    """A signal that would group into a RESOLVED report must not reopen it. Instead a fresh
-    POTENTIAL report is created and symmetrically linked to the resolved one via related_to
-    artefacts, and the resolved report keeps its status and signal count."""
+@pytest.mark.parametrize(
+    "report_status,flag_result,recurs",
+    [
+        (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.MONITORING, False, True),
+        (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
+        (SignalReport.Status.MONITORING, True, False),
+    ],
+)
+async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(
+    ateam: Team, report_status: str, flag_result: bool | Exception, recurs: bool
+) -> None:
     resolved = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.RESOLVED,
+        status=report_status,
         total_weight=1.5,
         signal_count=2,
         title="original title",
@@ -402,7 +410,21 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     )
     input_ = _build_input(ateam.id, _existing_match(str(resolved.id)), weight=WEIGHT_THRESHOLD)
 
-    result = await assign_and_emit_signal_activity(input_)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        return_value=flag_result if isinstance(flag_result, bool) else False,
+        side_effect=flag_result if isinstance(flag_result, Exception) else None,
+    ):
+        result = await assign_and_emit_signal_activity(input_)
+
+    if not recurs:
+        assert result.report_id == str(resolved.id)
+        refreshed = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
+        assert refreshed.status == SignalReport.Status.MONITORING
+        assert refreshed.signal_count == 3
+        assert refreshed.title == "original title"
+        assert refreshed.summary == "original summary"
+        return
 
     # A brand-new report was created, not the resolved one.
     assert result.report_id != str(resolved.id)
@@ -422,7 +444,7 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
 
     # The resolved report is untouched — not reopened, no new signal counted.
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
-    assert refreshed_resolved.status == SignalReport.Status.RESOLVED
+    assert refreshed_resolved.status == report_status
     assert refreshed_resolved.signal_count == 2
 
 
