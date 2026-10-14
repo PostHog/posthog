@@ -714,7 +714,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             (s) => [s.limit, s.orderBy, s.orderDirection, s.filterTestAccounts, s.widgetConfig],
             (
                 limit: number,
-                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users',
+                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users',
                 orderDirection: 'ASC' | 'DESC',
                 filterTestAccounts: boolean,
                 widgetConfig: ErrorTrackingWidgetConfig
@@ -759,7 +759,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                   | undefined
                               filterTestAccounts?: boolean | null | undefined
                               limit: number
-                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                               orderDirection: 'ASC' | 'DESC'
                               status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                               widgetFilters?:
@@ -871,7 +871,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                   | undefined
                               filterTestAccounts?: boolean | null | undefined
                               limit: number
-                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                               orderDirection: 'ASC' | 'DESC'
                               status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                               widgetFilters?:
