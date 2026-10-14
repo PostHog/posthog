@@ -246,6 +246,7 @@ class TestRaiseTombstonesAboveClickhouse(ClickhouseTestMixin, BaseTest):
             ("clickhouse_behind", [(-1, False)], False, 0),
             ("newer_clickhouse_tombstone", [(5, True)], False, 0),
             ("live_row_at_the_same_version", [(0, False)], False, 1),
+            ("live_row_tied_with_a_published_tombstone", [(0, True), (0, False)], False, 1),
             ("newer_live_row", [(-1, False), (7, False)], False, 8),
             ("revived_since_the_tombstone", [(7, False)], True, 0),
         ]

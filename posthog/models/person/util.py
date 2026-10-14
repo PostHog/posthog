@@ -1029,32 +1029,30 @@ def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFlo
 
 
 def raise_tombstones_above_clickhouse(team_id: int, tombstones: Sequence[PersonTombstone]) -> list[PersonTombstone]:
-    """Return the tombstones, each raised above a live ClickHouse row of its person at the same or a higher version.
+    """Raise each tombstone above any live ClickHouse row at or above its version, so the published tombstone wins.
 
-    A person re-created under the same uuid starts again near version 0 in Postgres, while ClickHouse can keep live
-    rows of its earlier lifetime at higher versions. A tombstone published at the Postgres version loses to those rows,
-    so the deleted person stays visible and the sweep never removes it. Raising the Postgres tombstone to one above
-    ClickHouse first makes the published tombstone win. A person revived since its tombstone keeps the tombstone as it
-    was, because publishing an older tombstone changes nothing.
+    A re-created uuid restarts near version 0 in Postgres while ClickHouse keeps the earlier lifetime's higher versions.
     """
     if not tombstones:
         return []
-    newest = {
-        str(person_id): (int(max_version), bool(is_deleted))
-        for person_id, max_version, is_deleted in sync_execute(
+    # The newest live version is read on its own: argMax picks either row when a live row and a tombstone tie.
+    versions = {
+        str(person_id): (int(max_version), live_version)
+        for person_id, max_version, live_version in sync_execute(
             """
-            SELECT id, max(version), argMax(is_deleted, version)
+            SELECT id, max(version), maxIfOrNull(version, is_deleted = 0)
             FROM person
             WHERE team_id = %(team_id)s AND id IN %(ids)s
             GROUP BY id
             """,
             {"team_id": team_id, "ids": [str(t.uuid) for t in tombstones]},
+            team_id=team_id,
         )
     }
     floors = []
     for tombstone in tombstones:
-        max_version, is_deleted = newest.get(str(tombstone.uuid), (-1, True))
-        if not is_deleted and max_version >= tombstone.version:
+        max_version, live_version = versions.get(str(tombstone.uuid), (-1, None))
+        if live_version is not None and live_version >= tombstone.version:
             floors.append(PersonVersionFloor(uuid=tombstone.uuid, min_version=max_version + 1))
     if not floors:
         return list(tombstones)
