@@ -91,6 +91,27 @@ def test_flow_pages_and_resume(config: ArcadeSourceConfig, resume_page: int | No
             "insights",
             {"type": "companiesForLeads", "teamId": "team-example"},
         ),
+        (
+            "total_plays",
+            {"players": 12, "plays": 20},
+            [
+                {
+                    "players": 12,
+                    "plays": 20,
+                    "team_id": "team-example",
+                    "period_start": "2025-01-01T00:00:00+00:00",
+                    "period_end": "2025-02-01T00:00:00+00:00",
+                }
+            ],
+            "POST",
+            "insights",
+            {
+                "type": "totalPlays",
+                "teamId": "team-example",
+                "from": "2025-01-01T00:00:00+00:00",
+                "to": "2025-02-01T00:00:00+00:00",
+            },
+        ),
     ],
 )
 def test_single_page_tables(
@@ -115,7 +136,91 @@ def test_single_page_tables(
     assert result.saved_states[-1].completed
 
 
-@pytest.mark.parametrize("name", ["teams", "flow_engagement"])
+@pytest.mark.parametrize(
+    ("name", "insight_type", "answers", "expected_rows"),
+    [
+        (
+            "flow_views",
+            "views",
+            [{"viewers": 4}, {"viewers": 6}],
+            [{"viewers": 4, "flowId": "flow-one"}, {"viewers": 6, "flowId": "flow-two"}],
+        ),
+        (
+            "flow_dropoff",
+            "dropoff",
+            [[{"stepId": "step-a", "reached": 5}], []],
+            [{"stepId": "step-a", "reached": 5, "flowId": "flow-one"}],
+        ),
+        (
+            "authenticated_views",
+            "authenticatedViews",
+            [[], [{"email": "viewer@example.com", "completed": True}]],
+            [{"email": "viewer@example.com", "completed": True, "flowId": "flow-two"}],
+        ),
+    ],
+)
+@pytest.mark.parametrize("resume_index", [None, 1])
+def test_per_flow_tables_fan_out_over_flows(
+    config: ArcadeSourceConfig,
+    name: str,
+    insight_type: str,
+    answers: list[object],
+    expected_rows: list[dict[str, Any]],
+    resume_index: int | None,
+) -> None:
+    resume_state = (
+        ArcadeResumeConfig(
+            page=1,
+            period_start="2025-01-01T00:00:00+00:00",
+            period_end="2025-02-01T00:00:00+00:00",
+            flow_index=resume_index,
+        )
+        if resume_index
+        else None
+    )
+    flow_answers = answers[resume_index or 0 :]
+    result = SourceDriver(ArcadeSource(), config).run(
+        name,
+        [
+            ScriptedResponse(json=[{"flowId": "flow-one"}, {"flowId": "flow-two"}]),
+            *(ScriptedResponse(json=answer) for answer in flow_answers),
+            ScriptedResponse(json=[]),
+        ],
+        resume_state=resume_state,
+    )
+
+    assert result.raised is None
+    expected_flows = ["flow-one", "flow-two"][resume_index or 0 :]
+    assert result.rows == [
+        {
+            **row,
+            "team_id": "team-example",
+            "period_start": "2025-01-01T00:00:00+00:00",
+            "period_end": "2025-02-01T00:00:00+00:00",
+        }
+        for row in expected_rows
+        if row["flowId"] in expected_flows
+    ]
+    bodies = [request.json() for request in result.requests]
+    assert [body["type"] for body in bodies] == [
+        "overviewPlays",
+        *[insight_type] * len(expected_flows),
+        "overviewPlays",
+    ]
+    assert [body["page"] for body in (bodies[0], bodies[-1])] == [1, 2]
+    for body, flow_id in zip(bodies[1:-1], expected_flows):
+        assert body == {
+            "type": insight_type,
+            "teamId": "team-example",
+            "flowId": flow_id,
+            "from": "2025-01-01T00:00:00+00:00",
+            "to": "2025-02-01T00:00:00+00:00",
+        }
+    assert [state.flow_index for state in result.saved_states[:-1]] == [1, 2][resume_index or 0 :]
+    assert result.saved_states[-1].completed
+
+
+@pytest.mark.parametrize("name", ["teams", "flow_engagement", "flow_views"])
 def test_completed_resume_does_not_repeat_rows(config: ArcadeSourceConfig, name: str) -> None:
     result = SourceDriver(ArcadeSource(), config).run(
         name,
@@ -199,11 +304,13 @@ def test_unknown_table_does_not_send_requests(config: ArcadeSourceConfig) -> Non
     assert result.requests == []
 
 
-def test_validation_uses_one_small_insights_page(config: ArcadeSourceConfig) -> None:
+@pytest.mark.parametrize("name", ["flow_engagement", "flow_views"])
+def test_validation_uses_one_small_insights_page(config: ArcadeSourceConfig, name: str) -> None:
     with scripted_network([ScriptedResponse(json=[{"flowId": "flow-one"}])]) as network:
-        assert validate_credentials(config, 1, "flow_engagement") == (True, None)
+        assert validate_credentials(config, 1, name) == (True, None)
 
     assert len(network.requests_log) == 1
+    assert network.requests_log[0].json()["type"] == "overviewPlays"
     assert network.requests_log[0].json()["size"] == 1
 
 

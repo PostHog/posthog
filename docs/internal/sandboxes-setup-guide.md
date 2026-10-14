@@ -222,6 +222,15 @@ worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, na
 the product the token is pinned to, and the agent routes on those in preference to
 what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
+Account audit runs use the reserved `account_audit` origin and AI product, and must
+carry the server-set `internal` flag before they can mint a token. Add
+`account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
+Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
+waits three minutes for cost accounting before reporting the audit result. Audits use an
+internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
+audit reasserts this policy; only the platform service allowlist stays reachable.
+
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
