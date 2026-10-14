@@ -82,6 +82,7 @@ export interface organizationLogicValues {
     isAdminOrOwner: boolean | null
     isCurrentOrganizationNew: boolean
     isCurrentOrganizationUnavailable: boolean
+    isGuest: boolean
     isNotActiveReason: string | null
     isPathInAnotherOrganization: (pathname: string) => boolean
     isPathOpenWhileBlocked: (pathname: string) => boolean
@@ -190,6 +191,7 @@ export interface organizationLogicMeta {
             currentOrganization: OrganizationType | null,
             currentOrganizationLoading: boolean
         ) => boolean
+        isGuest: (currentOrganization: OrganizationType | null) => boolean
         projectCreationForbiddenReason: (
             currentOrganization: OrganizationType | null,
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
@@ -316,7 +318,12 @@ export const organizationLogic = kea<organizationLogicType>([
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization: OrganizationType | null, currentOrganizationLoading: boolean): boolean =>
-                !currentOrganization?.membership_level && !currentOrganizationLoading,
+                currentOrganization?.membership_level == null && !currentOrganizationLoading,
+        ],
+        isGuest: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): boolean =>
+                currentOrganization?.membership_level === OrganizationMembershipLevel.Guest,
         ],
         projectCreationForbiddenReason: [
             (s) => [s.currentOrganization, s.hasAvailableFeature],

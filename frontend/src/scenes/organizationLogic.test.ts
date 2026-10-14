@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -30,6 +32,22 @@ describe('organizationLogic', () => {
         it('currentOrganizationId returns the id when loaded', async () => {
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             expect(logic.values.currentOrganizationId).toBe('WXYZ')
+        })
+    })
+
+    describe('for a guest', () => {
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', membership_level: OrganizationMembershipLevel.Guest } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        })
+
+        it('treats the organization as available and the user as a guest', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            await expectLogic(logic).toMatchValues({ isCurrentOrganizationUnavailable: false, isGuest: true })
         })
     })
 
