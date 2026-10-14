@@ -14,6 +14,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import GuestPermission
 from posthog.redis import get_client
 
 from products.growth.backend.constants import (
@@ -223,7 +224,7 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, GuestPermission])
 def sdk_health(request: Request) -> Response:
     """
     Serve team SDK versions. Data is cached by the Temporal sdk_outdated health check.

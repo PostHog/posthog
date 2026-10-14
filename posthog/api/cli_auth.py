@@ -27,6 +27,7 @@ from posthog.api.personal_api_key import validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.permissions import GuestPermission
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.user_permissions import UserPermissions
 
@@ -130,7 +131,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""
         if getattr(self, "action", None) == "authorize":
-            return [IsAuthenticated()]
+            return [IsAuthenticated(), GuestPermission()]
         return [AllowAny()]
 
     def get_authenticators(self):

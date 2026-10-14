@@ -52,6 +52,7 @@ from posthog.models import User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
+    GuestPermission,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_mcp_built_in_agent_oauth_request,
@@ -4808,7 +4809,7 @@ class LegacyDesktopAccessViewSet(viewsets.ViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, GuestPermission]
     scope_object = "task"
     http_method_names = ["get", "head", "options"]
 
