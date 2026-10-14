@@ -12,6 +12,7 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
+from products.workflows.backend.services.hog_flow_secrets import strip_secrets_from_content
 from products.workflows.backend.templates import get_global_template_by_id, load_global_templates
 
 WRITABLE_TEMPLATE_FIELDS = frozenset(
@@ -81,8 +82,16 @@ def get_template(*, team_id: int, organization_id: UUID, template_id: str) -> Wo
     return _to_template(template) if template is not None else None
 
 
-def create_template(*, team_id: int, created_by_id: int, fields: Mapping[str, Any]) -> WorkflowTemplate:
+def _writable_values_without_secrets(fields: Mapping[str, Any]) -> dict[str, Any]:
+    # Other team or organization members read a template, and it has no encrypted column like a
+    # workflow, so the value of a secret input is dropped rather than stored.
     values = {key: value for key, value in fields.items() if key in WRITABLE_TEMPLATE_FIELDS}
+    strip_secrets_from_content(values, template_cache={})
+    return values
+
+
+def create_template(*, team_id: int, created_by_id: int, fields: Mapping[str, Any]) -> WorkflowTemplate:
+    values = _writable_values_without_secrets(fields)
     if not values.get("scope"):
         values["scope"] = HogFlowTemplateScope.ONLY_TEAM
     template = HogFlowTemplate.objects.create(team_id=team_id, created_by_id=created_by_id, **values)
@@ -97,9 +106,8 @@ def update_template(
     template = _visible_templates(team_id, organization_id).filter(id=template_id).first()
     if template is None:
         raise WorkflowTemplateNotFound()
-    for key, value in fields.items():
-        if key in WRITABLE_TEMPLATE_FIELDS:
-            setattr(template, key, value)
+    for key, value in _writable_values_without_secrets(fields).items():
+        setattr(template, key, value)
     template.team_id = team_id
     template.save()
     return _to_template(template)

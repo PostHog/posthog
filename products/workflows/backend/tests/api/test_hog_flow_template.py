@@ -55,6 +55,13 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                     "required": False,
                     "default": {"Content-Type": "application/json"},
                 },
+                {
+                    "key": "api_key",
+                    "type": "string",
+                    "label": "API key",
+                    "required": False,
+                    "secret": True,
+                },
             ],
             type="destination",
             status="stable",
@@ -123,6 +130,38 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         # Verify inputs are preserved - only url was provided in custom_inputs
         assert function_action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def _template_with_secret_inputs(self, secret: str) -> dict[str, Any]:
+        inputs = {"url": {"value": "https://custom.example.com"}, "api_key": {"value": secret}}
+        hog_flow_data = self._create_hog_flow_data(custom_inputs=inputs)
+        hog_flow_data["actions"][0]["config"] = {
+            "type": "webhook",
+            "template_id": "template-test-defaults",
+            "inputs": inputs,
+        }
+        return hog_flow_data
+
+    def test_template_never_stores_secret_inputs(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flow_templates",
+            self._template_with_secret_inputs("CREATE-SECRET"),
+            format="json",
+        )
+        assert create.status_code == 201, create.json()
+        template_id = create.json()["id"]
+
+        update = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}",
+            self._template_with_secret_inputs("UPDATE-SECRET"),
+            format="json",
+        )
+        assert update.status_code == 200, update.json()
+
+        stored = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}").json()
+        for body in (create.json(), update.json(), stored):
+            for action in body["actions"]:
+                assert action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+            assert body["trigger"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""
