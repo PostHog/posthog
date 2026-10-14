@@ -258,7 +258,6 @@ describe('createExperimentLogic', () => {
         })
 
         it('skips the scanner when the experiment flag aggregates by group', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
             useMocks({
                 post: {
                     [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
