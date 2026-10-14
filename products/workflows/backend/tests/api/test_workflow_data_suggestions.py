@@ -178,6 +178,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("trial_started", "trial"),
         ]
 
+        HogFlow.objects.create(
+            team=self.team,
+            name="Trial flow",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "trial_started", "type": "events"}]}},
+            actions=[],
+        )
+
+        assert [s["trigger_event"] for s in self._list()["suggestions"]] == ["query executed"]
+        assert suggest_ideas.call_count == 1
+
     @patch(f"{SERVICE}._PROMPT_EVENTS_LIMIT", 1)
     @patch(f"{SERVICE}.weekly_counts", return_value={"signup_a": 500, "signup_b": 400, "trial_started": 10})
     @patch(f"{SERVICE}.classify_event_stages")

@@ -86,7 +86,8 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     # Checked before the cache, so a refresh in progress reads as generating rather than as the old cards.
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
-    return _read_cache(team) or _UNAVAILABLE
+    cached = _read_cache(team)
+    return _without_covered(team, cached) if cached is not None else _UNAVAILABLE
 
 
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
@@ -96,7 +97,7 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
         return unavailable
     cached = _read_cache(team)
     if cached is not None and not refresh:
-        return cached
+        return _without_covered(team, cached)
     # Visits that arrive while a run is going would each repeat the queries and the model calls.
     lock_token = str(uuid.uuid4())
     if not cache.add(_generation_lock_key(team), lock_token, _GENERATION_LOCK_SECONDS):
@@ -257,6 +258,19 @@ def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
     if not system_one_configured():
         return _UNAVAILABLE
     return None
+
+
+def _without_covered(team: Team, result: DataSuggestionsResult) -> DataSuggestionsResult:
+    # A workflow made from a card covers its moment, but the cached cards stay for days. A card whose trigger is now
+    # in use takes the other cached cards of its stage with it.
+    used_events = team_context.used_trigger_events(team)
+    covered = {item.stage for item in result.suggestions if item.trigger_event in used_events} - {"other"}
+    return dataclasses.replace(
+        result,
+        suggestions=tuple(
+            item for item in result.suggestions if item.trigger_event not in used_events and item.stage not in covered
+        ),
+    )
 
 
 def _cache_key(team: Team) -> str:
