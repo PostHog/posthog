@@ -49,7 +49,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         if self.query.source:
             self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+                self.query.source, self.team, self.timings, self.limit_context, user=self.user
             )
             self.modifiers = self.source_query_runner.modifiers
         else:

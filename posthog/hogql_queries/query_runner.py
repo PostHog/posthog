@@ -16,7 +16,6 @@ from typing import (
     NamedTuple,
     Optional,
     Protocol,
-    TypeAliasType,
     TypeGuard,
     TypeVar,
     Union,
@@ -25,7 +24,6 @@ from typing import (
     get_origin,
 )
 
-from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -140,6 +138,7 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
+from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,
@@ -187,11 +186,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import (
-    get_new_events_cluster_host,
-    new_events_cluster_host_scope,
-    use_new_events_schema,
-)
+from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -366,7 +361,9 @@ class QueryRun:
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
             "query": self.query,
-            # Report the effective modifiers from this run, matching the ClickHouse log comment.
+            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
+            # comment carries. Passed in rather than stored, because the fresh path adds the user's
+            # modifiers after the cache key, and the event has to say what the run actually used.
             "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
@@ -1825,24 +1822,11 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    choices: dict[str, bool] = {}
-    base_modifiers: Optional[HogQLQueryModifiers] = None
-    while True:
-        modifiers = getattr(query, "modifiers", None)
-        if modifiers is not None:
-            if base_modifiers is None:
-                base_modifiers = modifiers
-            for key in ("useNewEventsSchema", "useNewEventsCluster"):
-                value = getattr(modifiers, key)
-                if key not in choices and value is not None:
-                    choices[key] = value
-        source = getattr(query, "source", None)
-        if not isinstance(source, BaseModel):
-            break
-        query = source
-    if choices:
-        return (base_modifiers or HogQLQueryModifiers()).model_copy(update=choices)
-    return base_modifiers
+    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
+    # so that the correlation reads the same events table and person data as that funnel.
+    if isinstance(query, FunnelCorrelationQuery):
+        return query.source.source.modifiers
+    return getattr(query, "modifiers", None)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -1904,10 +1888,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
 
+        if not isinstance(query, HogQLQuery):
+            native_requested = bool(modifiers and modifiers.useNewEventsCluster)
+            source: BaseModel | None = query
+            while isinstance(source, BaseModel):
+                source_modifiers = getattr(source, "modifiers", None)
+                if source_modifiers and source_modifiers.useNewEventsCluster:
+                    native_requested = True
+                    break
+                source = getattr(source, "source", None)
+            if native_requested:
+                raise ExposedHogQLError(
+                    "Native events cluster comparisons require a synchronous HogQLQuery SQL request."
+                )
+
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
-        if self.modifiers.useNewEventsSchema is None:
-            self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
         self.query = query
         self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
             query, team, self.modifiers.webAnalyticsFirstPageviewFilters
@@ -1988,10 +1984,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @property
     def query_type(self) -> Any:
-        query_type = self._class_annotation("query")
-        while isinstance(query_type, TypeAliasType):
-            query_type = query_type.__value__
-        return query_type
+        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
 
     @property
     def cached_response_type(self) -> type[CR]:
@@ -2047,9 +2040,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        # WebVitals workers initialize from the source, regardless of wrapper modifiers.
-        query = self.query.source if isinstance(self.query, WebVitalsQuery) else self.query
-        query_modifiers = query_node_modifiers(query)
+        query_modifiers = query_node_modifiers(self.query)
         if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
             raise ExposedHogQLError(
                 "Native events cluster queries require synchronous execution; use refresh=force_blocking"
@@ -3121,19 +3112,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-        # Queued queries carry the effective table choice; the resolved modifiers already key it.
+        # Explicit false and unset cluster choices share the existing cache namespace.
         modifier_source: dict[str, Any] | None = query
         while isinstance(modifier_source, dict):
             if isinstance(modifier_source.get("modifiers"), dict):
-                modifier_source["modifiers"].pop("useNewEventsSchema", None)
                 modifier_source["modifiers"].pop("useNewEventsCluster", None)
                 if not modifier_source["modifiers"]:
                     modifier_source.pop("modifiers")
             modifier_source = modifier_source.get("source")
 
         cache_modifiers = to_dict(self.modifiers)
-        if cache_modifiers.get("useNewEventsSchema") is False:
-            cache_modifiers.pop("useNewEventsSchema")
         if not cache_modifiers.get("useNewEventsCluster"):
             cache_modifiers.pop("useNewEventsCluster", None)
         payload = {
@@ -3232,7 +3220,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def get_cache_key(self) -> str:
         payload = self.get_cache_payload()
         variant = self.get_cache_key_variant()
-        # Use the same payload for the key and identity so cache hits and fresh runs agree.
+        # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
+        # fresh run agree, and the payload is built once per run.
         self._query_identity = self._query_identity_for(payload, variant)
         self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"

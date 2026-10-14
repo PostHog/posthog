@@ -128,7 +128,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query=self.funnels_query,
             team=team,
             timings=timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=limit_context,
             user=user,
             # NOTE: we want to include the latest timestamp of the `target_step`,

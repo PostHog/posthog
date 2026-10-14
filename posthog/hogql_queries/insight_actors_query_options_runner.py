@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, query_node_modifiers
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
@@ -44,6 +44,7 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             modifiers=modifiers,
             limit_context=limit_context,
             query_id=query_id,
+            extract_modifiers=lambda query: query_node_modifiers(query.source.source),
             user=user,
         )
 

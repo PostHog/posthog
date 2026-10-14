@@ -18,7 +18,6 @@ from posthog.schema import (
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
-    HogQLQueryModifiers,
 )
 
 from posthog.hogql import ast
@@ -58,7 +57,6 @@ def get_experiment_query_debug(
     *,
     user: Optional[User] = None,
     bypass_warehouse_access_control: bool = False,
-    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, str]:
     """
     Return (hogql, clickhouse_sql) for debugging.
@@ -71,7 +69,7 @@ def get_experiment_query_debug(
         team=team,
         user=user,
         bypass_warehouse_access_control=bypass_warehouse_access_control,
-        modifiers=create_default_modifiers_for_team(team, modifiers),
+        modifiers=create_default_modifiers_for_team(team),
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
     clickhouse_sql = substitute_params_for_display(clickhouse_sql_with_params, clickhouse_context_with_values.values)

@@ -127,7 +127,7 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
 
 
 class PerQueryOptedOut(LazyPrecomputeIneligible):
-    """The query explicitly opts out of precomputed data."""
+    """The user explicitly turned the "Allow precompute" toggle off."""
 
     pass
 
@@ -272,8 +272,6 @@ def check_common_eligible(
     `require_integer_timezone` defaults to True for hourly-UTC-bucketed runners
     (overview, stats). Runners that bucket in the team's timezone can opt out.
     """
-    if runner.modifiers and runner.modifiers.useNewEventsCluster:
-        raise PerQueryOptedOut()
     query = runner.query
 
     # Rollout gate: shared PostHog feature flag AND per-query opt-out.
