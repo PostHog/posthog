@@ -454,7 +454,7 @@ def reports_for_briefing(
             relation=candidate.relation,
             title=_trimmed(report.title, 200) or "Untitled report",
             summary=_trimmed(report.summary, _SUMMARY_LIMIT),
-            status=report.status,
+            status=report.effective_status,
             priority=candidate.priority,
             has_implementation_pr=report.has_implementation_pr,
             source_products=source_products.get(candidate.report_id, []),
@@ -539,7 +539,7 @@ def report_details(
         return []
     reports = list(
         SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only(
-            "id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
+            "id", "team_id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
         )
     )
     found_ids = [str(report.id) for report in reports]
@@ -552,7 +552,7 @@ def report_details(
         details.append(
             BriefingReportDetails(
                 report_id=report_id,
-                status=report.status,
+                status=report.effective_status,
                 priority=priorities.get(report_id),
                 summary=summary_lead(report.summary, SUMMARY_LEAD_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)

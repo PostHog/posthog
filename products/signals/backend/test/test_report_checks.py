@@ -1884,15 +1884,33 @@ class TestCheckResultTool(APIBaseTest):
                 {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}},
                 True,
             ),
+            ("monitoring_disabled", {"dispatched_at": None, "next_run_at": timezone.now()}, False, False),
+            (
+                "monitoring_unavailable",
+                {"dispatched_at": None, "next_run_at": timezone.now()},
+                False,
+                RuntimeError("flag service unavailable"),
+            ),
         ]
     )
-    def test_a_check_this_run_may_answer_is_recorded(self, _name, overrides, bind_run) -> None:
+    def test_a_check_this_run_may_answer_is_recorded(
+        self, _name, overrides, bind_run, flag_result: bool | Exception | None = None
+    ) -> None:
+        if flag_result is not None:
+            SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.MONITORING)
         check = self._check(**overrides)
         if bind_run:
             self.scout_run.metadata = {"check_id": str(check.id)}
             self.scout_run.save(update_fields=["metadata"])
 
-        result = self._record(check)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+            assert listed.run_state == ("due" if check.dispatched_at is None else "queued")
+            result = self._record(check)
 
         assert result.check_status == SignalReportCheck.Status.FAILED
 
@@ -1901,6 +1919,7 @@ class TestCheckResultTool(APIBaseTest):
             ("its_report_is_ready", SignalReport.Status.READY, timedelta(days=30)),
             ("its_report_is_suppressed", SignalReport.Status.SUPPRESSED, timedelta(days=30)),
             ("its_horizon_passed", SignalReport.Status.RESOLVED, -timedelta(minutes=1)),
+            ("its_report_is_monitoring", SignalReport.Status.MONITORING, timedelta(days=30)),
         ]
     )
     def test_a_due_check_the_coordinator_would_not_dispatch_is_paused(self, _name, report_status, expires_in) -> None:
@@ -1908,10 +1927,11 @@ class TestCheckResultTool(APIBaseTest):
         now = timezone.now()
         check = self._check(dispatched_at=None, next_run_at=now - timedelta(hours=1), expires_at=now + expires_in)
 
-        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
-        assert listed.run_state == "paused"
-        with self.assertRaises(InvalidCheckResultError):
-            self._record(check)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+            assert listed.run_state == "paused"
+            with self.assertRaises(InvalidCheckResultError):
+                self._record(check)
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
@@ -2001,6 +2021,43 @@ class TestPendingChecks(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             self.report.status = SignalReport.Status.RESOLVED
             self.report.save(update_fields=["status"])
+
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_monitoring_checks_wait_for_manual_finish_or_use_the_resolved_fallback(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        check = self._pending()
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.report.save(
+                    update_fields=self.report.transition_to(
+                        SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                    )
+                )
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        now = timezone.now()
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            with patch(_MEASURE) as measure:
+                run_due_report_checks(now=now)
+                measure.assert_not_called()
+            check.refresh_from_db()
+            if flag_result is True:
+                assert check.status == SignalReportCheck.Status.PENDING
+                assert collect_due_checks(now + timedelta(days=35)) == []
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
+                check.refresh_from_db()
+            else:
+                assert check.measurement_start_at == now
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert collect_due_checks(check.next_run_at + timedelta(minutes=1)) == [check]
 
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
@@ -2139,10 +2196,19 @@ class TestPendingChecks(APIBaseTest):
         assert valid.measurement_start_at is not None
         assert valid.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, valid.measurement_start_at)
 
-    def test_a_pending_check_retires_when_its_report_never_resolves(self) -> None:
+    @parameterized.expand([("open", False), ("monitoring_disabled", True)])
+    def test_a_pending_check_retires_when_its_report_never_resolves(self, _name: str, monitoring: bool) -> None:
         check = self._pending()
+        if monitoring:
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                self.report.save(
+                    update_fields=self.report.transition_to(
+                        SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                    )
+                )
 
-        assert expire_overdue_checks(timezone.now() + MAX_CHECK_HORIZON + timedelta(minutes=1)) == 1
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            assert run_due_report_checks(now=timezone.now() + MAX_CHECK_HORIZON + timedelta(minutes=1)).expired == 1
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.EXPIRED

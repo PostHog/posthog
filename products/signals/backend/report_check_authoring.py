@@ -112,7 +112,7 @@ def create_check(
             soak_minutes = soak_minutes_from_gap(next_run_at, now)
         first_run_at = (
             next_run_at
-            if next_run_at is not None and locked_report.status == SignalReport.Status.RESOLVED
+            if next_run_at is not None and locked_report.effective_status == SignalReport.Status.RESOLVED
             else now + timedelta(minutes=soak_minutes)
         )
         metric_ready_at = None
@@ -129,7 +129,7 @@ def create_check(
         )
         if open_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
-        if locked_report.status == SignalReport.Status.RESOLVED:
+        if locked_report.effective_status == SignalReport.Status.RESOLVED:
             status = SignalReportCheck.Status.ACTIVE
             next_run_at = first_run_at
             if metric_ready_at is not None:
@@ -480,7 +480,7 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
     """
     pending = list(
         SignalReportCheck.objects.for_team(team_id)
-        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING, expires_at__gt=resolved_at)
         .select_related("report__team")
     )
     armed = 0
@@ -518,6 +518,6 @@ def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at
 def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
             return 0
         return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)

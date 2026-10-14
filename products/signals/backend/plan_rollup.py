@@ -22,6 +22,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.typed_report_links import incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
@@ -94,6 +95,7 @@ def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Sta
     )
     if not statuses:
         return None
+    statuses = [effective_report_status(status, team_id=team_id) for status in statuses]
     if any(status not in _CLOSED_STATUSES for status in statuses):
         return None
     if any(status == SignalReport.Status.RESOLVED for status in statuses):
@@ -107,9 +109,11 @@ def _close_parent(*, parent: SignalReport, target: SignalReport.Status) -> bool:
     Archiving a resolved plan is refused for the same reason `_apply_pr_report_state` refuses it:
     a resolve is a person's verdict, and a later archived step must not undo it.
     """
-    if parent.status == target:
+    if parent.effective_status == SignalReport.Status.MONITORING:
         return False
-    if target == SignalReport.Status.SUPPRESSED and parent.status == SignalReport.Status.RESOLVED:
+    if parent.effective_status == target:
+        return False
+    if target == SignalReport.Status.SUPPRESSED and parent.effective_status == SignalReport.Status.RESOLVED:
         return False
     try:
         updated_fields = parent.transition_to(target)
@@ -176,7 +180,7 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
                     continue
                 if _close_parent(parent=parent, target=target):
                     closed.append(parent_id)
-                if parent.status not in _CLOSED_STATUSES:
+                if parent.effective_status not in _CLOSED_STATUSES:
                     continue
             next_frontier.extend(
                 edge.target_id

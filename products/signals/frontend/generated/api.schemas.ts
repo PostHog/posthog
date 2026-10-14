@@ -662,6 +662,11 @@ export interface SignalReportListApi {
     readonly summary_lead: string
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /**
+     * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_started_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -901,6 +906,11 @@ export interface SignalReportApi {
     readonly summary_lead: string
     /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /**
+     * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_started_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
