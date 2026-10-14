@@ -286,15 +286,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
+            ("null_filter_values", {"condition": CONDITION, "filterGroup": {"type": "AND", "values": None}}),
         ]
     )
     def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
         configuration = self._configuration(source_config=source_config)
+        healthy = self._configuration(name="Healthy")
 
-        evaluation, query = self._run(configuration)
+        evaluation, query = self._run(configuration, healthy)
         self._record(evaluation)
 
-        query.assert_not_called()
+        queried = {check.id for call in query.call_args_list for check in call.kwargs["alerts"]}
+        assert queried == {healthy.id}
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None

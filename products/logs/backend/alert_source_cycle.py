@@ -341,7 +341,8 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
         disable=disable,
-        schedule_group=_schedule_group(check),
+        # A broken alert is never discovered again, so its slot does not matter.
+        schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),
     )
 
 
