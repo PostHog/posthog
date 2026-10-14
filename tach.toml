@@ -532,7 +532,7 @@ depends_on = [
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
-    "products.exports",
+    "products.subscriptions",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
@@ -727,7 +727,7 @@ depends_on = [
     "products.annotations",
     "products.dashboards",
     "products.experiments",
-    "products.exports",
+    "products.subscriptions",
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
@@ -784,7 +784,7 @@ depends_on = [
     "products.alerts",
     "products.dashboards",
     "products.event_definitions",
-    "products.exports",
+    "products.subscriptions",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
     # A trends query filtering on a first-pageview-aware property builds it through

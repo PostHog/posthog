@@ -19,7 +19,8 @@ from posthog.event_usage import EventSource
 from posthog.jwt import PosthogJwtAudience
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.subscription import (
+from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
@@ -28,7 +29,6 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-from products.product_analytics.backend.facade.models import Insight
 
 
 class TestSubscriptionScheduling:
@@ -729,7 +729,7 @@ class TestSubscriptionLimit(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(2)
-        with patch("products.exports.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
+        with patch("products.subscriptions.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
         assert "2" in result
