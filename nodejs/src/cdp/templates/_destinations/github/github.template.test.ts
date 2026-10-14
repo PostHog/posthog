@@ -26,7 +26,7 @@ describe('github template', () => {
         [
             'falls back to the issue-id URL for functions without posthog_issue_url',
             undefined,
-            '/error_tracking/issue-uuid',
+            '/error-tracking/issue-uuid',
         ],
     ])('%s', async (_name, posthogIssueUrl, expectedLinkPart) => {
         const response = await tester.invoke({ ...baseInputs, posthog_issue_url: posthogIssueUrl })
