@@ -14,11 +14,13 @@ cross-team index on (status, created_at), so the sweep never queries it without 
 
 import random
 import asyncio
+import threading
 from collections import Counter
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
 from statistics import fmean
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any
 from uuid import UUID
 
@@ -48,6 +50,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     JUDGE_CONCURRENCY,
+    JUDGE_TOKENS_PER_SECOND,
     MAX_JUDGE_ATTEMPTS,
     MAX_JUDGED_PER_SCANNER,
     MAX_SCANNERS_PER_SWEEP,
@@ -164,7 +167,37 @@ class _ScannerOutcome:
     estimated_cost_usd: float = 0.0
 
 
-async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start: datetime) -> _ScannerOutcome:
+class _TokenPacer:
+    """Spreads the run's Jev requests across the hour at a steady token rate.
+
+    Thread-safe, because judging runs in worker threads. wait() reserves the next free slot, sized
+    by the request's tokens, and sleeps until it; the first request in an idle run never waits."""
+
+    def __init__(self, tokens_per_second: float) -> None:
+        self._seconds_per_token = 1.0 / tokens_per_second
+        self._lock = threading.Lock()
+        self._next_start = monotonic()
+        self.waited_seconds = 0.0
+
+    def wait(self, tokens: int) -> None:
+        with self._lock:
+            now = monotonic()
+            start = max(now, self._next_start)
+            self._next_start = start + tokens * self._seconds_per_token
+            waiting = start - now
+            self.waited_seconds += waiting
+        if waiting > 0:
+            sleep(waiting)
+
+
+async def _sweep_scanner(
+    team_id: int,
+    scanner_id: UUID,
+    mode: str,
+    window_start: datetime,
+    pace: Callable[[int], None],
+    stop_after: float,
+) -> _ScannerOutcome:
     window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
     if not window_ids:
         return _ScannerOutcome()
@@ -192,7 +225,7 @@ async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start
     judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
     rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
     context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
-    judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows)
+    judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows, pace, stop_after)
     # Sub-threshold judgments join only the judged set, keeping the watchable key — which
     # the feed loads for every readable scanner on each request — small.
     window_strs = {str(row_id) for row_id in window_ids}
@@ -253,6 +286,7 @@ async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start
                 "watchability_max": scores[-1] if scores else None,
                 "top_scored": top_scored,
                 "chunks": judgment.chunks,
+                "stopped_early": judgment.stopped_early,
                 "failed_chunks": judgment.failed_chunks,
                 "chunk_error_types": judgment.chunk_error_types,
                 "watch_reasons": dict(Counter(judgment.reasons.values())),
@@ -266,6 +300,9 @@ async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start
     return _ScannerOutcome(
         judged=True,
         rate_limited=judgment.rate_limited,
+        # A window the deadline cut short surfaces as the time budget being hit, like a turn that
+        # never started.
+        out_of_time=judgment.stopped_early,
         observations_judged=len(judgment.probabilities),
         observations_given_up=len(exhausted),
         cache_errors=cache_errors,
@@ -286,6 +323,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     # Most of a scanner's turn waits on Jev, so scanners take turns JUDGE_CONCURRENCY at a time. The
     # teams loop only flag-checks and lists scanners, so it runs ahead and queues them.
     turns = asyncio.Semaphore(JUDGE_CONCURRENCY)
+    pacer = _TokenPacer(JUDGE_TOKENS_PER_SECOND)
 
     # Every product's Jev calls share the decision service's capacity. A rate-limited turn pauses new
     # turns for RATE_LIMIT_PAUSE, so the run gives that capacity back instead of retrying into it. Only
@@ -307,7 +345,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             # here: a revocation in between must stop the prose before it reaches the model.
             if not await sync_to_async(is_ai_data_processing_approved)(team_id):
                 return _ScannerOutcome(consent_revoked=True)
-            outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start)
+            # The deadline passes into the window too: the turn-level check cannot interrupt a
+            # scanner already judging, and a paced window of many chunks could otherwise run long
+            # past the budget toward the activity timeout.
+            outcome = await _sweep_scanner(team_id, scanner_id, mode, window_start, pacer.wait, deadline)
             if outcome.rate_limited:
                 consecutive_rate_limited += 1
                 paused_until = monotonic() + RATE_LIMIT_PAUSE.total_seconds()
@@ -364,6 +405,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_backed_off=sum(outcome.backed_off for outcome in outcomes),
         input_tokens=sum(outcome.input_tokens for outcome in outcomes),
         estimated_cost_usd=sum(outcome.estimated_cost_usd for outcome in outcomes),
+        pacing_wait_seconds=round(pacer.waited_seconds, 1),
         hit_team_cap=len(team_ids) > MAX_TEAMS_PER_SWEEP,
         hit_scanner_cap=hit_scanner_cap,
         hit_time_budget=hit_time_budget or any(outcome.out_of_time for outcome in outcomes),
@@ -383,6 +425,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         scanners_rate_limited=result.scanners_rate_limited,
         scanners_backed_off=result.scanners_backed_off,
         input_tokens=result.input_tokens,
+        pacing_wait_seconds=result.pacing_wait_seconds,
         hit_team_cap=result.hit_team_cap,
         hit_scanner_cap=result.hit_scanner_cap,
         hit_time_budget=result.hit_time_budget,

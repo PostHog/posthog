@@ -95,6 +95,7 @@ import type {
     SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
+    SignalReportFeedbackStateApi,
     SignalReportMergeRequestApi,
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
@@ -408,6 +409,21 @@ export const signalsReportsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportFeedbackRequestApi),
+    })
+}
+
+export const getSignalsReportsFeedbackStateRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/feedback_state/`
+}
+
+export const signalsReportsFeedbackStateRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportFeedbackStateApi> => {
+    return apiMutator<SignalReportFeedbackStateApi>(getSignalsReportsFeedbackStateRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

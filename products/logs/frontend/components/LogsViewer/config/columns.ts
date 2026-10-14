@@ -1,6 +1,7 @@
 import { uuid } from 'lib/utils/dom'
 
 import { LogsQuery } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
 
 import { AttributeColumnConfig, ParsedLogMessage } from 'products/logs/frontend/types'
 
@@ -132,6 +133,32 @@ function escapeHogQLString(value: string): string {
 export function attributeLookupExpression(key: string): string {
     const escaped = escapeHogQLString(key)
     return `if(mapContains(attributes, '${escaped}'), attributes['${escaped}'], resource_attributes['${escaped}'])`
+}
+
+/** Only app-written attribute expressions tie `column.name` to a map key, so others keep the log attribute filter. */
+export function customColumnFilterType(
+    column: LogsColumnConfig,
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined
+): PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute {
+    const key = column.name
+    const expression = column.expression?.trim()
+    if (!key) {
+        return PropertyFilterType.LogAttribute
+    }
+    if (expression === `resource_attributes.${key}`) {
+        return PropertyFilterType.LogResourceAttribute
+    }
+    // Same check as the expression's mapContains, so the filter targets the map the cell read
+    if (
+        expression === attributeLookupExpression(key) &&
+        !(attributes && Object.hasOwn(attributes, key)) &&
+        resourceAttributes &&
+        Object.hasOwn(resourceAttributes, key)
+    ) {
+        return PropertyFilterType.LogResourceAttribute
+    }
+    return PropertyFilterType.LogAttribute
 }
 
 /** Migrate the legacy persisted `attributeColumnsConfig` map to typed custom columns. */

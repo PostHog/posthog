@@ -15,6 +15,7 @@ from posthog.hogql.errors import QueryError
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
+from products.data_modeling.backend.logic.saved_query_reads import saved_query_node_ids
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
@@ -88,6 +89,17 @@ def _managed_cross_dag_reference(
     return node
 
 
+def _saved_query_node(team: "Team", dag: DAG, dependency_name: str, saved_query: "DataWarehouseSavedQuery") -> Node:
+    if not dag.is_managed:
+        reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
+        if reference is not None:
+            return reference
+    node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
+    if node is not None:
+        return node
+    return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
+
+
 def resolve_dependency_to_node(
     dependency_name: str,
     team: "Team",
@@ -122,13 +134,7 @@ def resolve_dependency_to_node(
         saved_query = DataWarehouseSavedQuery.objects.filter(team=team, name=dependency_name, deleted=False).first()
         if saved_query is None:
             raise UnknownParentError(dependency_name, "")
-        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).order_by("created_at").first()
-        if node is not None:
-            return node
-        reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
-        if reference is not None:
-            return reference
-        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
+        return _saved_query_node(team, dag, dependency_name, saved_query)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -138,17 +144,7 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                node = (
-                    Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query)
-                    .order_by("created_at")
-                    .first()
-                )
-                if node is not None:
-                    return node
-                reference = _managed_cross_dag_reference(team, dag, dependency_name, matview_saved_query)
-                if reference is not None:
-                    return reference
-                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
+                return _saved_query_node(team, dag, dependency_name, matview_saved_query)
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -229,6 +225,40 @@ def lock_dag_placements_shared(team_id: int, dag_id: UUID) -> None:
         cursor.execute("SELECT pg_advisory_xact_lock_shared(%s, hashtext(%s))", [team_id, _placement_lock_key(dag_id)])
 
 
+def orphaned_table_nodes() -> QuerySet[Node]:
+    return Node.objects.filter(
+        type=NodeType.TABLE,
+        saved_query__isnull=True,
+        metric_id__isnull=True,
+        outgoing_edges__isnull=True,
+    )
+
+
+def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
+    orphans = orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids))
+    with transaction.atomic():
+        for dag_id in sorted(set(orphans.values_list("dag_id", flat=True)), key=str):
+            lock_dag(team_id, dag_id)
+        orphans.delete()
+
+
+def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
+    edges = Edge.objects.filter(team_id=team_id, target=target)
+    source_ids = list(edges.values_list("source_id", flat=True))
+    edges.delete()
+    return source_ids
+
+
+def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
+    source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
+    nodes.delete()
+    delete_orphaned_table_nodes(team_id, source_ids)
+
+
+def delete_node(team_id: int, node_id: UUID) -> None:
+    delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],
@@ -253,7 +283,7 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        Edge.objects.filter(team=team, target=target).delete()
+        previous_source_ids = _delete_incoming_edges(team.pk, target)
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -275,6 +305,7 @@ def replace_incoming_edges(
                 target=target,
                 properties=extra_properties or {},
             )
+        delete_orphaned_table_nodes(team.pk, previous_source_ids)
     return unresolved
 
 
@@ -403,6 +434,10 @@ class MissingDagNodeError(Exception):
     pass
 
 
+def _nodes_standing_for(saved_query: "DataWarehouseSavedQuery") -> QuerySet[Node]:
+    return Node.objects.filter(team=saved_query.team, id__in=saved_query_node_ids(saved_query.team_id, saved_query.id))
+
+
 def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list["DataWarehouseSavedQuery"]:
     """
     Get SavedQueries that depend on this one (immediate dependents only).
@@ -415,7 +450,7 @@ def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list[
     A dependent that reads the query in more than one DAG is reported once, at its oldest node, so
     the returned order is deterministic even when the query has nodes in several DAGs.
     """
-    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
+    nodes = _nodes_standing_for(saved_query)
     dependent_nodes = (
         Node.objects.filter(
             team=saved_query.team,
@@ -514,7 +549,8 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
 
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
-    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
+    own_nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query)
     with transaction.atomic():
         # Hold every DAG this query has a node in, so a sync cannot attach a dependent between the
         # check below and the delete that would cascade its edge away.
@@ -536,9 +572,9 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
             raise HasDependentsError(
                 saved_query.name,
                 tuple(dependents),
-                fallback_node_id=_oldest_node_id(nodes),
+                fallback_node_id=_oldest_node_id(own_nodes),
             )
-        nodes.delete()
+        delete_nodes(saved_query.team_id, nodes)
     for dag in dags:
         maybe_reconcile_dag(dag)
 
@@ -610,7 +646,7 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
                 raise NodeMoveError("materializing")
             previous_dag = node.dag
             # Rebuild parents in the destination without discarding the node's targets or job history.
-            Edge.objects.filter(team_id=team_id, target=node).delete()
+            delete_orphaned_table_nodes(team_id, _delete_incoming_edges(team_id, node))
             node.dag = dag
             node.save(update_fields=["dag"])
             maybe_reconcile_dag(previous_dag)

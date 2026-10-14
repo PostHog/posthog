@@ -574,6 +574,7 @@ depends_on = [
     "products.apm",
     "products.cdp",
     "products.exports",
+    "products.ml_inference",
     "products.signals", "products.access_control",
 ]
 layer = "modules"
@@ -1483,7 +1484,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
 layer = "modules"
 
 [[modules]]

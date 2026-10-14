@@ -1030,6 +1030,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayVisionOrgAdmissionBudget
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1112,6 +1113,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayVisionOrgAdmissionBudget
                         |Role
                         |RoleExternalReference
                         |RoleMembership

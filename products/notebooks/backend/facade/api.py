@@ -129,7 +129,7 @@ async def aupdate_notebook_content(
     content: dict[str, Any],
     title: str,
     text_content: str | None,
-    last_modified_by_id: int | None,
+    user: "User",
 ) -> contracts.NotebookData | None:
     notebook = await logic.aupdate_notebook_content(
         team_id,
@@ -137,7 +137,7 @@ async def aupdate_notebook_content(
         content=content,
         title=title,
         text_content=text_content,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
     )
     return _to_notebook_data(notebook) if notebook is not None else None
 
@@ -147,7 +147,7 @@ async def aupsert_notebook(
     short_id: str,
     *,
     created_by_id: int | None,
-    last_modified_by_id: int | None,
+    user: "User",
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
@@ -159,7 +159,7 @@ async def aupsert_notebook(
         team_id,
         short_id,
         created_by_id=created_by_id,
-        last_modified_by_id=last_modified_by_id,
+        user=user,
         title=title,
         content=content,
         text_content=text_content,

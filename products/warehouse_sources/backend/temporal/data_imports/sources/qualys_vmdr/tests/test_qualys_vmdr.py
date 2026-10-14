@@ -131,6 +131,76 @@ KNOWLEDGE_BASE_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
 </KNOWLEDGE_BASE_VULN_LIST_OUTPUT>"""
 
 
+ASSET_GROUP_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<ASSET_GROUP_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <ASSET_GROUP_LIST>
+      <ASSET_GROUP>
+        <ID>501</ID>
+        <TITLE><![CDATA[Web servers]]></TITLE>
+        <OWNER_USER_ID>77</OWNER_USER_ID>
+        <IP_SET>
+          <IP_RANGE>10.0.0.1-10.0.0.9</IP_RANGE>
+          <IP>10.0.1.5</IP>
+        </IP_SET>
+        <HOST_IDS>1001, 1002</HOST_IDS>
+      </ASSET_GROUP>
+    </ASSET_GROUP_LIST>
+  </RESPONSE>
+</ASSET_GROUP_LIST_OUTPUT>"""
+
+REPORT_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<REPORT_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <REPORT_LIST>
+      <REPORT>
+        <ID>9001</ID>
+        <TITLE><![CDATA[Weekly scan]]></TITLE>
+        <TYPE>Scan</TYPE>
+        <LAUNCH_DATETIME>2026-07-14T08:00:00Z</LAUNCH_DATETIME>
+        <STATUS>
+          <STATE>Finished</STATE>
+        </STATUS>
+      </REPORT>
+    </REPORT_LIST>
+  </RESPONSE>
+</REPORT_LIST_OUTPUT>"""
+
+APPLIANCE_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<APPLIANCE_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <APPLIANCE_LIST>
+      <APPLIANCE>
+        <ID>301</ID>
+        <NAME>scanner-a</NAME>
+        <STATUS>Online</STATUS>
+        <TYPE>Virtual</TYPE>
+        <ACTIVATION_CODE>00000000000000</ACTIVATION_CODE>
+        <INTERFACE_SETTINGS>
+          <INTERFACE>lan</INTERFACE>
+          <IP_ADDRESS>10.0.9.1</IP_ADDRESS>
+        </INTERFACE_SETTINGS>
+      </APPLIANCE>
+    </APPLIANCE_LIST>
+  </RESPONSE>
+</APPLIANCE_LIST_OUTPUT>"""
+
+IP_LIST_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<IP_LIST_OUTPUT>
+  <RESPONSE>
+    <DATETIME>2026-07-15T00:00:00Z</DATETIME>
+    <IP_SET>
+      <IP>10.0.1.5</IP>
+      <IP_RANGE>10.0.0.1-10.0.0.9</IP_RANGE>
+      <IP> </IP>
+    </IP_SET>
+  </RESPONSE>
+</IP_LIST_OUTPUT>"""
+
+
 def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | None = None) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
@@ -204,6 +274,78 @@ class TestQualysVmdr:
         # State is saved only for the non-final page, after its batch was yielded
         assert len(result.saved_states) == 1
         assert "id_min=1002" in result.saved_states[0].next_url
+
+    @pytest.mark.parametrize(
+        "endpoint,body,expected_path,expected_params,expected_rows",
+        [
+            (
+                "asset_groups",
+                ASSET_GROUP_PAGE,
+                "/api/2.0/fo/asset/group/",
+                {"action": "list", "show_attributes": "ALL", "truncation_limit": "1000"},
+                [
+                    {
+                        "id": "501",
+                        "title": "Web servers",
+                        "owner_user_id": "77",
+                        "ip_set": '{"ip_range": "10.0.0.1-10.0.0.9", "ip": "10.0.1.5"}',
+                        "host_ids": "1001, 1002",
+                    }
+                ],
+            ),
+            (
+                "reports",
+                REPORT_PAGE,
+                "/api/3.0/fo/report/",
+                {"action": "list", "truncation_limit": None},
+                [
+                    {
+                        "id": "9001",
+                        "title": "Weekly scan",
+                        "type": "Scan",
+                        "launch_datetime": "2026-07-14T08:00:00Z",
+                        "status": '{"state": "Finished"}',
+                    }
+                ],
+            ),
+            (
+                "appliances",
+                APPLIANCE_PAGE,
+                "/api/2.0/fo/appliance/",
+                {"action": "list", "output_mode": "full", "truncation_limit": None},
+                [
+                    {
+                        "id": "301",
+                        "name": "scanner-a",
+                        "status": "Online",
+                        "type": "Virtual",
+                        "interface_settings": '{"interface": "lan", "ip_address": "10.0.9.1"}',
+                    }
+                ],
+            ),
+            (
+                "ips",
+                IP_LIST_PAGE,
+                "/api/2.0/fo/asset/ip/",
+                {"action": "list", "truncation_limit": None},
+                [
+                    {"ip_range": "10.0.1.5", "start_ip": "10.0.1.5", "end_ip": "10.0.1.5"},
+                    {"ip_range": "10.0.0.1-10.0.0.9", "start_ip": "10.0.0.1", "end_ip": "10.0.0.9"},
+                ],
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("api_version", ["2.0", "4.0"])
+    def test_get_rows_lookup_endpoints_request_shape_and_rows(
+        self, api_version, endpoint, body, expected_path, expected_params, expected_rows
+    ):
+        result = _drive(endpoint, [_xml(body)], api_version=api_version)
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert {name: result.params(name)[0] for name in expected_params} == expected_params
+        assert result.rows == expected_rows
+        assert result.requests[0].headers["authorization"].startswith("Basic ")
 
     def test_get_rows_resumes_from_saved_state(self):
         resume_url = "https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&id_min=1002"

@@ -17,7 +17,7 @@ AutoresearchPipeline          the standing question (target, population, horizon
  ├─ AutoresearchTrainingRun   one attempt to find a better model
  │   └─ AutoresearchIteration one experiment inside that attempt (kept / discarded)
  ├─ AutoresearchModel         a trained model, role = champion | challenger | archived
- ├─ AutoresearchRun           one execution of inference or validation
+ ├─ AutoresearchRun           one execution of inference, validation, or person property cleanup
  └─ AutoresearchSuggestion    a human- or agent-authored hypothesis for the next run to explore
 ```
 

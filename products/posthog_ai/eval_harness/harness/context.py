@@ -10,6 +10,7 @@ from .cli import SkillDelivery
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
+from .retries import DEFAULT_INFRA_RETRIES
 
 
 @dataclass(frozen=False)
@@ -87,3 +88,5 @@ class EvalContext:
 
     git_dirty: bool | None
     """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
+
+    infrastructure_retries: int = DEFAULT_INFRA_RETRIES

@@ -7,8 +7,8 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SampleDataState } from 'scenes/insights/EmptyStates/SampleDataState'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
+import { SampleDataTag } from 'scenes/insights/EmptyStates/SampleDataTag'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -43,6 +43,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             uniqueKey={`HomeTab.${currentTeamId}.${chartKey}`}
             context={{
                 insightProps: {
+                    loadPriority: 0,
                     dashboardItemId: homeTabChartInsightId(currentTeamId, chartKey),
                     dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
                     query: option.query,
@@ -64,6 +65,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
                         )}
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
+                        {sampleData && <SampleDataTag />}
                         {control}
                         <LemonButton
                             type="tertiary"
@@ -82,7 +84,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             <div
                 className={`HomeTabDefaultChart HomeTabChartCard__visualization HomeTabChartCard__visualization--${size}`}
             >
-                {sampleData ? <SampleDataState>{chart}</SampleDataState> : chart}
+                {chart}
             </div>
         </LemonCard>
     )
