@@ -10,6 +10,7 @@
 
 use chrono::{DateTime, Utc};
 use common_sqlx_macros::{mirrored_query_as, mirrored_query_scalar};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::config::IdentityTables;
@@ -36,10 +37,17 @@ impl Cursor {
 pub struct PointerOp {
     pub op_type: String,
     pub completed_at: Option<DateTime<Utc>>,
+    /// The recorded outcome's `results` array, which names the merged
+    /// sources a merge event is owed for. Only that array: the full outcome
+    /// carries the survivor document, and this row is read on every chunk
+    /// of every pointer.
+    pub outcome_results: Option<Value>,
     /// Rows with `role = 'target'`. A merge has exactly one; more would
     /// fan the resolution join out and repeat every source entry under
     /// the same cursor key.
     pub target_rows: i64,
+    /// The target row's uuid: the `new_person_uuid` of a merge event.
+    pub target_uuid: Option<Uuid>,
     /// Source or victim rows whose `moved` is not a JSON array. The
     /// resolution query skips them, so a count above zero is the only way
     /// to see the corruption instead of silently publishing nothing.
@@ -59,8 +67,12 @@ pub async fn load_op(
         op = "publish_load_op",
         r#"
         SELECT op.op_type, op.completed_at,
+               op.outcome -> 'results' AS "outcome_results: Value",
                (SELECT count(*) FROM {lifecycle_op_person} lop
                 WHERE lop.op_id = op.op_id AND lop.role = 'target') AS "target_rows!",
+               (SELECT lop.person_uuid FROM {lifecycle_op_person} lop
+                WHERE lop.op_id = op.op_id AND lop.role = 'target'
+                ORDER BY lop.person_id LIMIT 1) AS target_uuid,
                (SELECT count(*) FROM {lifecycle_op_person} lop
                 WHERE lop.op_id = op.op_id
                   AND lop.role IN ('source', 'victim')
@@ -153,6 +165,35 @@ pub async fn resolve_chunk(
         cursor.person_id,
         cursor.mapping_ordinal,
         limit
+        => fetch_all(&mut **tx)
+    )
+}
+
+/// A source person a merge op deleted: the `old_person_uuid` of one merge
+/// event. The primary key `(op_id, person_id)` holds one row per source
+/// person however many of its distinct ids the request named, which is how
+/// one event per merged person falls out.
+#[derive(Debug, Clone)]
+pub struct MergedSource {
+    pub person_id: i64,
+    pub person_uuid: Uuid,
+}
+
+pub async fn merged_sources(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op_id: Uuid,
+) -> Result<Vec<MergedSource>, sqlx::Error> {
+    mirrored_query_as!(
+        MergedSource,
+        tables.is_validation(),
+        op = "publish_merged_sources",
+        r#"
+        SELECT person_id, person_uuid FROM {lifecycle_op_person}
+        WHERE op_id = $1 AND role = 'source' AND status = 'deleted'
+        ORDER BY person_id
+        "#,
+        op_id
         => fetch_all(&mut **tx)
     )
 }

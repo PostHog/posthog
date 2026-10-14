@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use personhog_identity::config::{IdentityTables, OutboxWrites};
 use personhog_identity::pools::IdentityPools;
-use personhog_identity::publish::messages::DistinctIdRow;
+use personhog_identity::publish::config::MergeEventsAllowlist;
+use personhog_identity::publish::messages::{DistinctIdRow, PersonMergeEvent};
 use personhog_identity::publish::sink::{PublishBatch, PublishError, PublishSink};
 use personhog_identity::publish::{DrainConfig, Publisher};
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
@@ -255,6 +256,24 @@ impl TestContext {
     /// row budget is the caller's, so a test can make it small enough that
     /// its own pointer drains in chunks.
     pub fn publisher<S: PublishSink>(&self, sink: S, max_rows_per_pass: i64) -> Publisher<S> {
+        self.build_publisher(sink, max_rows_per_pass, None)
+    }
+
+    pub fn publisher_with_merge_events<S: PublishSink>(
+        &self,
+        sink: S,
+        max_rows_per_pass: i64,
+        allowlist: MergeEventsAllowlist,
+    ) -> Publisher<S> {
+        self.build_publisher(sink, max_rows_per_pass, Some(allowlist))
+    }
+
+    fn build_publisher<S: PublishSink>(
+        &self,
+        sink: S,
+        max_rows_per_pass: i64,
+        merge_events: Option<MergeEventsAllowlist>,
+    ) -> Publisher<S> {
         Publisher::new(
             self.pool.clone(),
             self.tables.clone(),
@@ -264,6 +283,7 @@ impl TestContext {
                 max_rows_per_pass,
                 interval: Duration::from_millis(10),
                 lag_alert: Duration::from_secs(300),
+                merge_events,
             },
         )
     }
@@ -347,6 +367,14 @@ impl RecordingSink {
             .into_iter()
             .flat_map(|b| b.distinct_id_rows)
             .filter(|r| r.team_id == team_id)
+            .collect()
+    }
+
+    pub fn merge_events_for_team(&self, team_id: i64) -> Vec<PersonMergeEvent> {
+        self.batches()
+            .into_iter()
+            .flat_map(|b| b.merge_events)
+            .filter(|e| i64::from(e.team_id) == team_id)
             .collect()
     }
 }
