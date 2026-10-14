@@ -8,19 +8,22 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.test import SimpleTestCase
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import SignalReport, SignalReportPullRequest, SignalReportTask
-from products.signals.backend.pull_requests import update_pull_request_state
+from products.signals.backend.pull_requests import schedule_participant_refresh, update_pull_request_state
+from products.signals.backend.tasks import refresh_pull_request_participants, refresh_pull_request_review_decision
 from products.tasks.backend.models import Task, TaskRun
 
 NOW = datetime(2026, 9, 20, 12, tzinfo=UTC)
@@ -113,7 +116,7 @@ class TestInboxSummary(APIBaseTest):
             url="https://github.com/EXAMPLE/APP/pull/1/files"
         )
         TaskRun.objects.filter(team=self.team).update(
-            state={"verified_pr_urls": ["https://github.com/Example/App/pull/1"]}
+            state={"verified_pr_urls": ["https://github.com/example/app/pull/1"]}
         )
         self.make_pr(10, verified=False, participant_ids=[20])
         assert self.summary()["merged_pr_count"] == 1
@@ -168,12 +171,40 @@ class TestInboxSummary(APIBaseTest):
         self.client.force_login(member)
         assert self.client.get(f"/api/projects/{self.team.id}/signals/inbox_summary/").status_code == 403
 
+    def test_explicitly_denied_tasks_do_not_contribute_to_summary(self) -> None:
+        self.make_pr(1, participant_ids=[10])
+        denied_task_id = SignalReportTask.objects.get(team=self.team).task_id
+        self.make_pr(2, participant_ids=[20])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "restricted@example.com", "test-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="task",
+            resource_id=str(denied_task_id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+        result = self.summary()
+
+        assert result["merged_pr_count"] == 1
+        assert result["pull_requests"] == [
+            {"repository": "example/app", "number": 2, "url": "https://github.com/example/app/pull/2"}
+        ]
+
     def test_authentication_is_required(self) -> None:
         self.client.logout()
         assert self.client.get(f"/api/projects/{self.team.id}/signals/inbox_summary/").status_code in (401, 403)
 
     def github(self) -> MagicMock:
         github = MagicMock()
+        github.installation_can_access_repository.return_value = True
         github.get_pull_request.return_value = {
             "success": True,
             "merged": True,
@@ -238,6 +269,60 @@ class TestInboxSummary(APIBaseTest):
         assert pr.participant_ids == [10]
         assert pr.participant_logins == ["example-merger"]
 
+    def test_sync_falls_back_when_the_attributed_integration_lost_repository_access(self) -> None:
+        pr = self.make_pr(merged_at=None)
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="123")
+        task = Task.objects.get(team=self.team)
+        task.github_integration = integration
+        task.save(update_fields=["github_integration", "updated_at"])
+        fallback = self.github()
+        with (
+            patch.object(GitHubIntegration, "installation_can_access_repository", return_value=False) as access,
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=fallback) as find_fallback,
+        ):
+            sync_pull_request_participants(team_id=self.team.id, repository="example/app", pr_number=1)
+        access.assert_called_once_with("example/app")
+        find_fallback.assert_called_once_with(
+            self.team.id, "example/app", source="signals_inbox_summary", priority=Priority.BATCH
+        )
+        pr.refresh_from_db()
+        assert pr.participant_ids == [10]
+
+    def test_refresh_uses_githubs_retry_delay(self) -> None:
+        error = GitHubRateLimitError("rate limited", retry_after=120)
+        with (
+            patch("products.signals.backend.tasks.sync_pull_request_participants", side_effect=error),
+            patch.object(refresh_pull_request_participants, "retry", side_effect=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            refresh_pull_request_participants._orig_run(team_id=self.team.id, repository="example/app", pr_number=1)
+        retry.assert_called_once_with(exc=error, countdown=120)
+
+    def test_participant_refreshes_for_the_same_pr_are_coalesced(self) -> None:
+        pr = self.make_pr()
+        with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                schedule_participant_refresh(pr)
+                schedule_participant_refresh(pr)
+        enqueue.assert_called_once_with(team_id=self.team.id, repository="example/app", pr_number=1)
+
+    def test_participant_enqueue_failure_does_not_stop_the_review_refresh(self) -> None:
+        pr = self.make_pr()
+        github = MagicMock()
+        github.get_pull_request_snapshot.return_value = {"success": True, "review_decision": "approved"}
+        with (
+            patch(
+                "products.signals.backend.tasks.refresh_pull_request_participants.delay",
+                side_effect=RuntimeError("broker unavailable"),
+            ) as enqueue,
+            patch("products.signals.backend.tasks.GitHubIntegration.first_for_team_repository", return_value=github),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                refresh_pull_request_review_decision.run(team_id=self.team.id, repository="example/app", pr_number=1)
+        enqueue.assert_called_once_with(team_id=self.team.id, repository="example/app", pr_number=1)
+        pr.refresh_from_db()
+        assert pr.review_decision == SignalReportPullRequest.ReviewDecision.APPROVED
+
     @parameterized.expand([("missing_merger",), ("missing_review_page",), ("invalid_approval_time",)])
     def test_incomplete_github_data_does_not_store_partial_people(self, failure: str) -> None:
         pr = self.make_pr(merged_at=None)
@@ -265,16 +350,16 @@ class TestInboxSummary(APIBaseTest):
         pr.refresh_from_db()
         assert pr.merged_at == NOW - timedelta(days=30)
 
-    def test_a_failed_refresh_does_not_leave_outdated_participants_complete(self) -> None:
+    def test_a_failed_refresh_keeps_the_last_complete_snapshot(self) -> None:
         pr = self.make_pr(participant_ids=[10, 20])
         github = self.github()
         github.get_pull_request_reviews.side_effect = GitHubIntegrationError("Reviews not available")
         with self.assertRaises(GitHubIntegrationError):
             self.sync(github)
         pr.refresh_from_db()
-        assert pr.participant_ids is None
-        assert pr.participant_logins is None
-        assert pr.participants_synced_at is None
+        assert pr.participant_ids == [10, 20]
+        assert pr.participant_logins == ["user-10", "user-20"]
+        assert pr.participants_synced_at == NOW
 
     @parameterized.expand([("manual", False, "implementation"), ("research", True, "research")])
     def test_sync_skips_unattributed_prs(self, _name: str, verified: bool, relationship: str) -> None:

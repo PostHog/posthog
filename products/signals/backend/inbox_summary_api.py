@@ -9,10 +9,12 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_service_auth
 
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.inbox_summary import INBOX_SUMMARY_PERIOD, generated_pull_requests
-from products.signals.backend.models import SignalReportPullRequest
+from products.signals.backend.models import SignalReportPullRequest, SignalReportTask
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class InboxSummaryPullRequestSerializer(serializers.Serializer):
@@ -61,7 +63,17 @@ class InboxSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet[SignalReportPullRequest]:
         if getattr(self, "swagger_fake_view", False):
             return SignalReportPullRequest.objects.for_team(0).none()
-        return generated_pull_requests(self.team_id)
+        if is_service_auth(self.request):
+            return generated_pull_requests(self.team_id)
+        candidate_task_ids = list(
+            SignalReportTask.objects.filter(
+                team_id=self.team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            ).values_list("task_id", flat=True)
+        )
+        accessible_task_ids = tasks_facade.filter_accessible_task_ids(
+            team_id=self.team_id, user=self.request.user, task_ids=candidate_task_ids
+        )
+        return generated_pull_requests(self.team_id, task_ids=accessible_task_ids)
 
     @extend_schema(responses=InboxSummarySerializer)
     def list(self, request: Request, **kwargs: object) -> Response:
