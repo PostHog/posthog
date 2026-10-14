@@ -1,6 +1,7 @@
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 
 import { getBIResultDimensions } from './biEditorTypes'
+import { getBIMemberLabel } from './biMemberAliases'
 
 export interface BIPivotMember {
     key: string
@@ -64,7 +65,7 @@ export function buildBIPivotModel(config: BIConfig, columns: string[], results: 
                 const member: BIPivotMember = {
                     key,
                     path: prefix,
-                    label: String(prefix[depth - 1] ?? '(empty)'),
+                    label: getBIMemberLabel(config, config[side][depth - 1], prefix[depth - 1]),
                     children: [],
                 }
                 members[side].set(key, member)

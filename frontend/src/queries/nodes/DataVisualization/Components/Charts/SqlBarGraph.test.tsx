@@ -94,6 +94,18 @@ describe('SqlBarGraph', () => {
                     },
                 ],
                 filters: [],
+                memberAliases: [
+                    {
+                        field: {
+                            id: 'region',
+                            name: 'Region',
+                            expression: 'region',
+                            type: 'string',
+                            source: { table: 'events' },
+                        },
+                        aliases: [{ value: 'east', label: 'East region' }],
+                    },
+                ],
                 chartType,
                 limit: 100,
             }
@@ -119,6 +131,9 @@ describe('SqlBarGraph', () => {
                 },
             })
             const canvas = await screen.findByLabelText(/chart with 2 data series/i)
+            expect([...getHogChart().xTicks(), ...getHogChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(
+                false
+            )
             await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
             expect(await screen.findByText('Explore this result')).toBeVisible()
             expect(screen.getByText('View underlying rows')).toBeVisible()
@@ -127,6 +142,56 @@ describe('SqlBarGraph', () => {
     )
 
     describe('bar layouts', () => {
+        it('keeps horizontal BI category positions separate when their display aliases match', async () => {
+            const region = {
+                id: 'region',
+                name: 'Region',
+                expression: 'region',
+                type: 'string' as const,
+                source: { table: 'example_orders' },
+            }
+            const config: BIConfig = {
+                source: region.source,
+                rows: [region],
+                columns: [],
+                filters: [],
+                limit: 100,
+                chartType: ChartDisplayType.ActionsBarValue,
+                values: [
+                    {
+                        field: { ...region, id: 'amount', name: 'Amount', expression: 'amount', type: 'float' },
+                        aggregation: 'sum',
+                    },
+                ],
+                memberAliases: [
+                    {
+                        field: region,
+                        aliases: [
+                            { value: 'east', label: 'Same label' },
+                            { value: 'west', label: 'Same label' },
+                        ],
+                    },
+                ],
+            }
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: { ...node, kind: NodeKind.BIVisualizationNode, config },
+                response: {
+                    columns: ['region', 'sum_amount'],
+                    types: [
+                        ['region', 'String'],
+                        ['sum_amount', 'Float64'],
+                    ],
+                    results: [
+                        ['east', 10],
+                        ['west', 20],
+                    ],
+                },
+            })
+            await screen.findByLabelText(/chart with/i)
+            await waitFor(() => expect(getHogChart().yTicks()).toEqual(['Same label', 'Same label']))
+        })
+
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },
             { name: 'horizontal', display: ChartDisplayType.ActionsBarValue, extra: {} },

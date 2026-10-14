@@ -167,6 +167,9 @@ export interface biSceneLogicActions {
         insight: InsightApi
         payload?: string
     }
+    navigateHierarchy: (worksheet: BIVisualizationNode) => {
+        worksheet: BIVisualizationNode
+    }
     openWorksheet: () => {
         value: true
     }
@@ -302,6 +305,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         redo: true,
         restoreHistory: true,
         restoreWorksheet: (worksheet: BIVisualizationNode) => ({ worksheet }),
+        navigateHierarchy: (worksheet: BIVisualizationNode) => ({ worksheet }),
         setVisualization: (visualization: VisualizationNode) => ({ visualization }),
         setChartSettings: (chartSettings: ChartSettings) => ({ chartSettings }),
         setChartSettingsDefaults: (defaults: ChartSettings | undefined) => ({ defaults }),
@@ -429,6 +433,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             emptyWorksheet(),
             {
                 restoreWorksheet: (_, { worksheet }) => worksheet,
+                navigateHierarchy: (_, { worksheet }) => worksheet,
                 setChartSettings: (state, { chartSettings }) => ({ ...state, chartSettings }),
                 setVisualization: (state, { visualization }) => ({
                     ...state,
@@ -555,6 +560,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             } finally {
                 cache.restoringHistory = false
             }
+            actions.runAfterChange()
+        },
+        navigateHierarchy: ({ worksheet }) => {
+            actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
             actions.runAfterChange()
         },
         setName: () => actions.recordWorksheet(),

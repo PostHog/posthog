@@ -17,6 +17,7 @@ import { claimConnectionScope, releaseConnectionScope } from 'products/data_ware
 import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
+import { biMemberAliasesLogic } from './biMemberAliasesLogic'
 import { biSceneLogic } from './biSceneLogic'
 
 const eventField: BIField = {
@@ -525,6 +526,57 @@ describe('biSceneLogic', () => {
         logic.actions.discardChanges()
         expect(logic.values.canUndo).toBe(false)
         expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('saves member aliases as drafts, keeps raw query semantics, and preserves them through undo and Clear sheet', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        editor.actions.setAutoUpdate(false)
+        const aliases = biMemberAliasesLogic({ tabId: 'bi-test' })
+        const unmount = aliases.mount()
+        const query = logic.values.worksheet.source.query
+        aliases.actions.edit(eventField, [])
+        aliases.actions.setAlias('example_a', 'Same label')
+        aliases.actions.close()
+        expect(editor.values.config.memberAliases).toBeUndefined()
+        aliases.actions.edit(eventField, [])
+        aliases.actions.setAlias('example_a', 'Same label')
+        aliases.actions.setAlias('example_b', 'Same label')
+        aliases.actions.save()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        expect(logic.values.worksheet.source.query).toBe(query)
+        logic.actions.undo()
+        expect(editor.values.config.memberAliases).toBeUndefined()
+        logic.actions.redo()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.query.config.memberAliases?.[0].aliases).toHaveLength(2)
+        editor.actions.resetConfig()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        aliases.actions.edit(eventField, editor.values.config.memberAliases![0].aliases)
+        aliases.actions.setAlias('example_a', '   ')
+        aliases.actions.save()
+        expect(editor.values.config.memberAliases?.[0].aliases).toEqual([{ value: 'example_b', label: 'Same label' }])
+        unmount()
+    })
+
+    it('keeps hierarchy navigation pending with auto update off and records it for undo', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        editor.actions.setAutoUpdate(false)
+        const original = logic.values.worksheet
+        const displayed = logic.values.lastRunQuery
+        const next = worksheet({
+            ...original.config,
+            filters: [{ field: eventField, operator: 'equals', value: 'example' }],
+        })
+        logic.actions.navigateHierarchy(next)
+        expect(logic.values.worksheet.config.filters).toEqual(next.config.filters)
+        expect(logic.values.lastRunQuery).toEqual(displayed)
+        logic.actions.undo()
+        expect(logic.values.worksheet.config.filters).toEqual(original.config.filters)
+        logic.actions.redo()
+        expect(logic.values.worksheet.config.filters).toEqual(next.config.filters)
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.filters).toEqual(next.config.filters)
     })
 
     it('runs the restored worksheet when auto update is enabled', async () => {

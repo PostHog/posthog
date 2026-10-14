@@ -5,12 +5,19 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 
-export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldownProps }): JSX.Element {
+export function BIDrilldownModal({
+    logicProps: props,
+    onNavigate,
+}: {
+    logicProps: BIDrilldownProps
+    onNavigate?: (worksheet: BIVisualizationNode) => void
+}): JSX.Element {
     const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
     const { close, viewRows } = useActions(biDrilldownLogic(props))
     return (
@@ -35,11 +42,19 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                             <LemonButton
                                 key={hierarchy.id}
                                 type="primary"
-                                to={`${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`}
-                                onClick={close}
-                                tooltip={`${hierarchy.name}: opens a new worksheet filtered to this selection`}
+                                to={
+                                    onNavigate
+                                        ? undefined
+                                        : `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`
+                                }
+                                onClick={() => {
+                                    onNavigate?.(worksheet)
+                                    close()
+                                }}
+                                tooltip={`${hierarchy.name}: ${onNavigate ? 'filters this worksheet to the selection' : 'opens a new worksheet filtered to this selection'}`}
                             >
                                 Drill to {next.name}
+                                {onNavigate ? '' : ' in new worksheet'}
                             </LemonButton>
                         ))}
                         <LemonButton
