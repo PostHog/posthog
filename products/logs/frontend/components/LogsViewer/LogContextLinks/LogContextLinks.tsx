@@ -74,7 +74,13 @@ export function LogContextLinks({
                     traceId={traceId}
                     spanId={log.span_id}
                     timestamp={log.timestamp}
-                    onClick={(event) => openTraceDialog(event, { traceId, spanId: log.span_id, ts: log.timestamp })}
+                    onClick={(event) =>
+                        openTraceDialog(
+                            event,
+                            { traceId, spanId: log.span_id, ts: log.timestamp },
+                            { openedFrom: { body: log.cleanBody, severity: log.severity_text } }
+                        )
+                    }
                     size="xsmall"
                     type="secondary"
                     data-attr={TRACE_DATA_ATTR[surface]}
