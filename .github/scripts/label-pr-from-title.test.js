@@ -160,6 +160,7 @@ for (const scope of ['desktop', 'canvas']) {
 }
 
 for (const scope of [
+    'agent',
     'tasks',
     'tasks-agent',
     'agent-proxy',

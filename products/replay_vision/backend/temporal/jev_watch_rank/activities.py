@@ -63,6 +63,7 @@ from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
     WATCH_RANK_WINDOW,
     WINDOW_SCAN_CAP,
 )
+from products.replay_vision.backend.temporal.jev_watch_rank.metrics import push_sweep_metrics
 from products.replay_vision.backend.temporal.jev_watch_rank.types import (
     JevWatchRankSweepInputs,
     JevWatchRankSweepResult,
@@ -111,11 +112,11 @@ def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
         )
 
 
-def _scanner_window_ids(team_id: int, scanner_id: UUID, window_start: datetime) -> list[UUID]:
-    """Newest first, ids only: cheap enough to list the whole capped window every sweep, so the
+def _scanner_window(team_id: int, scanner_id: UUID, window_start: datetime) -> dict[UUID, datetime]:
+    """Newest first, without prose: cheap enough to list the whole capped window every sweep, so the
     sweep can tell which rows still lack a judgment and which cached entries left the window."""
     with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
-        return list(
+        return dict(
             ReplayObservation.objects.filter(
                 team_id=team_id,
                 scanner_id=scanner_id,
@@ -123,7 +124,7 @@ def _scanner_window_ids(team_id: int, scanner_id: UUID, window_start: datetime) 
                 created_at__gte=window_start,
             )
             .order_by("-created_at")
-            .values_list("id", flat=True)[:WINDOW_SCAN_CAP]
+            .values_list("id", "created_at")[:WINDOW_SCAN_CAP]
         )
 
 
@@ -165,6 +166,12 @@ class _ScannerOutcome:
     failed_chunks: int = 0
     input_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    estimated_prompt_tokens: int = 0
+    failed_reason_chunks: int = 0
+    inspected: bool = False
+    window_capped: bool = False
+    pending_observations: int = 0
+    oldest_pending_age_seconds: float = 0.0
 
 
 class _TokenPacer:
@@ -198,9 +205,10 @@ async def _sweep_scanner(
     pace: Callable[[int], None],
     stop_after: float,
 ) -> _ScannerOutcome:
-    window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
+    window = await sync_to_async(_scanner_window)(team_id, scanner_id, window_start)
+    window_ids = list(window)
     if not window_ids:
-        return _ScannerOutcome()
+        return _ScannerOutcome(inspected=True)
     # Judgments accumulate: each sweep judges only the rows the judged set does not hold,
     # newest first, and cache entries whose rows left the window are pruned. Coverage
     # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
@@ -221,7 +229,7 @@ async def _sweep_scanner(
     unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
     if not unjudged_ids:
         await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
-        return _ScannerOutcome(skipped_unchanged=True)
+        return _ScannerOutcome(skipped_unchanged=True, inspected=True, window_capped=len(window) == WINDOW_SCAN_CAP)
     judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
     rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
     context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
@@ -264,6 +272,8 @@ async def _sweep_scanner(
             # The batch is re-bought next run, which beats one write failure ending the sweep.
             logger.exception("Jev watch rank cache write failed", team_id=team_id, scanner_id=str(scanner_id))
             cache_errors += 1
+    persisted_judged = all_judged if cache_errors == 0 else judged
+    pending = [created_at for row_id, created_at in window.items() if str(row_id) not in persisted_judged]
     with suppress(Exception):
         # Sub-threshold scores are cached nowhere, so this event is the only record of the
         # score distribution — it is the data JEV_WATCHABLE_MIN is calibrated from.
@@ -309,13 +319,22 @@ async def _sweep_scanner(
         failed_chunks=judgment.failed_chunks,
         input_tokens=judgment.input_tokens,
         estimated_cost_usd=judgment.estimated_cost_usd,
+        estimated_prompt_tokens=judgment.estimated_prompt_tokens,
+        failed_reason_chunks=judgment.failed_reason_chunks,
+        inspected=True,
+        window_capped=len(window) == WINDOW_SCAN_CAP,
+        pending_observations=len(pending),
+        oldest_pending_age_seconds=max(0.0, (datetime.now(UTC) - min(pending)).total_seconds()) if pending else 0.0,
     )
 
 
 async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSweepResult:
     if not decision_api.decisions_available_here():
-        return JevWatchRankSweepResult(decisions_unavailable=True)
-    deadline = monotonic() + SWEEP_TIME_BUDGET.total_seconds()
+        result = JevWatchRankSweepResult(decisions_unavailable=True)
+        await asyncio.to_thread(push_sweep_metrics, result)
+        return result
+    started = monotonic()
+    deadline = started + SWEEP_TIME_BUDGET.total_seconds()
     window_start = datetime.now(UTC) - WATCH_RANK_WINDOW
     team_ids = await sync_to_async(_teams_with_scanners)()
     team_uuids = await sync_to_async(_team_uuids)(team_ids[:MAX_TEAMS_PER_SWEEP])
@@ -357,6 +376,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             return outcome
 
     teams_enrolled = 0
+    teams_evaluated = 0
     teams_without_consent = 0
     scanners_seen = 0
     hit_scanner_cap = False
@@ -371,6 +391,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
             if team_uuid is None:
                 continue
             mode = await asyncio.to_thread(watch_feed_ranker, team_id, team_uuid)
+            teams_evaluated += 1
             if mode == "weighted-score":
                 continue
             # The scan prose the sweep sends to the model derives from recordings, so a revoked consent
@@ -392,6 +413,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
 
     result = JevWatchRankSweepResult(
         teams_seen=min(len(team_ids), MAX_TEAMS_PER_SWEEP),
+        teams_evaluated=teams_evaluated,
         teams_enrolled=teams_enrolled,
         teams_without_consent=teams_without_consent,
         scanners_consent_revoked=sum(outcome.consent_revoked for outcome in outcomes),
@@ -409,6 +431,20 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         hit_team_cap=len(team_ids) > MAX_TEAMS_PER_SWEEP,
         hit_scanner_cap=hit_scanner_cap,
         hit_time_budget=hit_time_budget or any(outcome.out_of_time for outcome in outcomes),
+        estimated_prompt_tokens=sum(outcome.estimated_prompt_tokens for outcome in outcomes),
+        duration_seconds=monotonic() - started,
+        failed_reason_chunks=sum(outcome.failed_reason_chunks for outcome in outcomes),
+        scanners_seen=scanners_seen,
+        scanners_inspected=sum(outcome.inspected for outcome in outcomes),
+        scanners_window_capped=sum(outcome.window_capped for outcome in outcomes),
+        pending_observations=sum(outcome.pending_observations for outcome in outcomes),
+        oldest_pending_age_seconds=max((outcome.oldest_pending_age_seconds for outcome in outcomes), default=0.0),
+        backlog_complete=(
+            len(team_ids) <= MAX_TEAMS_PER_SWEEP
+            and not hit_scanner_cap
+            and not hit_time_budget
+            and all(outcome.inspected and not outcome.window_capped for outcome in outcomes)
+        ),
     )
     logger.info(
         "replay_vision.jev_watch_rank.cycle_complete",
@@ -429,5 +465,10 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
         hit_team_cap=result.hit_team_cap,
         hit_scanner_cap=result.hit_scanner_cap,
         hit_time_budget=result.hit_time_budget,
+        estimated_prompt_tokens=result.estimated_prompt_tokens,
+        pending_observations=result.pending_observations,
+        oldest_pending_age_seconds=result.oldest_pending_age_seconds,
+        backlog_complete=result.backlog_complete,
     )
+    await asyncio.to_thread(push_sweep_metrics, result)
     return result

@@ -107,7 +107,7 @@ class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConf
             "logstash-output-honeycomb_json_batch",
         ),
         swiftpm=("github.com/honeycombio/honeycomb-opentelemetry-swift", "github.com/honeycombio/libhoney-cocoa"),
-        competes_with=(ProductKey.TRACING,),
+        alternative_to=(ProductKey.TRACING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

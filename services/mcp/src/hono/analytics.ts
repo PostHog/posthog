@@ -5,7 +5,7 @@ import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { resolveEventSource } from '@/lib/event-source'
+import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -181,6 +181,10 @@ export async function trackToolCall(
         // gateway call would land uncategorized and drop out of category-sliced views.
         const gatewayServer = gatewayServerSlug(toolName)
         const toolCategory = getToolCategory(toolName) ?? (gatewayServer ? THIRD_PARTY_TOOL_CATEGORY : undefined)
+        if (!isError && !gatewayServer && toolName.startsWith('inbox-') && properties.source === EVENT_SOURCE.MCP) {
+            // The Inbox banner flag targets this permanent adoption property.
+            properties.$set_once = { has_used_inbox_mcp: true }
+        }
         // The description the agent saw when it picked this tool, clipped. Powers the
         // tool-detail Descriptions table and description-vs-intent fit in MCP
         // analytics. Callers pass servedDescription when the advertised text differs

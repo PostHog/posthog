@@ -22,6 +22,8 @@ from django.db import models
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import AutomaticReviewDecision
+from products.review_hog.backend.facade.enums import AutomaticReviewReason, ReviewUserRepositoryChoiceMode
 from products.review_hog.backend.models import (
     AutomaticFlashFor,
     ReviewProjectSettings,
@@ -32,25 +34,6 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.ownership import RepositoryRef
 from products.review_hog.backend.preferences import DefaultReviewMode
-
-
-class AutomaticReviewReason(models.TextChoices):
-    OWN_REPOSITORY_CHOICE = "own_repository_choice", "Own choice for this repository"
-    OWN_DEFAULT = "own_default", "Own default"
-    REPOSITORY_EVERYONE = "repository_everyone", "The repository exception reviews everyone"
-    REPOSITORY_EXCEPTED = "repository_excepted", "Excepted by the repository exception"
-    REPOSITORY_LISTED = "repository_listed", "Listed by the repository exception"
-    REPOSITORY_NOT_LISTED = "repository_not_listed", "Not listed by the repository exception"
-    REPOSITORY_OPT_IN = "repository_opt_in", "The repository exception reviews only people who opt in"
-    PROJECT_EVERYONE = "project_everyone", "The project reviews everyone"
-    PROJECT_EXCEPTED = "project_excepted", "Excepted by the project"
-    PROJECT_LISTED = "project_listed", "Listed by the project"
-    PROJECT_NOT_LISTED = "project_not_listed", "Not listed by the project"
-    PROJECT_OPT_IN = "project_opt_in", "The project reviews only people who opt in"
-    BOT_REVIEWED = "bot_reviewed", "The project reviews bot pull requests"
-    BOT_SKIPPED = "bot_skipped", "The project does not review bot pull requests"
-    NOT_IN_PROJECT = "not_in_project", "This project does not review the repository"
-
 
 _RULE_REASONS: dict[tuple[bool, str], AutomaticReviewReason] = {
     (True, "everyone"): AutomaticReviewReason.REPOSITORY_EVERYONE,
@@ -72,18 +55,12 @@ def is_bot_login(github_login: str) -> bool:
 
 
 @frozen
-class AutomaticReviewDecision:
-    flash: bool
-    reason: AutomaticReviewReason
-
-
-@frozen
 class AuthorChoice:
     # None when the GitHub author maps to no PostHog user.
     user_id: int | None
     is_bot: bool
     default_mode: DefaultReviewMode
-    repository_choice: ReviewUserRepositoryChoice.Mode | None
+    repository_choice: ReviewUserRepositoryChoiceMode | None
 
 
 @frozen

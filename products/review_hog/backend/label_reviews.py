@@ -49,8 +49,8 @@ BOT_LABEL_COMMENT = (
     "so the label was removed. Add the label yourself to start a review."
 )
 
-# The rollout flag of `@posthog` pull request comments (products/github_commands). Read here by key,
-# because github_commands already depends on this product.
+# The rollout flag of `@posthog` pull request comments (products/commands). Read here by key,
+# because the commands product already depends on this product.
 COMMENT_COMMANDS_FLAG = "github-commands"
 
 

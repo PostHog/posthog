@@ -150,6 +150,8 @@ export interface SignalReport {
     refund_ineligibility_reason?: string | null
     /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
     ranking?: ReportRankingApi | null
+    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    inbox_merge_key?: number | null
 }
 
 export enum SignalReportStatus {

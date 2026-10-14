@@ -52,7 +52,7 @@ class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
         maven=("com.appcues:appcues", "com.appcues:segment-appcues"),
         pub=("appcues_flutter",),
         swiftpm=("github.com/appcues/appcues-ios-sdk", "github.com/appcues/segment-appcues-ios"),
-        competes_with=(ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+        alternative_to=(ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
     )
 
     lists_tables_without_credentials = True

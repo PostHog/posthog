@@ -2259,6 +2259,7 @@ class PostgresSource(
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 activity_attempt=inputs.activity_attempt,
+                worker_deaths=inputs.worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
