@@ -13,7 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
 import { formatEventName } from 'scenes/insights/utils'
-import { ResultSeries } from 'scenes/insights/utils/resultSeries'
+import { ResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/resultSeries'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter, BreakdownKeyType } from '~/types'
@@ -136,6 +136,7 @@ export function InsightLabel({
     const entity: DisplayableEntity | null | undefined = series ? series.node : action
     const math = series ? series.math : action
     const seriesIndex = series ? (series.node ? series.order : undefined) : action?.order
+    const customName = series ? series.node && getResultSeriesCustomName(series.node) : action?.custom_name
     const displayEntity = entity ? { ...entity, name: formatEventName(entity.name) } : undefined
 
     const eventName = seriesStatus
@@ -193,7 +194,7 @@ export function InsightLabel({
                     )}
 
                     {((math?.math && math.math !== 'total') || showCountedByTag) &&
-                        !(hideHogQLTagWhenCustomName && entity?.custom_name && math?.math === 'hogql') && (
+                        !(hideHogQLTagWhenCustomName && customName && math?.math === 'hogql') && (
                             <div className="insights-label__math flex flex-nowrap items-center gap-x-1">
                                 <MathTag
                                     math={math?.math}
