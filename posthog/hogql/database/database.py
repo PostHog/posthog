@@ -3199,6 +3199,14 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
     poe = cast(VirtualTable, events_table.fields["poe"])
+    # A flag call stores the event and person properties blobs that these fields read. A team's test account filters
+    # can read them.
+    flag_evaluations = (
+        database.get_table(["posthog", "flag_evaluations"])
+        if database.has_table(["posthog", "flag_evaluations"])
+        else None
+    )
+    flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"]) if flag_evaluations is not None else None
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
@@ -3208,6 +3216,8 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+        if flag_evaluations_poe is not None:
+            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
     with timings.measure("initial_channel_type"):
         field_name = "$virt_initial_channel_type"
         persons_table.fields[field_name] = create_initial_channel_type(
@@ -3219,6 +3229,8 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+        if flag_evaluations_poe is not None:
+            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
 
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
@@ -3229,12 +3241,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             create_traffic_type_field,
         )
 
-        # A flag call stores the same properties blob these fields read. A team's test account filters can read them.
-        flag_evaluations = (
-            database.get_table(["posthog", "flag_evaluations"])
-            if database.has_table(["posthog", "flag_evaluations"])
-            else None
-        )
         for field_name, factory_fn in [
             ("$virt_is_bot", create_is_bot_field),
             ("$virt_traffic_type", create_traffic_type_field),

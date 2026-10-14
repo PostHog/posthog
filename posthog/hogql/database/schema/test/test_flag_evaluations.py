@@ -56,6 +56,12 @@ FILTER_CASES = [
         PersonPropertyFilter(key="email", value="probe@example.com", operator=PropertyOperator.EXACT),
         1,
     ),
+    # The stored person properties carry no referrer or UTM values. The channel type is then "Unknown".
+    (
+        "person_virtual_property",
+        PersonPropertyFilter(key="$virt_initial_channel_type", value="Unknown", operator=PropertyOperator.EXACT),
+        1,
+    ),
     (
         "group",
         GroupPropertyFilter(key="industry", value="software", operator=PropertyOperator.EXACT, group_type_index=0),
@@ -125,7 +131,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def _execute(self, columns: str, where: str = ""):
+    def _execute(self, columns: str, where: str = "", source: str = "posthog.flag_evaluations"):
         # settings.DEBUG is False under the test runner, so the org gate fail-closes and prunes the
         # table. test_database.py covers the gate itself; here it only has to be out of the way.
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
@@ -134,7 +140,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             return_value=True,
         ):
             return execute_hogql_query(
-                f"SELECT {columns} FROM posthog.flag_evaluations WHERE uuid = '{self.row_uuid}'{where}",
+                f"SELECT {columns} FROM {source} WHERE uuid = '{self.row_uuid}'{where}",
                 team=self.team,
                 context=context,
                 pretty=False,
@@ -393,6 +399,26 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert self._select("uuid", where=f" AND person_id IN COHORT {cohort.pk}") == [(self.row_uuid,)]
         assert self._select("uuid", where=f" AND person_id NOT IN COHORT {cohort.pk}") == []
+
+    @parameterized.expand(
+        [
+            ("unaliased", "posthog.flag_evaluations"),
+            ("events_list_alias", "posthog.flag_evaluations AS flag_evaluations"),
+        ]
+    )
+    def test_group_join_reads_only_the_groups_of_the_matched_rows(self, _name: str, source: str):
+        # Without the key bound, the groups subquery reads every group of the type that the team has.
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
+
+        response = self._execute(
+            "group_0.properties.industry", where=" AND timestamp >= now() - INTERVAL 1 DAY", source=source
+        )
+
+        assert "in(key," in response.clickhouse
+        assert response.results == [("software",)]
 
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):
         # Without the date bound, the sessions subquery aggregates every session the team has.
