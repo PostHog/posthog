@@ -7136,7 +7136,7 @@ Today (3): `accounts`, `leads`, `visits`
 
 Diffed against: <https://docs.leadfeeder.com/api/>
 
-- [ ] `GET /accounts/{account_id}/custom_feeds (and GET /accounts/{account_id}/custom_feeds/{id}/leads)` — custom feeds are the saved lead segments; syncing them resolves feed ids and lets leads be attributed to a segment (medium)
+- [x] `GET /accounts/{account_id}/custom_feeds (and GET /accounts/{account_id}/custom_feeds/{id}/leads)` — custom feeds are the saved lead segments; syncing them resolves feed ids and lets leads be attributed to a segment (medium)
 
 Note: The docs page PostHog targets is explicitly labelled the legacy Leadfeeder API and points new integrations at the newer Dealfront platform API (https://docs.dealfront.com/api/public), which the page says exposes richer company/contact data, financials, signals, tags, lists and CRM relationships. That newer API is hosted on Apidog with no fetchable spec, so its resource list is unverified and not enumerated here - but the connector is built on a deprecated API and is worth a migration review. Legacy API resources are only accounts, custom feeds, leads, visits and feed exports; PostHog covers three of the four queryable ones.
 
