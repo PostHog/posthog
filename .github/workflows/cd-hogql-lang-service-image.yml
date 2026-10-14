@@ -257,7 +257,7 @@ jobs:
                         },
                         "release": "hogql-lang-service",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.result }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

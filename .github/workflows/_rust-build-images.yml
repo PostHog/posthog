@@ -142,6 +142,14 @@ jobs:
               with:
                   images: ghcr.io/posthog/posthog/${{ matrix.image }}
                   tags: ${{ inputs.tag-rules }}
+                  labels: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
+                  annotations: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
 
             - name: Set up Docker Buildx
               id: buildx
