@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ExpoSource(ResumableSource[ExpoSourceConfig, ExpoResumeConfig]):
+    codebase_detection = detect(
+        env=("^EXPO_",),
+        npm=("expo", "eas-cli", "expo-server-sdk"),
+        pypi=("exponent-server-sdk",),
+        rubygems=("exponent-server-sdk",),
+    )
+
     api_docs_url = "https://docs.expo.dev/accounts/programmatic-access/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

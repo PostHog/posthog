@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 @SourceRegistry.register
 class FlowluSource(ResumableSource[FlowluSourceConfig, FlowluResumeConfig]):
+    codebase_detection = detect(env=("^FLOWLU_",))
+
     api_docs_url = "https://www.flowlu.com/api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

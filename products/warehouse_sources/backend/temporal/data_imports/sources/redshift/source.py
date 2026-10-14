@@ -7,6 +7,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -79,6 +80,14 @@ RedshiftErrors = {
 
 @SourceRegistry.register
 class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^REDSHIFT_",),
+        npm=("node-redshift", "@aws-sdk/client-redshift-data"),
+        pypi=("redshift-connector", "sqlalchemy-redshift"),
+        go=("github.com/aws/aws-sdk-go-v2/service/redshiftdata",),
+        maven=("com.amazon.redshift:redshift-jdbc42",),
+    )
+
     def __init__(self, source_name: str = "Redshift"):
         super().__init__()
         self.source_name = source_name
