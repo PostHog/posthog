@@ -3,10 +3,6 @@ model_file: ../../generated/model.fga
 tuple_files:
     - ../fixtures.yaml
 tuples:
-    - { user: 'project:project', relation: project, object: 'dashboard:dashboard' }
-    - { user: 'resource:dashboards', relation: resource, object: 'dashboard:dashboard' }
-    - { user: 'access_policy:object', relation: policy, object: 'dashboard:dashboard' }
-    - { user: 'organization_member:creator#user', relation: creator, object: 'dashboard:dashboard' }
     - { user: 'project:project', relation: project, object: 'insight:insight' }
     - { user: 'resource:insights', relation: resource, object: 'insight:insight' }
     - { user: 'access_policy:object', relation: policy, object: 'insight:insight' }
@@ -177,43 +173,6 @@ tests:
           - users: [user:member, user:creator]
             object: insight:insight
             assertions: { can_view: false, can_edit: false, can_manage_access: false }
-
-    - name: Legacy dashboard restrictions also gate attached insights
-      tuples:
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
-          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
-          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
-      check:
-          - user: user:member
-            object: insight:insight
-            assertions: { can_view: true, can_edit: false, can_delete: false, can_share: false }
-          - users: [user:creator, user:admin, user:owner]
-            object: insight:insight
-            assertions: { can_edit: true }
-
-    - name: Legacy collaborators retain edit access
-      tuples:
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
-          - { user: 'organization_member:member#user', relation: collaborator, object: 'dashboard:dashboard' }
-          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
-          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
-      check:
-          - user: user:member
-            object: insight:insight
-            assertions: { can_edit: true }
-
-    - name: One editable dashboard permits editing an attached insight
-      tuples:
-          - { user: 'project:project', relation: project, object: 'dashboard:editable' }
-          - { user: 'resource:dashboards', relation: resource, object: 'dashboard:editable' }
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
-          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
-          - { user: 'dashboard:editable', relation: dashboard, object: 'insight:insight' }
-          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
-      check:
-          - user: user:member
-            object: insight:insight
-            assertions: { can_edit: true }
 
     - name: Stale role assignees outside the organization never authorize
       tuples:

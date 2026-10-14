@@ -283,7 +283,7 @@ tests:
             object: resource:unlicensed
             assertions: { can_list: true, can_create: true, can_manage_access: false }
 
-    - name: Access rules and legacy restrictions are inert without access control
+    - name: Access rules are inert without access control
       tuples:
           - { user: 'user:free', relation: user, object: 'organization_member:free' }
           - { user: 'organization_member:free#user', relation: member, object: 'organization:free' }
@@ -299,7 +299,6 @@ tests:
           - { user: 'project:free', relation: project, object: 'dashboard:free' }
           - { user: 'resource:free', relation: resource, object: 'dashboard:free' }
           - { user: 'access_policy:free', relation: policy, object: 'dashboard:free' }
-          - { user: 'user:*', relation: restricted, object: 'dashboard:free' }
       check:
           - user: user:free
             object: project:free

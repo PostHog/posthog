@@ -202,12 +202,11 @@ Use the fixtures in `products/authz/model/fixtures.yaml` and the test files next
   Without project rules, access-control-enabled organizations default to project admin; other organizations default to project member.
 - Organization admins and owners bypass resource and object rules.
   Creators bypass object restrictions but still require project membership.
-  Explicit project admins can manage access and bypass legacy dashboard collaborator restrictions, but cannot bypass resource or object rules.
+  Explicit project admins can manage access, but cannot bypass resource or object rules.
   The implicit project-admin default alone does not grant `can_manage_access`.
-- For legacy collaborator-only dashboards, set `restricted` to `user:*` and write `collaborator` tuples for edit privileges.
-  Link attached insights to their dashboards and set `has_dashboard` to `user:*` while any attachment exists.
-  Remove the marker when the last attachment is removed.
-  An insight passes this legacy write gate if any attached dashboard permits editing, or if it has no attachments.
+- Dashboard and insight edit permissions use their own resolved access rules.
+  OpenFGA ignores legacy dashboard collaborator restrictions, and attaching an insight to a dashboard does not change its edit permission.
+  The Python authorization path retains its existing collaborator checks, so shadow comparisons can intentionally differ.
 - When member visibility is restricted, link a membership's `project` relations only to projects that grant that member scoped access, excluding the organization-admin bypass.
   This lets peers with access to a shared project see the membership.
 - Check `can_create` on the resource for creation and use `ListObjects` with `can_view` to filter individual objects.
@@ -250,7 +249,7 @@ API queries and authorization listings omit deleted dashboards.
 Legacy dashboard collaborator privileges also trigger reconciliation.
 Rolled-back transactions enqueue nothing.
 The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
-The mirror covers project rules and dashboard resource and object rules; other resource types, including insights, are not mirrored yet.
+The mirror covers project rules and dashboard and insight resource and object rules.
 
 The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
 It deletes obsolete grants before writing replacements.
