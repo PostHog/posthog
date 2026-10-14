@@ -455,8 +455,16 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 source: generatedQuery
                     ? mergeBIQuerySource(visualization.source, generatedQuery.node.source)
                     : { ...visualization.source, query: '' },
-                chartSettings: mergeBIChartSettings(visualization.chartSettings, generatedQuery?.node.chartSettings),
-                tableSettings: mergeBITableSettings(visualization.tableSettings, generatedQuery?.node.tableSettings),
+                chartSettings: mergeBIChartSettings(
+                    visualization.chartSettings,
+                    generatedQuery?.node.chartSettings,
+                    buildBIQuery(visualization.config)?.node.chartSettings
+                ),
+                tableSettings: mergeBITableSettings(
+                    visualization.tableSettings,
+                    generatedQuery?.node.tableSettings,
+                    buildBIQuery(visualization.config)?.node.tableSettings
+                ),
             }),
         ],
         hasUnsavedChanges: [

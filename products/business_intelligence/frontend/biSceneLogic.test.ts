@@ -230,6 +230,14 @@ describe('biSceneLogic', () => {
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
         node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
+        logic.actions.setVisualization({
+            ...logic.values.worksheet,
+            chartSettings: {
+                ...logic.values.worksheet.chartSettings,
+                xAxisLabel: 'Event date',
+                leftYAxisSettings: { label: 'Revenue', scale: 'logarithmic' },
+            },
+        })
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(1)
@@ -246,6 +254,11 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.config).toEqual({ ...config, hierarchies: [hierarchy] })
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
         expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
+        expect(logic.values.worksheet.chartSettings?.xAxisLabel).toBe('Event date')
+        expect(logic.values.worksheet.chartSettings?.leftYAxisSettings).toMatchObject({
+            label: 'Revenue',
+            scale: 'logarithmic',
+        })
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 

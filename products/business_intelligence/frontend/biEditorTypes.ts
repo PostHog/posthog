@@ -101,7 +101,8 @@ export interface BIQueryBuildResult {
 
 export function mergeBIChartSettings(
     current: ChartSettings | undefined,
-    generated: ChartSettings | undefined
+    generated: ChartSettings | undefined,
+    previousDefaults?: ChartSettings
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -113,7 +114,18 @@ export function mergeBIChartSettings(
     return {
         ...current,
         ...generated,
-        leftYAxisSettings: { ...current?.leftYAxisSettings, ...generated.leftYAxisSettings },
+        xAxisLabel:
+            current?.xAxis?.column === generated.xAxis?.column && current?.xAxisLabel !== previousDefaults?.xAxisLabel
+                ? (current?.xAxisLabel ?? generated.xAxisLabel)
+                : generated.xAxisLabel,
+        leftYAxisSettings: {
+            ...generated.leftYAxisSettings,
+            ...current?.leftYAxisSettings,
+            label:
+                current?.leftYAxisSettings?.label !== previousDefaults?.leftYAxisSettings?.label
+                    ? (current?.leftYAxisSettings?.label ?? generated.leftYAxisSettings?.label)
+                    : generated.leftYAxisSettings?.label,
+        },
         xAxis: generated.xAxis
             ? {
                   ...(current?.xAxis?.column === generated.xAxis.column ? current.xAxis : {}),
@@ -255,8 +267,7 @@ export function isBIFieldCompatible(source: BIDataSource | null, field: BIField)
 }
 
 export function defaultAggregationForField(field: BIField): BIAggregation {
-    const baseTableName = field.source.table.replaceAll('`', '').split('.').pop() ?? field.source.table
-    if (['id', 'uuid', `${baseTableName}_id`].includes(field.name)) {
+    if (isIdentifierBIField(field)) {
         return 'count'
     }
 
@@ -265,17 +276,20 @@ export function defaultAggregationForField(field: BIField): BIAggregation {
 
 const IDENTIFIER_FIELD_NAME_REGEX = /(^|_)(id|uuid)$/i
 
-/** Numeric fields that are not identifiers aggregate by default, like measures in a BI tool. */
+function isIdentifierBIField(field: BIField): boolean {
+    return IDENTIFIER_FIELD_NAME_REGEX.test(
+        field.name
+            .split('.')
+            .pop()!
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    )
+}
+
 export function isBIMeasureField(field: BIField): boolean {
     if (field.localDefinition?.kind === 'expression') {
         return field.localDefinition.aggregate
     }
-    return (
-        !field.localDefinition &&
-        isNumericBIField(field) &&
-        defaultAggregationForField(field) !== 'count' &&
-        !IDENTIFIER_FIELD_NAME_REGEX.test(field.name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'))
-    )
+    return !field.localDefinition && (isNumericBIField(field) || isIdentifierBIField(field))
 }
 
 export const BI_SHELF_PILL_DRAG_MIME_TYPE = 'application/x-posthog-bi-shelf-pill'
@@ -1268,6 +1282,9 @@ export function getBIFieldPillLabel(field: BIField): string {
 }
 
 export function getBIValuePillLabel(value: BIValue): string {
+    if (value.display?.label?.trim()) {
+        return value.display.label.trim()
+    }
     if (value.tableCalculation) {
         return `${BI_TABLE_CALCULATIONS.find((option) => option.value === value.tableCalculation?.type)?.label} · ${getBIValuePillLabel({ ...value, tableCalculation: undefined })}`
     }
@@ -1552,7 +1569,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 filters: getBIQueryFilters(config),
             },
             display: config.chartType,
-            ...(calculatedFormats.length
+            ...(calculatedFormats.length || dimensions.length
                 ? {
                       tableSettings: {
                           columns: [
@@ -1567,7 +1584,22 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                     )),
                               ...configuredValues.map((value) => value.alias),
                               ...(comparing ? ['bi_comparison'] : []),
-                          ].map((column) => calculatedFormats.find((format) => format.column === column) ?? { column }),
+                          ].map((column) => {
+                              const dimension = dimensions.find(
+                                  (dimension) =>
+                                      (hasBIAnalysis(config) || comparing || hasSeriesBreakdown || isPivotTable
+                                          ? dimension.alias
+                                          : fieldExpression(dimension.field)) === column
+                              )
+                              return (
+                                  calculatedFormats.find((format) => format.column === column) ?? {
+                                      column,
+                                      ...(dimension
+                                          ? { settings: { display: { label: getBIFieldPillLabel(dimension.field) } } }
+                                          : {}),
+                                  }
+                              )
+                          }),
                       },
                   }
                 : {}),

@@ -31,6 +31,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { BIChartAxisControls } from 'products/business_intelligence/frontend/BIChartAxisControls'
 import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
@@ -384,6 +385,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     pointClickHint={canDrill ? 'Click to explore this result' : undefined}
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
+                    {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
+                        <BIChartAxisControls onEdit={props.context.onEditBIAxis} />
+                    )}
                 </SqlChart>
             </BindLogic>
         )

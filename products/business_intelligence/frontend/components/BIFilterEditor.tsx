@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil } from '@posthog/icons'
+import { IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
@@ -30,6 +30,16 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
 
     return (
         <div className="flex w-80 flex-col gap-3 p-1">
+            <div className="flex items-center justify-between">
+                <span className="font-semibold">Edit filter</span>
+                <LemonButton
+                    icon={<IconX />}
+                    type="tertiary"
+                    size="xsmall"
+                    aria-label="Close filter editor"
+                    onClick={onDone}
+                />
+            </div>
             <div className="flex flex-col gap-1">
                 <LemonLabel>Field</LemonLabel>
                 <HogQLDropdown
