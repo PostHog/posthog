@@ -11,6 +11,7 @@ import {
     CohortMembershipSweepConfig,
     CohortMembershipSweeper,
     MembershipWatermarks,
+    SweptMember,
 } from './sweeper.service'
 
 jest.setTimeout(30_000)
@@ -254,6 +255,54 @@ describe('CohortMembershipSweeper', () => {
 
         // A second cycle must not re-sweep a finished run.
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
+    })
+
+    it('should publish each in-cohort row it deletes as left, and keep the page when publishing fails', async () => {
+        let publishFailure: Error | null = new Error('broker unavailable')
+        const published: SweptMember[] = []
+        sweeper = new CohortMembershipSweeper(
+            config,
+            postgres,
+            {
+                cluster: CLUSTER,
+                topic: TOPIC,
+                captureMembershipWatermarks: () => Promise.resolve(watermarks),
+                refreshConsumerProgress: () => Promise.resolve(),
+            },
+            (members) => {
+                if (publishFailure) {
+                    return Promise.reject(publishFailure)
+                }
+                published.push(...members)
+                return Promise.resolve()
+            }
+        )
+        await readyRun()
+        await openGate()
+
+        const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        const preFeature = await insertMembership(TEAM_ID, COHORT_ID, UNVERSIONED)
+        const alreadyLeft = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        await query('UPDATE cohort_membership SET in_cohort = false WHERE person_id = $1', [alreadyLeft])
+
+        // A delete that commits without its publish would leave the person a member downstream for good.
+        await expect(sweeper.runOnce()).rejects.toThrow('broker unavailable')
+        expect(await survivingPersonIds()).toEqual([stale, preFeature, alreadyLeft].sort((a, b) => a.localeCompare(b)))
+
+        publishFailure = null
+        await query(`UPDATE cohort_membership_sweeps SET status = 'ready', claim_token = NULL WHERE run_id = $1`, [
+            runId,
+        ])
+
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 3 })
+        expect(await survivingPersonIds()).toEqual([])
+        expect(published.sort((a, b) => a.personId.localeCompare(b.personId))).toEqual(
+            [
+                { teamId: TEAM_ID, cohortId: COHORT_ID, personId: stale, version: '2026-05-26 11:00:00.000001' },
+                // ClickHouse stores a versionless change at the epoch, so the left has to outrank that.
+                { teamId: TEAM_ID, cohortId: COHORT_ID, personId: preFeature, version: '1970-01-01 00:00:00.000001' },
+            ].sort((a, b) => a.personId.localeCompare(b.personId))
+        )
     })
 
     it.each([

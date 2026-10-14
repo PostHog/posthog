@@ -31,6 +31,7 @@ Two of them are read outside it.
   After a restart or a partition move, the new worker's stamps follow the wall clock, so a clock that went back can stamp a newer change below an older one.
 - `origin` and `run_id` are set only by backfill: `seed` for seed apply, `reconcile` for reconcile.
   Live changes carry neither.
+  The sweep, not the processor, writes a fourth kind, with `origin` `sweep` (see [Publishing deletes](#publishing-deletes)).
 
 The processor's output topic is configured by `COHORT_MEMBERSHIP_CHANGED_TOPIC`.
 Its compiled default is `cohort_membership_changed_shadow`, which only a parity diagnostic reads, so a deployment must point it at `cohort_membership_changed` for the table to fill.
@@ -80,6 +81,8 @@ Two settings, both off by default, decide how much of what follows runs:
   Without it, the consumer does one plain upsert per batch, and the last message in Kafka order wins.
 - `COHORT_MEMBERSHIP_SWEEP_ENABLED` turns on the marker consumer and the sweep.
   It requires version writes and the marker topic.
+- `COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES` makes the sweep publish the members it deletes.
+  It does nothing without the sweep.
 
 Each pod refuses the sweep without version writes, but nothing checks the pairing across the fleet.
 During a rolling change, a pod with version writes off writes rows without a new version, and a sweep on another pod can delete them even when a reconcile just asserted them.
@@ -87,7 +90,7 @@ So turn version writes on across the whole fleet before turning the sweep on, an
 
 With version writes on, for each batch the consumer:
 
-1. parses and validates every message,
+1. parses and validates every message, and drops `sweep` changes, which describe rows already deleted,
 2. keeps one change per `(team, cohort, person)`: the highest version, with Kafka order breaking ties,
 3. runs one transaction that
    - upserts the rows, applying a change only if its version is at least the stored version,
@@ -159,6 +162,34 @@ A run that an edit superseded after its reconcile was dispatched can still colle
 The processor discards the remaining requests only when the edit moved the shape hash of the run's kind, and it cannot take back markers it already produced.
 A run with every marker sweeps like any other run.
 A run whose markers stay incomplete never leaves `collecting`, and it is abandoned after a few days.
+
+### Publishing deletes
+
+The ClickHouse table `realtime_cohort_membership` reads the same topic as the consumer, so it gets every processor change.
+A sweep deletes rows in Postgres without a processor change, so ClickHouse would keep those people as members.
+
+With `COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES` on, each delete page also publishes one change per deleted row with `in_cohort = true`:
+
+```json
+{
+  "team_id": 7,
+  "cohort_id": 42,
+  "person_id": "0190a8f2-...",
+  "status": "left",
+  "last_updated": "<the deleted row's version plus one microsecond>",
+  "origin": "sweep"
+}
+```
+
+- A row with `in_cohort = false` gets no change, because ClickHouse already reads it as `left`.
+- The version is one microsecond past the deleted row's version, so it outranks every change that row applied.
+  A row with version `-infinity` gets `1970-01-01 00:00:00.000001`, because ClickHouse stores a change without a version at the epoch.
+- The sweeper publishes inside the delete transaction, before the commit.
+  If the publish fails, the page rolls back and the next claim retries it.
+  Nothing revisits a deleted row, so a publish lost after the commit would leave the person a member in ClickHouse for good.
+- The consumer skips `sweep` changes but counts their offsets, so the gate still sees them as applied.
+  A pod without that skip writes the row back with `in_cohort = false`, which reads the same, and the next sweep deletes it without publishing again.
+  Even so, turn the setting on only after every consumer pod runs a release that skips them.
 
 ### What the table converges to
 

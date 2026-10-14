@@ -247,6 +247,9 @@ export type CdpConfig = ClickhouseConfig & {
     COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
     COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: number
     COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: number
+    // Publishes each in-cohort row the sweep deletes as a 'left' change on the membership topic,
+    // so the ClickHouse copy drops it too. Turn on only once every consumer pod skips those changes.
+    COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES: boolean
 
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
@@ -462,5 +465,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: 1000,
         COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: 300000,
         COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
+        COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES: false,
     }
 }

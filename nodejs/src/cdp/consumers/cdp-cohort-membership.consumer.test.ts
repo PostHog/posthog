@@ -510,9 +510,9 @@ describe('CdpCohortMembershipConsumer', () => {
         })
 
         it('should advance consumer progress to the next offset without ever regressing it', async () => {
-            const rowOnPartition = (partition: number, offset: number) =>
+            const rowOnPartition = (partition: number, offset: number, origin?: string) =>
                 createKafkaMessage(
-                    createCohortMembershipEvent({ person_id: new UUIDT().toString(), team_id: teamId }),
+                    createCohortMembershipEvent({ person_id: new UUIDT().toString(), team_id: teamId, origin }),
                     {
                         topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
                         partition,
@@ -520,12 +520,25 @@ describe('CdpCohortMembershipConsumer', () => {
                     }
                 )
 
-            await sweepConsumer['handleBatch']([rowOnPartition(3, 10), rowOnPartition(3, 11), rowOnPartition(7, 5)])
+            // A sweep change names a row the sweep already deleted, so it must not write the row
+            // back, but its offset still has to count or the gate would wait on it forever.
+            await sweepConsumer['handleBatch']([
+                rowOnPartition(3, 10),
+                rowOnPartition(3, 11),
+                rowOnPartition(7, 5, 'sweep'),
+            ])
 
             expect(await readProgress()).toEqual([
                 { partition: 3, next_offset: '12' },
                 { partition: 7, next_offset: '6' },
             ])
+            const written = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT count(*)::int AS count FROM cohort_membership WHERE team_id = $1',
+                [teamId],
+                'testQuery'
+            )
+            expect(written.rows[0].count).toBe(2)
 
             // A rebalance can replay from an older committed offset; the gate must not walk back.
             await sweepConsumer['handleBatch']([rowOnPartition(3, 0)])

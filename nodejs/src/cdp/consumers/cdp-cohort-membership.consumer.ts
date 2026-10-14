@@ -12,10 +12,13 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'
+import { WARPSTREAM_INGESTION_PRODUCER } from '../outputs/producers'
 import {
     CohortMembershipSweeper,
     MembershipWatermarks,
     PRODUCER_VERSION_FORMAT,
+    SWEEP_ORIGIN,
+    SweptMember,
     VERSIONLESS,
 } from '../services/cohort-membership/sweeper.service'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -29,6 +32,7 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
         | 'COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE'
         | 'COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS'
         | 'COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS'
+        | 'COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES'
     >
 
 /**
@@ -179,12 +183,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 { groupId: 'cdp-cohort-membership-sweeper', topic: KAFKA_COHORT_RECONCILE_MARKERS },
                 START_AT_LATEST
             )
-            this.sweeper = new CohortMembershipSweeper(config, deps.postgres, {
-                cluster: this.membershipCluster,
-                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
-                refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
-            })
+            this.sweeper = new CohortMembershipSweeper(
+                config,
+                deps.postgres,
+                {
+                    cluster: this.membershipCluster,
+                    topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                    captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
+                    refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
+                },
+                config.COHORT_MEMBERSHIP_SWEEP_PUBLISH_DELETES ? (members) => this.publishSweptMembers(members) : null
+            )
         }
     }
 
@@ -484,6 +493,27 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         )
     }
 
+    /**
+     * Written to the topic this consumer reads, on the cluster it reads it from, keyed by person
+     * like the processor's own changes.
+     */
+    private async publishSweptMembers(members: SweptMember[]): Promise<void> {
+        await this.deps.cdpProducerRegistry.getProducer(WARPSTREAM_INGESTION_PRODUCER).queueMessages({
+            topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+            messages: members.map((member) => ({
+                key: member.personId,
+                value: JSON.stringify({
+                    team_id: member.teamId,
+                    cohort_id: member.cohortId,
+                    person_id: member.personId,
+                    status: 'left',
+                    last_updated: member.version,
+                    origin: SWEEP_ORIGIN,
+                }),
+            })),
+        })
+    }
+
     private _parseAndValidateBatch(messages: Message[]): CohortMembershipChange[] {
         const cohortMembershipChanges: CohortMembershipChange[] = []
 
@@ -544,7 +574,11 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     }
 
     private async handleBatch(messages: Message[]): Promise<void> {
-        const cohortMembershipChanges = this._parseAndValidateBatch(messages)
+        // A sweep change describes a row the sweep already deleted here. Applying it would write
+        // the row back. Its offset still counts toward progress below.
+        const cohortMembershipChanges = this._parseAndValidateBatch(messages).filter(
+            (change) => change.origin !== SWEEP_ORIGIN
+        )
         const progress = this.config.COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED
             ? partitionProgressFromMessages(messages)
             : []

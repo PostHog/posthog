@@ -33,6 +33,19 @@ export const PRODUCER_VERSION_FORMAT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d
  */
 export const VERSIONLESS = '-infinity'
 
+/**
+ * The `origin` a sweep stamps on the membership changes it publishes. The membership consumer skips
+ * these: they exist for copies of the table outside Postgres, and the row they describe is gone.
+ */
+export const SWEEP_ORIGIN = 'sweep'
+
+/**
+ * The version a sweep publishes for a deleted row that never carried one. ClickHouse stores a
+ * change without `last_updated` at the epoch, its column default, so this is the smallest stamp
+ * that outranks it.
+ */
+const VERSIONLESS_LEFT_VERSION = '1970-01-01 00:00:00.000001'
+
 /** All 64 bits set, read as a signed 64-bit integer. Same convention as the seeder's ledger. */
 const ALL_MARKERS = '-1'
 
@@ -80,6 +93,15 @@ export type SweepCycleResult = {
     rowsDeleted: number
     blocked: number
     abandoned: number
+}
+
+/** A person a sweep removed from a cohort, for copies of the membership table to drop. */
+export type SweptMember = {
+    teamId: number
+    cohortId: number
+    personId: string
+    /** One microsecond past the deleted row's version, so it outranks every change the row applied. */
+    version: string
 }
 
 type ClaimableRun = {
@@ -130,6 +152,11 @@ const rowsSwept = new Counter({
     help: 'Stale cohort_membership rows deleted by a sweep',
 })
 
+const sweptMembersPublished = new Counter({
+    name: 'cdp_cohort_membership_swept_members_published',
+    help: 'In-cohort rows a sweep deleted and published as left for downstream copies',
+})
+
 const sweepsGateBlocked = new Counter({
     name: 'cdp_cohort_membership_sweeps_gate_blocked',
     help: 'Sweep attempts held back because the membership consumer had not passed the snapshot',
@@ -178,7 +205,9 @@ export class CohortMembershipSweeper {
             topic: string
             captureMembershipWatermarks: () => Promise<MembershipWatermarks>
             refreshConsumerProgress: () => Promise<void>
-        }
+        },
+        /** Off when null. Must resolve only once every member is durably published. */
+        private publishSweptMembers: ((members: SweptMember[]) => Promise<void>) | null = null
     ) {}
 
     /**
@@ -591,34 +620,72 @@ export class CohortMembershipSweeper {
             // way out of Postgres, so it can sit up to 999 microseconds below the stored minimum.
             // Truncation only ever lowers it, which makes the sweep under-delete, never
             // over-delete; the next reconcile deletes the sliver it leaves behind.
-            const result = await this.postgres.query<{ version: string; id: string }>(
+            //
+            // A deleted row is never revisited, so a member whose publish was lost would stay a
+            // member downstream for good. Publishing before the commit makes a failed publish roll
+            // the page back for the next claim to retry. A commit that fails after the publish
+            // only sends a 'left' early: the next sweep deletes the row anyway, and a refreshed
+            // row carries a newer version that outranks it.
+            const result = await this.postgres.transaction(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
-                `
-                    WITH candidates AS (
-                        SELECT id FROM cohort_membership
-                        WHERE team_id = $1 AND cohort_id = $2
-                          AND version < $3::timestamp
-                          AND (version, id) > ($5::timestamp, $6::bigint)
-                        ORDER BY version, id
-                        LIMIT $4
-                        FOR UPDATE SKIP LOCKED
+                'sweepCohortMembershipPage',
+                async (tx) => {
+                    const page = await this.postgres.query<{
+                        version: string
+                        id: string
+                        person_id: string
+                        in_cohort: boolean
+                        left_version: string
+                    }>(
+                        tx,
+                        `
+                            WITH candidates AS (
+                                SELECT id FROM cohort_membership
+                                WHERE team_id = $1 AND cohort_id = $2
+                                  AND version < $3::timestamp
+                                  AND (version, id) > ($5::timestamp, $6::bigint)
+                                ORDER BY version, id
+                                LIMIT $4
+                                FOR UPDATE SKIP LOCKED
+                            )
+                            DELETE FROM cohort_membership m
+                            USING candidates c
+                            WHERE m.id = c.id AND m.version < $3::timestamp
+                            RETURNING COALESCE(
+                                to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US'), '${VERSIONLESS}'
+                            ) AS version, m.id, m.person_id, m.in_cohort,
+                            COALESCE(
+                                to_char(m.version + interval '1 microsecond', 'YYYY-MM-DD HH24:MI:SS.US'),
+                                '${VERSIONLESS_LEFT_VERSION}'
+                            ) AS left_version
+                        `,
+                        [
+                            run.team_id,
+                            run.cohort_id,
+                            run.threshold,
+                            this.config.COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE,
+                            cursorVersion,
+                            cursorId,
+                        ],
+                        'sweepCohortMembership'
                     )
-                    DELETE FROM cohort_membership m
-                    USING candidates c
-                    WHERE m.id = c.id AND m.version < $3::timestamp
-                    RETURNING COALESCE(
-                        to_char(m.version, 'YYYY-MM-DD HH24:MI:SS.US'), '${VERSIONLESS}'
-                    ) AS version, m.id
-                `,
-                [
-                    run.team_id,
-                    run.cohort_id,
-                    run.threshold,
-                    this.config.COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE,
-                    cursorVersion,
-                    cursorId,
-                ],
-                'sweepCohortMembership'
+
+                    // A row already out of the cohort reads as 'left' downstream, so it needs no message.
+                    const leftMembers = page.rows.filter((row) => row.in_cohort)
+                    if (this.publishSweptMembers && leftMembers.length > 0) {
+                        await this.publishSweptMembers(
+                            leftMembers.map((row) => ({
+                                teamId: Number(run.team_id),
+                                cohortId: Number(run.cohort_id),
+                                personId: row.person_id,
+                                version: row.left_version,
+                            }))
+                        )
+                        sweptMembersPublished.inc(leftMembers.length)
+                    }
+
+                    return page
+                }
             )
 
             lastBatch = result.rowCount ?? 0
