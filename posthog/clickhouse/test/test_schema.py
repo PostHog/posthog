@@ -15,6 +15,7 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLIC
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.property_groups import flag_evaluations_property_group_definitions, iter_groups
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -249,6 +250,12 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
 # The comment above _COPIED_COLUMNS gives the reason the backfill leaves out each of these columns.
 _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
 
+# MATERIALIZED, so no insert can name them, and every shard computes them from the JSON.
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = {
+    group_definition.get_column_name(source_column, group_name)
+    for source_column, group_name, group_definition in iter_groups(flag_evaluations_property_group_definitions)
+}
+
 
 def test_flag_evaluations_backfill_copies_every_stored_column():
     # A column that the backfill does not copy gets its DEFAULT on every backfilled row. No error
@@ -258,7 +265,12 @@ def test_flag_evaluations_backfill_copies_every_stored_column():
     typed = set(_declared_column_names(_FLAG_EVALUATIONS_TYPED_COLUMNS))
 
     assert typed
-    assert stored == set(_COPIED_COLUMNS) | typed | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+    assert stored == (
+        set(_COPIED_COLUMNS)
+        | typed
+        | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+        | _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS
+    )
 
 
 def _hogql_column_names(table: Table) -> set[str]:
@@ -282,6 +294,7 @@ _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
     "person_properties",
     "person_created_at",
     "person_mode",
+    *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS,
 }
 
 

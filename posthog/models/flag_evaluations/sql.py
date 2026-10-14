@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -6,6 +8,12 @@ from posthog.clickhouse.kafka_engine import (
     kafka_engine,
     trim_quotes_expr,
     ttl_period,
+)
+from posthog.clickhouse.property_groups import (
+    flag_evaluations_property_group_definitions,
+    iter_groups,
+    property_groups,
+    without_materialization,
 )
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
@@ -172,6 +180,30 @@ _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
     , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
 """
 
+
+# Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
+# person properties on events from these maps instead of the JSON. They are MATERIALIZED, unlike
+# the typed columns above, because no writer sets them. Property removal copies rows without them,
+# and the reingest recomputes them from the cleaned JSON, as on sharded_events. Each piece renders
+# on one line because posthog/clickhouse/test/test_schema.py reads one column per line.
+def _single_line(pieces: Iterable[str]) -> str:
+    return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
+
+
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = _single_line(
+    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_DATA_TABLE)
+)
+
+# The read table declares the map columns plain, without their indexes, like the typed columns.
+# They are not registered under its name yet, so HogQL keeps reading the JSON until every
+# environment has the columns.
+_FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS = _single_line(
+    group_definition.get_column_definition(source_column, group_name)
+    for source_column, group_name, group_definition in iter_groups(
+        without_materialization(flag_evaluations_property_group_definitions)
+    )
+)
+
 # The bloom filters cover point lookups the sort key can't serve (a specific user,
 # person, session, or flags-service request). The minmax on inserted_at serves
 # incremental consumers that checkpoint on it: partitioning is on timestamp, so an
@@ -211,6 +243,7 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
     {_FLAG_EVALUATIONS_TYPED_COLUMNS}
+    {_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
@@ -264,7 +297,8 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
+    FLAG_EVALUATIONS_TABLE,
+    typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS + _FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS,
 )
 
 
