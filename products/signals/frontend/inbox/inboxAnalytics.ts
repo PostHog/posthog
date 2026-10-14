@@ -139,7 +139,8 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
  * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
- * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section), `resolve` (marking a report done without an inbox PR), `resume_discussion` (reopening the
+ * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
  * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
@@ -149,6 +150,7 @@ export type InboxReportActionType =
     | 'clear_feedback'
     | 'resolve'
     | 'discuss'
+    | 'resume_discussion'
     | 'restore'
     | 'create_pr'
     | 'copy_implementation_prompt'
@@ -261,6 +263,10 @@ export type ScoutActionType =
     | 'choose_create_path'
     | 'switch_create_path'
     | 'test_precheck'
+    | 'focus_ask_ai'
+    | 'click_ask_ai_starter'
+    | 'ask_ai'
+    | 'save_note_from_ai'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
