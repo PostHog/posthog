@@ -47,6 +47,7 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
         go=("github.com/maxio-com/ab-golang-sdk",),
         maven=("com.maxio:advanced-billing-sdk",),
         rubygems=("maxio-advanced-billing-sdk", "chargify_api_ares", "chargify2"),
+        superseded_by=("Maxio",),
     )
 
     api_docs_url = "https://developers.maxio.com/"

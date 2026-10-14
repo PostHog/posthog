@@ -471,7 +471,6 @@ class PostgresSource(
     # one database import the same tables twice.
     codebase_detection = detect(
         env=(
-            "^DATABASE_URL$",
             "^POSTGRES_",
             "^PG(HOST|DATABASE|USER|PORT)$",
             "^PGPASSWORD$",
@@ -513,8 +512,6 @@ class PostgresSource(
             "pg-boss",
             "pgvector",
             "@electric-sql/pglite",
-            "knex",
-            "sequelize",
         ),
         pypi=(
             "psycopg",

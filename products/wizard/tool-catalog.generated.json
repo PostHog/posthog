@@ -3490,7 +3490,7 @@
             "warehouse_source_type": "Chargify",
             "wizard_setup_mode": "in-cli",
             "competes_with": [],
-            "superseded_by": [],
+            "superseded_by": ["Maxio"],
             "signals": {
                 "env_key_patterns": ["^CHARGIFY_"],
                 "script_hosts": ["js.chargify.com"],
@@ -11212,12 +11212,12 @@
                 "script_hosts": [],
                 "packages": {
                     "npm": ["mssql", "tedious"],
-                    "pypi": ["pyodbc", "pymssql", "mssql-python", "mssql-django"],
+                    "pypi": ["pymssql", "mssql-python", "mssql-django"],
                     "cargo": ["tiberius"],
                     "go": ["github.com/microsoft/go-mssqldb", "github.com/denisenkom/go-mssqldb"],
                     "hex": ["tds"],
                     "maven": ["com.microsoft.sqlserver:mssql-jdbc", "com.microsoft.sqlserver:mssql-jdbc_auth"],
-                    "rubygems": ["tiny_tds", "activerecord-sqlserver-adapter", "activerecord-aurora-serverless-adapter"]
+                    "rubygems": ["tiny_tds", "activerecord-sqlserver-adapter"]
                 }
             }
         },
@@ -14229,7 +14229,6 @@
             "superseded_by": ["Neon", "Supabase"],
             "signals": {
                 "env_key_patterns": [
-                    "^DATABASE_URL$",
                     "^POSTGRES_",
                     "^PG(HOST|DATABASE|USER|PORT)$",
                     "^PGPASSWORD$",
@@ -14272,9 +14271,7 @@
                         "node-pg-migrate",
                         "pg-boss",
                         "pgvector",
-                        "@electric-sql/pglite",
-                        "knex",
-                        "sequelize"
+                        "@electric-sql/pglite"
                     ],
                     "pypi": [
                         "psycopg",
