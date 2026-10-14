@@ -18,6 +18,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
 
+from products.engineering_analytics.backend.logic.ci_precompute import STORED_RUNS
 from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -136,29 +137,32 @@ class TestStoredReads(BaseTest):
 
     @parameterized.expand(
         [
-            ("stored_rows_older_than_the_sync", True, timedelta(minutes=30), timedelta(minutes=30)),
-            ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), timedelta(minutes=5)),
-            ("flag_off", False, timedelta(minutes=30), timedelta(minutes=5)),
-            ("the_stored_days_lookup_fails", True, OperationalError("down"), timedelta(minutes=5)),
+            ("stored_rows_older_than_the_sync", True, timedelta(minutes=30), True, timedelta(minutes=30)),
+            ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), True, timedelta(minutes=5)),
+            # The CI cards read runs alone, so stored runs bound the age without stored jobs.
+            ("only_the_runs_are_stored", True, timedelta(minutes=30), False, timedelta(minutes=30)),
+            ("flag_off", False, timedelta(minutes=30), True, timedelta(minutes=5)),
+            ("the_stored_days_lookup_fails", True, OperationalError("down"), True, timedelta(minutes=5)),
         ]
     )
     def test_ci_data_freshness_is_as_old_as_the_stored_rows_reads_take(
-        self, _name: str, flag: bool, stored_age: timedelta | Exception, expected_age: timedelta
+        self, _name: str, flag: bool, stored_age: timedelta | Exception, jobs_stored: bool, expected_age: timedelta
     ) -> None:
         now = timezone.now()
         ExternalDataSchema.objects.filter(team=self.team).update(last_synced_at=now - timedelta(minutes=5))
-        lookup: dict[str, Any] = (
-            {"side_effect": stored_age}
-            if isinstance(stored_age, Exception)
-            else {"return_value": SimpleNamespace(ready=True, job_ids=[uuid4()], computed_at=now - stored_age)}
-        )
+
+        def lookup(stored: Any, *_args: Any, **_kwargs: Any) -> SimpleNamespace:
+            if isinstance(stored_age, Exception):
+                raise stored_age
+            ready = jobs_stored or stored is STORED_RUNS
+            return SimpleNamespace(ready=ready, job_ids=[uuid4()], computed_at=now - stored_age)
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CURATED}.refresh_ci_precompute"),
             patch(f"{_CURATED}.team_flag", return_value=flag),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=now - timedelta(days=400)),
-            patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=lookup),
         ):
             freshness = CuratedGitHubSource.for_team(self.team).ci_data_freshness()
 

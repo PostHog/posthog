@@ -410,20 +410,18 @@ class StoredCiReader:
         self._starts: dict[LazyComputationTable, datetime | None] = {}
 
     def refreshed_at(self) -> datetime | None:
-        """When the stored days of today and yesterday were last computed, or None when a read of them
-        takes the raw tables. A refresh computes them every 15 minutes. Older days rarely change, so a
-        refresh computes them less often, and their age does not count here."""
+        """When the stored days of today and yesterday were last computed, the older of the tables that
+        reads can take, or None when reads of both tables take the raw tables. A refresh computes them
+        every 15 minutes. Older days rarely change, so a refresh computes them less often, and their
+        age does not count here."""
         yesterday = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         computed_at: list[datetime] = []
         for stored in (STORED_RUNS, STORED_JOBS):
             start = self._history_start(stored)
-            if start is None:
-                return None
-            result = self._check(stored, since=max(yesterday, start))
-            if not result.ready or result.computed_at is None:
-                return None
-            computed_at.append(result.computed_at)
-        return min(computed_at)
+            result = self._check(stored, since=max(yesterday, start)) if start else None
+            if result and result.ready and result.computed_at:
+                computed_at.append(result.computed_at)
+        return min(computed_at, default=None)
 
     def runs(self, floor: str | None) -> str | None:
         rows = self._run_rows(floor)
