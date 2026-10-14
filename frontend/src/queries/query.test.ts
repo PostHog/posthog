@@ -18,27 +18,9 @@ describe('query', () => {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const data = (await request.json()) as any
                     if (data.query?.kind === 'HogQLQuery') {
-                        const tableName = data.query.query.split(' ').at(-1)
                         return [
                             200,
-                            {
-                                results: [],
-                                clickhouse: 'clickhouse string',
-                                hogql: 'hogql string',
-                                is_cached: false,
-                                ...(tableName.startsWith('orders')
-                                    ? {
-                                          used_data_warehouse_sources: [
-                                              {
-                                                  id: 'src-1',
-                                                  source_type: 'Postgres',
-                                                  table_name: tableName,
-                                                  uses_history_table: tableName === 'orders_cdc' || undefined,
-                                              },
-                                          ],
-                                      }
-                                    : {}),
-                            },
+                            { results: [], clickhouse: 'clickhouse string', hogql: 'hogql string', is_cached: false },
                         ]
                     }
                     if (data.query?.kind === 'WebStatsTableQuery') {
@@ -150,14 +132,30 @@ describe('query', () => {
     })
 
     it.each([
-        ['orders_cdc', 1],
-        ['orders', 0],
-    ])('reports a history table read for a query on %s', async (tableName, expectedEvents) => {
-        const captureSpy = jest.spyOn(posthog, 'capture')
-        const q: HogQLQuery = setLatestVersionsOnQuery({
-            kind: NodeKind.HogQLQuery,
-            query: `select * from ${tableName}`,
+        [true, 1],
+        [undefined, 0],
+    ])('when uses_history_table is %s, sends %i history queried events', async (usesHistoryTable, expectedEvents) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    {
+                        results: [],
+                        is_cached: false,
+                        used_data_warehouse_sources: [
+                            {
+                                id: 'src-1',
+                                source_type: 'Postgres',
+                                table_name: 'orders_cdc',
+                                uses_history_table: usesHistoryTable,
+                            },
+                        ],
+                    },
+                ],
+            },
         })
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'select * from orders_cdc' })
         captureSpy.mockClear()
         await performQuery(q)
         const historyCalls = captureSpy.mock.calls.filter((call) => call[0] === 'data warehouse history table queried')

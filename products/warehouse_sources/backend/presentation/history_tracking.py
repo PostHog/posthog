@@ -14,18 +14,13 @@ if TYPE_CHECKING:
 HISTORY_ENABLED_EVENT = "data warehouse history enabled"
 HISTORY_DISABLED_EVENT = "data warehouse history disabled"
 
-_HISTORY_TABLE_MODES = frozenset({"cdc_only", "both"})
-
-
-def schema_keeps_history(schema: ExternalDataSchema) -> bool:
-    return schema.sync_type == ExternalDataSchema.SyncType.CDC and schema.cdc_table_mode in _HISTORY_TABLE_MODES
-
 
 def report_history_toggled(
     user: "User | AnonymousUser",
     schema: ExternalDataSchema,
     *,
     enabled: bool,
+    table_mode: str,
     request: Optional["Request"] = None,
 ) -> None:
     report_user_action(
@@ -35,7 +30,7 @@ def report_history_toggled(
             "source_type": schema.source.source_type,
             "source_id": str(schema.source_id),
             "schema_id": str(schema.id),
-            "table_mode": schema.cdc_table_mode if enabled else None,
+            "table_mode": table_mode,
         },
         team=schema.team,
         request=request,
@@ -46,9 +41,14 @@ def report_history_change(
     user: "User | AnonymousUser",
     schema: ExternalDataSchema,
     *,
-    kept_history_before: bool,
+    history_mode_before: str | None,
     request: Optional["Request"] = None,
 ) -> None:
-    keeps_history = schema_keeps_history(schema)
-    if keeps_history != kept_history_before:
-        report_history_toggled(user, schema, enabled=keeps_history, request=request)
+    """`history_mode_before` is the table mode the schema kept history in, or None if it kept none."""
+    if schema.keeps_history == (history_mode_before is not None):
+        return
+    if schema.keeps_history:
+        report_history_toggled(user, schema, enabled=True, table_mode=schema.cdc_table_mode, request=request)
+    else:
+        assert history_mode_before is not None
+        report_history_toggled(user, schema, enabled=False, table_mode=history_mode_before, request=request)

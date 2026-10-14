@@ -33,7 +33,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.information_schema import InformationSchemaTable
 from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
-from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
+from posthog.hogql.database.warehouse_usage import (
+    WarehouseSourceUsage,
+    extract_warehouse_sources,
+    merge_warehouse_sources,
+)
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
@@ -607,17 +611,7 @@ class HogQLQueryExecutor:
         except Exception:
             sources = []
         # jev source queries read their tables in separate executions.
-        merged: dict[str, WarehouseSourceUsage] = {}
-        for source in [*sources, *self._prompt_jev_warehouse_sources]:
-            existing = merged.get(source.id)
-            merged[source.id] = (
-                source
-                if existing is None
-                else dataclasses.replace(
-                    source, uses_history_table=existing.uses_history_table or source.uses_history_table
-                )
-            )
-        sources = list(merged.values())
+        sources = merge_warehouse_sources([*sources, *self._prompt_jev_warehouse_sources])
         self.used_data_warehouse_sources = sources
         return sources
 

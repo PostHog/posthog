@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Optional
 
@@ -30,7 +31,7 @@ def extract_warehouse_sources(
     if select_type is None:
         return []
 
-    usages: dict[str, WarehouseSourceUsage] = {}
+    usages: list[WarehouseSourceUsage] = []
     for table_type in extract_base_table_types(select_type):
         table = table_type.table
         if not isinstance(table, (S3Table, DirectPostgresTable)):
@@ -38,15 +39,24 @@ def extract_warehouse_sources(
         source_id = getattr(table, "external_data_source_id", None)
         if not source_id:
             continue
-        is_history_table = getattr(table, "is_history_table", False)
-        existing = usages.get(source_id)
-        if existing is None:
-            usages[source_id] = WarehouseSourceUsage(
+        usages.append(
+            WarehouseSourceUsage(
                 id=source_id,
                 source_type=getattr(table, "source_type", None),
                 table_name=getattr(table, "name", "") or "",
-                uses_history_table=is_history_table,
+                uses_history_table=getattr(table, "is_history_table", False),
             )
-        elif is_history_table and not existing.uses_history_table:
-            usages[source_id] = replace(existing, uses_history_table=True)
-    return list(usages.values())
+        )
+    return merge_warehouse_sources(usages)
+
+
+def merge_warehouse_sources(usages: Iterable[WarehouseSourceUsage]) -> list[WarehouseSourceUsage]:
+    """One entry per source, first-seen order. The source counts as history usage if any read was."""
+    merged: dict[str, WarehouseSourceUsage] = {}
+    for usage in usages:
+        existing = merged.get(usage.id)
+        if existing is None:
+            merged[usage.id] = usage
+        elif usage.uses_history_table and not existing.uses_history_table:
+            merged[usage.id] = replace(existing, uses_history_table=True)
+    return list(merged.values())

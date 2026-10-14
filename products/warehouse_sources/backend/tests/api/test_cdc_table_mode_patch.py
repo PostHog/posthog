@@ -625,16 +625,18 @@ def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(t
 
 
 @pytest.mark.parametrize(
-    ("old_mode", "patch", "expected_event"),
+    ("old_mode", "patch", "expected_event", "expected_table_mode"),
     [
-        ("consolidated", {"cdc_table_mode": "both"}, "data warehouse history enabled"),
-        ("both", {"cdc_table_mode": "consolidated"}, "data warehouse history disabled"),
-        ("cdc_only", {"sync_type": "full_refresh"}, "data warehouse history disabled"),
-        ("cdc_only", {"cdc_table_mode": "both"}, None),
-        ("consolidated", {"cdc_table_mode": "consolidated"}, None),
+        ("consolidated", {"cdc_table_mode": "both"}, "data warehouse history enabled", "both"),
+        ("both", {"cdc_table_mode": "consolidated"}, "data warehouse history disabled", "both"),
+        ("cdc_only", {"sync_type": "full_refresh"}, "data warehouse history disabled", "cdc_only"),
+        ("cdc_only", {"cdc_table_mode": "both"}, None, None),
+        ("consolidated", {"cdc_table_mode": "consolidated"}, None, None),
     ],
 )
-def test_patch_reports_history_enabled_and_disabled(team, user, client: HttpClient, old_mode, patch, expected_event):
+def test_patch_reports_history_enabled_and_disabled(
+    team, user, client: HttpClient, old_mode, patch, expected_event, expected_table_mode
+):
     source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
     client.force_login(user)
 
@@ -669,3 +671,4 @@ def test_patch_reports_history_enabled_and_disabled(team, user, client: HttpClie
     if expected_event:
         assert history_events[0]["properties"]["schema_id"] == str(schema.id)
         assert history_events[0]["properties"]["source_id"] == str(source.id)
+        assert history_events[0]["properties"]["table_mode"] == expected_table_mode

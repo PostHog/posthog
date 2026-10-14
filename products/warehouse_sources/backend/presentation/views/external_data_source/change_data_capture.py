@@ -39,10 +39,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.history_tracking import (
-    report_history_toggled,
-    schema_keeps_history,
-)
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
 from . import base
 
@@ -471,7 +468,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # every CDC schema — editor on the source isn't enough when a table is locked below it.
         self._assert_can_write_schemas(cdc_schemas)
         cdc_schema_ids = [schema.id for schema in cdc_schemas]
-        history_schemas = [schema for schema in cdc_schemas if schema_keeps_history(schema)]
+        history_schemas = [schema for schema in cdc_schemas if schema.keeps_history]
         # The bulk update below bypasses update_should_sync, which is what pauses a table's schedule, so
         # without this every former CDC table keeps syncing, and billing, on its old schedule. It runs
         # first: a failed pause then fails the request while CDC still reads as enabled, so a retry
@@ -570,7 +567,9 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             instance.save(update_fields=["job_inputs", "updated_at"])
 
         for schema in history_schemas:
-            report_history_toggled(request.user, schema, enabled=False, request=request)
+            report_history_toggled(
+                request.user, schema, enabled=False, table_mode=schema.cdc_table_mode, request=request
+            )
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
