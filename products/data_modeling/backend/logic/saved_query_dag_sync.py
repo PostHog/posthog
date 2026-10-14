@@ -680,6 +680,10 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
         sync_saved_query_to_dag(saved_query, dag=dag)
 
 
+class ManagedNodeMaterializingError(Exception):
+    """Raised when a managed view's node cannot move because a materialization of it is running."""
+
+
 def move_node_out_of_managed_dag(saved_query: "DataWarehouseSavedQuery", dag: DAG) -> DAG | None:
     """Move the saved query's node from the Revenue Analytics DAG into `dag`, returning the DAG it left."""
     with transaction.atomic():
@@ -695,6 +699,11 @@ def move_node_out_of_managed_dag(saved_query: "DataWarehouseSavedQuery", dag: DA
         managed_dag = node.dag
         for dag_id in sorted({managed_dag.id, dag.id}, key=str):
             lock_dag(saved_query.team_id, dag_id)
+            lock_dag_placements(saved_query.team_id, dag_id)
+        if DataModelingJob.objects.filter(
+            team_id=saved_query.team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
+        ).exists():
+            raise ManagedNodeMaterializingError(saved_query.name)
         source_ids = _delete_incoming_edges(saved_query.team_id, node)
         Edge.objects.filter(team_id=saved_query.team_id, source=node).delete()
         if Node.objects.filter(team_id=saved_query.team_id, dag=dag, saved_query=saved_query).exists():

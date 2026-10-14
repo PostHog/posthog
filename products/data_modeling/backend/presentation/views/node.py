@@ -234,9 +234,9 @@ class NodeSerializer(serializers.ModelSerializer):
             return None
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # Managed viewsets (e.g. Revenue Analytics) own their views' nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed nodes or moving any node into a managed DAG via the API.
+        # editing those nodes via the API.
         if self.instance is not None and self.instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be modified.")
         if self.instance is not None and self.instance.type == NodeType.METRIC:
@@ -293,6 +293,10 @@ def _managed_view_node_ids(team_id: int, node_ids: set[str]) -> set[str]:
             team_id=team_id, id__in=node_ids, saved_query__managed_viewset__isnull=False
         ).values_list("id", flat=True)
     }
+
+
+def _feeds_a_managed_view(node: Node) -> bool:
+    return node.outgoing_edges.filter(target__saved_query__managed_viewset__isnull=False).exists()
 
 
 def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
@@ -368,6 +372,8 @@ class NodeViewSet(
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         if instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
+        if _feeds_a_managed_view(instance):
+            raise serializers.ValidationError("A view PostHog manages reads from this node, so it can't be deleted.")
         if instance.type == NodeType.METRIC:
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
         delete_node(instance.team_id, instance.pk)

@@ -37,9 +37,9 @@ class EdgeSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # System-managed DAGs (e.g. Revenue Analytics) own their edges; the internal sync path
-        # maintains them directly via the ORM and bypasses this serializer. Block users from
-        # editing managed edges or moving any edge into a managed DAG via the API.
+        # Managed viewsets (e.g. Revenue Analytics) own the edges into their views; the internal
+        # sync path maintains them directly via the ORM and bypasses this serializer. Block users
+        # from editing those edges via the API.
         if self.instance is not None and self.instance.target.belongs_to_managed_viewset:
             raise serializers.ValidationError("Edges into views PostHog manages cannot be modified.")
         if self.instance is not None and _connects_a_metric(self.instance):

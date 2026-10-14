@@ -77,6 +77,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
         from products.data_modeling.backend.logic.saved_query_dag_sync import (  # noqa: PLC0415
+            ManagedNodeMaterializingError,
             move_node_out_of_managed_dag,
             sync_saved_query_to_dag,
         )
@@ -213,6 +214,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                         left_managed_dags.add(left_dag)
                     # reconcile once after both loops, not once per view
                     sync_saved_query_to_dag(saved_query, dag=dag, reconcile=False, database=dag_database)
+                except ManagedNodeMaterializingError:
+                    logger.info(
+                        "deferred_moving_managed_view_while_materializing",
+                        team_id=self.team_id,
+                        view_name=saved_query.name,
+                    )
                 except Exception as e:
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                     logger.warning(

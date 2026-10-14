@@ -708,8 +708,11 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Node.objects.filter(id=self.table_node.id).exists())
 
-    def test_cannot_delete_node_of_managed_view(self):
-        node = self._create_managed_node()
+    @parameterized.expand([("managed_view", False), ("table_a_managed_view_reads", True)])
+    def test_cannot_delete_node_of_managed_view(self, _name, delete_the_table):
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=managed_node)
+        node = self.table_node if delete_the_table else managed_node
 
         response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
 

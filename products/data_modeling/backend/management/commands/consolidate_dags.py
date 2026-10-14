@@ -45,6 +45,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     reconcile_dag_schedules,
 )
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError
@@ -593,6 +594,8 @@ class Command(BaseCommand):
         """
         self.stdout.write(f"\n  Source DAG {plan.dag.name} ({plan.dag.id}):")
         teardown_before_moves = plan.dag.is_managed
+        if teardown_before_moves and self._has_running_materialization(plan):
+            return "a materialization of one of its views is running; re-run once it finishes"
         if teardown_before_moves and not self._teardown_execute_dag_schedules(str(plan.dag.id)):
             return "execute-dag schedule teardown failed before any node moved; re-run to retry it"
         failed_moves: list[str] = []
@@ -737,10 +740,8 @@ class Command(BaseCommand):
                 "re-run with --apply to finish the finalize"
             )
         self.stdout.write(f"\n  finalize: target schedule mode {mode}")
-        if mode == MODE_V1 and bootstrap_tiers:
-            self._reconcile_target(target, require_tiered=False)
-            return set()
-        if mode not in (MODE_TIERED, MODE_LEGACY_V2):
+        creates_first_tiers = mode == MODE_V1 and bootstrap_tiers
+        if mode not in (MODE_TIERED, MODE_LEGACY_V2) and not creates_first_tiers:
             return set()
         self._seed_targets_from_intervals(target)
         nodes = list(schedulable_nodes(target).select_related("saved_query"))
@@ -753,9 +754,17 @@ class Command(BaseCommand):
             f"\n  swept v1 schedules for {len(nodes)} saved query(ies) ({len(v1_failed)} failed), "
             f"cleared sync_frequency_interval on {cleared}"
         )
-        if mode == MODE_TIERED:
-            self._reconcile_target(target, require_tiered=True)
+        if mode == MODE_TIERED or creates_first_tiers:
+            self._reconcile_target(target, require_tiered=not creates_first_tiers)
         return v1_failed
+
+    def _has_running_materialization(self, plan: SourceDagPlan) -> bool:
+        return DataModelingJob.objects.filter(
+            team_id=plan.dag.team_id,
+            status=DataModelingJobStatus.RUNNING,
+            saved_query_id__in=[item.saved_query.id for item in plan.moves]
+            + [drop.saved_query_id for drop in plan.drops],
+        ).exists()
 
     def _reconcile_target(self, target: DAG, *, require_tiered: bool) -> None:
         try:

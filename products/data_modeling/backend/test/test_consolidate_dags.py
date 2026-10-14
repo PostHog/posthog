@@ -21,6 +21,7 @@ from products.data_modeling.backend.logic.node_frequency import get_declared_tar
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -636,6 +637,36 @@ class TestConsolidateDags(BaseTest):
 
         remaining = set(DAG.objects.filter(name=REVENUE_ANALYTICS_DAG_NAME).values_list("id", flat=True))
         self.assertEqual(remaining, {dag.id for dag in managed_dags} if teardown_fails else set())
+
+    def test_a_running_materialization_keeps_the_managed_dag_and_its_schedules(self):
+        DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        managed_node = self._node(managed, managed_query)
+        DataModelingJob.objects.create(team=self.team, saved_query=managed_query, status=DataModelingJob.Status.RUNNING)
+
+        with _temporal_boundary() as mocks:
+            with self.assertRaisesRegex(CommandError, "incomplete"):
+                self._run(apply=True)
+
+        mocks.v2_delete.assert_not_called()
+        self.assertEqual(Node.objects.get(saved_query=managed_query).dag_id, managed_node.dag_id)
+
+    def test_folding_into_an_unscheduled_dag_seeds_targets_from_intervals(self):
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1", interval=H12)
+        self._node(managed, managed_query)
+
+        with _temporal_boundary() as mocks:
+            self._run(apply=True)
+
+        managed_query.refresh_from_db()
+        self.assertIsNone(managed_query.sync_frequency_interval)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=managed_query)), H12)
+        self.assertEqual(
+            mocks.tier_create.call_args.kwargs["id"],
+            tier_schedule_id(str(DAG.objects.get(team=self.team).id), H12),
+        )
 
     def test_a_managed_view_lands_from_the_managed_dag_not_from_a_user_dag_copy(self):
         target = DAG.get_or_create_default(self.team)

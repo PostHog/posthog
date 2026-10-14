@@ -10,6 +10,7 @@ from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyCon
 from products.data_modeling.backend.facade.models import (
     DAG,
     REVENUE_ANALYTICS_DAG_NAME,
+    DataModelingJob,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Node,
@@ -227,6 +228,29 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         self.assertEqual([node.dag_id for node in nodes], [default_dag.id])
         self.assertEqual(nodes[0].id == managed_node.id, not also_in_default_dag)
         self.assertFalse(Node.objects.filter(dag=ra_dag, saved_query__isnull=False).exists())
+
+    def test_sync_views_leaves_a_materializing_node_in_the_revenue_analytics_dag(self):
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+        managed_viewset.sync_views()
+        sq = (
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset=managed_viewset)
+            .exclude(deleted=True)
+            .first()
+        )
+        ra_dag = DAG.get_or_create_revenue_analytics(self.team)
+        Node.objects.filter(saved_query=sq).delete()
+        managed_node = Node.objects.create(team=self.team, saved_query=sq, dag=ra_dag, type=NodeType.MAT_VIEW)
+        DataModelingJob.objects.create(team=self.team, saved_query=sq, status=DataModelingJob.Status.RUNNING)
+
+        managed_viewset.sync_views()
+
+        self.assertEqual(
+            list(Node.objects.filter(team=self.team, saved_query=sq).values_list("id", "dag_id")),
+            [(managed_node.id, ra_dag.id)],
+        )
 
     def test_delete_with_views(self):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""
