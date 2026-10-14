@@ -252,11 +252,11 @@ def get_fan_out_rows(
             not isinstance(next_parent_token, str) or next_parent_token == parent_token
         ):
             raise ValueError("AWS Config returned an invalid page token. Try the sync again.")
-        if resume_key in names:
-            start = names.index(resume_key)
-        else:
-            # The saved parent no longer exists, so its child token cannot continue.
-            start, child_token, restarting_child = 0, None, False
+        if resume_key is not None and resume_key not in names:
+            # Replaying the page would append committed rows twice, so the retry must restart the destination.
+            manager.clear_state()
+            raise ValueError("An AWS Config parent resource changed during the sync. Try the sync again.")
+        start = names.index(resume_key) if resume_key is not None else 0
         resume_key = None
         if not names:
             manager.save_state(

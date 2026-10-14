@@ -299,32 +299,33 @@ def test_fan_out_walks_every_parent_and_child_page(
     manager.clear_state.assert_called_once()
 
 
-@pytest.mark.parametrize(
-    "state,expected_children",
-    [
-        (AwsConfigResumeConfig(parent_next_token="parent-2", parent_key="b", next_token="child-2"), [("b", "child-2")]),
-        (
-            AwsConfigResumeConfig(parent_next_token="parent-2", parent_key="deleted", next_token="child-2"),
-            [("a", None), ("b", None)],
-        ),
-    ],
-)
-def test_fan_out_resumes_at_saved_parent(
-    session: MagicMock, state: AwsConfigResumeConfig, expected_children: list[tuple[str, str | None]]
-) -> None:
+def test_fan_out_resumes_at_saved_parent(session: MagicMock) -> None:
     session.post.side_effect = [
         make_response({"ConfigRules": [{"ConfigRuleName": "a"}, {"ConfigRuleName": "b"}]}),
-        *[make_response({"EvaluationResults": []}) for _ in expected_children],
+        make_response({"EvaluationResults": []}),
     ]
-    manager = make_manager(state)
+    manager = make_manager(AwsConfigResumeConfig(parent_next_token="parent-2", parent_key="b", next_token="child-2"))
     list(
         cast(Iterable[Any], aws_config_source(make_config(), "rule_evaluation_results", "2014-11-12", manager).items())
     )
 
     payloads = [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
     assert payloads[0] == {"NextToken": "parent-2"}
-    assert [(payload["ConfigRuleName"], payload.get("NextToken")) for payload in payloads[1:]] == expected_children
+    assert [(payload["ConfigRuleName"], payload.get("NextToken")) for payload in payloads[1:]] == [("b", "child-2")]
     manager.clear_state.assert_called_once()
+
+
+def test_fan_out_missing_saved_parent_clears_state_and_fails_attempt(session: MagicMock) -> None:
+    session.post.return_value = make_response({"ConfigRules": [{"ConfigRuleName": "a"}]})
+    manager = make_manager(AwsConfigResumeConfig(parent_key="deleted", next_token="child-2"))
+    response = aws_config_source(make_config(), "rule_evaluation_results", "2014-11-12", manager)
+
+    with pytest.raises(ValueError, match="changed during the sync"):
+        list(cast(Iterable[Any], response.items()))
+
+    session.post.assert_called_once()
+    manager.clear_state.assert_called_once()
+    manager.save_state.assert_not_called()
 
 
 def test_expired_resume_token_clears_state_and_fails_attempt(session: MagicMock) -> None:
