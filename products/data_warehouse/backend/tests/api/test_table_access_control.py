@@ -100,7 +100,8 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         self.assertIn(str(self.table.id), ids)
         self.assertNotIn(str(other_table.id), ids)
 
-    def test_list_omits_tables_of_a_denied_source(self):
+    @parameterized.expand([("the source", True), ("every source", False)])
+    def test_list_omits_tables_of_a_denied_source(self, _name: str, deny_one_source: bool) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src",
@@ -121,7 +122,7 @@ class TestDataWarehouseTableAccessControl(WarehouseAccessControlTestMixin):
         AccessControl.objects.create(
             team=self.team,
             resource="external_data_source",
-            resource_id=str(source.id),
+            resource_id=str(source.id) if deny_one_source else None,
             access_level="none",
             organization_member=membership,
         )

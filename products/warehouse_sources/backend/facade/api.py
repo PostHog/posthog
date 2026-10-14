@@ -508,48 +508,68 @@ def _resolve_allowed_table_ids(
     candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
-    return _partition_tables_by_access(candidates, user_access_control, required_level)[0]
+    return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
 
 
-def denied_table_ids(
-    team_id: int,
-    user_access_control: "UserAccessControl",
-    *,
-    required_level: "AccessControlLevel" = "viewer",
-) -> frozenset[UUID]:
-    """Every table this caller may not reach at ``required_level``.
+def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[UUID]:
+    """Every table this caller may not view.
 
     Unlike :func:`allowed_table_ids`, this covers soft-deleted tables and tables of a soft-deleted
     source, for surfaces that list those rows.
     """
     if user_access_control.is_organization_admin:
         return frozenset()
-    return _partition_tables_by_access(
-        _DataWarehouseTable.raw_objects.filter(team_id=team_id), user_access_control, required_level
-    )[1]
+    candidates = _DataWarehouseTable.raw_objects.filter(team_id=team_id)
+    if user_access_control.has_resource_access("warehouse_table") and user_access_control.has_resource_access(
+        "external_data_source"
+    ):
+        # With access to both resources, only a rule on a table or on its source can deny the table,
+        # so the tables those rules name are the only candidates.
+        blocked = user_access_control.blocked_resource_ids_by_scope
+        table_ids = _valid_uuids(blocked.get("warehouse_table", frozenset()))
+        source_ids = _valid_uuids(blocked.get("external_data_source", frozenset()))
+        if not table_ids and not source_ids:
+            return frozenset()
+        candidates = candidates.filter(Q(id__in=table_ids) | Q(external_data_source_id__in=source_ids))
+    tables = _tables_for_access_check(candidates)
+    allowed = _allowed_tables(tables, user_access_control, "viewer")
+    return frozenset(table.id for table in tables if table.id not in allowed)
 
 
-def _partition_tables_by_access(
-    candidates: QuerySet[_DataWarehouseTable],
-    user_access_control: "UserAccessControl",
-    required_level: "AccessControlLevel",
-) -> tuple[frozenset[UUID], frozenset[UUID]]:
-    """The allowed and the denied ids among ``candidates``. A table resolves through its source."""
-    tables = list(
+def _valid_uuids(ids: Collection[str]) -> set[UUID]:
+    # A rule's resource_id is free text, and one malformed id must not break the id__in lookup.
+    valid: set[UUID] = set()
+    for value in ids:
+        try:
+            valid.add(UUID(value))
+        except ValueError:
+            continue
+    return valid
+
+
+def _tables_for_access_check(candidates: QuerySet[_DataWarehouseTable]) -> list[_DataWarehouseTable]:
+    return list(
         candidates.select_related("external_data_source").only(
             "id", "created_by_id", "external_data_source_id", "external_data_source__id"
         )
     )
+
+
+def _allowed_tables(
+    tables: list[_DataWarehouseTable],
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+) -> frozenset[UUID]:
+    """The ids among ``tables`` this caller may reach. A table resolves through its source."""
     sources = {
         table.external_data_source_id: table.external_data_source
         for table in tables
         if table.external_data_source is not None
     }
     user_access_control.preload_object_access_controls([*tables, *sources.values()])
-    allowed = frozenset(
+    return frozenset(
         table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
     )
-    return allowed, frozenset(table.id for table in tables) - allowed
 
 
 def all_queryable_tables(team_id: int) -> list[contracts.DataWarehouseTable]:
