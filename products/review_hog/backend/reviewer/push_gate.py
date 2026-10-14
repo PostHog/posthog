@@ -329,7 +329,11 @@ class PushGate:
             own_code_lines=lines,
         )
 
-    def _decide_push(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
+    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
+        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
+
+        Rules 1 to 5 only: `apply_draft_rule` adds rule 6 on top of the result.
+        """
         previous = self._pr_diff(base_branch, previous_head_sha)
         current = self._pr_diff(base_branch, head_sha)
         if previous is None or current is None:
@@ -361,15 +365,15 @@ class PushGate:
             return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
         return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
 
-    def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str, draft: bool) -> PushGateDecision:
-        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`."""
-        decision = self._decide_push(previous_head_sha=previous_head_sha, head_sha=head_sha, base_branch=base_branch)
-        if not draft or decision.skip:
-            return decision
-        return _matched(
-            "draft",
-            own_commits=decision.own_commits,
-            probability=decision.probability,
-            model=decision.model,
-            own_code_lines=decision.own_code_lines,
-        )
+
+def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:
+    """Rule 6, on top of `PushGate.decide`. A caller that finds the PR ready after all uses the decision it got."""
+    if not draft or decision.skip:
+        return decision
+    return _matched(
+        "draft",
+        own_commits=decision.own_commits,
+        probability=decision.probability,
+        model=decision.model,
+        own_code_lines=decision.own_code_lines,
+    )

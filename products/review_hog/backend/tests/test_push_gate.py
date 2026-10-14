@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
-from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision, apply_draft_rule
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _MODULE = "products.review_hog.backend.reviewer.push_gate"
@@ -78,9 +78,10 @@ def _decide(
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
         patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
-        return PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
-            previous_head_sha="old", head_sha="new", base_branch="master", draft=draft
+        decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
+            previous_head_sha="old", head_sha="new", base_branch="master"
         )
+        return apply_draft_rule(decision, draft=draft)
 
 
 def _system_one(probability: float) -> MagicMock:

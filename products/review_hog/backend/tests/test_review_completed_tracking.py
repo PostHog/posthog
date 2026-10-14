@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
@@ -406,6 +408,14 @@ class TestTrackReviewCompleted(BaseTest):
             # The queue drops a ready request for the head a running turn gates, so the gate reads GitHub again.
             ("marked_ready_while_the_turn_runs", [True], {"draft": False}, False, "compare_unavailable"),
             ("live_read_fails", [True], GitHubAPIError("boom", status=502), False, "compare_unavailable"),
+            (
+                "live_read_rate_limited",
+                [True],
+                GitHubRateLimitError("limited", retry_after=60),
+                False,
+                "compare_unavailable",
+            ),
+            ("live_read_over_budget", [True], GitHubEgressBudgetExhausted("shed"), False, "compare_unavailable"),
         ]
     )
     def test_the_gate_reads_the_draft_state_of_the_latest_fetch(
