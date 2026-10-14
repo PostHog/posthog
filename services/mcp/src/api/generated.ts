@@ -2665,6 +2665,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
       mergeFederatedAggregateJoins?: boolean | null;
+      /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
+      negatedPersonFiltersNotIn?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -53438,6 +53440,8 @@ export namespace Schemas {
       introScreenDescription?: string;
       /** Translated intro screen button text. */
       introScreenButtonText?: string;
+      /** Translated back button text. */
+      backButtonText?: string;
     }
 
     /**
@@ -55574,8 +55578,20 @@ export namespace Schemas {
       created_at?: number;
       updated_at?: number;
       filters?: HogFunctionFilters | null;
-      /** @maxLength 100 */
-      type: string;
+      /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+       *
+       * * `trigger` - trigger
+       * * `function` - function
+       * * `function_email` - function_email
+       * * `function_sms` - function_sms
+       * * `function_push` - function_push
+       * * `delay` - delay
+       * * `wait_until_condition` - wait_until_condition
+       * * `wait_until_time_window` - wait_until_time_window
+       * * `conditional_branch` - conditional_branch
+       * * `random_cohort_branch` - random_cohort_branch
+       * * `exit` - exit */
+      type: HogFlowActionTypeEnum;
       config: unknown;
       output_variable?: unknown;
     }
