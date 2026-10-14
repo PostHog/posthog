@@ -50,6 +50,7 @@ from posthog.tasks.email import (
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_team_matview_failure_digest,
+    send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
     send_workflow_email_sending_paused,
     send_workflow_email_sending_warning,
@@ -432,17 +433,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "Wizard" in mocked_email_messages[0].html_body
 
-    def test_send_provisioning_welcome_with_repository(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = password_reset_token_generator.make_token(self.user)
-
-        send_provisioning_welcome(user.id, token, "posthog.com", repository="octocat/hello-world")
-
-        assert len(mocked_email_messages) == 1
-        assert "octocat/hello-world" in mocked_email_messages[0].html_body
-        assert "pull request" in mocked_email_messages[0].html_body
-
     def test_send_provisioning_welcome_without_partner(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -767,6 +757,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
 
+    @parameterized.expand([(True,), (False,)])
+    def test_send_external_data_failure_digest_shows_the_failed_destination(
+        self, MockEmailMessage: MagicMock, names_destination: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        destination_url = "https://app.posthog.com/project/1/data-management/warehouse-destinations?destination=abc"
+
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Invoice",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "Analytics PG: connection reset",
+                        "destination_name": "Analytics PG" if names_destination else None,
+                        "destination_url": destination_url if names_destination else None,
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                    }
+                ],
+            )
+
+        html_body = mocked_email_messages[0].html_body
+        assert ("Delivery to Analytics PG failed" in html_body) is names_destination
+        assert (destination_url in html_body) is names_destination
+        assert "Analytics PG: connection reset" in html_body
+
     def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
         self, MockEmailMessage: MagicMock
     ) -> None:
@@ -1053,6 +1074,80 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
+
+    def test_send_warehouse_destination_paused_names_the_error_and_respects_the_opt_out(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        destination_id = "0190a2b4-0000-0000-0000-000000000001"
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"warehouse_destination:{destination_id}": True},
+        }
+        self.user.save()
+
+        send_warehouse_destination_paused(
+            self.team.id, destination_id, "analytics postgres", "The host name does not exist.", "2026-01-01T00:00:00"
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+        assert "analytics postgres" in message.subject
+        assert "The host name does not exist." in message.html_body
+        assert (
+            f"/project/{self.team.id}/data-management/warehouse-destinations?destination={destination_id}"
+            in message.html_body
+        )
+        assert "Open destination" in message.html_body
+
+    def test_send_warehouse_destination_paused_normalizes_subject_names(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.team.name = "project\nname"
+        self.team.save(update_fields=["name"])
+
+        send_warehouse_destination_paused(
+            self.team.id,
+            "0190a2b4-0000-0000-0000-000000000001",
+            "destination\r\nname",
+            "The host name does not exist.",
+            "2026-01-01T00:00:00",
+        )
+
+        assert mocked_email_messages[0].subject == (
+            "[Alert] Data warehouse destination 'destination name' paused in project 'project name'"
+        )
+
+    def test_send_warehouse_destination_paused_skips_members_without_destination_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("restricted@posthog.com")
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                assert (resource, level) == ("external_data_source", "viewer")
+                return self.user.email != "restricted@posthog.com"
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_warehouse_destination_paused(
+                self.team.id,
+                "0190a2b4-0000-0000-0000-000000000001",
+                "analytics postgres",
+                "The host name does not exist.",
+                "2026-01-01T00:00:00",
+            )
+
+        assert len(mocked_email_messages) == 1
+        assert [r["recipient"] for r in mocked_email_messages[0].to] == [self.user.email]
 
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

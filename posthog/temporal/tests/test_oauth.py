@@ -54,10 +54,6 @@ class TestResolveScopes(SimpleTestCase):
     def test_read_only_is_default(self) -> None:
         assert resolve_scopes() == resolve_scopes("read_only")
 
-    def test_scout_judge_has_no_live_project_or_shared_internal_scopes(self) -> None:
-        assert resolve_scopes("signals_scout_judge") == ["scout_experiment_internal:read"]
-        assert resolve_scopes("signals_scout_judge", include_internal_scopes=False) == []
-
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + [CONTEXT_LAYER_INTERNAL_SCOPE])
@@ -101,11 +97,16 @@ class TestResolveScopes(SimpleTestCase):
         # `has_write_scopes`) would otherwise hand it every task-write tool, including
         # setting a report's state.
         result = resolve_scopes("signals_research")
-        expected = set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES) - RESEARCH_WITHHELD_SCOPES
+        expected = (
+            set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCRATCHPAD_INTERNAL_SCOPES + ["signal_scout_internal:read"])
+            - RESEARCH_WITHHELD_SCOPES
+        )
         assert set(result) == expected
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
         assert "action:write" not in result
+
+        assert "signal_scout_internal:read" not in resolve_scopes("signals_research", include_internal_scopes=False)
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
@@ -511,19 +512,26 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         assert access_token.scoped_teams == [team.id]
         assert set(access_token.scope.split()) == set(scopes)
 
+    @parameterized.expand([("allowed", False), ("refused", True)])
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
-    @patch("posthog.temporal.oauth.security_shadow_check")
-    def test_mint_records_a_shadow_access_check(self, shadow: MagicMock) -> None:
+    @patch("posthog.temporal.oauth.security_access_refused")
+    def test_mint_asks_the_access_rules(self, _name: str, refused: bool, check: MagicMock) -> None:
+        check.return_value = refused
         self._create_wizard_app(scopes=["project:read", "llm_gateway:read"])
         user, team = self._create_user_and_team()
 
-        create_wizard_oauth_access_token_for_user(user, team.id)
+        if refused:
+            with pytest.raises(WizardIdentityBlockedError):
+                create_wizard_oauth_access_token_for_user(user, team.id)
+        else:
+            create_wizard_oauth_access_token_for_user(user, team.id)
 
-        shadow.assert_called_once()
-        subject, surface = shadow.call_args.args
+        check.assert_called_once()
+        subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
         assert subject.organization_ids == (str(team.organization_id),)
-        assert shadow.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert check.call_args.kwargs == {"call_site": "wizard_mint"}
+        assert OAuthAccessToken.objects.exists() is not refused
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:
@@ -548,6 +556,7 @@ class TestSignalsResearchToolset(SimpleTestCase):
     def test_opens_the_scratchpad_writes_and_nothing_else(self) -> None:
         granted = set(resolve_scopes("signals_research"))
         definitions: dict[str, dict] = json.loads(self._CATALOG.read_text())
+        assert set(definitions["scout-members-list"]["required_scopes"]) <= granted
 
         reachable_writes = {
             name

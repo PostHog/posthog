@@ -215,12 +215,17 @@ acts on it.
 - **New presentational components ship with a story** (handbook rule). Each committed story
   shows a state that no other story shows. A story adds a light and a dark visual review
   baseline, and every later change to that surface must re-approve both. A quarantined story's
-  diff does not gate the PR, so check for it and approve it by identifier
+  diff does not gate the PR. When your change alters that story, approve it by identifier.
+  When it does not, leave the diff alone: it is the flake the quarantine hides
   ([triaging-visual-review-runs](../../../products/visual_review/skills/triaging-visual-review-runs/SKILL.md#quarantined-stories-in-your-run)).
   A story written only
   to look at a change or to take a PR screenshot is scratch: keep it out of the commit.
   Flag-gated components use the `featureFlags` story parameter
   ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).
+  A story must render the same picture on every run: pin the clock, wait for readiness, and fix
+  the width of self-measuring content. Read
+  [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories)
+  before you write a story that loads data, measures itself, or uses timers, and when a story flakes.
 
 ## Anti-patterns
 

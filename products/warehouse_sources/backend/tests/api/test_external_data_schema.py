@@ -157,7 +157,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "xmin_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": True,
+            "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
@@ -4654,6 +4654,44 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for this source type" in str(response.json())
+
+    def _create_shopify_schema(self, name: str) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.SHOPIFY,
+            job_inputs={"shopify_store_id": "store", "auth_method": {"selection": "access_token"}},
+        )
+        return ExternalDataSchema.objects.create(name=name, team=self.team, source=source)
+
+    @parameterized.expand(
+        [
+            ("declared_column", "orders", [{"column": "created_at", "operator": ">=", "value": "2024-01-01"}], 200),
+            ("other_column", "orders", [{"column": "updated_at", "operator": ">=", "value": "2024-01-01"}], 400),
+            ("other_operator", "orders", [{"column": "created_at", "operator": "!=", "value": "2024-01-01"}], 400),
+            (
+                "schema_without_columns",
+                "collections",
+                [{"column": "created_at", "operator": ">=", "value": "2024-01-01"}],
+                400,
+            ),
+        ]
+    )
+    def test_row_filters_limited_to_columns_the_source_declares(self, _name, schema_name, row_filters, expected):
+        schema = self._create_shopify_schema(schema_name)
+        response = self._patch(schema, row_filters)
+        assert response.status_code == expected, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters == (row_filters if expected == 200 else None)
+
+    def test_row_filter_columns_returned_in_serializer(self):
+        shopify_schema = self._create_shopify_schema("orders")
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{shopify_schema.id}/")
+        assert response.json()["row_filter_columns"] == [
+            {"name": "created_at", "data_type": "timestamp", "operators": [">", ">=", "<", "<="]}
+        ]
+        # A SQL source filters on any discovered column, which the API reports as null.
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{self._create().id}/")
+        assert response.json()["row_filter_columns"] is None
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

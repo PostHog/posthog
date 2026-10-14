@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
+    codebase_detection = detect(env=("^AIRCALL_",), npm=("aircall-everywhere",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -63,7 +66,7 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
 You can create an API key (API ID + API token) in your [Aircall dashboard](https://dashboard.aircall.io/integrations/api-keys). The key has read access to all of your company's data.""",
             iconPath="/static/services/aircall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aircall",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

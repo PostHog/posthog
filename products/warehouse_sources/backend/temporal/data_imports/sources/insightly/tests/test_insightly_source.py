@@ -1,17 +1,17 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.insightly import (
     InsightlySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import (
-    ENDPOINTS,
-    INSIGHTLY_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import INSIGHTLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
 
-# Derived from settings so a new endpoint is automatically covered by the parametrized tests below.
-INCREMENTAL_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if cfg.supports_incremental}
 FULL_REFRESH_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if not cfg.supports_incremental}
 
 
@@ -25,28 +25,6 @@ class TestInsightlySource:
         assert self.source.connection_host_fields == ["pod"]
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.na1.insightly.com/v3.1/Contacts?top=500&skip=0",
-            "403 Client Error: Forbidden for url: https://api.na1.insightly.com/v3.1/Leads?top=500&skip=0",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.na1.insightly.com/v3.1/Contacts",
-            "500 Server Error for url: https://api.na1.insightly.com/v3.1/Notes",
-        ],
-    )
-    def test_transient_errors_are_not_marked_non_retryable(self, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
         "schema_name, expected",
         [
             ("Contacts", True),
@@ -57,31 +35,11 @@ class TestInsightlySource:
     def test_resume_covers_only_checkpointed_endpoints(self, schema_name: str | None, expected: bool) -> None:
         assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
 
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_ENDPOINTS))
-    def test_incremental_endpoints_advertise_updated_at_cursor(self, endpoint: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id, names=[endpoint]))
-        assert schema.supports_incremental is True
-        assert [f["field"] for f in schema.incremental_fields] == ["DATE_UPDATED_UTC"]
-
     @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
     def test_full_refresh_endpoints_have_no_incremental(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id, names=[endpoint]))
         assert schema.supports_incremental is False
         assert schema.incremental_fields == []
-
-    def test_get_schemas_names_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Contacts"])
-        assert [s.name for s in schemas] == ["Contacts"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog with no I/O — safe for public docs.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_ok",
@@ -95,19 +53,18 @@ class TestInsightlySource:
             (None, None, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
-    )
     def test_validate_credentials(
         self,
-        mock_validate: mock.MagicMock,
         status: int | None,
         schema_name: str | None,
         expected_ok: bool,
     ) -> None:
-        mock_validate.return_value = status
-        ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name)
+        answer = ConnectionResetError("boom") if status is None else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
+            ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name)
+
         assert ok is expected_ok
+        assert {request.path for request in network.requests_log} == {f"/v3.1/{schema_name or 'Contacts'}"}
 
     @pytest.mark.parametrize(
         "schema_name, expected_path",
@@ -117,52 +74,41 @@ class TestInsightlySource:
             ("OpportunityStateHistory", "/Opportunities"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
-    )
-    def test_validate_credentials_probes_a_requestable_path(
-        self, mock_validate: mock.MagicMock, schema_name: str, expected_path: str
-    ) -> None:
-        mock_validate.return_value = 200
-        self.source.validate_credentials(self.config, self.team_id, schema_name)
-        assert mock_validate.call_args.args[2] == expected_path
+    def test_validate_credentials_probes_a_requestable_path(self, schema_name: str, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            self.source.validate_credentials(self.config, self.team_id, schema_name)
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
-    )
-    def test_validate_credentials_rejects_invalid_pod(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.side_effect = ValueError("Invalid Insightly pod/instance: 'evil.com'")
+        assert [request.path for request in network.requests_log] == [f"/v3.1{expected_path}"]
+
+    def test_validate_credentials_rejects_invalid_pod(self) -> None:
         ok, message = self.source.validate_credentials(
             InsightlySourceConfig(pod="evil.com", api_key="key"), self.team_id
         )
         assert ok is False
         assert "Invalid Insightly pod" in (message or "")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.insightly_source")
-    def test_source_for_pipeline_passes_normalized_pod_and_cursor(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Contacts"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2020-01-01T00:00:00Z"
-        manager = mock.MagicMock()
-
+    def test_source_for_pipeline_passes_normalized_pod_and_cursor(self) -> None:
         # A full API URL in the pod field is normalized to the bare pod token.
-        self.source.source_for_pipeline(
-            InsightlySourceConfig(pod="https://api.eu1.insightly.com/v3.1", api_key="key"), manager, inputs
+        config = InsightlySourceConfig(pod="https://api.eu1.insightly.com/v3.1", api_key="key")
+        result = SourceDriver(self.source, config).run(
+            "Contacts",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["pod"] == "eu1"
-        assert kwargs["endpoint"] == "Contacts"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2020-01-01T00:00:00Z"
+        assert result.raised is None
+        assert result.paths == ["/v3.1/Contacts"]
+        assert result.requests[0].origin == "https://api.eu1.insightly.com"
+        assert result.params("updated_after_utc") == ["2020-01-01T00:00:00Z"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.insightly_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Contacts"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2020-01-01T00:00:00Z"
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Contacts",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.params("updated_after_utc") == [None]

@@ -46,7 +46,7 @@ from ci_backend_depot_failures import depot_ci, explain
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
-# The PostHog tests GitHub App. Depot's wait and gate jobs post the same checks with it, because
+# The PostHog tests GitHub App. Depot's wait and gate jobs post their verdicts with it too, because
 # Depot posts its own checks from a budget that runs out at peak and then delivers them late.
 MIRROR_APP_ID = 2492437
 # The Trunk merge queue tests each batch through a draft pull request on this branch.
@@ -65,6 +65,11 @@ EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
 RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
+# The mirror posts the gate under its own name, so that a pull request does not show two rows with one name.
+MIRRORED_GATE_CHECK = f"{DEPOT_WORKFLOW} / Test results"
+# Every name the mirror posts a check under. A Depot run on a workflow revision without the
+# mirror's gate name posts Depot's name from the mirror.
+MIRROR_NAMES = {GATE_CHECK: (GATE_CHECK, MIRRORED_GATE_CHECK)}
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
 CONCLUSIONS = frozenset(
@@ -261,16 +266,19 @@ class CheckRunReader:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
-        """Every app's checks of `name`. `current_check` picks the current one per workflow.
+        """Every app's checks of `name`, under each name the app posts it with.
 
+        `current_check` picks the current one per workflow.
         A failed read of any app raises, because the other app's checks alone can hold a stale attempt.
         """
         runs: list[CheckRun] = []
         for app_id in self._app_ids:
-            app_runs = self._read_app(name, app_id)
-            if app_runs is None:
-                raise ReadFailedError(f"Cannot read {name}")
-            runs.extend(app_runs)
+            app_names = MIRROR_NAMES.get(name, (name,)) if app_id == MIRROR_APP_ID else (name,)
+            for app_name in app_names:
+                app_runs = self._read_app(app_name, app_id)
+                if app_runs is None:
+                    raise ReadFailedError(f"Cannot read {app_name}")
+                runs.extend(app_runs)
         return runs
 
     def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
@@ -465,14 +473,16 @@ def gate_verdict(
 ) -> Progress:
     """The gate verdict that this attempt of the relay job reports.
 
-    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed,
-    the relay retries the failed Depot jobs and reports the new verdict. A failed prerequisite
-    is not retried, because it fails the same way until a commit fixes it.
+    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed
+    or was cancelled, the relay retries the failed and cancelled Depot jobs and reports the new
+    verdict. A cancel is not a test verdict, so the re-run asks for the tests again. A failed
+    prerequisite is not retried, because it fails the same way until a commit fixes it.
     """
     if rerun:
         settled = poll(reader, event, GATE_CHECK, deadline_minutes=0, absent_minutes=0)
         target = DEPOT_RUN_URL.match(settled.details_url)
-        if target and settled.phase == Phase.FINISHED and settled.state != "success" and not settled.root_failure:
+        failed = settled.phase == Phase.FINISHED and settled.state != "success"
+        if target and (failed or settled.phase == Phase.CANCELLED) and not settled.root_failure:
             retried = retry(*target.groups())
             if retried:
                 return retried
@@ -527,7 +537,7 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url),
+            *retry_instructions(event, result.details_url, run_id),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]

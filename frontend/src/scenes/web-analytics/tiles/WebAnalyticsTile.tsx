@@ -62,6 +62,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
+    VisualizationNode,
     InsightVizNode,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
@@ -720,7 +721,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         cross_sell: {
             title: ' ',
-            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
+            render: ({ record, query }: { record: any; query: DataTableNode | VisualizationNode }) => {
                 const source = query.source as any
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy

@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.http import HttpResponse
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
 from ee.api.vercel.crypto import encrypt_payload
@@ -405,6 +406,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert org_integration.config["type"] == "connectable"
         assert org_integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert org_integration.integration_id == "icfg_connect_test"
+        assert not OrganizationProvisioning.objects.filter(organization=self.organization).exists()
 
         resource = Integration.objects.get(
             team=self.team,
@@ -1124,7 +1126,7 @@ class TestDeleteOrphanedIntegration(VercelConnectTestBase):
         assert surviving_team_ids == {teams[key].pk for key in surviving_teams}
 
 
-class TestValidateNextUrl(TestCase):
+class TestValidateNextUrl(SimpleTestCase):
     @parameterized.expand(
         [
             ("valid_vercel", "https://vercel.com/done", "https://vercel.com/done"),

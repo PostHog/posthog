@@ -203,6 +203,17 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.json()[0]["id"], str(kept.id))
         self.assertFalse(FileSystemShortcut.objects.filter(id=removed.id).exists())
 
+    def test_starring_the_same_item_twice_keeps_one_shortcut(self):
+        payload = {"path": "Dashboards", "type": "dashboard", "ref": "42", "href": "/dashboard/42"}
+
+        first = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
+        second = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.json())
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.json())
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(FileSystemShortcut.objects.filter(team=self.team, user=self.user).count(), 1)
+
     def test_reorder_response_excludes_retired_shortcuts(self):
         retired = FileSystemShortcut.objects.create(
             team=self.team, path="Old link", type="link", user=self.user, order=0
@@ -320,3 +331,25 @@ class TestFileSystemShortcutAccessLevels(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
         self.assertEqual(levels, {"Real": "none", "Guessed": "none"})
+
+    @parameterized.expand(
+        [
+            ("bulk_update", lambda shortcut: {"add": [], "remove_ids": []}),
+            ("reorder", lambda shortcut: {"ordered_ids": [str(shortcut.id)]}),
+        ]
+    )
+    def test_write_endpoints_return_access_levels(self, url_path, build_payload):
+        theirs = Dashboard.objects.create(team=self.team, name="Theirs", created_by=self.other_user)
+        shortcut = FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Theirs", type="dashboard", ref=str(theirs.pk)
+        )
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_path}/",
+            build_payload(shortcut),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([item["user_access_level"] for item in response.json()], ["none"])

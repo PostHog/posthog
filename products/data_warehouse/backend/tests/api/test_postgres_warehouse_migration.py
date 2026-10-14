@@ -20,11 +20,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 def _stub_source_security_gate(source_mock) -> None:
     """The update path asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    It also persists `source.serialize_config(source_config)` rather than `source_config.to_dict()`
+    directly, so a source stays able to retain rollout-compatible fields (see
+    `AppleSearchAdsSource.serialize_config`). A bare MagicMock's `serialize_config` otherwise
+    returns an unconfigured MagicMock, which Django's ORM then tries to treat as a query
+    expression and rejects. Delegate it to the parsed config's own `to_dict()`, matching the base
+    class's default implementation."""
     source_mock.connection_host_fields = []
     source_mock.server_managed_job_input_fields.return_value = []
     source_mock.job_inputs_add_connection_host.return_value = False
     source_mock.has_preserved_row_backed_credentials.return_value = False
+    source_mock.serialize_config.side_effect = lambda config: config.to_dict()
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):

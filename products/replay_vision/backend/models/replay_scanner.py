@@ -98,6 +98,14 @@ class ScannerOrigin(models.TextChoices):
     INLINE = "inline", "Inline"
 
 
+class PromptValence(models.TextChoices):
+    """Whether the answer a monitor or scorer looks for is good or bad news for the team."""
+
+    GOOD = "good", "Good"
+    BAD = "bad", "Bad"
+    NEUTRAL = "neutral", "Neutral"
+
+
 def prompt_fingerprint(prompt: str) -> str:
     """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
     return hashlib.sha256(prompt.encode()).hexdigest()
@@ -307,6 +315,16 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         db_default="",
         help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
+    # Condensed in the same model call as `prompt_question`, so `prompt_question_source` dates it too.
+    prompt_valence = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        choices=PromptValence.choices,
+        help_text="Whether a yes or a high score is good or bad news, judged by AI from the prompt. Empty when "
+        "not judged: the scanner type has no direction, or the model was unavailable.",
+    )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
     # until billing syncs a real one. See quota.current_period_bounds.
@@ -315,6 +333,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         validators=[MinValueValidator(1)],
         help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
+    )
+    free_only = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
     )
     limit_notified_period_start = models.DateTimeField(
         null=True,
@@ -343,6 +366,13 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     admission_credits_since_refresh = models.PositiveIntegerField(
         default=0,
         help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
+    )
+
+    # A plain id rather than a foreign key, so that this product holds no constraint on the dashboards table.
+    dashboard_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Dashboard created for this scanner from Replay Vision. Can point at a dashboard the user later deleted.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -520,6 +550,10 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         `experiment_exposure` inside `query` for the same reason.
         """
         return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
+
+    @property
+    def has_spend_ceiling(self) -> bool:
+        return self.credit_limit is not None or self.free_only
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

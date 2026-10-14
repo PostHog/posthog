@@ -1,0 +1,774 @@
+import json
+from pathlib import Path
+from typing import Any, Optional
+
+from django.conf import settings
+
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+
+from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+
+COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
+
+# Internal events (e.g. activity logs) carry real nested JSON objects in their properties — such as
+# `detail` on `$activity_log_entry_created`, which the activity log filter UI exposes as `detail.name`
+# and `detail.changes`. Unlike analytics events (whose properties are a flat map), these need dotted
+# keys resolved into nested field chains so the HogVM matches against the nested object.
+INTERNAL_NESTED_PROPERTY_EVENTS = frozenset({"$activity_log_entry_created"})
+
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+# The warehouse consumer writes the row's table name under this key. Keep it equal to
+# DWH_SOURCE_TABLE_PROPERTY in nodejs/src/cdp/schema/hogflow.ts.
+WAREHOUSE_SOURCE_TABLE_PROPERTY = "$source_table"
+
+
+class _NestedPropertyKeyResolver(CloningVisitor):
+    """Resolve dotted event-property keys into nested field chains.
+
+    A property key like `detail.name` is otherwise compiled into a single flat lookup
+    (`properties["detail.name"]`) that never matches the nested global. Splitting it into the
+    chain `properties.detail.name` lets it resolve against the nested object at runtime.
+    Only `properties.*` chains are touched, so person/group property filters are left as-is.
+    """
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        if not field.chain or field.chain[0] != "properties":
+            return field
+        resolved: list[str | int] = [field.chain[0]]
+        for element in field.chain[1:]:
+            if isinstance(element, str) and "." in element:
+                resolved.extend(element.split("."))
+            else:
+                resolved.append(element)
+        field.chain = resolved
+        return field
+
+
+def _only_targets_internal_nested_events(filters: dict) -> bool:
+    """True only when every targeted event/action is an internal nested event.
+
+    Global property filters apply across all event branches, so a dotted key there can only be
+    resolved into a nested chain when *every* targeted event carries nested JSON. If an internal
+    event is mixed with an analytics event (e.g. `$pageview`), the same global key may be a flat
+    property on that branch — so leave it untouched and let per-branch resolution handle the
+    internal event's own properties.
+    """
+    all_filters = filters.get("events", []) + filters.get("actions", [])
+    return bool(all_filters) and all(f.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS for f in all_filters)
+
+
+class CohortInlineError(Exception):
+    """Raised when cohort test account filters can't be inlined for real-time use."""
+
+    def __init__(self, reasons: list[str]):
+        self.reasons = reasons
+        super().__init__("Can't use cohorts in real-time filters")
+
+
+def _is_cohort_filter(prop: dict) -> bool:
+    return isinstance(prop, dict) and prop.get("type") in COHORT_FILTER_TYPES
+
+
+def _check_only_person_properties(properties: Any) -> set[str]:
+    """Walk a cohort's filter property tree and return any non-person leaf types found.
+
+    Returns an empty set if all leaves are person property filters.
+    """
+    non_person_types: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+
+        node_type = node.get("type")
+
+        if node_type in ("AND", "OR"):
+            values = node.get("values")
+            if isinstance(values, list):
+                for v in values:
+                    _walk(v)
+            return
+
+        if node_type != "person":
+            non_person_types.add(node_type or "<unknown>")
+
+    _walk(properties)
+    return non_person_types
+
+
+def _try_inline_cohort_filter(prop: dict, team: Team) -> tuple[list[ast.Expr], None] | tuple[None, str]:
+    """Try to inline a cohort test account filter as person property expressions.
+
+    Returns (exprs, None) on success, or (None, reason) on failure.
+    """
+    cohort_id = prop.get("value")
+    if cohort_id is None:
+        return None, "cohort filter has no value"
+
+    try:
+        # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
+        cohort = Cohort.objects.get(id=cohort_id, team__project_id=team.project_id)
+    except Cohort.DoesNotExist:
+        return None, f"cohort id={cohort_id} not found"
+
+    if cohort.is_static:
+        return (
+            None,
+            f"cohort '{cohort.name}' (id={cohort_id}) is a static cohort — static cohort membership can't be evaluated in real-time filters",
+        )
+
+    cohort_properties = (cohort.filters or {}).get("properties")
+    if not cohort_properties:
+        return None, f"cohort '{cohort.name}' (id={cohort_id}) has no properties defined"
+
+    non_person_types = _check_only_person_properties(cohort_properties)
+
+    if non_person_types:
+        types_str = ", ".join(sorted(non_person_types))
+        return None, (
+            f"cohort '{cohort.name}' (id={cohort_id}) contains {types_str} filters — "
+            f"only cohorts with exclusively person property filters can be used in real-time filters"
+        )
+
+    # Reuse cohort_filters_to_expr which walks the same AND/OR tree structure.
+    # Since _check_only_person_properties already validated only person leaves exist,
+    # the behavioral/fallback branches in cohort_filters_to_expr are unreachable here.
+    expr = cohort_filters_to_expr({"properties": cohort_properties}, team)
+    # If the tree was empty/trivial, treat as if no properties
+    if isinstance(expr, ast.Constant) and expr.value is True:
+        return None, f"cohort '{cohort.name}' (id={cohort_id}) has no person property filters"
+
+    is_negated = prop.get("negation") or prop.get("operator") == "not_in"
+    exprs: list[ast.Expr] = [ast.Not(expr=expr)] if is_negated else [expr]
+    return exprs, None
+
+
+def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    """Build filters to exclude test account events.
+
+    For cohort filters that only contain person properties, inline the properties
+    directly so they work in real-time bytecode filters (which can't do cohort lookups).
+    """
+    if not filters.get("filter_test_accounts", False):
+        return []
+
+    result: list[ast.Expr] = []
+    inline_failures: list[str] = []
+    for prop in team.test_account_filters:
+        if _is_cohort_filter(prop):
+            exprs, reason = _try_inline_cohort_filter(prop, team)
+            if exprs is not None:
+                result.extend(exprs)
+                continue
+            # Cohort couldn't be inlined — record the reason and skip the standard
+            # path (property_to_expr would generate a CohortMembership node that
+            # the bytecode compiler will reject anyway).
+            if reason:
+                inline_failures.append(reason)
+            continue
+        # Non-cohort filter — use standard path
+        result.append(property_to_expr(prop, team))
+
+    if inline_failures:
+        raise CohortInlineError(inline_failures)
+
+    return result
+
+
+class _WarehouseRowFields(CloningVisitor):
+    """
+    A warehouse row reaches the filter with its columns under `properties`. A hand-written filter
+    names a column bare, the way the column hint lists it, or as `record.<column>` the way an input
+    template does. Both resolve there. Only the given roots move, and a lambda parameter or a `let`
+    inside a lambda body shadows them there. A global the runtime does provide, such as `timestamp` or `event`, is
+    never moved, so a column with such a name has to be read as `record.<column>`.
+    """
+
+    def __init__(self, roots: set[str]):
+        super().__init__()
+        self.roots = roots
+        self.locals: list[set[str]] = []
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.locals.append(set(node.args))
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.locals.pop()
+
+    def visit_block(self, node: ast.Block) -> ast.Block:
+        # A `let` shadows a column from its own declaration on, as in the compiler, so a read before
+        # it still means the column. A lambda initializer may call its own name, so that name is
+        # bound before the lambda body is visited, again as in the compiler.
+        self.locals.append(set())
+        try:
+            declarations = []
+            for declaration in node.declarations:
+                if isinstance(declaration, ast.VariableDeclaration) and isinstance(declaration.expr, ast.Lambda):
+                    self.locals[-1].add(declaration.name)
+                declarations.append(self.visit(declaration))
+                if isinstance(declaration, ast.VariableDeclaration):
+                    self.locals[-1].add(declaration.name)
+            return ast.Block(start=node.start, end=node.end, declarations=declarations)
+        finally:
+            self.locals.pop()
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        chain = list(node.chain)
+        root = str(chain[0]) if chain else ""
+        if any(root in scope for scope in self.locals):
+            return super().visit_field(node)
+        if root == "record":
+            return ast.Field(chain=["properties", *chain[1:]])
+        if root in self.roots:
+            return ast.Field(chain=["properties", *chain])
+        return super().visit_field(node)
+
+
+def _as_row_properties(properties: list[Any]) -> list[Any]:
+    """Read a `data_warehouse` column filter from `properties`, where the consumer puts the row.
+
+    Such a filter otherwise compiles to a bare field such as `organization`, which the filter
+    globals never carry, so the row fails the filter.
+    """
+    return [
+        {**prop, "type": "event"} if isinstance(prop, dict) and prop.get("type") == "data_warehouse" else prop
+        for prop in properties
+    ]
+
+
+def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    """Build global property filters that apply to all events."""
+    if not filters.get("properties"):
+        return []
+    properties = filters["properties"]
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        properties = _as_row_properties(properties)
+    return [property_to_expr(prop, team) for prop in properties]
+
+
+def _build_event_filter_expr(filter: dict) -> ast.Expr:
+    """Build expression for a single event filter."""
+    event_name = filter.get("id")
+    if event_name is None:
+        return ast.Constant(value=True)  # Match all events
+    return parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})
+
+
+def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+    """Build expression for a single action filter."""
+    try:
+        action_id = int(filter["id"])
+        action = actions.get(action_id)
+        if not action:
+            action = Action.objects.get(id=action_id, team__project_id=team.project_id)
+        return action_to_expr(action)
+    except KeyError:
+        return parse_expr("1 = 2")  # No events match
+
+
+def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Team) -> ast.Expr:
+    """Build expression for a single event or action filter with its properties."""
+    filter_exprs: list[ast.Expr] = []
+
+    # Add event or action expression
+    if filter.get("type") == "events":
+        filter_exprs.append(_build_event_filter_expr(filter))
+    elif filter.get("type") == "actions":
+        filter_exprs.append(_build_action_filter_expr(filter, actions, team))
+
+    # Add per-filter properties
+    filter_properties = filter.get("properties")
+    if filter_properties:
+        filter_exprs.append(property_to_expr(filter_properties, team))
+
+    # Return single expression or AND combination
+    if not filter_exprs:
+        expr: ast.Expr = ast.Constant(value=True)
+    elif len(filter_exprs) == 1:
+        expr = filter_exprs[0]
+    else:
+        expr = ast.And(exprs=filter_exprs)
+
+    # Internal events carry nested JSON properties, so resolve dotted keys (e.g. `detail.name`)
+    # into nested chains for this branch only — never for sibling non-internal event branches.
+    if filter.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS:
+        expr = _NestedPropertyKeyResolver().visit(expr)
+
+    return expr
+
+
+def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
+    """Combine a list of expressions into a single expression."""
+    if not expressions:
+        return ast.Constant(value=True)
+    elif len(expressions) == 1:
+        return expressions[0]
+    else:
+        return ast.And(exprs=expressions)
+
+
+def _build_warehouse_table_filters(filters: dict, team: Team) -> list[ast.Expr]:
+    if filters.get("source") not in DATA_WAREHOUSE_SOURCES:
+        return []
+    entries = [entry for entry in filters.get("data_warehouse") or [] if isinstance(entry, dict)]
+    if not any(entry.get("properties") for entry in entries):
+        return []
+
+    # Row filters apply only to rows from their own entry's table. Every entry checks its table name,
+    # because an entry without row filters would otherwise match rows from the filtered tables too.
+    entry_exprs: list[ast.Expr] = []
+    for entry in entries:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["properties", WAREHOUSE_SOURCE_TABLE_PROPERTY]),
+                right=ast.Constant(value=entry.get("table_name")),
+            )
+        ]
+        exprs.extend(property_to_expr(prop, team) for prop in _as_row_properties(entry.get("properties") or []))
+        entry_exprs.append(_combine_expressions(exprs))
+    return [ast.Or(exprs=entry_exprs) if len(entry_exprs) > 1 else entry_exprs[0]]
+
+
+def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, Action]) -> ast.Expr:
+    """
+    Build a HogQL expression from hog function filters.
+
+    Optimized to evaluate test account filters only once at the top level,
+    rather than duplicating them for each event/action check.
+    """
+    # Build component filters
+    test_account_filters = _build_test_account_filters(filters, team)
+    global_property_filters = _build_global_property_filters(filters, team)
+    warehouse_table_filters = _build_warehouse_table_filters(filters, team)
+
+    # Get all event and action filters
+    all_filters = filters.get("events", []) + filters.get("actions", [])
+
+    # If no event/action filters, return just the account, property and warehouse table filters
+    if not all_filters:
+        return _combine_expressions(test_account_filters + global_property_filters + warehouse_table_filters)
+
+    # Build expressions for each event/action filter (dotted keys on internal events are resolved
+    # per-branch inside _build_single_filter_expr).
+    event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
+
+    # Global property filters apply across all branches; the activity log UI stores `detail.name`
+    # here, so resolve dotted keys only when every targeted event is an internal nested event —
+    # never when a sibling analytics event could read the same key as a flat property.
+    if _only_targets_internal_nested_events(filters):
+        resolver = _NestedPropertyKeyResolver()
+        global_property_filters = [resolver.visit(expr) for expr in global_property_filters]
+
+    # Combine event/action filters with OR (match any of these events/actions)
+    combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]
+
+    # Combine everything: test account filters AND global properties AND (events OR actions)
+    # This structure ensures test account filters are evaluated only once
+    final_exprs = test_account_filters + global_property_filters + [combined_events_expr]
+    return _combine_expressions(final_exprs)
+
+
+def filter_action_ids(filters: Optional[dict]) -> list[int]:
+    if not isinstance(filters, dict):
+        return []
+    try:
+        return [int(action["id"]) for action in filters.get("actions", [])]
+    except (KeyError, TypeError, ValueError):
+        return []
+
+
+def collect_property_cohort_ids(node: Any) -> set[int]:
+    """Cohort ids in a property tree (lists, AND/OR groups, and cohort leaves)."""
+    ids: set[int] = set()
+
+    def _walk(current: Any) -> None:
+        if isinstance(current, list):
+            for item in current:
+                _walk(item)
+            return
+        if not isinstance(current, dict):
+            return
+        if current.get("type") in ("AND", "OR"):
+            _walk(current.get("values") or [])
+            return
+        if _is_cohort_filter(current):
+            value = current.get("value")
+            if isinstance(value, str | int) and not isinstance(value, bool):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+
+    _walk(node)
+    return ids
+
+
+def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation.
+
+    Total over untrusted input, like filter_action_ids: callers scan raw client filters
+    before DRF validation, so a malformed shape yields [] instead of raising.
+    """
+    if not isinstance(filters, dict):
+        return []
+
+    ids = collect_property_cohort_ids(filters.get("properties") or [])
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    ids |= collect_property_cohort_ids(entry.get("properties") or [])
+    return sorted(ids)
+
+
+def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
+    filters = filters or {}
+
+    if actions is None:
+        # If not provided as an optimization we fetch all actions
+        # nosemgrep: idor-lookup-without-team (already scoped by team__project_id)
+        actions_list = (
+            Action.objects.select_related("team")
+            .filter(team__project_id=team.project_id)
+            .filter(id__in=filter_action_ids(filters))
+        )
+        actions = {action.id: action for action in actions_list}
+
+    return hog_function_filters_to_expr(filters, team, actions)
+
+
+class SelectFinder(TraversingVisitor):
+    found = False
+
+    def visit_select_query(self, node):
+        self.found = True
+        return
+
+    # class method
+    @classmethod
+    def has_select(cls, node):
+        visitor = cls()
+        visitor.visit(node)
+        return visitor.found
+
+
+def _internal_user_settings_url(team_id: int) -> str:
+    site_url = settings.SITE_URL.rstrip("/")
+    return f"{site_url}/project/{team_id}/settings/project-customization#internal-user-filtering"
+
+
+class _LowerConstantMembership(CloningVisitor):
+    """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
+    OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
+    (no type coercion), unlike EQ/NotEq which unify operand types first. So a numeric property — e.g.
+    a survey rating sent as a number — never matches a list of string literals like ("1".."6"), and
+    the condition silently falls through. Scoped to real-time filter bytecode: the shared Hog
+    compiler, the ClickHouse query path, and the JS-transpiled filter path are all untouched."""
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn) and isinstance(
+            node.right, ast.Tuple | ast.Array
+        ):
+            elements = node.right.exprs
+            if elements and all(isinstance(element, ast.Constant) for element in elements):
+                eq_op = (
+                    ast.CompareOperationOp.Eq if node.op == ast.CompareOperationOp.In else ast.CompareOperationOp.NotEq
+                )
+                comparisons: list[ast.Expr] = [
+                    ast.CompareOperation(op=eq_op, left=self.visit(node.left), right=self.visit(element))
+                    for element in elements
+                ]
+                if len(comparisons) == 1:
+                    return comparisons[0]
+                # IN → "matches any" (OR); NOT IN → "matches none" (AND).
+                return ast.Or(exprs=comparisons) if node.op == ast.CompareOperationOp.In else ast.And(exprs=comparisons)
+        return super().visit_compare_operation(node)
+
+
+# Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
+# filter people can legitimately write. A test in the nodejs package pins the file to the type.
+_RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text())
+# Callables belong here because the VM resolves a bare standard-library name through the same
+# GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
+# Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
+FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
+# Stamped on every bytecode this module compiles. The runtime compares it with its own hash, so a
+# filter compiled against an older runtime can be told apart from one saved before the compiler checked.
+RUNTIME_CONTRACT: str = _RUNTIME["contract"]
+# The Python compiler knows its own standard library, which is not the one the Node VM runs.
+FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
+    name: (arity[0], arity[1]) for name, arity in _RUNTIME["functions"].items()
+}
+# Input templates run against the invocation globals, a different shape from the flattened filter globals.
+TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
+TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
+
+_UNKNOWN_GLOBAL = "Unknown global variable: "
+
+
+def _declared_globals(cohort_membership_supported: bool) -> dict[str, None]:
+    declared = dict.fromkeys(FILTER_GLOBALS)
+    if cohort_membership_supported:
+        declared["cohort_ids"] = None
+    return declared
+
+
+def _unknown_filter_globals(expr: ast.Expr, cohort_membership_supported: bool = False) -> list[str]:
+    """Compile once with the runtime's globals declared, and return the roots the runtime will not have."""
+    context = HogQLContext(
+        team_id=None,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
+    create_bytecode(expr, context=context, cohort_membership_supported=cohort_membership_supported)
+    return sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+
+
+@frozen
+class _RuntimeCompilation:
+    bytecode: list[Any]
+    # Every root the program reads that the runtime does not provide.
+    unknown_roots: list[str]
+    context: HogQLContext
+
+
+def _compile_against_runtime(
+    expr: ast.Expr,
+    team: Team,
+    cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
+) -> _RuntimeCompilation:
+    # Declaring the globals turns the compiler's field resolution into a check: it warns on a
+    # root that is neither a local, an upvalue, nor one of ours.
+    context = HogQLContext(
+        team_id=team.id,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
+    bytecode = create_bytecode(
+        expr,
+        context=context,
+        cohort_membership_supported=cohort_membership_supported,
+        allowed_cohort_ids=allowed_cohort_ids,
+    ).bytecode
+    unknown = sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+    return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
+
+
+def _own_filters_expr(
+    filters: dict,
+    team: Team,
+    actions: Optional[dict[int, Action]],
+    cohort_membership_supported: bool = False,
+) -> ast.Expr:
+    """The destination's filters without the team's test account filters, with warehouse columns resolved."""
+    own = _LowerConstantMembership().visit(
+        compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
+    )
+    if filters.get("source") in DATA_WAREHOUSE_SOURCES:
+        own = _WarehouseRowFields(
+            roots=set(
+                _compile_against_runtime(
+                    own, team, cohort_membership_supported=cohort_membership_supported
+                ).unknown_roots
+            )
+        ).visit(own)
+    return own
+
+
+def _resolve_warehouse_columns(
+    filters: dict,
+    team: Team,
+    actions: Optional[dict[int, Action]],
+    cohort_membership_supported: bool = False,
+) -> ast.Expr:
+    """
+    Only the destination's own filters read the row. The team's test account filters are written
+    against events, so a root they read that the runtime lacks stays an error rather than becoming
+    a column.
+    """
+    return _combine_expressions(
+        [
+            *_build_test_account_filters(filters, team),
+            _own_filters_expr(filters, team, actions, cohort_membership_supported=cohort_membership_supported),
+        ]
+    )
+
+
+def compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]] = None,
+    cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
+) -> dict:
+    filters = filters or {}
+    try:
+        expr = compile_filters_expr(filters, team, actions)
+        if SelectFinder.has_select(expr):
+            raise Exception("Select queries are not allowed in filters")
+
+        expr = _LowerConstantMembership().visit(expr)
+        compiled = _compile_against_runtime(expr, team, cohort_membership_supported, allowed_cohort_ids)
+        if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
+            compiled = _compile_against_runtime(
+                _resolve_warehouse_columns(
+                    filters, team, actions, cohort_membership_supported=cohort_membership_supported
+                ),
+                team,
+                cohort_membership_supported,
+                allowed_cohort_ids,
+            )
+        filters["bytecode"] = compiled.bytecode
+        filters["bytecode_contract"] = RUNTIME_CONTRACT
+        unknown = compiled.unknown_roots
+        context = compiled.context
+        if unknown:
+            # The person saving a destination did not write the team's test account filters, so a
+            # message that only names the field sends them looking in the wrong place.
+            team_exprs = _build_test_account_filters(filters, team)
+            from_team = _unknown_filter_globals(_combine_expressions(team_exprs)) if team_exprs else []
+            if from_team:
+                # Compile the destination's own filters alone rather than subtracting the team's
+                # roots: a field that both sources read drops out of the difference and goes unnamed.
+                own = _unknown_filter_globals(
+                    _own_filters_expr(filters, team, actions, cohort_membership_supported=cohort_membership_supported),
+                    cohort_membership_supported,
+                )
+                raise Exception(
+                    f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
+                    f"cannot read. Check the spelling, or use a field or function that real-time filters support. "
+                    + (f"This destination's own filters also read {', '.join(own)}. " if own else "")
+                    + f"Update your filters at: {_internal_user_settings_url(team.id)}"
+                )
+            raise Exception(
+                f"Real-time filters cannot read {', '.join(unknown)}. "
+                f"Check the spelling, or use a field or function that real-time filters support."
+            )
+
+        # context.errors here only contains "function not implemented" errors from the
+        # bytecode compiler (the resolver doesn't run during create_bytecode). These are
+        # genuinely fatal — the bytecode would reference a non-existent function at runtime.
+        if context.errors:
+            error_messages = "; ".join(e.message for e in context.errors if e.message)
+            raise Exception(f"Filter compilation errors: {error_messages}")
+        if "bytecode_error" in filters:
+            del filters["bytecode_error"]
+    except CohortInlineError as e:
+        settings_url = _internal_user_settings_url(team.id)
+        details = "; ".join(e.reasons)
+        filters["bytecode"] = None
+        filters.pop("bytecode_contract", None)
+        filters["bytecode_error"] = (
+            f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
+            f"{details}. "
+            f"Either switch to a cohort that only uses person properties, "
+            f"or replace the cohort with inline person property filters. "
+            f"Update your filters at: {settings_url}"
+        )
+    except Exception as e:
+        error_msg = str(e)
+
+        # Cohort errors from sources other than test account filters (e.g. global
+        # property filters referencing a cohort) still hit the bytecode compiler's
+        # generic "Can't use cohorts in real-time filters" error.
+        if "Can't use cohorts in real-time filters" in error_msg:
+            settings_url = _internal_user_settings_url(team.id)
+            error_msg = (
+                f"Cohort membership can't be evaluated in real-time filters. "
+                f"Replace cohorts with equivalent inline person property filters. "
+                f"Update your filters at: {settings_url}"
+            )
+
+        filters["bytecode"] = None
+        filters.pop("bytecode_contract", None)
+        filters["bytecode_error"] = error_msg
+
+    return filters
+
+
+# Realtime Cohort helpers
+
+
+def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr | None:
+    """Build combined expression for a behavioral event filter (event AND its per-filter properties).
+
+    Supports only performed_event and performed_event_multiple (non-temporal bytecode use-case).
+    Returns None for unsupported behavioral filters.
+    """
+    value = behavioral_filter.get("value")
+    if value not in {"performed_event", "performed_event_multiple"}:
+        # Unsupported behavioral types do not contribute to realtime bytecode
+        return None
+
+    event_name = behavioral_filter.get("key")
+    if not isinstance(event_name, str) or not event_name:
+        return None
+
+    parts: list[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})]
+    # Optional per-filter event properties
+    event_filters = behavioral_filter.get("event_filters") or []
+    if isinstance(event_filters, list) and event_filters:
+        parts.append(property_to_expr(event_filters, team))
+
+    return _combine_expressions(parts)
+
+
+def cohort_filters_to_expr(filters: dict, team: Team) -> ast.Expr:
+    """Assemble a HogQL expression for cohort filters similarly to hog function filters.
+
+    - Recursively walks the cohort `properties` group
+    - For behavioral filters, builds event matcher AND per-filter properties
+    - For other filters, defers to property_to_expr
+    """
+
+    def _node_to_expr(node: Any) -> ast.Expr:
+        if isinstance(node, list):
+            return _combine_expressions([_node_to_expr(child) for child in node])
+        if not isinstance(node, dict):
+            return ast.Constant(value=True)
+
+        node_type = node.get("type")
+        # PropertyGroup: {"type": "AND"|"OR", "values": [...]}
+        if node_type in ("AND", "OR") and isinstance(node.get("values"), list):
+            exprs = [_node_to_expr(child) for child in node["values"]]
+            if node_type == "AND":
+                return ast.And(exprs=exprs)
+            else:
+                return ast.Or(exprs=exprs)
+
+        if node_type == "behavioral":
+            expr = build_behavioral_event_expr(node, team)
+            # Return True for unsupported behavioral filters
+            return expr if expr is not None else ast.Constant(value=True)
+
+        # Fallback to standard property handling (event/person/group/etc.)
+        return property_to_expr(node, team)
+
+    props = filters.get("properties")
+    if not props:
+        return ast.Constant(value=True)
+    return _node_to_expr(props)

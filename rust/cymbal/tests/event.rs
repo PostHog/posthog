@@ -4,6 +4,7 @@ use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
 use common_types::error_tracking::FrameId;
 use cymbal::{
+    core::code_variables::REDACTED,
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
@@ -839,6 +840,84 @@ async fn drops_code_variables_from_events_that_fail_to_parse(db: PgPool) {
         .expect("event should be returned");
     assert!(returned.properties["$cymbal_errors"].is_array());
     assert_eq!(frames_with_code_variables(&body), 0);
+}
+
+const FAKE_DB_PASSWORD: &str = "fake-pass-for-tests";
+
+fn python_event_with_database_url() -> AnyEvent {
+    let mut event = load_static_event("python");
+    for frame in event.properties["$exception_list"][0]["stacktrace"]["frames"]
+        .as_array_mut()
+        .unwrap()
+    {
+        frame["code_variables"] =
+            json!({"url": format!("postgresql://app:{FAKE_DB_PASSWORD}@db.example.com/app")});
+    }
+    event
+}
+
+fn exception_list_contains(body: &SuccessResponse, needle: &str) -> bool {
+    let event = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    event.properties["$exception_list"]
+        .to_string()
+        .contains(needle)
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn stores_masked_code_variables(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_database_url(), |_| {})
+        .await;
+
+    assert!(status.is_success());
+    assert!(!exception_list_contains(&body, FAKE_DB_PASSWORD));
+    let (stored, stored_unmasked): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE contents::text LIKE '%' || $1 || '%')
+         FROM posthog_errortrackingstackframe WHERE team_id = 1",
+    )
+    .bind(FAKE_DB_PASSWORD)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(stored > 0);
+    assert_eq!(stored_unmasked, 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn masks_code_variables_replayed_from_stored_frames(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, _): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_database_url(), |_| {})
+        .await;
+    assert!(status.is_success());
+    // Stands in for frame records stored before masking existed.
+    let unmasked =
+        json!({"url": format!("postgresql://app:{FAKE_DB_PASSWORD}@db.example.com/app")});
+    let rewritten = sqlx::query(
+        "UPDATE posthog_errortrackingstackframe
+         SET contents = jsonb_set(contents, '{code_variables}', $1)
+         WHERE team_id = 1 AND contents ? 'code_variables'",
+    )
+    .bind(unmasked)
+    .execute(&db)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert!(rewritten > 0);
+
+    // The second event carries no code variables, so any that come back are replayed records.
+    let mut event = load_static_event("python");
+    event.uuid = Uuid::now_v7();
+    let (status, body): (_, SuccessResponse) = harness.post_event_with_config(&event, |_| {}).await;
+    assert!(status.is_success());
+    assert!(!exception_list_contains(&body, FAKE_DB_PASSWORD));
+    assert!(exception_list_contains(&body, REDACTED));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

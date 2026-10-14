@@ -1,9 +1,9 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.persistiq import (
     PersistIqSourceConfig,
 )
@@ -83,7 +83,8 @@ class TestPersistIqSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown PersistIQ schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown PersistIQ schema 'not_a_table'"
+        assert result.requests == []

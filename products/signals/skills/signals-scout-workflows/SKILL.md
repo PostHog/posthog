@@ -60,6 +60,7 @@ Never suggest against a workflow that is not on this list — the API refuses it
   A workflow with a suggestion still `suggested` is waiting on a person, not on you.
   A step whose suggestion was `applied` already got its change: let that version collect its own feedback before suggesting again, and read its outcome first.
   A step whose suggestion was `rejected` is a human saying no: do not re-file the same idea in different words.
+  Read its `rejection_reason` when there is one. It says why, and a reason about what the step is for rules out every change aimed at the same metric on that step, not only the one rejected.
   A rejected suggestion stays rejected however many times the workflow is published since: `is_stale` reads against the version live now, not against the version the person was looking at, so it cannot tell you the idea went unjudged.
 
 ### Read the numbers
@@ -161,7 +162,7 @@ Closing out with a finding you never tried to file wastes the run.
 Write scratchpad entries for what should change your next run:
 
 - `noise:<workflow>:<step>` — a step you looked at and ruled out, with why (sample, untracked share, deliverability).
-- `rejected:<workflow>:<step>` — a human rejected a suggestion for this step.
+- `rejected:<workflow>:<step>` — a human rejected a suggestion for this step, with their reason when they gave one.
   Include what you suggested, and whether it was behind the live version when they rejected it, so a later run can tell a no from a clear-out.
 - `baseline:<workflow>:<step>` — the open rate you saw, so a later run can tell a real move from noise.
 

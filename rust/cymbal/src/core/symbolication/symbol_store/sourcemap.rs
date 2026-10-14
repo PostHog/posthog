@@ -31,7 +31,7 @@ use super::{
     caching::Countable,
     chunk_id::{load_symbol_set_data, SymbolSetLoadResult},
     dart_minified_names::parse_dart_minified_names,
-    BlobClient, Fetcher, Parser,
+    BlobClient, Fetcher, ParsePermit, Parser,
 };
 
 pub struct SourcemapProvider {
@@ -482,13 +482,14 @@ impl Parser for SourcemapProvider {
     type Source = Bytes;
     type Set = OwnedSourceMapCache;
     type Err = ResolveError;
-    async fn parse(&self, data: Bytes) -> Result<Self::Set, Self::Err> {
+    async fn parse(&self, data: Bytes, permit: ParsePermit) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
         // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
         // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
         // worker blocks the runtime; offload to a blocking thread instead.
         let smc =
             tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
+                let _permit = permit;
                 let (sam, decompressed_bytes): (SourceAndMap, usize) =
                     read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
                 metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")

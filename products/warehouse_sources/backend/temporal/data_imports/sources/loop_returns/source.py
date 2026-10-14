@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResumeConfig]):
+    codebase_detection = detect(env=("^(LOOP_RETURNS|LOOPRETURNS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Loop versions its API by date in the URL path (`/api/2026-07/...`). `v1` is a legacy alias

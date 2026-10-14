@@ -29,33 +29,47 @@ def _make_call_details(
     )
 
 
-def _make_rpc_error(status_code: grpc.StatusCode, details: str | None = None) -> grpc.RpcError:
+def _make_rpc_error(
+    status_code: grpc.StatusCode,
+    details: str | None = None,
+    trailing_metadata: tuple[tuple[str, str], ...] = (),
+) -> grpc.RpcError:
     error = grpc.RpcError()
     error.code = MagicMock(return_value=status_code)
     error.details = MagicMock(return_value=details)
+    error.trailing_metadata = MagicMock(return_value=trailing_metadata)
     return error
 
 
-def _make_transient_then_ok(fail_count: int, status_code: grpc.StatusCode, details: str | None = None):
+def _make_transient_then_ok(
+    fail_count: int,
+    status_code: grpc.StatusCode,
+    details: str | None = None,
+    trailing_metadata: tuple[tuple[str, str], ...] = (),
+):
     """Returns a continuation that fails fail_count times then succeeds."""
     calls: list[int] = []
 
     def continuation(details_, request):
         calls.append(1)
         if len(calls) <= fail_count:
-            raise _make_rpc_error(status_code, details)
+            raise _make_rpc_error(status_code, details, trailing_metadata)
         return "ok"
 
     return continuation, calls
 
 
-def _make_always_failing(status_code: grpc.StatusCode, details: str | None = None):
+def _make_always_failing(
+    status_code: grpc.StatusCode,
+    details: str | None = None,
+    trailing_metadata: tuple[tuple[str, str], ...] = (),
+):
     """Returns a continuation that always raises the given status code."""
     calls: list[int] = []
 
     def continuation(details_, request):
         calls.append(1)
-        raise _make_rpc_error(status_code, details)
+        raise _make_rpc_error(status_code, details, trailing_metadata)
 
     return continuation, calls
 
@@ -71,17 +85,24 @@ class TestRetryInterceptorBehavior:
 
     @parameterized.expand(
         [
-            ("unavailable", grpc.StatusCode.UNAVAILABLE),
-            ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
-            ("aborted", grpc.StatusCode.ABORTED),
-            ("unknown", grpc.StatusCode.UNKNOWN),
+            ("unavailable", grpc.StatusCode.UNAVAILABLE, ()),
+            ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED, ()),
+            ("aborted", grpc.StatusCode.ABORTED, ()),
+            ("unknown", grpc.StatusCode.UNKNOWN, ()),
+            ("unavailable_load_shed", grpc.StatusCode.UNAVAILABLE, (("x-not-applied", "load_shed"),)),
         ]
     )
     @patch("posthog.personhog_client.interceptor.time.sleep")
-    def test_retries_transient_error_then_succeeds(self, _name: str, status_code: grpc.StatusCode, mock_sleep):
+    def test_retries_transient_error_then_succeeds(
+        self,
+        _name: str,
+        status_code: grpc.StatusCode,
+        trailing_metadata: tuple[tuple[str, str], ...],
+        mock_sleep,
+    ):
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, calls = _make_transient_then_ok(1, status_code)
+        continuation, calls = _make_transient_then_ok(1, status_code, trailing_metadata=trailing_metadata)
 
         result = interceptor.intercept_unary_unary(continuation, details, request=b"")
 
@@ -103,12 +124,27 @@ class TestRetryInterceptorBehavior:
         assert len(calls) == 2
         assert mock_sleep.call_count == 1
 
-    def test_does_not_retry_internal_error_with_unrelated_details(self):
-        # Plain INTERNAL stays terminal — personhog also maps DB-level conditions (lock timeouts,
-        # a read-only primary) to it, which an in-process retry must not hammer.
+    @parameterized.expand(
+        [
+            ("internal_db_error", grpc.StatusCode.INTERNAL, "deadlock detected", ()),
+            (
+                "db_timeout",
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+                "Database lock_timeout: canceling statement due to lock timeout",
+                (("x-db-timeout", "lock_timeout"),),
+            ),
+        ]
+    )
+    def test_does_not_retry_db_error(
+        self,
+        _name: str,
+        status_code: grpc.StatusCode,
+        error_details: str,
+        trailing_metadata: tuple[tuple[str, str], ...],
+    ):
         interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, calls = _make_always_failing(grpc.StatusCode.INTERNAL, details="deadlock detected")
+        continuation, calls = _make_always_failing(status_code, error_details, trailing_metadata)
 
         with pytest.raises(grpc.RpcError):
             interceptor.intercept_unary_unary(continuation, details, request=b"")

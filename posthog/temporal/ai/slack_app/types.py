@@ -19,6 +19,50 @@ class PostHogSlackInboxOnboardingInputs:
 
 
 @frozen
+class SlackUnfurlChartRequest:
+    url: str
+    insight_id: int
+    title: str
+
+
+@frozen
+class SlackAppUnfurlChartsWorkflowInputs:
+    team_id: int
+    integration_id: int
+    user_id: int
+    slack_user_id: str
+    channel: str
+    message_ts: str
+    unfurl_id: str | None
+    source: str | None
+    # The cards the webhook already posted, keyed by url. chat.unfurl replaces the unfurls it is
+    # given, so the charts go out together with the cards from the first call.
+    unfurls: dict[str, Any]
+    charts: list[SlackUnfurlChartRequest]
+    # Read from settings by the starter, because a workflow body must not read settings.
+    export_task_queue: str
+
+
+@frozen
+class SlackUnfurlChartAsset:
+    insight_id: int
+    asset_id: int
+
+
+@frozen
+class SlackAppUnfurlChartsPrepared:
+    distinct_id: str
+    assets: list[SlackUnfurlChartAsset]
+
+
+@frozen
+class SlackAppUnfurlChartsPostInput:
+    request: SlackAppUnfurlChartsWorkflowInputs
+    rendered: list[SlackUnfurlChartAsset]
+    elapsed_ms: int
+
+
+@frozen
 class SlackAppForkThreadInputs:
     """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
 
@@ -138,11 +182,16 @@ class SlackAppMessageReactionInput(BaseModel):
 
 
 class SlackAppModelOverrideInput(BaseModel):
-    """Single-argument input for the model-override classifier activity."""
+    """Single-argument input for the model-override classifier activity.
+
+    ``thread_ts`` only groups the captured generation into its thread's trace, so it
+    defaults to None: a task queued before it existed stays bindable on a new worker.
+    """
 
     integration_id: int
     slack_team_id: str
     event_text: str
+    thread_ts: str | None = None
 
 
 class SlackAppModelOverride(BaseModel):
@@ -160,6 +209,17 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
+class SlackAppModelRouterInput(BaseModel):
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    user_id: int
+    event_text: str
+    thread_ts: str | None = None
+    repository: str | None = None
+    model_override: SlackAppModelOverride | None = None
+
+
 class SlackAppProjectRouteInput(BaseModel):
     """Single-argument input for the project-route classifier activity.
 
@@ -172,6 +232,7 @@ class SlackAppProjectRouteInput(BaseModel):
     event_text: str
     user_id: int
     slack_user_id: str
+    thread_ts: str | None = None
 
 
 class SlackAppProjectRoute(BaseModel):

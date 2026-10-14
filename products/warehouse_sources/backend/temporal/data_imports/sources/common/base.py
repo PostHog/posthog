@@ -8,12 +8,13 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
@@ -199,6 +200,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    # How the wizard tells that a codebase uses this source. Every released source sets it, and
+    # `tests/test_codebase_detection.py` fails for one that does not.
+    codebase_detection: Detection | NotDetectable | None = None
+
+    # Makes the wizard send users to the app's new-source form even when every field could be typed in
+    # a terminal. Sources whose fields need OAuth, a file upload or an account picker go there anyway.
+    setup_requires_ui: bool = False
+
     def history_lookback_for_schema(
         self, schema_name: str, config: ConfigType | None = None
     ) -> datetime.timedelta | None:
@@ -210,6 +219,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -388,6 +405,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
+    def serialize_config(self, config: ConfigType) -> dict[str, Any]:
+        """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
+        return config.to_dict()
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
@@ -434,6 +455,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
 
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]

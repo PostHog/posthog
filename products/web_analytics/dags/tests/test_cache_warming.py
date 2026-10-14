@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.test import SimpleTestCase
 from django.utils.dateparse import parse_datetime
 
 import dagster
@@ -43,7 +44,7 @@ from products.web_analytics.dags.cache_warming import (
 )
 
 
-class TestMaybeOptIntoLazyPrecompute(BaseTest):
+class TestMaybeOptIntoLazyPrecompute(SimpleTestCase):
     def test_web_query_gets_opt_in(self) -> None:
         # If this breaks, the warmer silently stops building precompute buckets
         # for replayed shapes wherever the opt-in default still applies.
@@ -66,7 +67,7 @@ class TestMaybeOptIntoLazyPrecompute(BaseTest):
         self.assertEqual(maybe_opt_into_lazy_precompute(query), query)
 
 
-class TestMaybeExpandWarmingDateRange(BaseTest):
+class TestMaybeExpandWarmingDateRange(SimpleTestCase):
     @parameterized.expand(
         [
             # Sub-30d ranges deepen to -30d; if these stop expanding, warming
@@ -123,7 +124,7 @@ class TestMaybeExpandWarmingDateRange(BaseTest):
         self.assertEqual(maybe_expand_warming_date_range(query), query)
 
 
-class TestDeepenToWidestWarmableRange(BaseTest):
+class TestDeepenToWidestWarmableRange(SimpleTestCase):
     @parameterized.expand(
         [
             # Deepen to the widest exact range the shape's demand covers, so one
@@ -334,7 +335,7 @@ class TestBuildReplayRunner(BaseTest):
         self.assertEqual(base_runner.get_cache_key(), variant_runner.get_cache_key())
 
 
-class TestCanonicalizeLazyReplay(BaseTest):
+class TestCanonicalizeLazyReplay(SimpleTestCase):
     @parameterized.expand(
         [
             ("steps_up_to_next_multiple", "-31d", "-45d"),

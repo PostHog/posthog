@@ -3,8 +3,10 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+import structlog
 from google.auth import exceptions as google_auth_exceptions
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,16 +28,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
-    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
-    get_worksheets as get_google_sheets_worksheets,
+    discover_worksheet_schemas,
     google_sheets_client,
     google_sheets_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    codebase_detection = detect(
+        env=("^GOOGLE_SHEETS_",),
+        npm=("google-spreadsheet", "@googleapis/sheets"),
+        pypi=("gspread", "pygsheets"),
+        maven=("com.google.apis:google-api-services-sheets",),
+        rubygems=("google-apis-sheets_v4",),
+    )
+
     api_docs_url = "https://developers.google.com/sheets/api"
     uses_stable_schema_resource_ids = True
 
@@ -112,19 +123,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Listing worksheets is version-agnostic (gspread's `worksheets()`), but the per-worksheet
-        # header read goes through `_get_worksheet`, whose memoization key includes the version —
-        # so discovery must resolve the pin rather than let it default.
-        resolved_version = self.resolve_api_version(api_version)
-        worksheets = get_google_sheets_worksheets(config)
-
-        if names is not None:
-            names_set = set(names)
-            worksheets = [worksheet for worksheet in worksheets if worksheet.name in names_set]
-
         schemas: list[SourceSchema] = []
-        for worksheet in worksheets:
-            incremental_fields = get_google_sheets_schema_incremental_fields(config, worksheet.name, resolved_version)
+        for discovered in discover_worksheet_schemas(config, names=names):
+            worksheet = discovered.worksheet
+            incremental_fields = discovered.incremental_fields
 
             schemas.append(
                 SourceSchema(
@@ -159,7 +161,17 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        client = google_sheets_client()
+        try:
+            client = google_sheets_client()
+        except ValueError:
+            # google-auth raises ValueError when this instance's service account key is malformed,
+            # for example not valid PEM. The user can't fix that, so return a clear message, not a 500.
+            logger.exception("google_sheets_service_account_key_invalid", team_id=team_id)
+            return (
+                False,
+                "The Google Sheets integration isn't configured correctly on this PostHog instance. "
+                "Ask your instance administrator to check the Google Sheets service account key.",
+            )
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KandjiSource(SimpleSource[KandjiSourceConfig]):
+    codebase_detection = detect(env=("^KANDJI_",))
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
@@ -117,7 +120,7 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
                 "Connect Kandji with a tenant-level **API token**, created in Kandji under "
                 "**Settings → Access**. Your API URL is shown there too — enter its **subdomain** and pick "
                 "the matching **region** (US or EU). The token needs read access to the devices, blueprints, "
-                "and device-detail endpoints for the tables you want to sync."
+                "device-detail, library, and users endpoints for the tables you want to sync."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/kandji",
             iconPath="/static/services/kandji.png",

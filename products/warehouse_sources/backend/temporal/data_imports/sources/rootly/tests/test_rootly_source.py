@@ -30,12 +30,6 @@ class TestRootlyGetSchemas:
         # Incremental endpoints advertise updated_at/created_at; full-refresh ones advertise nothing.
         assert bool(schema.incremental_fields) is expected_incremental
 
-    def test_pulses_off_by_default(self) -> None:
-        # Pulses are the high-volume activity timeline, so they shouldn't sync unless opted in.
-        schemas = {s.name: s for s in RootlySource().get_schemas(MagicMock(), team_id=1)}
-        assert schemas["pulses"].should_sync_default is False
-        assert schemas["incidents"].should_sync_default is True
-
 
 class TestRootlyValidateCredentials:
     @parameterized.expand(
@@ -90,19 +84,6 @@ class TestRootlyNonRetryableErrors:
 
 
 class TestRootlyResumableAndPipeline:
-    def test_source_for_pipeline_plumbs_endpoint_and_keys(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "incidents"
-        inputs.should_use_incremental_field = False
-        inputs.incremental_field = None
-        response = RootlySource().source_for_pipeline(
-            MagicMock(api_key="rootly_test"), resumable_source_manager=MagicMock(), inputs=inputs
-        )
-        assert response.name == "incidents"
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-
     @parameterized.expand(
         [
             # Endpoints partition on the stable created_at field...

@@ -31,6 +31,10 @@ TABLE_NAME = "logs_volume_buckets"
 
 
 def LOGS_VOLUME_BUCKETS_TABLE_SQL():
+    # Tests use no TTL. Test fixtures use fixed dates, and the TTL deletes rows older than 42 days.
+    # This TTL uses a column per row, not a fixed interval. ttl_period() in
+    # posthog/clickhouse/kafka_engine.py does not support this, so this function has its own guard.
+    ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
@@ -46,7 +50,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-TTL time_bucket + toIntervalDay(greatest(42, retention_days))
+{ttl_clause}
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """
 

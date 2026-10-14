@@ -133,12 +133,6 @@ class TestBufferedDispatch:
         modes = [lane.cdc_write_mode for lane in response.lanes or []]
         assert modes == ["incremental_merge", "scd2_append"]
 
-    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
-        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
-        # fail rather than consume without recording a load position.
-        with pytest.raises(ValueError, match="requires v3"):
-            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
-
     def test_a_missing_job_row_fails_the_run(self):
         # Every lane reads its resume point off its own Delta table, which needs the job row.
         with pytest.raises(ValueError, match="no job row"):

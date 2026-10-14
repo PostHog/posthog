@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]):
+    codebase_detection = detect(
+        env=("^DEEPGRAM_",),
+        npm=("@deepgram/sdk",),
+        pypi=("deepgram-sdk",),
+        cargo=("deepgram",),
+        go=("github.com/deepgram/deepgram-go-sdk",),
+        maven=("com.deepgram:deepgram-java-sdk", "com.deepgram:deepgram-sagemaker"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.deepgram.com/reference/"
 

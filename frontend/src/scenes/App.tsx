@@ -6,7 +6,6 @@ import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
-import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -80,9 +79,6 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
-
-    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
-    useMountedLogic(productSetupPreloadLogic)
 
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr im
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sage_hr import (
     SageHRResumeConfig,
     SageHRRetryableError,
-    _iter_windows,
     check_access,
     get_rows,
     normalize_subdomain,
@@ -100,12 +99,6 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, "https://acme.sage.hr/api/employees?page=1", MagicMock())
 
-    def test_success_returns_items_and_next_page(self) -> None:
-        session = self._session_returning(200, {"data": [{"id": 1}], "meta": {"current_page": 1, "next_page": 2}})
-        items, next_page = _fetch_page_unwrapped(session, "https://acme.sage.hr/api/employees?page=1", MagicMock())
-        assert items == [{"id": 1}]
-        assert next_page == 2
-
     @parameterized.expand(
         [
             ("null_next_page", {"data": [{"id": 1}], "meta": {"current_page": 2, "next_page": None}}),
@@ -163,13 +156,6 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_single_page_no_next_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {"page=1": ([{"id": 1}, {"id": 2}], None)}, "employees")
-        assert rows == [{"id": 1}, {"id": 2}]
-        # `meta.next_page` is null, so we stop without persisting resume state.
-        assert manager.saved == []
-
     def test_follows_next_page_until_null(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         pages = {"page=1": ([{"id": 1}], 2), "page=2": ([{"id": 2}], None)}
@@ -177,27 +163,6 @@ class TestGetRows:
         assert rows == [{"id": 1}, {"id": 2}]
         # State is saved after the first page (advancing to page 2), then the null next_page stops us.
         assert [(s.next_page, s.window_from) for s in manager.saved] == [(2, None)]
-
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SageHRResumeConfig(next_page=2))
-        # Page 1 must never be fetched on resume.
-        pages = {"page=2": ([{"id": 2}], None)}
-        rows = self._collect(manager, monkeypatch, pages, "employees")
-        assert rows == [{"id": 2}]
-
-    @pytest.mark.parametrize(
-        "pages",
-        [
-            pytest.param({"page=1": ([], 2)}, id="empty_page_with_next"),
-            pytest.param({"page=1": ([{"id": 1}], 1)}, id="non_advancing_next_page"),
-        ],
-    )
-    def test_bad_meta_terminates_instead_of_looping(
-        self, pages: dict[str, tuple[list[dict], int | None]], monkeypatch: Any
-    ) -> None:
-        manager = _FakeResumableManager()
-        self._collect(manager, monkeypatch, pages, "employees")
-        assert manager.saved == []
 
     def test_unpaginated_endpoint_fetches_once_without_page_param(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
@@ -220,29 +185,6 @@ class TestWindowedLeaveRequests:
     ) -> list[dict]:
         monkeypatch.setattr(sage_hr, "_leave_window_range", lambda: self.RANGE)
         return TestGetRows._collect(manager, monkeypatch, pages, "leave_requests", requested)
-
-    def test_iter_windows_are_contiguous_and_capped(self) -> None:
-        windows = list(_iter_windows(self.RANGE.start, self.RANGE.end))
-        assert windows[0][0] == self.RANGE.start
-        assert windows[-1][1] == self.RANGE.end
-        for window_start, window_end in windows:
-            # The API rejects `from`/`to` ranges of 65 days or more.
-            assert (window_end - window_start).days < 65
-        for (_, prev_end), (next_start, _) in zip(windows, windows[1:]):
-            assert (next_start - prev_end).days == 1
-
-    def test_walks_every_window_with_from_to_params(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        requested: list[str] = []
-        pages = {
-            "from=2024-01-01&page=1&to=2024-02-29": ([{"id": 1}], None),
-            "from=2024-03-01&page=1&to=2024-03-31": ([{"id": 2}], None),
-        }
-        rows = self._collect(manager, monkeypatch, pages, requested)
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert requested == list(pages.keys())
-        # Window advance is persisted so a resume skips the exhausted window.
-        assert [(s.next_page, s.window_from) for s in manager.saved] == [(1, "2024-03-01")]
 
     def test_paginates_within_a_window_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()

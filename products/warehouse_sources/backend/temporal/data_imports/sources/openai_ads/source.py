@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConfig]):
+    codebase_detection = detect(env=("^(OPEN_AI_ADS|OPENAIADS)_",), script_hosts=("bzrcdn.openai.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.openai.com/ads/api-overview"
 
@@ -49,7 +52,7 @@ class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConf
             name=ExternalDataSourceType.OPENAIADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="OpenAI Ads",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenAI Ads API key to pull your campaigns, ad groups, ads, and performance insights into the PostHog Data warehouse.
 
 Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai.com). Each key is scoped to a single ad account — to import more than one ad account, connect one source per account.""",

@@ -65,12 +65,14 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         regenerateDisabledReason,
         switchToScreenshotDisabledReason,
         displayUrlIsPattern,
+        historyView,
     } = useValues(logic)
     const {
         setName,
         onIframeLoad,
         setScreenshotLoaded,
         setScreenshotError,
+        setHistoryScreenshotStatus,
         exportHeatmap,
         setContainerWidth,
         discardChanges,
@@ -283,13 +285,21 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                                 display: 'block',
                                             }}
                                             onLoad={() => {
-                                                setScreenshotLoaded(true)
-                                                setScreenshotError(null)
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, true)
+                                                } else {
+                                                    setScreenshotLoaded(true)
+                                                    setScreenshotError(null)
+                                                }
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
-                                                setScreenshotLoaded(false)
-                                                setScreenshotError('The screenshot failed to load.')
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, false)
+                                                } else {
+                                                    setScreenshotLoaded(false)
+                                                    setScreenshotError('The screenshot failed to load.')
+                                                }
                                             }}
                                         />
                                     </>

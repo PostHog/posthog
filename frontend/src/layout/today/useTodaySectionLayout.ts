@@ -80,7 +80,7 @@ function useMeasuredHeights(): {
                     measure()
                 }
             }
-        return { area: ref('area'), pinned: ref('pinned'), recent: ref('recent'), spaces: ref('spaces') }
+        return { area: ref('area'), pinned: ref('pinned'), recent: ref('recent') }
     }, [measure])
 
     return { measuredHeights, measureRefs }

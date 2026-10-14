@@ -46,6 +46,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    _capture_run_feature_flags_in_worker_thread,
     _scheduled_run_usage_error,
     _user_can_dispatch,
     dispatch_attempt_already_started,
@@ -958,6 +959,23 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         else:
             usage_response.return_value = Mock(data={"error": error}) if error is not None else None
             self.assertEqual(_scheduled_run_usage_error(user, 1), error)
+        self.assertEqual(close_connections.call_count, 2)
+
+    @parameterized.expand([("captured", False), ("error", True)])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    def test_flag_capture_worker_releases_connections(
+        self, _name: str, capture_fails: bool, capture_flags: Mock, close_connections: Mock
+    ) -> None:
+        if capture_fails:
+            capture_flags.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(RuntimeError):
+                _capture_run_feature_flags_in_worker_thread("run-id")
+        else:
+            capture_flags.return_value = {"agent_otel_telemetry_enabled": True}
+            self.assertEqual(
+                _capture_run_feature_flags_in_worker_thread("run-id"), {"agent_otel_telemetry_enabled": True}
+            )
         self.assertEqual(close_connections.call_count, 2)
 
     def test_scheduled_usage_checks_do_not_block_each_other(self) -> None:

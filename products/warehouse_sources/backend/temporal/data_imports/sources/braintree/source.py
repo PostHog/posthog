@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     BraintreeResumeConfig,
     braintree_source,
     validate_credentials as validate_braintree_credentials,
@@ -41,14 +43,35 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
+    codebase_detection = detect(
+        env=("^BRAINTREE_",),
+        script_hosts=("js.braintreegateway.com",),
+        npm=("braintree", "braintree-web", "braintree-web-drop-in"),
+        pypi=("braintree",),
+        cocoapods=("Braintree", "BraintreeDropIn", "BraintreeVisaCheckout"),
+        composer=("braintree/braintree_php", "braintree/braintreehttp"),
+        go=("github.com/braintree-go/braintree-go",),
+        maven=(
+            "com.braintreepayments.gateway:braintree-java",
+            "com.braintreepayments.api:drop-in",
+            "com.braintreepayments.api:braintree",
+            "com.braintreepayments.api:braintree-api",
+            "com.braintreepayments.api:braintree-core",
+            "com.braintreepayments.api:braintree-models",
+        ),
+        rubygems=("braintree",),
+        swiftpm=("github.com/braintree/braintree_ios", "github.com/braintree/braintree-ios-drop-in"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (
         BRAINTREE_VERSION_2019_01_01,
         BRAINTREE_VERSION_2026_07_14,
         BRAINTREE_VERSION_2026_08_04,
         BRAINTREE_VERSION_2026_08_13,
+        BRAINTREE_VERSION_2026_10_06,
     )
-    default_version = BRAINTREE_VERSION_2026_08_13
+    default_version = BRAINTREE_VERSION_2026_10_06
     api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property

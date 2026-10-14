@@ -5,12 +5,20 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { fileSystemTypes, getTreeItemsNew } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
-import { LibraryObjectType, baseObjectType, isLibraryEntry, isLibraryType, sortLibraryTypes } from './libraryUtils'
+import {
+    LibraryObjectType,
+    baseObjectType,
+    isLibraryEntry,
+    isLibraryType,
+    libraryListHref,
+    sortLibraryTypes,
+} from './libraryUtils'
 
 export const LIBRARY_PAGE_SIZE = 50
 // "All objects" drops tool and view entries after each page loads, so it reads ahead until a page has
@@ -204,7 +212,7 @@ export const libraryLogic = kea<libraryLogicType>([
                 const byType: Record<string, FileSystemImport[]> = {}
                 for (const item of getTreeItemsNew()) {
                     const type = baseObjectType(item.type)
-                    if (!item.href || (item.flag && !featureFlags[item.flag as keyof FeatureFlagsSet])) {
+                    if (!item.href || !isFileSystemImportFlagEnabled(item, featureFlags)) {
                         continue
                     }
                     byType[type] = [...(byType[type] ?? []), item]
@@ -231,6 +239,11 @@ export const libraryLogic = kea<libraryLogicType>([
             }
             if (objectType && !isLibraryType(objectType)) {
                 router.actions.replace(urls.views())
+                return
+            }
+            const listHref = objectType ? libraryListHref(objectType) : null
+            if (listHref) {
+                router.actions.replace(listHref)
                 return
             }
             if (objectType !== values.objectType || !cache.loaded) {

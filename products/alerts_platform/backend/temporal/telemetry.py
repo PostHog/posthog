@@ -9,6 +9,8 @@ from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, 
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS
+
 LOGGER = get_write_only_logger(__name__)
 
 
@@ -45,7 +47,17 @@ async def _log_activity_event(
 
 
 class AlertsPlatformTelemetryInterceptor(Interceptor):
-    task_queue = (settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE, settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE)
+    # Every queue a source binding names, so a source on a queue of its own is covered with no
+    # second list to keep in step.
+    task_queue = tuple(
+        sorted(
+            {
+                settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+                settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                *(binding.task_queue for binding in SOURCE_BINDINGS.values()),
+            }
+        )
+    )
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _AlertsPlatformActivityInterceptor(next)
