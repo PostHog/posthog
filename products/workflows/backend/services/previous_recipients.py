@@ -1,3 +1,4 @@
+import time
 from typing import TYPE_CHECKING, cast
 
 import structlog
@@ -15,9 +16,13 @@ from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort
 from products.cohorts.backend.models.util import delete_cohort_members_bulk
-from products.workflows.backend.facade.contracts import PreviousRecipients, TooManyPreviousRecipients
+from products.workflows.backend.facade.contracts import (
+    PreviousRecipients,
+    PreviousRecipientsTimedOut,
+    TooManyPreviousRecipients,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
@@ -30,6 +35,8 @@ MAX_PREVIOUS_RECIPIENTS = 20_000
 MAX_COHORT_NAME_LENGTH = 400
 # Both lookups run while the person waits on the entry point.
 QUERY_TIMEOUT_SECONDS = 10
+# The frontend gives up after 20 seconds, so writing the cohort stops before that and the worker is freed.
+POPULATION_DEADLINE_SECONDS = 15
 
 
 @frozen
@@ -145,7 +152,7 @@ def build_previous_recipients_cohort(
         created_by=user,
     )
     try:
-        cohort.insert_users_list_by_uuid(person_ids, team_id=team.id, raise_on_error=True)
+        _populate_within_deadline(cohort, team.id, person_ids)
     except Exception:
         # A half-filled exclusion would let some of these people get the email twice.
         try:
@@ -158,3 +165,20 @@ def build_previous_recipients_cohort(
     cohort.refresh_from_db()
     # A failed recount leaves count empty although the members are in, so fall back to the people written.
     return PreviousRecipients(cohort_id=cohort.id, people=cohort.count if cohort.count is not None else len(person_ids))
+
+
+def _populate_within_deadline(cohort: Cohort, team_id: int, person_ids: list[str]) -> None:
+    """
+    Write the members one batch at a time and stop once the deadline passes, so a slow store fails the request
+    instead of holding the worker. Only the last batch recounts the cohort and saves its state.
+    """
+    deadline = time.monotonic() + POPULATION_DEADLINE_SECONDS
+    batches = [
+        person_ids[start : start + DEFAULT_COHORT_INSERT_BATCH_SIZE]
+        for start in range(0, len(person_ids), DEFAULT_COHORT_INSERT_BATCH_SIZE)
+    ]
+    for index, batch in enumerate(batches):
+        last = index == len(batches) - 1
+        cohort.insert_users_list_by_uuid(batch, team_id=team_id, raise_on_error=True, save_state=last)
+        if not last and time.monotonic() > deadline:
+            raise PreviousRecipientsTimedOut()

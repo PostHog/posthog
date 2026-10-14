@@ -140,6 +140,21 @@ class TestPreviousRecipients(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_a_population_past_its_deadline_fails_and_leaves_no_cohort(self) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Slow", source_record=RECORD)
+        for distinct_id in ["one", "two"]:
+            create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            self._sent(flow, distinct_id)
+
+        with (
+            patch("products.workflows.backend.services.previous_recipients.DEFAULT_COHORT_INSERT_BATCH_SIZE", 1),
+            patch("products.workflows.backend.services.previous_recipients.POPULATION_DEADLINE_SECONDS", -1),
+        ):
+            response = self.client.post(self._url(), {"source_record": RECORD, "cohort_name": "Already emailed"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert not Cohort.objects.filter(team_id=self.team.pk, name="Already emailed").exists()
+
     def test_records_the_source_record_on_create_and_keeps_it_on_update(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",

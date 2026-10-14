@@ -670,6 +670,10 @@ class TooManyPreviousRecipients(Exception):
         self.limit = limit
 
 
+class PreviousRecipientsTimedOut(Exception):
+    """Saving the people already emailed took longer than one request may wait."""
+
+
 class EmailDraftSourceNotFound(Exception):
     """The project has no entity with that ID for the requested source."""
 
