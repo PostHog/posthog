@@ -277,7 +277,7 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
 }
 
 /**
- * The sort params for the list request. Recommended is a server preset that a team flag resolves
+ * The sort params for the list request. Recommended is a server preset that a user flag resolves
  * to a ranker, so it goes out as `sort` with no `ordering`, because `ordering` overrides the preset.
  */
 export function buildSignalReportListSortParams(
