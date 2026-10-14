@@ -54,7 +54,7 @@ from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team, create_default_modifiers_for_user
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -159,11 +159,7 @@ class HogQLQueryExecutor:
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
 
-        self.query_modifiers = (
-            create_default_modifiers_for_user(self.user, self.team, self.modifiers)
-            if self.user is not None
-            else create_default_modifiers_for_team(self.team, self.modifiers)
-        )
+        self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         if self.connection_id and self.query_modifiers.useNewEventsCluster:
             raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
         self.debug = self.modifiers is not None and self.modifiers.debug
