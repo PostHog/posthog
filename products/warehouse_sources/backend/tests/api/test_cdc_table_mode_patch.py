@@ -534,8 +534,6 @@ def test_resync_of_a_streaming_table_keeps_its_buffer(team, user, client: HttpCl
     [
         ("both", "consolidated"),
         ("both", "cdc_only"),
-        # A retry after an earlier request saved the mode but failed to clean up.
-        ("consolidated", "consolidated"),
     ],
 )
 def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
@@ -595,9 +593,19 @@ def test_deleting_a_schema_deregisters_its_unlinked_history_table(team, user, cl
     assert history_table.deleted is True
 
 
-@pytest.mark.parametrize("action", ["patch_to_consolidated", "delete_schema"])
-def test_dropping_history_needs_editor_access_to_the_history_table(team, user, client: HttpClient, action: str):
-    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+@pytest.mark.parametrize(
+    ("action", "table_mode", "expected_status"),
+    [
+        ("patch_to_consolidated", "both", 403),
+        ("delete_schema", "both", 403),
+        # The UI sends sync_type and cdc_table_mode on every save, including ones that drop nothing.
+        ("routine_save", "consolidated", 200),
+    ],
+)
+def test_dropping_history_needs_editor_access_to_the_history_table(
+    team, user, client: HttpClient, action: str, table_mode: str, expected_status: int
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
     history_table = _make_history_table(source, schema)
     team.organization.available_product_features = [
         {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -625,14 +633,41 @@ def test_dropping_history_needs_editor_access_to_the_history_table(team, user, c
         if action == "delete_schema":
             response = client.delete(url)
         else:
-            response = client.patch(url, data={"cdc_table_mode": "consolidated"}, content_type="application/json")
+            payload = {"sync_type": "cdc", "cdc_table_mode": "consolidated"}
+            response = client.patch(url, data=payload, content_type="application/json")
 
-    assert response.status_code == 403, response.content
+    assert response.status_code == expected_status, response.content
     history_table.refresh_from_db()
     assert history_table.deleted is False
     schema.refresh_from_db()
-    assert schema.cdc_table_mode == "both"
+    assert schema.cdc_table_mode == table_mode
     assert not schema.deleted
+
+
+def test_a_failed_history_cleanup_rolls_back_the_mode_change(team, user, client: HttpClient):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    history_table = _make_history_table(source, schema)
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(f"{_VIEW}.deregister_companion_table", side_effect=RuntimeError("catalog write failed")),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "consolidated"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 500
+    schema.refresh_from_db()
+    assert schema.cdc_table_mode == "both"
+    history_table.refresh_from_db()
+    assert history_table.deleted is False
 
 
 def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: HttpClient):

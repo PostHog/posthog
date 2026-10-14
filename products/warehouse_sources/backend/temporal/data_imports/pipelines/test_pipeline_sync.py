@@ -371,7 +371,8 @@ class TestRegisterCdcCompanionTableStamp:
 
         assert not DataWarehouseTable.objects.filter(team_id=team.pk, external_data_source_id=source.pk).exists()
 
-    def test_a_load_that_races_the_history_target_drop_leaves_no_live_record(self, team):
+    @pytest.mark.parametrize("drop", ["mode_change", "schema_delete"])
+    def test_a_load_that_races_the_history_target_drop_leaves_no_live_record(self, team, drop: str):
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
         )
@@ -381,7 +382,12 @@ class TestRegisterCdcCompanionTableStamp:
         )
 
         def drop_history_target_mid_registration() -> dict:
-            ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config={"cdc_table_mode": "consolidated"})
+            if drop == "schema_delete":
+                ExternalDataSchema.objects.filter(id=schema.id).update(deleted=True)
+            else:
+                ExternalDataSchema.objects.filter(id=schema.id).update(
+                    sync_type_config={"cdc_table_mode": "consolidated"}
+                )
             return {}
 
         with (

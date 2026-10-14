@@ -35,8 +35,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
-from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_table import deregister_companion_table
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_table import (
+    companion_table_name,
+    deregister_companion_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -302,10 +304,7 @@ def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -
     table = schema.table
     if table is None:
         return None
-    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    table_name = build_table_name(pipeline, names.table_storage_name)
-    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
-    return None if table.name == companion_name != table_name else table
+    return None if table.name == companion_table_name(schema, pipeline) else table
 
 
 def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
