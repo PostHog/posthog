@@ -54,6 +54,9 @@ implementation contracts. Load every companion that applies before writing sourc
 - **`building-html-canvases`** for documents, articles, focused experiments, generative graphics,
   `<canvas>`, or WebGL work where application components add no useful structure. It owns semantic
   markup, direct browser APIs, animation cleanup, and non-Quill theming.
+- **`drawing-custom-charts`** when the canvas needs a chart `@posthog/quill-charts` does not ship, a
+  d3 visualization, or marks on a stock chart (targets, release markers, incident windows,
+  callouts). It owns the stock → overlay → chart core → raw d3 ladder and the themed tooltip kit.
 - **`querying-canvas-data`** whenever the canvas reads PostHog data, captures events, or navigates.
   It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, progressive
   per-query loading, and declared data capabilities. Load it alongside either implementation skill
