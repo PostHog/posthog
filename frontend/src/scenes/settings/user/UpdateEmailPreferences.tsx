@@ -14,7 +14,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
@@ -369,7 +371,7 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateWAWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationLoading, isAdminOrOwner } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
     const highlight = searchParams.highlight as NotificationBlock | undefined
     const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
@@ -441,6 +443,18 @@ export function UpdateEmailPreferences(): JSX.Element {
                     </span>
                 </div>
                 <OrganizationMemberJoinSelector />
+                {isAdminOrOwner && (
+                    <p className="text-muted text-sm mb-0">
+                        As an admin of {currentOrganization?.name}, you can set these emails for all its members in{' '}
+                        <Link
+                            to={urls.settings('organization-members', 'member-notifications')}
+                            data-attr="member-join-email-governance-link"
+                        >
+                            Member notifications
+                        </Link>
+                        .
+                    </p>
+                )}
             </div>
         ),
         [NotificationBlock.DataPipelineErrors]: (
