@@ -1487,7 +1487,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except (KeyError, ValueError, json.JSONDecodeError):
                 pass  # Invalid cursor format, continue with original date range
 
-        requested_limit = min(query_data.get("limit", 1000), 2000)
+        limit = query_data.get("limit")
+        requested_limit = min(1000 if limit is None else limit, 2000)
         logs_query_params = {
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
