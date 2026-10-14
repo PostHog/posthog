@@ -26,6 +26,7 @@ from products.endpoints.backend.materialization_transforms import (
     build_endpoint_hogql,
     transform_query_for_materialization,
 )
+from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -2175,21 +2176,36 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("qualified_field", "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}", ["event"]),
+            (
+                "qualified_field",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                True,
+                ["event"],
+            ),
             (
                 "nested_properties",
                 "SELECT properties.foo.bar, properties.bar FROM events WHERE distinct_id = {variables.user_id}",
+                True,
                 ["foo__bar", "bar"],
             ),
             (
                 "unaliased_calls",
                 "SELECT toStartOfDay(timestamp), count() FROM events WHERE distinct_id = {variables.user_id} "
                 "GROUP BY toStartOfDay(timestamp)",
-                ["toStartOfDay(toTimeZone(timestamp, 'UTC'))", "count()"],
+                True,
+                ["`toStartOfDay(toTimeZone(timestamp, 'UTC'))` AS `toStartOfDay(timestamp)`", "`count()`"],
+            ),
+            (
+                "columns_not_computed",
+                "SELECT e.event FROM events AS e WHERE distinct_id = {variables.user_id}",
+                False,
+                ["`e.event`"],
             ),
         ]
     )
-    def test_materialized_read_selects_the_stored_column_names(self, name, query_str, expected_names):
+    def test_materialized_read_selects_stored_columns_under_declared_names(
+        self, name, query_str, columns_computed, expected_select
+    ):
         query = {
             "kind": "HogQLQuery",
             "query": query_str,
@@ -2197,10 +2213,14 @@ class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
         }
         endpoint = create_endpoint_with_version(name=name, team=self.team, query=query, created_by=self.user)
         version = endpoint.versions.get()
+        if columns_computed:
+            version.columns = EndpointVersion.extract_columns(query, self.team.pk)
+            version.save()
 
         select_query, _ = strategy_for(endpoint, version, self.team).build_materialized_select(table_name="mat")
 
-        assert [expr.chain[0] for expr in select_query.select if isinstance(expr, ast.Field)] == expected_names
+        assert [expr.to_hogql() for expr in select_query.select] == expected_select
+        assert (version.columns is not None) == columns_computed
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
