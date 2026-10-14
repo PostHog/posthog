@@ -47,7 +47,7 @@ def _classifier_q() -> Q:
     Keys on name and description, not on `is_sample`: every dashboard template sets that, so on its
     own it would also match billing/usage and onboarding insights. Callers wanting a second signal
     add it on top of this (see `_delete_orphaned`).
-    Names come from constants in posthog/helpers/dashboard_templates.py, which is what creates them.
+    Names come from constants in posthog/helpers/dashboard_templates.py.
     Descriptions interpolate the flag key, so those are matched by fragment instead.
     """
     return (
