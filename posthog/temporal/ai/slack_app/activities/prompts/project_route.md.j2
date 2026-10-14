@@ -11,6 +11,8 @@ Only these projects can be selected, and the id is the number:
 
 Before you answer with an id, find the words in this message that name that project — its name, or its number. If you cannot point to them, the answer is null. A message that shares a subject with a project, or asks for work a project's team does, has not named it, however sure you are about whose desk it lands on.
 
+Those words have to name the whole project, not only part of its name. Projects often share a name and differ by a qualifier such as "development", "dev", "staging", "test", "sandbox" or "local", and that kind of project holds test traffic, not real users. A message that says only the shared part and leaves the qualifier off has not named the qualified project, even when no project on the list carries the shorter name. With a project called "Fernwood sandbox", "how many orders did Fernwood take today" names no project: it asks about the real product, and the default is where that data is.
+
 A number counts only where it is written as a project: "in project 42", "for 42", or a `/project/42/` link. Messages carry counts, percentages, ids, version numbers and error codes, and any of them may happen to equal a project id. A bare number names no project, however exactly it matches.
 
 Name a project when the message says where to look:
@@ -23,6 +25,7 @@ Answer with null when the project is the thing being worked on rather than the p
   - "we should split staging and production" (a proposal about projects).
   - "update the reply this agent sends", "fix the skill so it stops truncating" (a request to change the agent's own behaviour or output). The project whose team owns that work is not where the answer comes from, because the request asks for no data at all.
   - A word that only happens to match a project name. With a project called "Website", "the website is down" names no project.
+  - A site, domain or app that the data is about. "On" a site says what to measure, not which project to read, unless a project carries exactly that name.
   - "I already checked staging, look at the SDK instead" (an account of a place already ruled out — past tense is the tell).
   - Two projects at once, as in "compare staging and production". One task answers from one project, and picking one of the two on a guess is worse than staying on the default.
 
