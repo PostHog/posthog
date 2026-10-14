@@ -172,7 +172,7 @@ describe('HomeTabDefault query reuse', () => {
         const { container } = render(<HomeTabDefault />)
 
         await waitFor(() =>
-            expect(container.querySelectorAll('[data-attr="insight-sample-data-state"]')).toHaveLength(11)
+            expect(container.querySelectorAll('[data-attr="insight-sample-data-tag"]')).toHaveLength(11)
         )
         for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
             expect(tile).toHaveAttribute('aria-busy', 'false')
@@ -189,7 +189,7 @@ describe('HomeTabDefault query reuse', () => {
         })
 
         await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
-        expect(container.querySelector('[data-attr="insight-sample-data-state"]')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
         await waitFor(() =>
             expect(
                 within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
