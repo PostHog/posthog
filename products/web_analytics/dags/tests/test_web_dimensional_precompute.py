@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -121,10 +122,18 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         # Chunking bounds each ensure call to <= chunk_days so no single INSERT
         # scans the whole window. Exercised here with a 7-day chunk for clarity.
         t1 = self._make_team("A")
-        with patch(_SINGLE_CHUNK, 7), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk}"}):
+        with (
+            time_machine.travel("2026-10-14T20:21:00Z", tick=False),
+            patch(_SINGLE_CHUNK, 7),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk}"}),
+        ):
             ensure_web_dimensional_precompute_op(dagster.build_op_context())
-        assert stats_mock.call_count > 1
-        assert all((e - s).days <= 7 for _t, s, e in (c.args for c in stats_mock.call_args_list))
+        chunks = [(s, e) for _t, s, e in (c.args for c in stats_mock.call_args_list)]
+        assert len(chunks) > 1
+        assert all((e - s).days <= 7 for s, e in chunks)
+        # A chunk that straddles UTC midnight makes the framework merge two missing days into one
+        # INSERT, so every boundary must sit on a UTC midnight even when the run starts mid-day.
+        assert all(b == b.replace(hour=0, minute=0, second=0, microsecond=0) for chunk in chunks for b in chunk)
 
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed")
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed")
