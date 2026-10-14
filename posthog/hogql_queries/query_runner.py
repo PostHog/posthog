@@ -124,6 +124,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     WebVitalsQuery,
 )
@@ -2383,6 +2384,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     ExperimentFunnelsQuery,
                     ExperimentExposureQuery,
                     WebOverviewQuery,
+                    WebPageURLSearchQuery,
                     WebStatsTableQuery,
                     WebGoalsQuery,
                     WebVitalsQuery,
