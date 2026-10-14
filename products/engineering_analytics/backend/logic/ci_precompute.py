@@ -321,33 +321,55 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
+    spans: list[tuple[StoredRows, JobSourceTables, list[datetime]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
-            table_deadline = min(deadline, time.monotonic() + _REFRESH_BUDGET_SECONDS)
-            start = _find_history_start(stored, team, source, database) if _may_insert(team, table_deadline) else None
-            for since in _newest_first(start) if start else ():
-                if not _may_insert(team, table_deadline):
-                    break
-                result = ensure_stored(
-                    stored,
-                    team,
-                    source,
-                    since=since,
-                    database=database,
-                    run_inserts=True,
-                    wait_timeout_seconds=table_deadline - time.monotonic(),
+            if not _may_insert(team, deadline):
+                return failed
+            try:
+                start = _find_history_start(stored, team, source, database)
+            except Exception:
+                logger.warning(
+                    "engineering_analytics_ci_history_start_failed",
+                    team_id=team.pk,
+                    table=str(stored.table),
+                    source_id=source.source_id,
+                    repository=source.repository,
+                    exc_info=True,
                 )
-                if not result.ready:
-                    logger.warning(
-                        "engineering_analytics_ci_precompute_incomplete",
-                        team_id=team.pk,
-                        table=str(stored.table),
-                        source_id=source.source_id,
-                        repository=source.repository,
-                        errors=result.errors,
-                    )
-                    failed = failed or not result.timed_out
-                    break
+                failed = True
+                continue
+            if start is not None:
+                spans.append((stored, source, list(_newest_first(start))))
+    # Every table of every repository stores its newest step before any stores an older one, so the
+    # backfill of one long history does not hold back the recent days of the others.
+    incomplete: set[int] = set()
+    for step in range(max((len(steps) for _, _, steps in spans), default=0)):
+        for index, (stored, source, steps) in enumerate(spans):
+            if index in incomplete or step >= len(steps):
+                continue
+            if not _may_insert(team, deadline):
+                return failed
+            result = ensure_stored(
+                stored,
+                team,
+                source,
+                since=steps[step],
+                database=database,
+                run_inserts=True,
+                wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
+            )
+            if not result.ready:
+                logger.warning(
+                    "engineering_analytics_ci_precompute_incomplete",
+                    team_id=team.pk,
+                    table=str(stored.table),
+                    source_id=source.source_id,
+                    repository=source.repository,
+                    errors=result.errors,
+                )
+                failed = failed or not result.timed_out
+                incomplete.add(index)
     return failed
 
 

@@ -647,9 +647,10 @@ class CuratedGitHubSource:
         """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
-        parses the whole runs source again.
+        parses the whole runs source again. The rollup keys on pull requests, so it can read the stored
+        history, and the pull request pages then show one age of CI throughout.
         """
-        return f"runs AS {self.run_source()}"
+        return f"runs AS {self.run_source(stored_history=True)}"
 
     def _pr_scope_cte(self, pr_scope_where: str) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over

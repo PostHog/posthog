@@ -21,6 +21,7 @@ class TestRefreshAfterLoad(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.first_created: str | None = "2026-10-04T08:00:00Z"
+        self.runs_history_lookup_error: Exception | None = None
         self.flag_checks_on = 1000
         self.ensure_stored = MagicMock(return_value=SimpleNamespace(ready=True, errors=[]))
         flag_checks = iter(range(1000))
@@ -38,14 +39,26 @@ class TestRefreshAfterLoad(SimpleTestCase):
             patch(f"{_MODULE}.resolve_precompute_sources", return_value=[source]),
             patch(f"{_MODULE}.Database.create_for"),
             patch(f"{_MODULE}.create_default_modifiers_for_team"),
-            patch(
-                f"{_MODULE}.execute_hogql_query",
-                side_effect=lambda **_kwargs: SimpleNamespace(results=[(self.first_created,)]),
-            ),
+            patch(f"{_MODULE}.execute_hogql_query", side_effect=self._first_created),
             patch(f"{_MODULE}.ensure_stored", self.ensure_stored),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def _first_created(self, **kwargs: Any) -> SimpleNamespace:
+        if self.runs_history_lookup_error and kwargs["query_type"].startswith(ci_precompute.STORED_RUNS.query_type):
+            raise self.runs_history_lookup_error
+        return SimpleNamespace(results=[(self.first_created,)])
+
+    def test_a_failed_history_lookup_pauses_the_team_without_stopping_the_refresh(self) -> None:
+        self.runs_history_lookup_error = RuntimeError("Code: 202. Too many simultaneous queries")
+        ci_precompute.mark_in_use(_TEAM)
+        ci_precompute.refresh_after_load(_TEAM)
+        self.runs_history_lookup_error = None
+        ci_precompute.refresh_after_load(_TEAM)
+
+        # The jobs table still stored its day, and the next load started no refresh.
+        assert [call.args[0] for call in self.ensure_stored.call_args_list] == [ci_precompute.STORED_JOBS]
 
     @parameterized.expand(
         [
@@ -82,8 +95,8 @@ class TestRefreshAfterLoad(SimpleTestCase):
         [
             ("in_use", True, 1000, 2),
             ("not_read_within_the_hour", False, 1000, 0),
-            # The load's own check, then the runs table's history lookup and its one insert.
-            ("flag_turned_off_mid_refresh", True, 3, 1),
+            # The load's own check, the history lookups of both tables, then the runs table's insert.
+            ("flag_turned_off_mid_refresh", True, 4, 1),
         ]
     )
     def test_a_load_stores_days_only_while_the_team_is_read_and_flagged(
