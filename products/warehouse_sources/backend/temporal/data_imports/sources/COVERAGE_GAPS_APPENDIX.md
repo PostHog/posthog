@@ -823,10 +823,10 @@ Today (4): `company_leads`, `flow_engagement`, `teams`, `users`
 
 Diffed against: <https://docs.arcade.software/kb/leverage/advanced-features/rest-api/insights-api>
 
-- [ ] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
-- [ ] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
-- [ ] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
-- [ ] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
+- [x] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
+- [x] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
+- [x] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
+- [x] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
 - [ ] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
 - [ ] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
 - [ ] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)

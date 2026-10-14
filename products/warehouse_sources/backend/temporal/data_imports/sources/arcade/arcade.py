@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
@@ -61,6 +62,7 @@ class ArcadeResumeConfig:
     period_start: str
     period_end: str
     completed: bool = False
+    flow_index: int = 0
 
 
 def parse_start_date(value: str) -> str:
@@ -74,7 +76,13 @@ def parse_start_date(value: str) -> str:
 
 
 def get_resource(
-    config: ArcadeSourceConfig, name: str, period_start: str, period_end: str, *, probe: bool = False
+    config: ArcadeSourceConfig,
+    name: str,
+    period_start: str,
+    period_end: str,
+    *,
+    probe: bool = False,
+    flow_id: str | None = None,
 ) -> EndpointResource:
     if name not in ENDPOINTS:
         raise ValueError("Unknown Arcade table. Select a table from the source settings.")
@@ -90,8 +98,12 @@ def get_resource(
         endpoint["method"] = "POST"
         payload: dict[str, Any] = {"type": definition.insight_type, "teamId": config.team_id}
         endpoint["json"] = payload
+        if definition.windowed:
+            payload.update({"from": period_start, "to": period_end})
+        if flow_id is not None:
+            payload["flowId"] = flow_id
         if name == "flow_engagement":
-            payload.update({"from": period_start, "to": period_end, "size": 1 if probe else PAGE_SIZE})
+            payload["size"] = 1 if probe else PAGE_SIZE
             endpoint["paginator"] = cast(
                 PaginatorConfig,
                 {
@@ -105,7 +117,9 @@ def get_resource(
     def add_context(row: dict[str, Any]) -> dict[str, Any]:
         if definition.insight_type:
             row = {**row, "team_id": config.team_id}
-        if name == "flow_engagement":
+        if flow_id is not None:
+            row = {**row, "flowId": flow_id}
+        if definition.windowed:
             row = {**row, "period_start": period_start, "period_end": period_end}
         return row
 
@@ -128,7 +142,11 @@ def rest_config(config: ArcadeSourceConfig, resource: EndpointResource) -> RESTA
 def validate_credentials(config: ArcadeSourceConfig, team_id: int, schema_name: str | None) -> tuple[bool, str | None]:
     try:
         start = parse_start_date(config.start_date)
-        resource_config = get_resource(config, schema_name or "teams", start, datetime.now(UTC).isoformat(), probe=True)
+        name = schema_name or "teams"
+        # Per-flow insights need a flow ID, so probe the flow listing that supplies it with the same scope.
+        if name in ENDPOINTS and ENDPOINTS[name].per_flow:
+            name = "flow_engagement"
+        resource_config = get_resource(config, name, start, datetime.now(UTC).isoformat(), probe=True)
     except ValueError as error:
         return False, str(error)
     resource = rest_api_resource(rest_config(config, resource_config), team_id, "arcade_validate", None)
@@ -144,6 +162,47 @@ def validate_credentials(config: ArcadeSourceConfig, team_id: int, schema_name: 
     return True, None
 
 
+def flow_rows(
+    config: ArcadeSourceConfig,
+    name: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[ArcadeResumeConfig],
+    period_start: str,
+    period_end: str,
+    resume: ArcadeResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    # The Insights API has no flow list, so the paginated overviewPlays report supplies the flow IDs.
+    first_page = resume.page if resume else 1
+    skip = resume.flow_index if resume else 0
+    flows = rest_api_resource(
+        rest_config(config, get_resource(config, "flow_engagement", period_start, period_end)),
+        team_id,
+        job_id,
+        None,
+        initial_paginator_state={"page": first_page},
+    )
+    page = first_page
+    for page, flow_page in enumerate(flows, start=first_page):
+        for index, flow in enumerate(flow_page):
+            if page == first_page and index < skip:
+                continue
+            flow_resource = rest_api_resource(
+                rest_config(config, get_resource(config, name, period_start, period_end, flow_id=flow["flowId"])),
+                team_id,
+                job_id,
+                None,
+            )
+            rows = [row for flow_rows_page in flow_resource for row in flow_rows_page]
+            manager.save_state(
+                ArcadeResumeConfig(page=page, period_start=period_start, period_end=period_end, flow_index=index + 1)
+            )
+            if rows:
+                yield rows
+            manager.safe_point()
+    manager.save_state(ArcadeResumeConfig(page=page, period_start=period_start, period_end=period_end, completed=True))
+
+
 def arcade_source(
     config: ArcadeSourceConfig,
     name: str,
@@ -157,6 +216,12 @@ def arcade_source(
     resource_config = get_resource(config, name, period_start, period_end)
     if resume and resume.completed:
         return SourceResponse(name=name, items=lambda: iter(()), primary_keys=list(ENDPOINTS[name].primary_keys))
+    if ENDPOINTS[name].per_flow:
+        return SourceResponse(
+            name=name,
+            items=lambda: flow_rows(config, name, team_id, job_id, manager, period_start, period_end, resume),
+            primary_keys=list(ENDPOINTS[name].primary_keys),
+        )
 
     def save_state(state: dict[str, Any] | None) -> None:
         manager.save_state(
