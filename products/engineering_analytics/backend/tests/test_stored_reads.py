@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
+from products.engineering_analytics.backend.logic.stored_read_parity import ParityCheckedGitHubSource
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     create_github_source,
@@ -172,3 +173,36 @@ class TestStoredReads(BaseTest):
             freshness = CuratedGitHubSource.for_team(self.team).ci_data_freshness()
 
         assert freshness.as_of == now - expected_age
+
+    @parameterized.expand(
+        [
+            ("same_rows_in_another_order", [(2, 0.30000000000000004), (1, True)], [(1, 1), (2, 0.3)], True),
+            ("a_row_missing", [(1, 0.1)], [(1, 0.1), (2, 0.3)], False),
+            ("the_raw_read_fails", [(1, 0.1)], ClickHouseAtCapacity(), False),
+        ]
+    )
+    def test_a_parity_check_reads_the_raw_tables_too_and_compares_the_rows(
+        self, _name: str, stored_rows: list[tuple], raw_rows: list[tuple] | Exception, equal: bool
+    ) -> None:
+        curated = ParityCheckedGitHubSource.for_team(self.team)
+        sql = f"SELECT count() FROM {curated.run_source(stored_history=True)} AS r"
+
+        def execute(**kwargs: Any) -> SimpleNamespace:
+            if kwargs["query_type"] == _STORED_READ:
+                return SimpleNamespace(results=stored_rows)
+            if isinstance(raw_rows, Exception):
+                raise raw_rows
+            return SimpleNamespace(results=raw_rows)
+
+        with (
+            patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_CI_PRECOMPUTE}.history_start", return_value=timezone.now() - timedelta(days=400)),
+            patch(f"{_CURATED}.refresh_ci_precompute"),
+            patch(f"{_CURATED}.team_flag", return_value=True),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])),
+            patch(f"{_CURATED}.execute_hogql_query", side_effect=execute),
+        ):
+            response = curated.run(sql, query_type=_RAW_READ)
+
+        assert response.results == stored_rows
+        assert [(query.query_type, query.equal) for query in curated.queries] == [(_RAW_READ, equal)]

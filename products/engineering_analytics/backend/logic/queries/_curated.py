@@ -21,7 +21,7 @@ from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from django.conf import settings
 from django.core.cache import cache
@@ -301,7 +301,7 @@ class CuratedGitHubSource:
         repo: str | None = None,
         user_access_control: "UserAccessControl | None" = None,
         query_limit: int | None = None,
-    ) -> "CuratedGitHubSource":
+    ) -> Self:
         return cls(
             team=team,
             tables=resolve_github_tables(
@@ -879,7 +879,7 @@ class CuratedGitHubSource:
             self._abandon_stored_reads("engineering_analytics_stored_read_unavailable", query_type)
         if stored_sql is not None:
             try:
-                return self._execute(
+                response = self._execute(
                     stored_sql,
                     query_type=f"{query_type}{STORED_QUERY_TYPE_SUFFIX}",
                     placeholders=placeholders,
@@ -889,9 +889,22 @@ class CuratedGitHubSource:
                 if not _stored_rows_rejected(error):
                     raise
                 self._abandon_stored_reads("engineering_analytics_stored_read_failed", query_type)
+            else:
+                self._stored_read_answered(sql, response, query_type=query_type, placeholders=placeholders)
+                return response
         return self._execute(
             self._with_raw_ci_sources(sql), query_type=query_type, placeholders=placeholders, workload=workload
         )
+
+    def _stored_read_answered(
+        self,
+        sql: str,
+        response: HogQLQueryResponse,
+        *,
+        query_type: str,
+        placeholders: dict[str, ast.Expr] | None,
+    ) -> None:
+        """Called after the stored rows answered ``sql``. A parity check overrides it."""
 
     def _execute(
         self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None, workload: Workload
