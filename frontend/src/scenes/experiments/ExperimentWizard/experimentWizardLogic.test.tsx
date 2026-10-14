@@ -7,6 +7,8 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -856,6 +858,7 @@ describe('experimentWizardLogic', () => {
 
             logic = experimentWizardLogic()
             logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         })
 
         afterEach(() => {
@@ -893,7 +896,7 @@ describe('experimentWizardLogic', () => {
             ;(global as any).__consentAccepted = accepted
 
             renderAnalyticsStep()
-            await userEvent.click(screen.getByText('Watch participant behavior with Replay Vision'))
+            await userEvent.click(screen.getByText('Compare what users do in each variant'))
 
             // Without the gate the unconsented tick lands in the logic, and the save path then
             // creates a scanner the backend refuses with the consent 400.
@@ -912,6 +915,15 @@ describe('experimentWizardLogic', () => {
             renderAnalyticsStep()
 
             expect(screen.getByText(/Each scanned session costs/)).toBeInTheDocument()
+        })
+
+        it('offers no scanner without the experiment-scanner flag', () => {
+            ;(global as any).__consentAccepted = true
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            renderAnalyticsStep()
+
+            expect(screen.queryByText(/Each scanned session costs/)).not.toBeInTheDocument()
         })
     })
 })

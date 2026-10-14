@@ -2483,6 +2483,19 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # A Neon-style proxy's own round trip to its control plane fails with the bare, generic
+            # "ERROR: Control plane request failed" — distinct from the specific, actionable
+            # control-plane rejections (quota exceeded, allow-listed IP, ...) that stay non-retryable
+            # in `get_non_retryable_errors`. The generic form means the round trip itself broke, not
+            # that it returned a customer-fixable rejection, so the reconnect must catch it. The real
+            # production message pairs it with the generic plaintext-fallback rejection on a second
+            # line, which must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "Control plane request failed\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
@@ -4347,6 +4360,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        text_ids: list[str] | None = None,
+        worker_deaths: int = 0,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4365,7 +4380,7 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         rows: list[tuple[Any, ...]] = list(self._XMIN_ROWS if is_xmin else self._ROWS)
         if column_type == "text":
-            rows = [(str(row[0]),) for row in rows]
+            rows = [(text_id,) for text_id in text_ids] if text_ids else [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
@@ -4412,6 +4427,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                worker_deaths=worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4700,6 +4716,42 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    @parameterized.expand(
+        [
+            ("seek_walk_halves_its_pages", False, 2),
+            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
+            ("offset_walk_keeps_its_pages", True, 4),
+        ]
+    )
+    def test_page_size_after_a_worker_death(self, _name, should_use_incremental_field, expected_limit):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            worker_deaths=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == expected_limit
+
+    def test_one_wide_row_does_not_shrink_the_seek_pages(self):
+        text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", 300):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                arrow_schema=pa.schema([pa.field("id", pa.string())]),
+                column_type="text",
+                text_ids=text_ids,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=2),
+            )
+
+        assert ids == text_ids
+        assert set(self.last_scan.limits) == {2}
 
     def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
         # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.

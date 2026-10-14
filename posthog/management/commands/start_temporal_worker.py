@@ -250,6 +250,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -271,7 +275,7 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.temporal import (
+from products.review_hog.backend.facade.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
@@ -319,6 +323,10 @@ from products.warehouse_suggestions.backend.facade.temporal import (
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
+)
+from products.web_analytics.backend.temporal.page_history.registry import (
+    ACTIVITIES as HEATMAP_PAGE_HISTORY_ACTIVITIES,
+    WORKFLOWS as HEATMAP_PAGE_HISTORY_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
@@ -393,7 +401,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -420,7 +429,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -572,6 +582,11 @@ _task_queue_specs = [
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
+    ),
+    (
+        settings.WEB_ANALYTICS_TASK_QUEUE,
+        HEATMAP_PAGE_HISTORY_WORKFLOWS,
+        HEATMAP_PAGE_HISTORY_ACTIVITIES,
     ),
     (
         settings.LOGS_ALERTING_TASK_QUEUE,

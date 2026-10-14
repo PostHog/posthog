@@ -64,7 +64,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
@@ -479,6 +479,11 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
         q: values.queryInput ?? '',
         output_tab: values.outputActiveTab,
+    }
+    if (values.sourceQuery?.source.executionTarget) {
+        hash['engine'] = values.sourceQuery.source.executionTarget
+    } else if (toDataVisualizationNode(values.activeTab?.insight?.query)?.source.executionTarget) {
+        hash['engine'] = 'posthog'
     }
     const connectionId = values.sourceQuery?.source.connectionId
     if (connectionId) {
@@ -980,9 +985,11 @@ export interface sqlEditorLogicActions {
     }
     runQuery: (
         queryOverride?: string,
-        switchTab?: boolean
+        switchTab?: boolean,
+        reuseResults?: boolean
     ) => {
         queryOverride: string | undefined
+        reuseResults: boolean
         switchTab: boolean | undefined
     }
     runSubquery: () => {
@@ -1080,6 +1087,9 @@ export interface sqlEditorLogicActions {
     }
     setError: (error: string | null) => {
         error: string | null
+    }
+    setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => {
+        executionTarget: 'default' | 'managed_trino' | undefined
     }
     setFinishedLoading: (loading: boolean) => {
         loading: boolean
@@ -1334,9 +1344,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             activeQueryText,
             activeQueryOffset,
         }),
-        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
+        runQuery: (queryOverride?: string, switchTab?: boolean, reuseResults: boolean = false) => ({
             queryOverride,
             switchTab,
+            reuseResults,
         }),
         createTab: (
             query?: string,
@@ -1491,6 +1502,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
+        setExecutionTarget: (executionTarget: HogQLQuery['executionTarget']) => ({ executionTarget }),
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
@@ -2171,6 +2183,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 persistEditorDraft()
             },
+            setExecutionTarget: ({ executionTarget }) => {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: values.queryInput ?? values.sourceQuery.source.query,
+                        executionTarget,
+                        connectionId: undefined,
+                        sendRawQuery: undefined,
+                    },
+                })
+                actions.syncUrlWithQuery()
+            },
             setSendRawQuery: ({ sendRawQuery }) => {
                 const currentSourceQuery = values.sourceQuery
 
@@ -2303,7 +2328,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             },
-            runQuery: ({ queryOverride, switchTab }) => {
+            runQuery: ({ queryOverride, switchTab, reuseResults }) => {
                 // Cmd+Enter reaches this listener even while the run button is disabled
                 if (values.singleStatementDisabledReason) {
                     return
@@ -2388,17 +2413,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 actions.setSourceQuery(nextSourceQuery)
                 actions.setLastRunQuery(nextSourceQuery)
-                if (!cache.umountDataNode) {
-                    cache.umountDataNode = dataNodeLogic({
-                        key: values.dataLogicKey,
-                        query: executedSource,
-                    }).mount()
-                }
-
-                dataNodeLogic({
+                const dataProps: DataNodeLogicProps = {
                     key: values.dataLogicKey,
                     query: executedSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
+                    autoLoad: false,
+                    ...(reuseResults ? { retainResponseOnUnmount: true } : {}),
+                }
+                if (!cache.umountDataNode) {
+                    cache.umountDataNode = dataNodeLogic(dataProps).mount()
+                }
+
+                dataNodeLogic(dataProps).actions.loadData(
+                    reuseResults || switchTab ? 'async' : 'force_async',
+                    undefined,
+                    executedSource
+                )
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
@@ -3732,6 +3761,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 sourceQuery: DataVisualizationNode,
                 splitRanges: QueryRange[]
             ) => {
+                if (
+                    lastRunQuery &&
+                    (lastRunQuery.source.executionTarget ?? 'default') !==
+                        (sourceQuery.source.executionTarget ?? 'default')
+                ) {
+                    return false
+                }
                 const lastRunQueryText = (lastRunQuery?.source.query ?? sourceQuery.source.query ?? '').trim()
                 if ((queryInput ?? '').trim() === lastRunQueryText) {
                     return true
@@ -3928,6 +3964,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hasOwnProperty(hashParams, 'q') &&
                 !hashParams.c &&
                 !hashParams.raw &&
+                !hasOwnProperty(hashParams, 'engine') &&
                 !hasFiltersHashParam &&
                 !hashParams.view &&
                 !hashParams.insight &&
@@ -3947,6 +3984,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const connectionIdFromHash =
                 typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
             const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
+            const hasEngineOverride = hasOwnProperty(hashParams, 'engine')
+            const executionTargetFromHash = hasEngineOverride
+                ? hashParams.engine === 'managed_trino'
+                    ? 'managed_trino'
+                    : undefined
+                : connectionIdFromHash
+                  ? undefined
+                  : values.sourceQuery.source.executionTarget
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
@@ -3958,6 +4003,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
 
             if (
+                executionTargetFromHash !== values.sourceQuery.source.executionTarget ||
                 connectionIdFromHash !== currentConnectionId ||
                 sendRawQueryFromHash !== currentSendRawQuery ||
                 shouldSyncFilters
@@ -3966,6 +4012,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
+                        executionTarget: executionTargetFromHash,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
                         filters: filtersForSourceQuery,
@@ -4146,21 +4193,44 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const queryToOpen =
                         searchParams.open_query ?? (hasOwnProperty(hashParams, 'q') ? String(hashParams.q) : query)
 
-                    if (insightVisualizationQuery) {
-                        let insightSource = applyFiltersFromUrl(insightVisualizationQuery)
-                        if (localDraft || hasOwnProperty(hashParams, 'c') || hasOwnProperty(hashParams, 'raw')) {
+                    let insightSource = insightVisualizationQuery
+                        ? applyFiltersFromUrl(insightVisualizationQuery)
+                        : undefined
+                    if (insightSource) {
+                        if (
+                            localDraft ||
+                            hasOwnProperty(hashParams, 'c') ||
+                            hasOwnProperty(hashParams, 'raw') ||
+                            hasEngineOverride
+                        ) {
                             insightSource = {
                                 ...insightSource,
                                 source: {
                                     ...insightSource.source,
+                                    executionTarget: connectionIdFromHash
+                                        ? undefined
+                                        : hasEngineOverride
+                                          ? executionTargetFromHash
+                                          : insightSource.source.executionTarget,
                                     connectionId: connectionIdFromHash,
                                     sendRawQuery: sendRawQueryFromHash || undefined,
                                 },
                             }
                         }
+                    }
+                    if (insightSource) {
                         actions.setSourceQuery(insightSource)
                     }
                     actions.editInsight(queryToOpen, insight, biEditorStateFromUrl ?? undefined)
+                    if (hasEngineOverride) {
+                        actions.setSourceQuery({
+                            ...values.sourceQuery,
+                            source: {
+                                ...values.sourceQuery.source,
+                                executionTarget: connectionIdFromHash ? undefined : executionTargetFromHash,
+                            },
+                        })
+                    }
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }

@@ -29,6 +29,7 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    withIntroScreenEnabled,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
@@ -41,6 +42,7 @@ import {
     getSurveyResponseStatus,
     transformSurveyResponseRows,
     getSurveyStartDateForQuery,
+    clampPreviewPageIndex,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
     sanitizeSurvey,
@@ -504,6 +506,18 @@ describe('survey utils', () => {
         })
     })
 
+    describe('clampPreviewPageIndex', () => {
+        it.each([
+            ['keeps the intro page while the intro is enabled', -1, true, -1],
+            ['falls back to question 0 when the intro is disabled', -1, false, 0],
+            ['keeps question pages regardless of the toggle', 2, false, 2],
+            ['maps a null page index to question 0', null, true, 0],
+        ] as const)('%s', (_name, pageIndex, displayIntroScreen, expected) => {
+            const survey = { appearance: { displayIntroScreen } }
+            expect(clampPreviewPageIndex(pageIndex, survey)).toBe(expected)
+        })
+    })
+
     describe('sanitizeSurveyAppearance', () => {
         it('returns null for null input', () => {
             expect(sanitizeSurveyAppearance(null)).toBeNull()
@@ -529,6 +543,32 @@ describe('survey utils', () => {
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.submitButtonTextColor).toBe('#cccccc')
         })
+
+        it.each([
+            ['introScreenHeader', '<b>Welcome</b><script>alert(1)</script>', '<b>Welcome</b>'],
+            ['introScreenDescription', '<p onclick="alert(1)">Takes a minute</p>', '<p>Takes a minute</p>'],
+            ['introScreenHeader', undefined, ''],
+        ] as const)('sanitizes %s HTML (%s)', (field, value, expected) => {
+            const result = sanitizeSurveyAppearance({ [field]: value })
+
+            expect(result?.[field]).toBe(expected)
+        })
+
+        it.each([
+            ['text', 'a < b && c > d'],
+            ['html', 'a &lt; b &amp;&amp; c &gt; d'],
+            [undefined, 'a &lt; b &amp;&amp; c &gt; d'],
+        ] as const)(
+            'sanitizes the intro description only as HTML when its content type is %s',
+            (contentType, expected) => {
+                const result = sanitizeSurveyAppearance({
+                    introScreenDescription: 'a < b && c > d',
+                    introScreenDescriptionContentType: contentType,
+                })
+
+                expect(result?.introScreenDescription).toBe(expected)
+            }
+        )
 
         it('removes surveyPopupDelaySeconds for external surveys', () => {
             const input: SurveyAppearance = {
@@ -556,6 +596,38 @@ describe('survey utils', () => {
             expect(result?.backgroundColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.surveyPopupDelaySeconds).toBe(5)
+        })
+    })
+
+    describe('withIntroScreenEnabled', () => {
+        it.each([
+            ['no appearance', undefined, { displayIntroScreen: true, introScreenDescriptionContentType: 'text' }],
+            [
+                'an unset content type',
+                { introScreenHeader: 'Welcome' },
+                { displayIntroScreen: true, introScreenHeader: 'Welcome', introScreenDescriptionContentType: 'text' },
+            ],
+            [
+                'an existing html content type',
+                { introScreenDescriptionContentType: 'html' },
+                { displayIntroScreen: true, introScreenDescriptionContentType: 'html' },
+            ],
+            [
+                'an existing html description with an unset content type',
+                { introScreenDescription: '<b>Hi</b>' },
+                {
+                    displayIntroScreen: true,
+                    introScreenDescription: '<b>Hi</b>',
+                    introScreenDescriptionContentType: 'html',
+                },
+            ],
+            [
+                'an existing text description',
+                { introScreenDescription: 'Hi', introScreenDescriptionContentType: 'text' },
+                { displayIntroScreen: true, introScreenDescription: 'Hi', introScreenDescriptionContentType: 'text' },
+            ],
+        ] as [string, SurveyAppearance | undefined, SurveyAppearance][])('%s', (_name, appearance, expected) => {
+            expect(withIntroScreenEnabled(appearance)).toEqual(expected)
         })
     })
 

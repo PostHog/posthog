@@ -14,7 +14,7 @@ export function SettingRow({
     mine: JSX.Element
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-1 items-center gap-2 border-t border-primary px-4 py-3 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,16rem)] @min-[48rem]:gap-3">
+        <div className="grid grid-cols-1 items-center gap-2 border-t border-primary px-4 py-3 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,18rem)] @min-[48rem]:gap-3">
             <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-sm font-semibold">{title}</span>
                 <span className="text-xs text-secondary">{description}</span>
@@ -23,7 +23,7 @@ export function SettingRow({
                 <span className="text-xs text-secondary @min-[48rem]:hidden">Project:</span>
                 {project}
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <div className="flex min-w-0 items-center gap-1">
                 <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
                 {mine}
             </div>

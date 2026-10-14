@@ -1,12 +1,13 @@
 from collections.abc import Iterator
-from typing import cast
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
     API_BASE_URL,
     ENDPOINTS,
-    MAX_PAGE_ROWS,
+    HISTORY_DAYS,
     NON_RETRYABLE_ERRORS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -70,48 +71,123 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     return True, None
 
 
-def ahrefs_source(api_key: str, project_id: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+def _site_audit_target(api_key: str, project_id: str) -> dict[str, Any]:
+    client = RESTClient(base_url=API_BASE_URL, auth=BearerTokenAuth(token=api_key), request_timeout=(10, 60))
+    for page in client.paginate(
+        path="site-audit/projects",
+        params={"output": "json", "project_id": project_id},
+        data_selector="healthscores",
+        data_selector_required=True,
+        paginator=SinglePagePaginator(),
+        hooks=create_response_hooks(RESPONSE_ACTIONS),
+    ):
+        for row in page:
+            if row.get("target_url"):
+                return row
+    raise ValueError("ahrefs_project_not_found")
+
+
+def _target_params(api_key: str, project_id: str, names: list[str]) -> dict[str, str]:
+    if not names:
+        return {}
+    project = _site_audit_target(api_key, project_id)
+    values = {
+        "target": project["target_url"],
+        "mode": project.get("target_mode"),
+        "protocol": project.get("target_protocol"),
+    }
+    return {name: value for name, value in values.items() if name in names and value}
+
+
+def _history_start(should_use_incremental_field: bool, last_value: Any, today: date) -> str:
+    if should_use_incremental_field and last_value:
+        if isinstance(last_value, datetime):
+            return last_value.date().isoformat()
+        if isinstance(last_value, date):
+            return last_value.isoformat()
+        return date.fromisoformat(str(last_value)[:10]).isoformat()
+    return (today - timedelta(days=HISTORY_DAYS)).isoformat()
+
+
+def _unique_rows(page: list[dict[str, object]], primary_keys: list[str]) -> list[dict[str, object]]:
+    seen: set[tuple[object, ...]] = set()
+    rows = []
+    for row in page:
+        key = tuple(row.get(field) for field in primary_keys)
+        if key not in seen:
+            seen.add(key)
+            rows.append(row)
+    return rows
+
+
+def ahrefs_source(
+    api_key: str,
+    project_id: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> SourceResponse:
     settings = schema_for_resource(ENDPOINTS, endpoint)
     normalized_project_id = str(int(project_id))
+    project_scoped = settings.get("project_scoped", True)
+    history = settings.get("history", False)
+    row_limit = settings["params"].get("limit")
 
     def add_project_id(row: dict[str, object]) -> dict[str, object]:
         return {**row, "project_id": normalized_project_id}
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": API_BASE_URL,
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": "single_page",
-            "request_timeout": (10, 60),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "write_disposition": "replace",
-                "endpoint": {
-                    "path": settings["path"],
-                    "data_selector": settings["data_selector"],
-                    "data_selector_required": True,
-                    "params": {"output": "json", "project_id": normalized_project_id, **settings["params"]},
-                    "response_actions": RESPONSE_ACTIONS,
-                },
-                "data_map": add_project_id,
-            }
-        ],
-    }
-    resource = rest_api_resource(config, team_id, job_id, None)
-
     def items() -> Iterator[list[dict[str, object]]]:
+        params: dict[str, Any] = {
+            "output": "json",
+            **settings["params"],
+            **_target_params(api_key, normalized_project_id, settings.get("target_params", [])),
+        }
+        if project_scoped and not settings.get("target_params"):
+            params["project_id"] = normalized_project_id
+        if history:
+            params["date_from"] = _history_start(
+                should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
+            )
+        config: RESTAPIConfig = {
+            "client": {
+                "base_url": API_BASE_URL,
+                "auth": {"type": "bearer", "token": api_key},
+                "paginator": "single_page",
+                "request_timeout": (10, 60),
+            },
+            "resources": [
+                {
+                    "name": endpoint,
+                    "write_disposition": {"disposition": "merge", "strategy": "upsert"}
+                    if history and should_use_incremental_field
+                    else "replace",
+                    "endpoint": {
+                        "path": settings["path"],
+                        "data_selector": settings["data_selector"],
+                        "data_selector_required": True,
+                        "params": params,
+                        "response_actions": RESPONSE_ACTIONS,
+                    },
+                    "data_map": add_project_id if project_scoped else None,
+                }
+            ],
+        }
+        resource = rest_api_resource(config, team_id, job_id, None)
         for page in resource:
-            if endpoint == "site_audit_pages" and len(page) >= MAX_PAGE_ROWS:
-                logger.info("ahrefs_page_sample_limit_reached", team_id=team_id, limit=MAX_PAGE_ROWS)
-                page = page[:MAX_PAGE_ROWS]
+            if row_limit is not None and len(page) >= int(row_limit):
+                logger.info("ahrefs_sample_limit_reached", team_id=team_id, endpoint=endpoint, limit=row_limit)
+                page = page[: int(row_limit)]
+            page = _unique_rows(page, settings["primary_keys"])
+            if history:
+                page = sorted(page, key=lambda row: str(row.get("date") or ""))
             yield page
 
     return SourceResponse(
         name=endpoint,
         items=items,
         primary_keys=settings["primary_keys"],
-        sort_mode=None,
+        sort_mode="asc" if history else None,
         supports_resume=False,
     )

@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from copy import deepcopy
 from typing import TypedDict
 
@@ -11,6 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 
 from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Organization, Team
@@ -734,6 +736,68 @@ def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSch
 
 @pytest.mark.django_db
 class TestReconcileManagedWarehouseTables:
+    def test_flag_switch_reconciles_the_same_source_and_table_in_both_engines(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _ensure(team)
+        transaction_depth = len(django_connection.savepoint_ids)
+
+        def trino_flag(*args: object, **kwargs: object) -> bool:
+            assert len(django_connection.savepoint_ids) == transaction_depth
+            return True
+
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            [("posthog", "events")],
+            [("posthog", "events", "uuid", "varchar", "YES")],
+        ]
+        connection = MagicMock(catalog="org_example")
+        connection.cursor.return_value = cursor
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=trino_flag),
+            patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
+                return_value=nullcontext(connection),
+            ),
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+        schema = ExternalDataSchema.objects.get(source=source, name="posthog.events")
+        assert schema.table is not None
+        table_id = schema.table_id
+        assert schema.table.url_pattern == "direct://trino"
+        assert schema.table.options["direct_trino_catalog"] == "org_example"
+        assert schema.table.columns is not None
+        assert schema.table.columns["uuid"]["hogql"] == "string"
+        source.refresh_from_db()
+        assert source.job_inputs == {}
+        assert source.is_dynamic_managed_warehouse
+
+        postgres_connection = ManagedWarehousePostgresConnection(
+            host=_CONNECTION["host"],
+            port=5432,
+            database="ducklake",
+            username="svc_reader",
+            password="example-secret",
+            sslmode="require",
+        )
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch(
+                "products.managed_warehouse.backend.logic.connection.resolve_managed_warehouse_postgres_connection",
+                return_value=postgres_connection,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+                return_value=[_source_schema("events")],
+            ),
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+        schema.refresh_from_db()
+        assert schema.table_id == table_id
+        assert schema.table is not None
+        assert schema.table.url_pattern == DIRECT_POSTGRES_URL_PATTERN
+        assert ExternalDataSource.objects.filter(team=team, deleted=False).count() == 1
+
     def _setup(self) -> tuple[Organization, Team]:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -1665,3 +1729,60 @@ def test_source_recovery_scheduler_always_emits_the_generation_fenced_task() -> 
     with patch.object(ensure_managed_warehouse_direct_source_v2_task, "delay") as delay:
         schedule_managed_warehouse_direct_source_ensure(team_id=42, organization_id="org-1", expected_generation=7)
         delay.assert_called_once_with(team_id=42, organization_id="org-1", expected_generation=7)
+
+
+@pytest.mark.parametrize("operation", ["query", "discovery"])
+def test_deadline_bounds_polling_and_cleanup_without_masking_timeout(operation: str) -> None:
+    import json
+    from contextlib import nullcontext
+
+    import requests
+    from trino.dbapi import connect
+
+    from posthog.hogql.direct_sql.trino_adapter import TrinoQueryRequest, execute_trino_query
+    from posthog.hogql.timings import HogQLTimings
+
+    from products.managed_warehouse.backend.logic.sql_editor_trino import discover_managed_trino_schemas
+
+    clock = [0.0]
+    calls: list[tuple[str, object]] = []
+    session = requests.Session()
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        calls.append((request.method or "", kwargs["timeout"]))
+        if request.method == "DELETE":
+            raise requests.ReadTimeout("cleanup timed out")
+        assert request.method == "POST"
+        clock[0] = 61
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {
+                "id": "query",
+                "infoUri": "https://trino.example.com/query",
+                "nextUri": "https://trino.example.com/next",
+                "stats": {},
+                "data": [],
+            }
+        ).encode()
+        return response
+
+    connection = connect(host="trino.example.com", user="test", catalog="example", http_session=session)
+    with (
+        patch.object(session, "send", side_effect=send),
+        patch("posthog.hogql.direct_sql.trino_adapter.time.monotonic", side_effect=lambda: clock[0]),
+        pytest.raises(ExposedHogQLError, match="Trino query timed out"),
+    ):
+        if operation == "query":
+            execute_trino_query(
+                TrinoQueryRequest(sql="SELECT 1", values=None, timeout_seconds=60, timings=HogQLTimings(), team_id=1),
+                nullcontext(connection),
+            )
+        else:
+            with patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
+                return_value=nullcontext(connection),
+            ):
+                discover_managed_trino_schemas("example-org", 1)
+    assert [method for method, _ in calls] == ["POST", "DELETE"]
+    assert calls[-1][1] == 0.5

@@ -678,9 +678,10 @@ def call_llm_judge(
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
-                        "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
-                        "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n"
-                        + prompt
+                        "Can this input be evaluated according to the evaluation instructions below? Answer false "
+                        "when those instructions require N/A, when essential context or evidence is missing, or "
+                        "when the criteria are irrelevant. Answer true when enough information is present to "
+                        "evaluate them, even if the result would be a fail. Do not invent missing facts.\n\n" + prompt
                     )
                 )
             decision_result = DecisionClient.evaluate(

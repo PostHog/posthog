@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnykSource(ResumableSource[SnykSourceConfig, SnykResumeConfig]):
+    codebase_detection = detect(env=("^SNYK_",), npm=("snyk", "@snyk/protect"), pypi=("pysnyk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

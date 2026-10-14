@@ -1,9 +1,14 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
+    MarketstackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
@@ -11,11 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketstac
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
 
 
-def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Any:
-    config = MagicMock()
-    config.access_key = access_key
-    config.symbols = symbols
-    return config
+def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> MarketstackSourceConfig:
+    return MarketstackSourceConfig(access_key=access_key, symbols=symbols)
 
 
 class TestMarketstackSource:
@@ -59,17 +61,21 @@ class TestMarketstackSource:
         assert probe.call_args.args[1] == MARKETSTACK_API_VERSION_V2
 
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "eod"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2021-04-09"
-        inputs.api_version = MARKETSTACK_API_VERSION_V2
+        result = SourceDriver(MarketstackSource(), _make_config("abc", "AAPL,MSFT")).run(
+            "eod",
+            [ScriptedResponse(json={"data": [], "pagination": {"total": 0}})],
+            db_incremental_field_last_value="2021-04-09",
+            should_use_incremental_field=True,
+            api_version=MARKETSTACK_API_VERSION_V2,
+        )
 
-        response = MarketstackSource().source_for_pipeline(_make_config("abc", "AAPL,MSFT"), MagicMock(), inputs)
-
-        assert response.name == "eod"
-        assert response.primary_keys == ["symbol", "exchange", "date"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "eod"
+        assert result.response.primary_keys == ["symbol", "exchange", "date"]
+        assert result.requests[0].param("symbols") == "AAPL,MSFT"
+        assert result.requests[0].param("access_key") == "abc"
+        assert result.requests[0].param("date_from") == "2021-04-09"
 
     @parameterized.expand(
         [
@@ -79,17 +85,12 @@ class TestMarketstackSource:
         ]
     )
     def test_source_for_pipeline_threads_resolved_version(self, _name: str, pin: str | None, expected: str) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "eod"
-        inputs.logger = MagicMock()
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
+        result = SourceDriver(MarketstackSource(), _make_config()).run(
+            "eod", [ScriptedResponse(json={"data": [], "pagination": {"total": 0}})], api_version=pin
+        )
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source.marketstack_source"
-        ) as mocked:
-            MarketstackSource().source_for_pipeline(_make_config(), MagicMock(), inputs)
-        assert mocked.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.requests[0].path == f"/{expected}/eod"
 
     @parameterized.expand(
         [

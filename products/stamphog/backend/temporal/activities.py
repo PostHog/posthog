@@ -63,6 +63,11 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.review_evidence import (
+    ReviewEvidenceProvider,
+    ReviewEvidenceState,
+    get_review_evidence_providers,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
@@ -87,6 +92,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
@@ -683,20 +689,72 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     return {"reaction_id": reaction_id}
 
 
+def _provider_key(provider: ReviewEvidenceProvider) -> str:
+    """A name for the provider that stays the same across activity attempts and workers."""
+    return f"{provider.__module__}.{getattr(provider, '__qualname__', '')}"
+
+
+def _read_review_evidence(run: ReviewRun, earlier: list[dict]) -> list[dict]:
+    """Each registered external reviewer's evidence for the run's head, as the engine reads it.
+
+    A provider that answers None or answers for another head adds nothing. A provider that raises
+    adds nothing too, unless ``earlier`` (the evidence of an earlier poll in this run) holds a
+    pending review from it. That review stays pending, marked ``provider_error``, so an error after
+    a pending answer ends the run in WAIT and never lets it approve. An error can never read as a
+    clean review, and one failing provider never hides another's answer.
+    """
+    pending_earlier = {
+        item.get("provider"): item
+        for item in earlier
+        if item.get("state") == ReviewEvidenceState.PENDING and item.get("head_sha") == run.head_sha
+    }
+    pull_request = run.pull_request
+    evidence: list[dict] = []
+    for provider in get_review_evidence_providers():
+        key = _provider_key(provider)
+        try:
+            item = provider(pull_request.repo_config.repository, pull_request.pr_number, run.head_sha)
+        except Exception:
+            activity.logger.warning(f"Run {run.id}: review evidence provider {key} failed", exc_info=True)
+            if key in pending_earlier:
+                evidence.append({**pending_earlier[key], "provider_error": True})
+            continue
+        if item is None or item.head_sha != run.head_sha:
+            continue
+        evidence.append(
+            {
+                "provider": key,
+                "provider_error": False,
+                "state": str(item.state),
+                "reviewer": item.reviewer,
+                "review_kind": item.review_kind,
+                "findings_count": item.findings_count,
+                "published": item.published,
+                "head_sha": item.head_sha,
+                "base_ref": item.base_ref,
+                "base_sha": item.base_sha,
+                "skipped_paths": list(item.skipped_paths),
+            }
+        )
+    return evidence
+
+
 @activity.defn
 @asyncify
 def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
-    """Allowlisted reviewer bots with a fresh 👀 on the PR, refreshing the stored snapshot.
+    """Reviewers still working on the PR, refreshing the stored reactions and review status.
 
-    The Action waits these bots out by polling GitHub from the runner; the hosted sandbox holds no
+    Two signals count. An allowlisted reviewer bot with a fresh 👀 on the PR, and a registered
+    external reviewer (``facade/review_evidence.py``) reporting a pending review of this head.
+    The Action waits bots out by polling GitHub from the runner; the hosted sandbox holds no
     token, so the WORKFLOW polls this activity instead, sleeping on durable timers between calls.
-    Each call re-fetches the reactions and refreshes ``run.output["pr_reactions"]`` so the sandbox
-    context reflects the latest snapshot — if the wait budget expires with a bot still in flight,
-    the engine sees the fresh 👀 and returns WAIT rather than approving over an unfinished review.
+    Each call refreshes ``run.output["pr_reactions"]`` and ``run.output["review_evidence"]`` so the
+    sandbox context reflects the latest snapshot. If the wait budget expires with a reviewer still
+    in flight, the engine sees it and returns WAIT rather than approving over an unfinished review.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
-        return {"in_flight": []}
+        return {"in_flight": [], "reviews_completed": False}
     started_at = timezone.now()
     repo_config = run.pull_request.repo_config
     client = StamphogGitHubClient(repo_config.installation_id)
@@ -711,7 +769,8 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
         "polls": int(bot_wait.get("polls") or 0) + 1,
         "ms": int((now - first_started_at).total_seconds() * 1000),
     }
-    _merge_run_output(run, {"pr_reactions": reactions, "bot_wait": bot_wait})
+    review_evidence = _read_review_evidence(run, (run.output or {}).get("review_evidence") or [])
+    _merge_run_output(run, {"pr_reactions": reactions, "review_evidence": review_evidence, "bot_wait": bot_wait})
 
     # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
     # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
@@ -729,9 +788,39 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
     )
+    in_flight += [item["reviewer"] for item in review_evidence if item["state"] == ReviewEvidenceState.PENDING]
     if in_flight:
-        activity.logger.info(f"Run {run.id}: reviewer bot(s) in flight: {', '.join(in_flight)}")
-    return {"in_flight": in_flight}
+        activity.logger.info(f"Run {run.id}: reviewer(s) in flight: {', '.join(in_flight)}")
+    reviews_completed = any(item["state"] == ReviewEvidenceState.COMPLETED for item in review_evidence)
+    return {"in_flight": in_flight, "reviews_completed": reviews_completed}
+
+
+@activity.defn
+@asyncify
+def refresh_review_evidence(input: StamphogReviewInput) -> dict:
+    """Re-read the reviews, discussion and inline threads before the engine counts an external review.
+
+    ``fetch_review_context`` reads them before the wait polls. A review posted during the wait, or
+    one that completed just before the first poll, can be missing from that read, and the engine
+    would then count the completed review over threads it never saw. The reactions and the review
+    evidence are already fresh, because the last wait poll read them.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"skipped": "superseded"}
+    repo_config = run.pull_request.repo_config
+    repo = repo_config.repository
+    number = run.pull_request.pr_number
+    client = StamphogGitHubClient(repo_config.installation_id)
+    _merge_run_output(
+        run,
+        {
+            "reviews": client.get_pr_reviews(repo, number),
+            "discussion": client.get_pr_discussion(repo, number),
+            "review_threads": client.get_pr_review_threads(repo, number),
+        },
+    )
+    return {"refreshed": True}
 
 
 def _sandbox_deadline(timeout: timedelta) -> float:
@@ -799,6 +888,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         review_threads=output.get("review_threads", []),
         check_runs=output.get("check_runs", []),
         pr_reactions=output.get("pr_reactions", []),
+        review_evidence=output.get("review_evidence") or [],
         author_pr_numbers=output.get("author_pr_numbers", []),
         author_team_slugs=output.get("author_team_slugs", []),
         # A run whose context predates the server facts gets None, which the engine reads as an
@@ -1532,6 +1622,46 @@ def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) 
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 
 
+def _waited_on_external_review(run: ReviewRun) -> bool:
+    """True when the run saved a WAIT while an external review of its head was pending."""
+    if run.status != ReviewRunStatus.COMPLETED or run.verdict != ReviewVerdict.WAIT:
+        return False
+    return any(
+        item.get("state") == ReviewEvidenceState.PENDING and item.get("head_sha") == run.head_sha
+        for item in (run.output or {}).get("review_evidence") or []
+    )
+
+
+@activity.defn
+@asyncify
+def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
+    """Queue a re-review when this WAIT waited on an external review that finished since the last poll.
+
+    The external reviewer asks stamphog to re-review when its review ends, but that request finds
+    no WAIT while this run is still in flight and does nothing. So the run asks the providers once
+    more after it saved its WAIT. A dispatch error raises, so Temporal retries it, because a lost
+    dispatch leaves the PR at WAIT until the next push.
+    """
+    run = _load_run(input)
+    if not _waited_on_external_review(run):
+        return {"requested": False}
+    # The run's own evidence is the earlier answer, so a provider error keeps the review pending. A
+    # re-review queued on an error would start without that evidence and could approve too early.
+    earlier = (run.output or {}).get("review_evidence") or []
+    pending = [item for item in _read_review_evidence(run, earlier) if item["state"] == ReviewEvidenceState.PENDING]
+    # The reviewer's nudge can come before the WAIT is saved and find nothing to re-review, so an
+    # unanswered provider must retry here rather than leave the PR at WAIT.
+    if any(item.get("provider_error") for item in pending):
+        raise RuntimeError(f"Run {run.id}: a review evidence provider failed; retrying the recheck")
+    if pending:
+        return {"requested": False}
+    pull_request = run.pull_request
+    request_rereview_after_external_review(
+        repository=pull_request.repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha
+    )
+    return {"requested": True}
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1765,7 +1895,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict)}
+    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
 
 
 @activity.defn

@@ -420,6 +420,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         status: SubBatchStatus::Failed as i32,
                         accepted: 0,
                         error: reason.to_string(),
+                        unfinished: vec![],
                     })),
                 }));
             };
@@ -475,6 +476,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         status: SubBatchStatus::Ok as i32,
                         accepted: reported,
                         error: String::new(),
+                        unfinished: vec![],
                     })),
                 }));
             }

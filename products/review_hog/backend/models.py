@@ -1,4 +1,6 @@
-from django.db import models
+from collections.abc import Mapping
+
+from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils.functional import Promise
 
@@ -6,6 +8,13 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.review_hog.backend.facade.enums import (
+    AutomaticFlashFor,
+    ReviewInstallationClaimScope,
+    ReviewProjectSettingsBotPullRequests,
+    ReviewRepositoryPersonKind,
+    ReviewUserRepositoryChoiceMode,
+)
 from products.review_hog.backend.preferences import ReviewPreferences, ReviewProjectDefaults, UrgencyThreshold
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -223,7 +232,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
+    # db_index=False: the (report, type) composite indexes below lead with report_id, so they serve
+    # lookups and cascade deletes. A separate single-column index would be redundant.
+    report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts", db_index=False)
     type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
@@ -242,7 +253,6 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         indexes = [
-            models.Index(fields=["report"], name="reviewhog_art_report_idx"),
             models.Index(fields=["report", "type"], name="reviewhog_art_rpt_type_idx"),
             # Latest-wins seeks: WHERE report=? AND type=? ORDER BY created_at DESC.
             models.Index(fields=["report", "type", "-created_at"], name="reviewhog_art_rpt_type_ct_idx"),
@@ -389,14 +399,6 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
         ]
 
 
-class AutomaticFlashFor(models.TextChoices):
-    """Who gets automatic Flash reviews under a project rule or a repository exception."""
-
-    EVERYONE = "everyone", "Automatic Flash for everyone"
-    LISTED = "listed", "Automatic Flash for these people"
-    OFF = "off", "Automatic Flash opt-in only"
-
-
 class ReviewProjectSettings(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     """A project's ReviewHog rule: who gets automatic Flash, bot pull requests, and Full defaults.
 
@@ -406,21 +408,19 @@ class ReviewProjectSettings(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     repository.
     """
 
-    class BotPullRequests(models.TextChoices):
-        SKIP = "skip", "Not reviewed"
-        RUN = "run", "Automatic Flash"
+    BotPullRequests = ReviewProjectSettingsBotPullRequests
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     flash_for = models.CharField(
         max_length=20,
         choices=AutomaticFlashFor.choices,
-        default=AutomaticFlashFor.OFF,
+        default=AutomaticFlashFor.OFF.value,
         db_default=AutomaticFlashFor.OFF.value,
     )
     bot_prs = models.CharField(
         max_length=10,
         choices=BotPullRequests.choices,
-        default=BotPullRequests.SKIP,
+        default=BotPullRequests.SKIP.value,
         db_default=BotPullRequests.SKIP.value,
     )
     # Project defaults for the Full review preferences (see `preferences.PROJECT_DEFAULT_FIELDS`).
@@ -438,6 +438,29 @@ class ReviewProjectSettings(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
         """The project's row, or an unsaved instance carrying the defaults when none exists."""
         row = cls.objects.for_team(team_id).first()
         return row if row is not None else cls(team_id=team_id)
+
+    @classmethod
+    def ensure(cls, team_id: int) -> "ReviewProjectSettings":
+        """The project's row, created with the defaults when none exists."""
+        row, _created = cls.objects.for_team(team_id, canonical=True).get_or_create(team_id=team_id)
+        return row
+
+    @classmethod
+    def save_changes(cls, team_id: int, changes: Mapping[str, object]) -> None:
+        """Apply `changes` to the project rule and its Full review defaults. Omitted keys keep their value.
+
+        Raises `InvalidPreference` for an invalid Full review default.
+        """
+        with transaction.atomic():
+            row = cls.objects.for_team(team_id).select_for_update().get(id=cls.ensure(team_id).id)
+            for field in ("flash_for", "bot_prs"):
+                if field in changes:
+                    setattr(row, field, changes[field])
+            preference_changes = {
+                key: changes[key] for key in ("urgency_threshold", "celebrate_clean_reviews") if key in changes
+            }
+            row.preferences = row.defaults.with_changes(preference_changes)
+            row.save()
 
     @property
     def defaults(self) -> ReviewProjectDefaults:
@@ -487,7 +510,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.CONSIDER,
+        default=UrgencyThreshold.CONSIDER.value,
         db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -521,6 +544,22 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         rows = cls.load_many(team_id, user_ids)
         return {user_id: ReviewPreferences.resolve(row.preferences, project) for user_id, row in rows.items()}
 
+    @classmethod
+    def save_preference_changes(cls, team_id: int, user_id: int, changes: Mapping[str, object]) -> ReviewPreferences:
+        """Apply `changes` to the user's stored preferences and return the effective result.
+
+        Raises `InvalidPreference` for an unknown key or an invalid value.
+        """
+        rows = cls.objects.for_team(team_id, canonical=True)
+        with transaction.atomic():
+            row, _created = rows.get_or_create(team_id=team_id, user_id=user_id)
+            # The lock keeps two concurrent edits of different keys from losing one of them.
+            row = rows.select_for_update().get(id=row.id)
+            current = ReviewPreferences.resolve(row.preferences, ReviewProjectSettings.load(team_id).defaults)
+            row.preferences = current.with_changes(changes)
+            row.save(update_fields=["preferences", "updated_at"])
+        return cls.load_preferences(team_id, user_id)
+
 
 class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     """Which repositories of a GitHub installation this project reviews, like GitHub's install picker.
@@ -532,9 +571,7 @@ class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin
 
     activity_logging_on_delete = True
 
-    class Scope(models.TextChoices):
-        ALL = "all", "All repositories"
-        SELECTED = "selected", "Only selected repositories"
+    Scope = ReviewInstallationClaimScope
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # The GitHub App installation id, as `Integration.integration_id` stores it.
@@ -609,9 +646,7 @@ class ReviewRepositoryPerson(ModelActivityMixin, UUIDModel, TeamScopedRootMixin)
 
     activity_logging_on_delete = True
 
-    class Kind(models.TextChoices):
-        LISTED = "listed", "Listed"
-        EXCEPTED = "excepted", "Excepted"
+    Kind = ReviewRepositoryPersonKind
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     repository = models.ForeignKey(ReviewRepository, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
@@ -642,9 +677,7 @@ class ReviewUserRepositoryChoice(UUIDModel, TeamScopedRootMixin):
     stored but has no effect. No row means the user's default applies, so there is no "follow" value.
     """
 
-    class Mode(models.TextChoices):
-        FLASH = "flash", "Flash"
-        OFF = "off", "Off"
+    Mode = ReviewUserRepositoryChoiceMode
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)

@@ -831,7 +831,7 @@ class TestRedactUrlsInName:
         assert redact_urls_in_name(name) == expected
 
 
-class TestSerializeDeliveries(APIBaseTest):
+class TestSerializeDeliveries(SimpleTestCase):
     def test_serialize_deliveries_roundtrips_dataclass_fields(self) -> None:
         delivery = AlertDelivery(channel="email", target="a@example.com", at="2026-08-11T00:00:00+00:00")
         result = serialize_deliveries([delivery])

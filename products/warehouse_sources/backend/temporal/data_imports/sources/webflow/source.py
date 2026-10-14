@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.we
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +58,13 @@ class WebflowSource(
     ResumableSource[WebflowSourceConfig, WebflowResumeConfig],
     WebhookSource[WebflowSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WEBFLOW_",),
+        script_hosts=("cdn.prod.website-files.com",),
+        npm=("webflow-api", "@webflow/webflow-cli", "@webflow/react", "@webflow/data-types"),
+        pypi=("webflow",),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.webflow.com"

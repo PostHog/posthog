@@ -21,12 +21,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
+import requests
 import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -36,11 +38,14 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
+from products.review_hog.backend.label_reviews import comment_commands_enabled, draft_review_notice, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
-from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
+from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -49,6 +54,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     COORDINATOR_MAX_SUBAGENTS,
     FLASH_LENSES,
+    FLASH_WHOLE_PR_TURNS,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
@@ -65,6 +71,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
+from products.review_hog.backend.reviewer.finding_budget import FindingBudget, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -112,7 +119,14 @@ from products.review_hog.backend.reviewer.progress import (
     in_publish_window,
     record_run_outcome,
 )
-from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.push_gate import (
+    SYSTEM_ONE_SKIP_BELOW,
+    PushGate,
+    PushGateDecision,
+    apply_draft_rule,
+    apply_next_push_rule,
+    apply_throttle,
+)
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
@@ -134,6 +148,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
+    post_failure_comment,
 )
 from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.coordinator_review import (
@@ -141,7 +156,12 @@ from products.review_hog.backend.reviewer.tools.coordinator_review import (
     CoordinatorUnit,
     coordinator_prompt,
 )
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    add_pr_reaction,
+    github_api_request,
+    remove_pr_reaction,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
     PRFilter,
@@ -191,12 +211,18 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     reconcile_chunks,
 )
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import (
+    REQUESTED_TRIGGERS,
+    TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
+    TRIGGER_MANUAL,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.run_config import ReasoningEffort
@@ -272,7 +298,7 @@ class ReviewMeta:
     review_design_reason: str = ""
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
-    # True when the PR passed the lens part cap, so the status comment says it ran in larger parts.
+    # True when the PR passed the lens part cap, so the status comment or the Standard review says it ran in larger parts.
     lens_chunks_capped: bool = False
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
@@ -385,6 +411,8 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    # Only an automatic turn is held to the finding budget. None on payloads from before the field.
+    trigger_source: str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -506,6 +534,7 @@ class PublishInput:
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
+    capped_lens_parts: int | None = None
 
 
 @dataclass
@@ -588,6 +617,8 @@ class RecordTurnMarkerInput:
     flash_reasoning_effort: str
     review_design: str = REVIEW_DESIGN_PIPELINE
     coordinator: bool = False
+    # None in payloads from before the field existed.
+    publishes: bool | None = None
 
 
 @frozen
@@ -642,6 +673,30 @@ class StatusCommentInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
     # The failed turn, for the failure edit. None in payloads from before the field existed.
     run_index: int | None = None
+    # False when Temporal retries the turn after this failure. A Standard turn posts its failure
+    # comment only on the last attempt, so a retry that succeeds leaves no stale notice on the PR.
+    last_attempt: bool = True
+    # A Standard run that started before the reactions patch has a status comment to mark as failed.
+    uses_status_comment: bool = True
+
+
+@frozen
+class ReviewReactionInput:
+    """The 👀 a publishing turn keeps on the PR while it runs. `reaction_id` is set only for the removal."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    reaction_id: int | None = None
+
+
+@frozen
+class TurnEndedInput:
+    """A review turn on a PR head that reached completed or failed, for the stamphog nudge."""
+
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -700,7 +755,9 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     instead of re-probing per write: the probe answers *which* installation, not *may we write* —
     GitHub enforces access server-side on every call anyway.
     """
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    github = GitHubIntegration.first_for_team_repository(
+        team_id, repository, source="review_hog", priority=Priority.CRITICAL
+    )
     if github is None:
         raise ApplicationError(
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
@@ -755,7 +812,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=single_agent)
+        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=True)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -824,6 +881,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_files=fetched.pr_files,
         review_design=design_choice.design,
         merge_base_sha=fetched.merge_base_sha,
+        skipped_paths=fetched.skipped_paths,
     )
     lens_plan = plan_lens_chunks(fetched.pr_files) if single_agent else None
     # Checked on the fetched labels, because `gh pr create --label` adds labels after the `opened`
@@ -1063,6 +1121,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             flash_reasoning_effort=input.flash_reasoning_effort,
             review_design=input.review_design,
             coordinator=input.coordinator,
+            publishes=input.publishes,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -1626,6 +1685,13 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _finding_budget(
+    team_id: int, report_id: str, prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+) -> FindingBudget:
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    return FindingBudget.for_turn(report, prior_findings)
+
+
 def _changed_since_last_review(
     team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
 ) -> ChangedSinceReview | None:
@@ -1719,6 +1785,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
                 input.team_id, input.report_id, input.head_sha, snapshot.pr_files
             )
+            budget_left = None
+            if input.trigger_source == TRIGGER_AUTOMATIC:
+                budget = await database_sync_to_async(_finding_budget, thread_sensitive=False)(
+                    input.team_id, input.report_id, prior_findings
+                )
+                budget_left = budget.left
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1731,6 +1803,10 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
+                budget_left=budget_left,
+                # Requested reviews and the first whole-PR turns still look at code the push did not change.
+                changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
+                first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -1989,6 +2065,16 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
+    footer = ""
+    if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
+        footer = label_commands_hint(input.review_mode)
+    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
+    draft_notice = ""
+    comment_commands_on = False
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        comment_commands_on = comment_commands_enabled(input.team_id)
+        draft_notice = draft_review_notice(comment_commands_on)
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2001,6 +2087,11 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
+        capped_lens_parts=input.capped_lens_parts,
+        footer=footer,
+        draft_notice=draft_notice,
+        answers_request=input.trigger_source in REQUESTED_TRIGGERS,
+        comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -2098,6 +2189,11 @@ def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int 
     }
 
 
+def _pr_draft(snapshot: "PRSnapshotArtefact | None") -> bool | None:
+    """Whether the PR was a draft when the turn fetched it; None when the turn's snapshot is unavailable."""
+    return snapshot.pr_metadata.draft if snapshot is not None else None
+
+
 def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionStats | None) -> dict[str, object]:
     """A single-agent turn's finding funnel and session health; empty for a pipeline turn.
 
@@ -2121,6 +2217,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_dropped": turn.dropped,
                 "flash_kept": turn.kept,
                 "flash_dedup_fallback": turn.dedup_fell_back,
+                "flash_budget_left": turn.budget_left,
             }
         )
     if sessions is not None:
@@ -2162,6 +2259,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             "review_design_reason": input.review_design_reason or None,
             "flash_coordinator": input.coordinator,
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
@@ -2191,15 +2289,19 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
-def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -> None:
+def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_push_gate_decided",
         # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
-        # pushes in a row share one.
+        # pushes in a row share one. The draft state and the reason are in the key too, because one head
+        # can get a draft or throttle skip and later a review, after the PR is marked ready or the bucket refills.
         uuid=str(
-            uuid5(NAMESPACE_URL, f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}")
+            uuid5(
+                NAMESPACE_URL,
+                f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}:{draft}:{decision.reason}",
+            )
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
@@ -2213,28 +2315,69 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "system_one_model": decision.model,
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
+            "own_code_lines": decision.own_code_lines,
+            "pr_draft": draft,
+            "next_push_probability": decision.next_push_probability,
         },
         groups=groups(team=report.team),
     )
 
 
+def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
+    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
+        return False
+    return response.json().get("draft") is True
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    draft = _pr_draft(current)
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
         token, installation_id = _installation_auth(input.team_id, input.repository)
-        decision = PushGate(
+        gate = PushGate(
             team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
-        ).decide(
+        )
+        push_decision = gate.decide(
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
         )
+        decision = apply_draft_rule(push_decision, draft=bool(draft))
+        # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
+        # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
+        # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
+        # gate's other reads, which leaves only the moment between this read and the end of the turn.
+        if decision.reason == "draft" and not _pr_is_draft_now(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        ):
+            draft = False
+            decision = push_decision
+        if not draft:
+            # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
+            # count is the completed turns after the first review, which also includes label, UI,
+            # and other human turns.
+            decision = apply_next_push_rule(
+                decision,
+                follow_up=input.run_index - 1,
+                pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
+            )
+    decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
-        _track_push_gate_decided(input, decision)
+        _track_push_gate_decided(input, decision, draft)
     except Exception:
         logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
     return decision
@@ -2295,6 +2438,9 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
                 review_design=input.review_design,
             ),
             **_pr_size_properties(snapshot),
+            "pr_draft": _pr_draft(snapshot),
+            # Split by this to measure the finding budget against pull requests that keep posting.
+            "finding_budget_arm": budget_arm(report.repository, report.pr_number),
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,
@@ -2408,7 +2554,14 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
         raise _wait_for_github_reset(error) from error
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, run_index: int | None = None) -> None:
+def _fail_run(
+    team_id: int,
+    report_id: str,
+    review_mode: str = REVIEW_MODE_FULL,
+    run_index: int | None = None,
+    last_attempt: bool = True,
+    uses_status_comment: bool = True,
+) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
@@ -2429,21 +2582,96 @@ def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL,
         review_mode=review_mode,
         head_sha=report.head_sha,
     )
-    fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
+    # A Standard turn has no status comment to mark as failed, so it says so in a comment of its own.
+    if review_mode == REVIEW_MODE_FLASH and not uses_status_comment:
+        if last_attempt:
+            post_failure_comment(team_id, report_id, review_mode=review_mode)
+    else:
+        fail_status_comment(team_id, report_id, run_index=run_index, review_mode=review_mode)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def fail_status_comment_activity(input: StatusCommentInput) -> None:
-    """Return the dead run's report to rest and rewrite the status comment as failed.
+    """Return the dead run's report to rest and tell the PR: the status comment of a Deep turn shows
+    the failure, and a Standard turn posts one failure comment per head.
 
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
     await database_sync_to_async(_fail_run, thread_sensitive=False)(
-        input.team_id, input.report_id, input.review_mode, input.run_index
+        input.team_id,
+        input.report_id,
+        input.review_mode,
+        input.run_index,
+        input.last_attempt,
+        input.uses_status_comment,
     )
+
+
+# --- The PR's "review in progress" reaction ----------------------------------------------------------
+
+
+def _add_eyes_reaction(input: ReviewReactionInput) -> int | None:
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; skipping the review reaction", input.repository, exc_info=True)
+        return None
+    return add_pr_reaction(input.repository, input.pr_number, "eyes", token=token, installation_id=installation_id)
+
+
+def _remove_eyes_reaction(input: ReviewReactionInput) -> None:
+    if input.reaction_id is None:
+        return
+    try:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+    except Exception:
+        logger.warning("No GitHub auth for %s; leaving the review reaction", input.repository, exc_info=True)
+        return
+    remove_pr_reaction(
+        input.repository, input.pr_number, input.reaction_id, token=token, installation_id=installation_id
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def add_review_reaction_activity(input: ReviewReactionInput) -> int | None:
+    """Put a 👀 on the PR while the turn runs, the way other review bots do. Returns the reaction id.
+
+    The 👀 is a cue for people. Stamphog reads the review state from `head_review_status.py`.
+    Fail-open: never raises.
+    """
+    return await database_sync_to_async(_add_eyes_reaction, thread_sensitive=False)(input)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def remove_review_reaction_activity(input: ReviewReactionInput) -> None:
+    """Remove the turn's 👀 by the id the add returned. Raises only on a transient GitHub error, so Temporal retries it."""
+    await database_sync_to_async(_remove_eyes_reaction, thread_sensitive=False)(input)
+
+
+def _nudge_stamphog(input: TurnEndedInput) -> None:
+    request_rereview_after_external_review(
+        repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
+    """Tell stamphog that the turn on this head ended, so a stamphog WAIT for it can run again.
+
+    Stamphog waits only a few minutes for a running review, and a Deep review takes longer.
+    Stamphog decides whether to act. A dispatch error raises, so Temporal retries it. The workflow
+    catches the final failure, because a lost nudge must never fail the review.
+    """
+    await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------
