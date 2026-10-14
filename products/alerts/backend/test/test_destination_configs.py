@@ -244,6 +244,7 @@ class TestWebhookDestination:
                     "Host": "internal.example.com",
                     "X-Note": "caf\u00e9 \u201cquoted\u201d",
                     "X-Caf\u00e9": "ok",
+                    "X Bad": "ok",
                 },
                 None,
             ),

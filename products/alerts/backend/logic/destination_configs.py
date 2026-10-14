@@ -126,6 +126,10 @@ _TRANSPORT_HEADER_NAMES: Final = frozenset(
 )
 
 
+# The HTTP token grammar (RFC 9110). requests accepts a space or a tab inside a name, which receivers reject.
+_HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+
 def _added_webhook_headers(headers: Any) -> dict[str, str]:
     """The headers a user added to a webhook destination, such as an auth token.
 
@@ -140,7 +144,7 @@ def _added_webhook_headers(headers: Any) -> dict[str, str]:
         if not isinstance(raw_name, str) or not isinstance(raw_value, str):
             continue
         name, value = raw_name.strip(), raw_value.strip()
-        if name.lower() in _TRANSPORT_HEADER_NAMES or "{" in value:
+        if name.lower() in _TRANSPORT_HEADER_NAMES or "{" in value or not _HEADER_NAME.fullmatch(name):
             continue
         try:
             check_header_validity((name, value))
