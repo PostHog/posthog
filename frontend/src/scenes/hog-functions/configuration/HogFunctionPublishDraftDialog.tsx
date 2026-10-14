@@ -29,7 +29,12 @@ function HogFunctionPublishDraftContent({
                 <p className="mb-0">The staged changes match the live config. Publishing clears the draft.</p>
             ) : (
                 <>
-                    {diffs.length > 0 && <HogFunctionConfigDiff diffs={diffs} />}
+                    {diffs.length > 0 && (
+                        // Capped so a large draft scrolls inside the dialog and the publish button stays in view.
+                        <div className="max-h-[60vh] overflow-y-auto">
+                            <HogFunctionConfigDiff diffs={diffs} />
+                        </div>
+                    )}
                     {hiddenChanges.length > 0 && (
                         <p className="mb-0 text-secondary">
                             Secret values also change in:{' '}

@@ -5,7 +5,6 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
-import { HogFunctionConfigDiff } from './HogFunctionConfigDiff'
 import { HogFunctionConfigurationLogicProps } from './hogFunctionConfigurationLogic'
 import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
 
@@ -15,16 +14,8 @@ export function HogFunctionDraftBanner({
     logicProps: HogFunctionConfigurationLogicProps
 }): JSX.Element | null {
     const logic = hogFunctionDraftLogic(logicProps)
-    const {
-        hogFunction,
-        type,
-        hasStagedDraft,
-        draftDiffs,
-        showDraftChanges,
-        draftActionPending,
-        draftActionDisabledReason,
-    } = useValues(logic)
-    const { publishDraft, discardDraft, toggleShowDraftChanges } = useActions(logic)
+    const { hogFunction, type, hasStagedDraft, draftActionPending, draftActionDisabledReason } = useValues(logic)
+    const { publishDraft, discardDraft } = useActions(logic)
 
     if (!hogFunction || !hasStagedDraft) {
         return null
@@ -39,19 +30,12 @@ export function HogFunctionDraftBanner({
                         <span>
                             Changes to this {humanizeHogFunctionType(type)} were staged{' '}
                             {hogFunction.draft_updated_at ? <TZLabel time={hogFunction.draft_updated_at} /> : null} and
-                            are not live yet. The live version keeps running until you publish them. If you save edits
-                            below, they change the live version, and publishing replaces them with the staged changes.
+                            are not live yet. The live version keeps running until you publish them. Publish shows you
+                            the changes before they go live. If you save edits below, they change the live version, and
+                            publishing replaces them with the staged changes.
                         </span>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={toggleShowDraftChanges}
-                            data-attr="hog-function-draft-review"
-                        >
-                            {showDraftChanges ? 'Hide changes' : 'Review changes'}
-                        </LemonButton>
                         <LemonButton
                             type="secondary"
                             status="danger"
@@ -75,15 +59,6 @@ export function HogFunctionDraftBanner({
                         </LemonButton>
                     </div>
                 </div>
-                {showDraftChanges &&
-                    (draftDiffs.length > 0 ? (
-                        <HogFunctionConfigDiff diffs={draftDiffs} />
-                    ) : (
-                        <span className="text-secondary">
-                            No visible config changes. The staged changes can still change secret values, which stay
-                            hidden.
-                        </span>
-                    ))}
             </div>
         </LemonBanner>
     )
