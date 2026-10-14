@@ -65,6 +65,18 @@ class TestUserProductListDefaults(BaseTest):
         assert self._default_paths_for(creator, new_team) == set(DEFAULT_PRODUCT_PATHS)
         assert self._default_paths_for(member, new_team) == set(DEFAULT_PRODUCT_PATHS)
 
+    def test_creating_team_in_a_large_organization_adds_default_products_after_commit(self) -> None:
+        with (
+            patch("posthog.models.team.team.ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD", 0),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            new_team = Team.objects.create_with_data(
+                initiating_user=self.user, organization=self.organization, name="New Team"
+            )
+            assert self._default_paths_for(self.user, new_team) == set()
+
+        assert self._default_paths_for(self.user, new_team) == set(DEFAULT_PRODUCT_PATHS)
+
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_access_control_signal_adds_default_products(self):
         # Private team: joining the org must NOT seed it; the explicit access grant must.

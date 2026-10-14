@@ -25,7 +25,13 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 from products.posthog_ai.eval_harness import base
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
-from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary, NullCaseHooks
+from products.posthog_ai.eval_harness.engines.types import (
+    AggregateScore,
+    CaseResult,
+    EvalSummary,
+    ExperimentResult,
+    NullCaseHooks,
+)
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
@@ -578,3 +584,59 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     assert reporter.has_case_errors() is (not recovers)
     assert ctx.sandbox_slots._value == ctx.team_setup_slots._value == 1
     assert not broken_workers
+
+
+@pytest.mark.asyncio
+async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+    monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
+    ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
+    ctx.posthog_evaluation_client = None
+    ctx.trials = 3
+    run = base._SandboxedEvalRun("trials", [], [], ctx, is_public=False, no_send_logs=True)
+    run.posthog_client = MagicMock()
+    results = []
+    for index in range(3):
+        trial_id = f"trial-{index}"
+        hooks = NullCaseHooks()
+        hooks.metadata["trial_id"] = trial_id
+        raw_log = json.dumps(
+            {
+                "notification": {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": {"type": "text", "text": str(index)},
+                        }
+                    },
+                }
+            }
+        )
+        output = await run._post_process(
+            SandboxedEvalCase(name="same-case", prompt="Run the task"),
+            hooks,
+            base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0), raw_log=raw_log, trace_id=f"trace-{index}"),
+            {},
+        )
+        results.append(
+            CaseResult(input={"name": "same-case"}, output=output, scores={"score": index / 2}, metadata=hooks.metadata)
+        )
+    await run._finalize(
+        ExperimentResult(
+            summary=EvalSummary(engine_name="stub", experiment_name="trials", scores={}),
+            results=list(reversed(results)),
+        )
+    )
+    for index in range(3):
+        summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
+        assert f"trace_id: trace-{index}" in summary
+        assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
+    roots = [
+        call.kwargs["properties"]
+        for call in run.posthog_client.capture.call_args_list
+        if call.kwargs.get("event") == "$ai_trace"
+    ]
+    assert [root["$ai_trace_id"] for root in roots] == ["trace-2", "trace-1", "trace-0"]

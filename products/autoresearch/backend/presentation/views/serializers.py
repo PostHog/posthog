@@ -509,6 +509,18 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -527,6 +539,14 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
     )
+    trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per experiment of this run, oldest first. "
+            "Experiments before the first holdout score are left out."
+        ),
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
@@ -537,6 +557,7 @@ class LiveTrainingRunSerializer(DataclassSerializer):
             "best_holdout_score",
             "latest_agent_description",
             "latest_summary",
+            "trend",
         ]
 
 
@@ -598,18 +619,6 @@ class RealizedAucPointSerializer(DataclassSerializer):
     class Meta:
         dataclass = RealizedAucPoint
         fields = ["prediction_date", "realized_auc"]
-
-
-@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
-class TrainingTrendPointSerializer(DataclassSerializer):
-    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
-    best_holdout_score = serializers.FloatField(
-        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
-    )
-
-    class Meta:
-        dataclass = TrainingTrendPoint
-        fields = ["iteration_number", "best_holdout_score"]
 
 
 @extend_schema_serializer(component_name="AutoresearchPipeline")
@@ -674,6 +683,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         allow_blank=True,
         max_length=255,
         help_text="Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.",
+    )
+    write_person_property = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether live scoring writes the champion's score to output_person_property on each scored person. "
+            "Feature flags, cohorts, workflows and insights that target people by score need it on."
+        ),
     )
     status = serializers.ChoiceField(
         choices=PIPELINE_STATUS_CHOICES,
@@ -782,6 +798,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
             "status",
             "created_by",
             "created_at",
@@ -886,6 +903,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "non-archived pipelines."
         ),
     )
+    write_person_property = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. "
+            "Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. "
+            "Prediction events, validation and segments work without it. Turning it off, or archiving or deleting "
+            "the pipeline while it is on, removes the property from the people it scored."
+        ),
+    )
 
     class Meta:
         dataclass = PipelineWrite
@@ -903,6 +929,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
         ]
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
@@ -1000,6 +1027,19 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
             updates["output_person_property"] = output_person_property
+        if is_update and (
+            self._supplied(data, "output_person_property") or self._supplied(data, "write_person_property")
+        ):
+            stored = api.get_pipeline_definition(team.pk, self._pipeline_id)
+            writes = self._value(data, "write_person_property", stored.write_person_property)
+            if writes and not self._value(data, "output_person_property", stored.output_person_property):
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            "Set a person property name before you turn on writing scores to person profiles."
+                        )
+                    }
+                )
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):

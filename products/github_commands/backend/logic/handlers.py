@@ -1,14 +1,14 @@
 """Handlers that dispatch a command into the product that does the work.
 
-Each handler runs as the commenter's own PostHog user and only in projects that passed
-``dispatch.py``'s checks, so a command can only do what the commenter could do in PostHog
-themselves. Handlers never pass the pull request's title, body or comments to an agent. They pass
-identifiers, and the downstream product reads the content itself as untrusted data.
+Each handler picks a project from the ones that passed ``dispatch.py``'s checks, and runs as the
+commenter's PostHog account that is a member of it, so a command can only do what the commenter
+could do in PostHog themselves. Handlers never pass the pull request's title, body or comments to
+an agent. They pass identifiers, and the downstream product reads the content itself as untrusted
+data.
 """
 
 import structlog
 
-from posthog.models.scoping import team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -25,11 +25,10 @@ from products.stamphog.backend.facade import (
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
-    loops as loops_facade,
     usage as tasks_usage,
 )
 
-from .commands import CommandContext, CommandOutcome
+from .commands import CommandContext, CommandOutcome, ProjectMember
 from .schema import LoopArgs, QaArgs, ReviewArgs, StampArgs
 
 logger = structlog.get_logger(__name__)
@@ -40,10 +39,13 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     pull_request = context.pull_request
     refusal: stamphog_contracts.ReviewRequestRefusedError | None = None
     # Stamphog keeps its repositories on the parent project, so environments of one project are one.
-    for team_id in dict.fromkeys(resolve_effective_team_id(team_id) for team_id in context.team_ids):
+    user_ids_by_project: dict[int, int] = {}
+    for member in context.members:
+        user_ids_by_project.setdefault(resolve_effective_team_id(member.team_id), member.user_id)
+    for team_id, user_id in user_ids_by_project.items():
         try:
             result = stamphog_requests.request_review(
-                team_id, user_id=context.user_id, repository=pull_request.repository, pr_number=pull_request.number
+                team_id, user_id=user_id, repository=pull_request.repository, pr_number=pull_request.number
             )
         except stamphog_contracts.ReviewRequestRefusedError as error:
             refusal = error
@@ -62,23 +64,24 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     return CommandOutcome(accepted=False, message=refusal.message)
 
 
-def _team_in_project(team_ids: tuple[int, ...], project_team_id: int) -> int | None:
-    """The first of ``team_ids`` that belongs to the project, environments included."""
+def _member_in_project(members: tuple[ProjectMember, ...], project_team_id: int) -> ProjectMember | None:
+    """The first of ``members`` that belongs to the project, environments included."""
     project_id = resolve_effective_team_id(project_team_id)
-    return next((team_id for team_id in team_ids if resolve_effective_team_id(team_id) == project_id), None)
+    return next((member for member in members if resolve_effective_team_id(member.team_id) == project_id), None)
 
 
 def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     """Start a PostHog Review run on the pull request, with the commenter as the acting user.
 
-    The project that owns the repository in PostHog Review decides, and the commenter must be a member of it.
+    The project that owns the repository in PostHog Review decides, and one of the commenter's linked
+    accounts must be a member of it. That account acts.
     """
     pull_request = context.pull_request
     owner_team_id = review_hog_github.owning_team_id(context.request.installation_id, pull_request.repository)
     if owner_team_id is None:
         return CommandOutcome(accepted=False, message="PostHog Review isn't set up for this repository.")
-    team_id = _team_in_project(context.team_ids, owner_team_id)
-    if team_id is None:
+    member = _member_in_project(context.members, owner_team_id)
+    if member is None:
         return CommandOutcome(
             accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
         )
@@ -92,8 +95,8 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     else:
         run_mode = review_hog_facade.RUN_MODE_REVIEW
     outcome = review_hog_facade.request_pr_review(
-        team_id=team_id,
-        requester_id=context.user_id,
+        team_id=member.team_id,
+        requester_id=member.user_id,
         repository=pull_request.repository,
         pr_number=pull_request.number,
         run_mode=run_mode,
@@ -109,9 +112,10 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
 def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
     """Start a PostHog Code task that runs the frontend QA skill against the pull request head."""
     pull_request = context.pull_request
-    team_id = context.team_ids[0]
+    member = context.members[0]
+    team_id = member.team_id
     team = Team.objects.select_related("organization").get(id=team_id)
-    user = User.objects.get(id=context.user_id)
+    user = User.objects.get(id=member.user_id)
     # The Tasks API applies the same gates before it starts a run.
     try:
         decision = tasks_access.get_desktop_access_decision(user, team.organization)
@@ -134,7 +138,7 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
         title=f"QA {pull_request.repository}#{pull_request.number}",
         description=build_qa_instructions(context, args.focus),
         origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-        user_id=context.user_id,
+        user_id=member.user_id,
         repository=pull_request.repository,
         branch=pull_request.head_branch,
         create_pr=False,
@@ -161,69 +165,4 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
 
 
 def handle_loop(context: CommandContext, args: LoopArgs) -> CommandOutcome:
-    """Fire one of the commenter's own Loops with the pull request as its trigger payload.
-
-    Only the loop's owner may fire it this way. A loop runs with its owner's credentials, and the
-    payload becomes part of its prompt, so letting a teammate fire someone else's loop with
-    comment text would run their words with the owner's access.
-    """
-    name = args.name
-    user = User.objects.get(id=context.user_id)
-    unowned_match = False
-    loops_enabled = False
-    checked_team_ids: set[int] = set()
-    for team_id in context.team_ids:
-        team = Team.objects.select_related("organization").get(id=team_id)
-        # Loops live on the parent project, so environments of one project share them.
-        canonical_team_id = team.parent_team_id or team.id
-        if canonical_team_id in checked_team_ids:
-            continue
-        checked_team_ids.add(canonical_team_id)
-        # The Loops API applies this flag through its permission class; the facade does not.
-        if not tasks_access.has_loops_access(user, team):
-            continue
-        loops_enabled = True
-        # The Loop manager fails closed without a team scope, and a Celery task has none.
-        with team_scope(canonical_team_id, canonical=True):
-            for loop in loops_facade.list_loops(canonical_team_id, user):
-                if loop.name.casefold() != name.casefold():
-                    continue
-                if loop.created_by_id != context.user_id:
-                    unowned_match = True
-                    continue
-                result = loops_facade.fire_loop_api_for_user(
-                    loop.id,
-                    canonical_team_id,
-                    user,
-                    payload=_loop_payload(context),
-                    idempotency_key=f"github-comment-{context.request.comment_id}",
-                )
-                if result is None or not result.created:
-                    reason = result.reason if result is not None else "not_found"
-                    logger.info("github_command_loop_not_fired", loop_id=str(loop.id), reason=reason)
-                    return CommandOutcome(
-                        accepted=False,
-                        message="The loop did not start. Check that it is enabled and has an API trigger.",
-                    )
-                return CommandOutcome(accepted=True, message="Started the loop.")
-    if not loops_enabled:
-        return CommandOutcome(accepted=False, message="Loops aren't enabled for your account.")
-    if unowned_match:
-        return CommandOutcome(accepted=False, message="Only the loop's owner can run it from a comment.")
-    return CommandOutcome(accepted=False, message="No loop with that name belongs to you.")
-
-
-def _loop_payload(context: CommandContext) -> dict[str, object]:
-    """Identifiers only. The loop reads the pull request itself if it needs its content."""
-    pull_request = context.pull_request
-    return {
-        "source": "github_comment",
-        "repository": pull_request.repository,
-        "pull_request": {
-            "number": pull_request.number,
-            "url": pull_request.url,
-            "head_sha": pull_request.head_sha,
-        },
-        "requested_by": context.request.commenter_login,
-        "comment_url": context.request.comment_url,
-    }
+    return CommandOutcome(accepted=False, message="Legacy loops have been retired. Use workflows instead.")

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FlutterwaveSource(ResumableSource[FlutterwaveSourceConfig, FlutterwaveResumeConfig]):
+    codebase_detection = detect(
+        env=("^FLUTTERWAVE_", "^FLW_(PUBLIC|SECRET)_KEY$"),
+        script_hosts=("checkout.flutterwave.com",),
+        npm=("flutterwave-node-v3", "flutterwave-react-v3", "flutterwave-angular-v3"),
+        pypi=("flutterwave", "rave-python"),
+        composer=(
+            "flutterwavedev/flutterwave-v3",
+            "flutterwavedev/flutterwave-php",
+            "flutterwavedev/flutterwavelaravel",
+        ),
+        pub=("flutterwave_standard",),
+        rubygems=("flutterwave_sdk",),
+    )
+
     # v3 is Flutterwave's generally available API and the version every request below calls (the
     # `/v3` base-URL segment). v4 exists but is still a public beta on a separate host with a
     # different OAuth flow, so it is not what a new source should land customers on.

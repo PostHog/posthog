@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ _CONNECTION_DETAILS_MESSAGE = (
 
 @SourceRegistry.register
 class MotherduckSource(SQLSource[MotherduckSourceConfig]):
+    codebase_detection = detect(env=("^MOTHERDUCK_", "^motherduck_token$"), npm=("@motherduck/wasm-client",))
+
     # MotherDuck speaks the DuckDB wire protocol through the `duckdb` client, which carries no
     # vendor API version of its own.
     api_docs_url = "https://motherduck.com/docs/"

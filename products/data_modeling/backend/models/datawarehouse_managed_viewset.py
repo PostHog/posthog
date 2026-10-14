@@ -77,7 +77,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Materializes views by default.
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
-        from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.saved_query_dag_sync import (  # noqa: PLC0415
+            delete_nodes,
+            sync_saved_query_to_dag,
+        )
         from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
         provider = get_expected_views_provider(self.kind)
@@ -221,9 +224,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     )
                     # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
                     # unless something there still depends on it (don't orphan a dependent).
-                    for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
-                        if not stale.outgoing_edges.exists():
-                            stale.delete()
+                    stale_nodes = Node.objects.filter(
+                        team=self.team, saved_query=saved_query, outgoing_edges__isnull=True
+                    ).exclude(dag=managed_dag)
+                    delete_nodes(self.team_id, stale_nodes)
                 except Exception as e:
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                     logger.warning(
