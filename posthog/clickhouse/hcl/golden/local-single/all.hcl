@@ -11685,7 +11685,7 @@ SQL
   }
 
   table "sharded_flag_evaluations" {
-    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
     ttl          = "toDate(timestamp) + toIntervalDay(90)"
     settings = {
@@ -11809,9 +11809,10 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 

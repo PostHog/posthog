@@ -18,9 +18,16 @@ export interface RetryDelayConsumerOptions {
     /** True once the pod is shutting down. A wait of an hour would otherwise hold the rolling deploy until Kubernetes killed it. */
     isStopping?: () => boolean
     storeOffsets: (messages: Message[]) => void
+    releaseGroupSize?: number
 }
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
+/**
+ * Each release waits for one broker acknowledgement, so releasing one record at a time limits a tier to one record per
+ * produce round trip. A failed group throws and the consumer reads the whole batch again, so the group size also limits
+ * how many records one failure publishes twice.
+ */
+const DEFAULT_RELEASE_GROUP_SIZE = 50
 
 /**
  * The consumer of one delay topic.
@@ -42,6 +49,12 @@ export class RetryDelayConsumer {
     ) {
         if (!Number.isFinite(options.delayMs) || options.delayMs <= 0) {
             throw new Error(`the retry delay consumer needs a positive delay, got ${options.delayMs}`)
+        }
+        const releaseGroupSize = options.releaseGroupSize ?? DEFAULT_RELEASE_GROUP_SIZE
+        if (!Number.isInteger(releaseGroupSize) || releaseGroupSize <= 0) {
+            throw new Error(
+                `the retry delay consumer needs a positive whole release group size, got ${releaseGroupSize}`
+            )
         }
     }
 
@@ -69,8 +82,10 @@ export class RetryDelayConsumer {
                 return
             }
         }
-        for (const message of messages) {
-            await this.release(message)
+        const releaseGroupSize = this.options.releaseGroupSize ?? DEFAULT_RELEASE_GROUP_SIZE
+        for (let start = 0; start < messages.length; start += releaseGroupSize) {
+            const group = messages.slice(start, start + releaseGroupSize)
+            await Promise.all(group.map((message) => this.release(message)))
         }
         this.options.storeOffsets(messages)
     }

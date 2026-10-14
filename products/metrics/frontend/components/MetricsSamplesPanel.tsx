@@ -1,6 +1,9 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Fragment, useState } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,7 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
-import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 import { SampleAttributes } from './SampleAttributes'
@@ -107,35 +110,109 @@ function SamplesTab(): JSX.Element {
     )
 }
 
-function AggregatesTab(): JSX.Element {
-    const { aggregateRows } = useValues(metricsSamplesLogic)
+const SEPARATOR_SEGMENTS = /[^/._:-]*[/._:-]?/g
+
+/** One `key=value` label with the key muted, so the values are easy to scan.
+ * With `wrap`, `<wbr>` lets a long value break after `=` and after separators instead of mid-word.
+ * Chrome breaks at `<wbr>` even in nowrap text, so truncated names must not get it. */
+function SeriesNamePart({ part, wrap = false }: { part: string; wrap?: boolean }): JSX.Element {
+    const separatorIndex = part.indexOf('=')
+    if (separatorIndex < 1) {
+        return <>{part}</>
+    }
+    const value = part.slice(separatorIndex + 1)
+    const segments = wrap ? (value.match(SEPARATOR_SEGMENTS)?.filter(Boolean) ?? [value]) : [value]
+    return (
+        <>
+            <span className="text-tertiary">{part.slice(0, separatorIndex + 1)}</span>
+            {segments.map((segment, index) => (
+                <Fragment key={index}>
+                    {wrap && <wbr />}
+                    {segment}
+                </Fragment>
+            ))}
+        </>
+    )
+}
+
+function SeriesTab(): JSX.Element {
+    const { seriesRows } = useValues(metricsSamplesLogic)
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
+    const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
+    const [expandedNames, setExpandedNames] = useState<string[]>([])
 
     return (
         <LemonTable
-            dataSource={aggregateRows}
+            dataSource={seriesRows}
             loading={queryLoading}
             size="small"
-            rowKey={(row: MetricsAggregateRow) => row.name}
-            emptyState={
-                hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see per-series aggregates.'
-            }
+            rowKey={(row: MetricsSeriesRow) => row.name}
+            emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
+            rowClassName={(row) => (expandedNames.includes(row.name) ? '[&>td]:align-top' : null)}
             columns={[
+                {
+                    key: 'toggle',
+                    width: 0,
+                    render: (_, row) => {
+                        if (!row.hasLabels) {
+                            return null
+                        }
+                        const isExpanded = expandedNames.includes(row.name)
+                        return (
+                            <LemonButton
+                                noPadding
+                                active={isExpanded}
+                                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                                title={isExpanded ? 'Show less' : 'Show full series name'}
+                                onClick={() => {
+                                    if (isExpanded) {
+                                        setExpandedNames(expandedNames.filter((name) => name !== row.name))
+                                    } else {
+                                        setExpandedNames([...expandedNames, row.name])
+                                        seriesRowExpanded()
+                                    }
+                                }}
+                                data-attr="metrics-series-row-toggle"
+                            />
+                        )
+                    },
+                },
                 {
                     title: 'Series',
                     key: 'series',
-                    render: (_, row) => (
-                        <span className="flex items-center gap-1.5">
-                            <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                // Dynamic per-series colour can't be a Tailwind class.
-                                style={{ backgroundColor: getColorVar(row.color) }}
-                            />
-                            <span className="truncate max-w-40" title={row.name}>
-                                {row.name}
+                    width: '100%',
+                    render: (_, row) => {
+                        const isExpanded = expandedNames.includes(row.name)
+                        return (
+                            <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
+                                <span
+                                    className={clsx('w-2 h-2 rounded-full shrink-0', isExpanded && 'mt-1.5')}
+                                    // Dynamic per-series colour can't be a Tailwind class.
+                                    style={{ backgroundColor: getColorVar(row.color) }}
+                                />
+                                {isExpanded ? (
+                                    // wrap-anywhere keeps the min-content width small, so long values wrap instead of widening the column.
+                                    <span className="flex-1 min-w-0 flex flex-col gap-1">
+                                        {row.nameParts.map((part, index) => (
+                                            <span key={index} className="wrap-anywhere pl-3 -indent-3">
+                                                <SeriesNamePart part={part} wrap />
+                                            </span>
+                                        ))}
+                                    </span>
+                                ) : (
+                                    // w-0 + min-w-full fills the column without the text widening it.
+                                    <span className="w-0 min-w-full truncate" title={row.name}>
+                                        {row.nameParts.map((part, index) => (
+                                            <Fragment key={index}>
+                                                {index > 0 && ', '}
+                                                <SeriesNamePart part={part} />
+                                            </Fragment>
+                                        ))}
+                                    </span>
+                                )}
                             </span>
-                        </span>
-                    ),
+                        )
+                    },
                 },
                 {
                     title: 'Latest',
@@ -154,7 +231,7 @@ function AggregatesTab(): JSX.Element {
     )
 }
 
-/** Side panel next to the chart: per-series aggregates, or the raw emissions
+/** Side panel next to the chart: per-series totals, or the raw emissions
  * behind the chart with a link to the trace each one was recorded in. */
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
@@ -169,7 +246,7 @@ export function MetricsSamplesPanel(): JSX.Element {
     return (
         <div className="border rounded p-2 overflow-y-auto">
             {/* Samples and the anomaly badge describe one series at a time; with several
-                clauses this picks which one they follow. Aggregates always cover all series. */}
+                clauses this picks which one they follow. The Series tab always covers all series. */}
             {viewerClauses.length > 1 && (
                 <div className="flex flex-wrap items-center gap-2 pb-1">
                     <span className="text-xs text-secondary">Samples follow series</span>
@@ -201,8 +278,8 @@ export function MetricsSamplesPanel(): JSX.Element {
                 tabs={[
                     {
                         key: 'aggregates',
-                        label: 'Aggregates',
-                        content: <AggregatesTab />,
+                        label: 'Series',
+                        content: <SeriesTab />,
                         'data-attr': 'metrics-samples-panel-tab-aggregates',
                         disabledReason: metricsViewerDisabledReason ?? undefined,
                     },

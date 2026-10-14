@@ -49,6 +49,7 @@ from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
 from .services import (
+    LONG_LIVED_SUBPROCESSES,
     build_local_skills,
     ensure_personhog_binaries,
     package_local_skills_archive,
@@ -223,7 +224,7 @@ class SandboxedEvalHarness:
         return exit_code
 
     def _exit_code(self, results: Sequence[SuiteRunResult], reporter: ProgressReporter) -> int:
-        if any(result.status == "crashed" for result in results):
+        if any(result.status == "crashed" for result in results) or reporter.has_case_errors():
             return 1
         if self.options.fail_under is None:
             return 0
@@ -247,6 +248,7 @@ class SandboxedEvalHarness:
     def _bootstrap(self, required: frozenset[Infra]) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
+        LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
         if self.provider is not None:
@@ -429,6 +431,7 @@ class SandboxedEvalHarness:
             trials=self.options.trials,
             git_sha=self._git_sha,
             git_dirty=self._git_dirty,
+            infrastructure_retries=self.options.infrastructure_retries,
         )
 
     async def _run_suite(self, suite: EvalSuite, ctx: EvalContext) -> SuiteRunResult:

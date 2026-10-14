@@ -1,9 +1,58 @@
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
-import { NodeKind, RetentionQueryResponse, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { TrendResult } from '~/types'
+import { NodeKind, RetentionQueryResponse, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
+import { CompareLabelType, TrendResult } from '~/types'
 
+import type { HomeTabMetricKey } from './homeTabDefaultLogic'
 import { HomeTabChartOption } from './homeTabDefaultTiles'
+
+const METRIC_VALUES: Record<HomeTabMetricKey, number[]> = {
+    active_users: [340, 410, 380, 520, 460, 610, 580],
+    sessions: [480, 560, 530, 720, 640, 850, 810],
+    new_users: [80, 110, 95, 140, 120, 170, 150],
+    session_duration: [145, 160, 152, 180, 165, 195, 184],
+    daily_active_users: [340, 410, 380, 520, 460, 610, 580],
+}
+
+export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: TrendsQuery): TrendsQueryResponse {
+    const values = METRIC_VALUES[metric]
+    const interval = query.interval ?? 'day'
+    const unit = interval === 'quarter' ? 'month' : interval
+    const step = interval === 'quarter' ? 3 : 1
+    const end = (dateStringToDayJs(query.dateRange?.date_to ?? null) ?? dayjs()).startOf(unit)
+    const days = values.map((_, index) => end.subtract((values.length - index) * step, unit).toISOString())
+    const series = query.series[0]
+
+    return {
+        results: Array.from({ length: query.compareFilter?.compare ? 2 : 1 }, (_, index): TrendResult => {
+            const data = values.map((value) => Math.round(value * (index === 0 ? 1 : 0.84)))
+            const total = data.reduce((sum, value) => sum + value, 0)
+            const count = metric === 'session_duration' || metric === 'daily_active_users' ? total / data.length : total
+            return {
+                action: {
+                    id: series.kind === NodeKind.EventsNode ? (series.event ?? null) : null,
+                    type: 'events',
+                    order: 0,
+                    name: 'Sample',
+                    math: series.math,
+                },
+                label: 'Sample',
+                count,
+                aggregated_value: count,
+                data,
+                days,
+                labels: days,
+                ...(query.compareFilter?.compare
+                    ? {
+                          compare: true,
+                          compare_label: index === 0 ? CompareLabelType.Current : CompareLabelType.Previous,
+                      }
+                    : {}),
+            }
+        }),
+    }
+}
 
 const BREAKDOWNS: Record<string, [string, number][]> = {
     users_by_country: [
@@ -64,7 +113,9 @@ export function getHomeTabSampleData(
 
     const breakdowns = BREAKDOWNS[option.key]
     if (!breakdowns) {
-        return undefined
+        return option.key in METRIC_VALUES
+            ? getHomeTabSampleStatData(option.key as HomeTabMetricKey, source)
+            : undefined
     }
 
     const results: TrendResult[] = breakdowns.map(([label, count]) => ({

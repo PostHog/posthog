@@ -1125,6 +1125,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # The Storage Read API's gRPC auth plugin raises this `ServiceUnavailable` when it can't
+        # mint a fresh token for an impersonated service account — a denial of
+        # `iam.serviceAccounts.getAccessToken`, distinct from the `iam.serviceAccounts.get` the
+        # ownership check already covers via `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`.
+        str(
+            ServiceUnavailable(
+                "Getting metadata from plugin failed with error: ('Unable to acquire impersonated "
+                'credentials\', \'{"error": {"code": 403, "message": "Permission '
+                "\\'iam.serviceAccounts.getAccessToken\\' denied on resource (or it may not exist).\", "
+                '"status": "PERMISSION_DENIED"}}\')'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_impersonation_token_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(

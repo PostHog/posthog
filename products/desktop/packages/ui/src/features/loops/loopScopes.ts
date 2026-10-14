@@ -1,10 +1,10 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   type ChannelType,
   channelDisplayName,
   PERSONAL_CHANNEL_LABEL,
 } from "@posthog/core/canvas/channelName";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 
 export type LoopSpace = Pick<Channel, "id" | "name" | "channelType">;
 
