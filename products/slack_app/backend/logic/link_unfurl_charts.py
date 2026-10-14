@@ -7,7 +7,7 @@ render takes longer. ``SlackAppUnfurlChartsWorkflow`` then renders each insight 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -16,27 +16,15 @@ import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.temporal.ai.slack_app.types import (
-    SlackAppUnfurlChartsPostInput,
-    SlackAppUnfurlChartsPrepared,
-    SlackAppUnfurlChartsWorkflowInputs,
-    SlackUnfurlChartAsset,
-)
+from posthog.temporal.ai.slack_app.types import SlackAppUnfurlChartsPostInput, SlackAppUnfurlChartsWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
-from products.exports.backend.facade.api import (
-    create_insight_png_export,
-    get_delivery_image_url,
-    png_export_has_content,
-)
 from products.product_analytics.backend.facade.api import user_can_view_insight
 from products.slack_app.backend.analytics import capture_slack_event
 
-# Slack fetches image_url again after the unfurl is posted, so the token must outlive the post.
-_CHART_URL_TTL = timedelta(days=30)
-_CHART_ASSET_TTL = timedelta(days=31)
 _MAX_ALT_TEXT_CHARS = 2000
 # A local render has a localhost URL that Slack cannot fetch, and Slack then rejects the whole
 # unfurl with cannot_parse_attachment. The same placeholder as subscriptions use in DEBUG.
@@ -68,26 +56,21 @@ def _has_project_access(user: User, team: Team) -> bool:
     return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
 
 
-def prepare_unfurl_charts(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppUnfurlChartsPrepared:
+@frozen
+class UnfurlChartTargets:
+    team: Team
+    user: User
+    insight_ids: list[int]
+
+
+def unfurl_chart_targets(inputs: SlackAppUnfurlChartsWorkflowInputs) -> UnfurlChartTargets:
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.get(id=inputs.user_id)
-    assets: list[SlackUnfurlChartAsset] = []
     if not _has_project_access(user, team):
-        return SlackAppUnfurlChartsPrepared(distinct_id=str(user.distinct_id), assets=assets)
+        return UnfurlChartTargets(team=team, user=user, insight_ids=[])
     # Two links to the same insight in one message share one render.
-    for insight_id in dict.fromkeys(chart.insight_id for chart in inputs.charts):
-        try:
-            asset_id = create_insight_png_export(
-                team=team,
-                created_by=user,
-                insight_id=insight_id,
-                is_system=True,
-                expires_after=datetime.now(UTC) + _CHART_ASSET_TTL,
-            )
-        except ValueError:
-            continue
-        assets.append(SlackUnfurlChartAsset(insight_id=insight_id, asset_id=asset_id))
-    return SlackAppUnfurlChartsPrepared(distinct_id=str(user.distinct_id), assets=assets)
+    insight_ids = list(dict.fromkeys(chart.insight_id for chart in inputs.charts))
+    return UnfurlChartTargets(team=team, user=user, insight_ids=insight_ids)
 
 
 def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], titles: dict[str, str]) -> dict[str, Any]:
@@ -103,22 +86,6 @@ def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], title
     return result
 
 
-def _image_urls_by_insight(team: Team, user: User, rendered: list[SlackUnfurlChartAsset]) -> dict[int, str]:
-    image_urls: dict[int, str] = {}
-    for asset in rendered:
-        # Checked again because the sharer's access can change while the chart renders.
-        if not user_can_view_insight(team=team, user=user, insight_id=asset.insight_id):
-            continue
-        if not png_export_has_content(team_id=team.pk, asset_id=asset.asset_id):
-            continue
-        image_url = get_delivery_image_url(
-            team_id=team.pk, asset_id=asset.asset_id, expiry_delta=_CHART_URL_TTL, created_by_id=user.pk
-        )
-        if image_url is not None:
-            image_urls[asset.insight_id] = _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_url
-    return image_urls
-
-
 def _raise_if_transient(error: SlackApiError) -> None:
     response = error.response
     code = response.get("error") if response is not None else None
@@ -132,7 +99,8 @@ def _raise_if_transient(error: SlackApiError) -> None:
         raise error
 
 
-def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput) -> None:
+def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_insight: dict[int, str]) -> None:
+    """Post the rendered charts. ``image_urls_by_insight`` holds a delivery url for each insight that rendered."""
     request = post.request
     integration = Integration.objects.select_related("team__organization").get(
         id=request.integration_id, team_id=request.team_id
@@ -149,10 +117,13 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput) -> None:
     elif not _has_project_access(user, team):
         failure_reason = "no_project_access"
     else:
-        by_insight = _image_urls_by_insight(team, user, post.rendered)
-        image_urls = {
-            chart.url: by_insight[chart.insight_id] for chart in request.charts if chart.insight_id in by_insight
+        # Checked again because the sharer's access can change while the chart renders.
+        allowed = {
+            insight_id: _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else url
+            for insight_id, url in image_urls_by_insight.items()
+            if user_can_view_insight(team=team, user=user, insight_id=insight_id)
         }
+        image_urls = {chart.url: allowed[chart.insight_id] for chart in request.charts if chart.insight_id in allowed}
 
     if image_urls:
         titles = {chart.url: chart.title for chart in request.charts}

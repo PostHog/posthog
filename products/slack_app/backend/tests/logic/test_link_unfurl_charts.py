@@ -18,9 +18,8 @@ from posthog.temporal.ai.slack_app.types import (
 )
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
-from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, prepare_unfurl_charts
+from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
 
 _URL = "https://us.posthog.com/project/1/insights/abc123"
 _SHORT_URL = "https://us.posthog.com/i/abc123"
@@ -82,43 +81,37 @@ class TestLinkUnfurlCharts(BaseTest):
         )
         return User.objects.create_and_join(self.organization, "no-project-access@example.com", "password")
 
-    def _post(self, inputs: SlackAppUnfurlChartsWorkflowInputs, asset: ExportedAsset) -> None:
+    def _post(self, inputs: SlackAppUnfurlChartsWorkflowInputs) -> None:
         post_unfurl_charts(
             SlackAppUnfurlChartsPostInput(
                 request=inputs,
-                rendered=[SlackUnfurlChartAsset(insight_id=self.insight.id, asset_id=asset.id)],
+                rendered=[SlackUnfurlChartAsset(insight_id=self.insight.id, asset_id=1)],
                 elapsed_ms=1,
-            )
+            ),
+            image_urls_by_insight={self.insight.id: "https://example.com/chart.png"},
         )
 
-    def _asset(self, exception: str | None = None, user: User | None = None) -> ExportedAsset:
-        return ExportedAsset.objects.create(
-            team=self.team,
-            created_by=user or self.user,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            insight=self.insight,
-            content=None if exception else b"png",
-            exception=exception,
-        )
+    @parameterized.expand([("project_access", True), ("project_access_revoked", False)])
+    def test_targets_render_each_insight_once_and_only_with_project_access(
+        self, _name: str, project_access: bool
+    ) -> None:
+        user = self.user if project_access else self._deny_project_access()
 
-    def test_prepare_renders_an_insight_once_for_two_links_to_it(self) -> None:
-        prepared = prepare_unfurl_charts(self._inputs(urls=(_URL, _SHORT_URL)))
+        targets = unfurl_chart_targets(self._inputs(urls=(_URL, _SHORT_URL), user=user))
 
-        assert [asset.insight_id for asset in prepared.assets] == [self.insight.id]
+        assert targets.insight_ids == ([self.insight.id] if project_access else [])
 
     @parameterized.expand(
         [
-            ("rendered", None, True, True, True),
-            ("render_failed", "Export failed", True, True, False),
-            ("public_sharing_turned_off", None, False, True, False),
-            ("project_access_revoked", None, True, False, False),
+            ("allowed", True, True, True),
+            ("public_sharing_turned_off", False, True, False),
+            ("project_access_revoked", True, False, False),
         ]
     )
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
     def test_post_adds_the_chart_under_the_title_only_when_allowed(
         self,
         _name: str,
-        exception: str | None,
         public_sharing: bool,
         project_access: bool,
         expect_unfurl: bool,
@@ -128,7 +121,7 @@ class TestLinkUnfurlCharts(BaseTest):
         self.organization.save()
         user = self.user if project_access else self._deny_project_access()
 
-        self._post(self._inputs(user=user), self._asset(exception, user=user))
+        self._post(self._inputs(user=user))
 
         chat_unfurl = mock_slack.return_value.client.chat_unfurl
         if not expect_unfurl:
@@ -159,16 +152,16 @@ class TestLinkUnfurlCharts(BaseTest):
         mock_capture: MagicMock,
     ) -> None:
         mock_slack.return_value.client.chat_unfurl.side_effect = _slack_error(slack_error, status_code)
-        inputs, asset = self._inputs(), self._asset()
+        inputs = self._inputs()
 
         if expected_raise is not None:
             with pytest.raises(expected_raise) as raised:
-                self._post(inputs, asset)
+                self._post(inputs)
             if isinstance(raised.value, ApplicationError):
                 assert raised.value.next_retry_delay is not None
                 assert raised.value.next_retry_delay.total_seconds() == 30
             mock_capture.assert_not_called()
             return
-        self._post(inputs, asset)
+        self._post(inputs)
         assert mock_capture.call_args.kwargs["charts_shown"] == 0
         assert mock_capture.call_args.kwargs["failure_reason"] == slack_error
