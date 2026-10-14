@@ -1858,6 +1858,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             (row.error_code, row.error, row.finished_at is not None)
             for row in CohortCalculationHistory.objects.filter(cohort=cohort).order_by("started_at")
         ]
+        expected_history: list[tuple[CohortErrorCode | None, str | None, bool]]
         if expect_reset:
             interrupted = get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False)
             expected_history = [(CohortErrorCode.INTERRUPTED, interrupted, True)]
