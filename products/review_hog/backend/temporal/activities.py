@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
+import requests
 import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -2249,17 +2250,19 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
-def _track_push_gate_decided(
-    input: GatePushInput, decision: PushGateDecision, current: "PRSnapshotArtefact | None"
-) -> None:
+def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, draft: bool | None) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_push_gate_decided",
         # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
-        # pushes in a row share one.
+        # pushes in a row share one. The draft state is in the key too, because a draft skip and the
+        # review after the PR is marked ready can judge the same head.
         uuid=str(
-            uuid5(NAMESPACE_URL, f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}")
+            uuid5(
+                NAMESPACE_URL,
+                f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}:{draft}",
+            )
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
@@ -2274,32 +2277,54 @@ def _track_push_gate_decided(
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
-            "pr_draft": _pr_draft(current),
+            "pr_draft": draft,
         },
         groups=groups(team=report.team),
     )
 
 
+def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
+    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
+        return False
+    return response.json().get("draft") is True
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    draft = _pr_draft(current)
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
         token, installation_id = _installation_auth(input.team_id, input.repository)
+        if draft:
+            # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR
+            # marked ready before this turn reads as ready. One marked ready while this turn runs does
+            # not: the queue drops the ready request for the head this turn gates, so read it again.
+            draft = _pr_is_draft_now(
+                input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+            )
         decision = PushGate(
             team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
         ).decide(
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
-            # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR
-            # marked ready at an unchanged head reads as ready here.
-            draft=current.pr_metadata.draft,
+            draft=bool(draft),
         )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
-        _track_push_gate_decided(input, decision, current)
+        _track_push_gate_decided(input, decision, draft)
     except Exception:
         logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
     return decision

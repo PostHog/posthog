@@ -1,8 +1,9 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -339,8 +340,10 @@ class TestTrackReviewCompleted(BaseTest):
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.github_api_request") as live,
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
+            live.return_value.json.return_value = {"draft": True}
             gate.return_value.decide.return_value = decision
             for head_sha in ("sha1", "sha2"):
                 assert (
@@ -372,34 +375,17 @@ class TestTrackReviewCompleted(BaseTest):
         # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
 
-    @parameterized.expand(
-        [
-            ("still_a_draft", [True], True, "draft"),
-            # The author marks the PR ready without a push: the ready turn re-fetches the same head.
-            ("marked_ready_at_the_same_head", [True, False], False, "compare_unavailable"),
-        ]
-    )
-    def test_the_gate_reads_the_draft_state_of_the_latest_fetch(
-        self, _name: str, fetched_drafts: list[bool], skip: bool, reason: str
-    ) -> None:
-        report_id = self._review_report()
-        for draft in fetched_drafts:
-            persist_pr_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                head_sha="sha1",
-                pr_metadata=_pr_metadata(draft=draft),
-                pr_comments=[],
-                pr_files=[],
-            )
-
+    def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
+        live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
+        live.return_value.json.return_value = live_pr
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch(
                 "products.review_hog.backend.reviewer.push_gate.github_api_request",
                 side_effect=GitHubAPIError("gone", status=404),
             ),
-            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture"),
+            patch("products.review_hog.backend.temporal.activities.github_api_request", live),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             decision = _gate_push(
                 GatePushInput(
@@ -412,8 +398,58 @@ class TestTrackReviewCompleted(BaseTest):
                     review_mode=REVIEW_MODE_FLASH,
                 )
             )
+        return decision, capture
+
+    @parameterized.expand(
+        [
+            ("still_a_draft", [True], {"draft": True}, True, "draft"),
+            # The author marks the PR ready without a push: the ready turn re-fetches the same head.
+            ("marked_ready_at_the_same_head", [True, False], {"draft": True}, False, "compare_unavailable"),
+            # The queue drops a ready request for the head a running turn gates, so the gate reads GitHub again.
+            ("marked_ready_while_the_turn_runs", [True], {"draft": False}, False, "compare_unavailable"),
+            ("live_read_fails", [True], GitHubAPIError("boom", status=502), False, "compare_unavailable"),
+        ]
+    )
+    def test_the_gate_reads_the_draft_state_of_the_latest_fetch(
+        self,
+        _name: str,
+        fetched_drafts: list[bool],
+        live_pr: dict[str, object] | Exception,
+        skip: bool,
+        reason: str,
+    ) -> None:
+        report_id = self._review_report()
+        for draft in fetched_drafts:
+            persist_pr_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                head_sha="sha1",
+                pr_metadata=_pr_metadata(draft=draft),
+                pr_comments=[],
+                pr_files=[],
+            )
+
+        decision, _capture = self._gate_draft_push(report_id, live_pr)
 
         assert (decision.skip, decision.reason) == (skip, reason)
+
+    def test_a_draft_skip_and_the_ready_decision_at_one_head_stay_two_events(self) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(draft=True),
+            pr_comments=[],
+            pr_files=[],
+        )
+
+        _skip, draft_capture = self._gate_draft_push(report_id, {"draft": True})
+        _review, ready_capture = self._gate_draft_push(report_id, {"draft": False})
+
+        draft_event, ready_event = draft_capture.call_args.kwargs, ready_capture.call_args.kwargs
+        assert draft_event["uuid"] != ready_event["uuid"]
+        assert (draft_event["properties"]["pr_draft"], ready_event["properties"]["pr_draft"]) == (True, False)
 
     def test_capture_failure_is_swallowed(self) -> None:
         # Telemetry must never fail a review — losing this guard would fail review turns on any
