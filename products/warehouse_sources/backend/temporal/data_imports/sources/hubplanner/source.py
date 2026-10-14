@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,12 +30,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeConfig]):
+    codebase_detection = detect(env=("^HUBPLANNER_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/hubplanner/API"
 
@@ -96,7 +100,7 @@ Generate a **Read Only** API key in Hub Planner under **Settings → API** (admi
         # Only bookings and time_entries carry a searchable `updatedDate`, so they're the only
         # endpoints with incremental fields — build_endpoint_schemas derives incremental/append
         # support from that (has_incremental == incremental_search_field is not None).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

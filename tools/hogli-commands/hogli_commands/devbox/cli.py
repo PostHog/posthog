@@ -52,8 +52,6 @@ from .coder import (
     ensure_coder_installed,
     ensure_coder_reachable,
     ensure_runtime_ready,
-    ensure_tailscale_connected,
-    ensure_tailscale_routes_accepted,
     exec_replace,
     extract_workspace_label,
     get_coder_url,
@@ -1237,9 +1235,7 @@ def devbox_setup(
     )
 
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
-    ensure_tailscale_connected("rerun `hogli devbox:setup`.")
-    ensure_tailscale_routes_accepted()
-    ensure_coder_reachable()
+    ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
 

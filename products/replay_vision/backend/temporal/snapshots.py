@@ -39,10 +39,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # don't read as even traffic ("control sampled at 1.1%, test at 100%"). Set by the tick, not
     # `from_scanner`: the rates depend on live rollout shares the scanner row doesn't carry.
     variant_sampling_rates: dict[str, float] | None = None
-    # How a monitor `yes` verdict is re-checked: `off` (one pass), `shadow` (draw again, record the result, serve the
-    # first pass), or `enforce` (serve the `yes` only when the second draw agrees, else the dissent). A plain string
-    # so a retired mode never breaks old-row loads.
-    verify_positives: str = "off"
+    # The learned rulesets this scan runs with, frozen at create so retries match. Hidden from every dump, so the
+    # API never returns them; read back only through `load_for` and `model_validate`.
+    learned_ruleset_ids: list[str] = Field(default_factory=list, exclude=True)
 
     def experiment_scope(self) -> dict[str, Any] | None:
         """The experiment this scan watched, wherever the snapshot stores it; mirrors

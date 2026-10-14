@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
+    codebase_detection = detect(
+        env=("^INNGEST_",),
+        npm=("inngest",),
+        pypi=("inngest",),
+        go=("github.com/inngest/inngestgo", "github.com/inngest/inngest"),
+        maven=("com.inngest:inngest", "com.inngest:inngest-spring-boot-adapter"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api-docs.inngest.com"
     supported_versions = INNGEST_SUPPORTED_VERSIONS
@@ -108,7 +117,7 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
         append_only_endpoints = {"events"}
         # Run rows mutate (status/output settle after the run ends) and the incremental lookback
         # re-pulls a window each run; only merge dedupes those, append would duplicate them.
-        merge_only_endpoints = {"function_runs"}
+        merge_only_endpoints = {"function_runs", "runs"}
 
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
@@ -122,6 +131,13 @@ Inngest retains event and run history for a plan-dependent window (from 24 hours
                     "output are point-in-time; a trailing window is re-read each sync so recent runs "
                     "settle, but long-lived runs only update on a full refresh"
                 )
+            if endpoint == "runs":
+                return (
+                    "Every function run, including cron- and invoke-triggered runs. A trailing window is "
+                    "re-read each sync so recent runs settle, but long-lived runs only update on a full refresh"
+                )
+            if endpoint == "session_runs":
+                return "Runs grouped by AgentKit session (one lookup per session)"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

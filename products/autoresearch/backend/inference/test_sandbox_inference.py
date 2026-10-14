@@ -2,6 +2,7 @@ import io
 import json
 import base64
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -15,11 +16,14 @@ from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
+from products.autoresearch.backend.dataset.labeling import ROLLING_SCORE_LIMIT
+from products.autoresearch.backend.evaluation.segment_thresholds import training_base_rate
 from products.autoresearch.backend.inference import sandbox as sandbox_inference
 from products.autoresearch.backend.inference.sandbox import (
     _FEATURE_COLUMNS_JSON,
     _FILE_BEGIN,
     _FILE_END,
+    InferenceRows,
     SandboxInferenceError,
     SandboxScoreResult,
     _between_sentinels,
@@ -63,11 +67,12 @@ _SCORE_ROWS = [
 _METRICS_JSON = '{"holdout_auc": 0.73, "n_train": 2, "n_features": 2}'
 
 
-def _training_materialized() -> sandbox_inference.MaterializedData:
+def _training_materialized(**sample: Any) -> sandbox_inference.MaterializedData:
     return sandbox_inference.MaterializedData(
         feature_cols=["events_total", "pageviews"],
         train_rows=[r for r in _TRAINING_ROWS if r["__fold"] != 0],
         holdout_rows=[r for r in _TRAINING_ROWS if r["__fold"] == 0],
+        **sample,
     )
 
 
@@ -187,14 +192,42 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "count_inference_anchors", return_value=len(_SCORE_ROWS)) as count,
             patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run,
         ):
-            score_rows = _materialize_score_data(
+            score_data = _materialize_score_data(
                 team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}", query_context=BATCH_QUERY
             )
 
         # exactly one query (inference anchors only) — no training/holdout materialization
         assert run.call_count == 1
         assert run.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
-        assert [r["distinct_id"] for r in score_rows] == ["s1", "s2"]
+        assert [r["distinct_id"] for r in score_data.rows] == ["s1", "s2"]
+        assert score_data.eligible == 2
+
+    @parameterized.expand(
+        [
+            ("rolling_subset_scores", ROLLING_SCORE_LIMIT, False),
+            ("rolling_subset_that_drops_a_person", ROLLING_SCORE_LIMIT - 1, True),
+        ]
+    )
+    def test_score_data_above_the_cap_takes_a_rolling_subset(self, _name, n_rows, expect_raise):
+        pipeline = self._pipeline()
+        rows = [{"distinct_id": f"p{i}", "events_total": 1} for i in range(n_rows)]
+        eligible = sandbox_inference._MATERIALIZE_ROW_LIMIT * 5
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=eligible),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows) as run,
+        ):
+            if expect_raise:
+                with self.assertRaises(SandboxInferenceError):
+                    _materialize_score_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
+                return
+            score_data = _materialize_score_data(
+                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
+            )
+
+        assert len(score_data.rows) == ROLLING_SCORE_LIMIT
+        assert score_data.eligible == eligible
+        assert f"LIMIT {ROLLING_SCORE_LIMIT}" in run.call_args.kwargs["sql"]
+        assert run.call_args.kwargs["values"]["rolling_pipeline_id"] == str(pipeline.pk)
 
     @parameterized.expand(
         [
@@ -464,7 +497,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             patch.object(sandbox_inference, "read_artifact", return_value=fitted_columns),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
@@ -543,7 +578,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=[]) as materialize,
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=[], eligible=0)
+            ) as materialize,
         ):
             with self.assertRaises(SandboxInferenceError):
                 score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
@@ -566,7 +603,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError) as ctx:
@@ -581,7 +620,9 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=_SCORE_ROWS),
+            patch.object(
+                sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=_SCORE_ROWS, eligible=2)
+            ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
             with self.assertRaises(SandboxInferenceError):
@@ -599,7 +640,7 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
             patch.object(sandbox_inference, "read_model", return_value=b"PICKLE"),
             self._no_fitted_columns(),
-            patch.object(sandbox_inference, "_materialize_score_data", return_value=[]),
+            patch.object(sandbox_inference, "_materialize_score_data", return_value=InferenceRows(rows=[], eligible=0)),
             patch.object(sandbox_inference.Sandbox, "create", create_mock),
         ):
             result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
@@ -615,7 +656,11 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         stored: dict = {}
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
-            patch.object(sandbox_inference, "materialize_training_data", return_value=_training_materialized()),
+            patch.object(
+                sandbox_inference,
+                "materialize_training_data",
+                return_value=_training_materialized(negative_sample_rate=0.1, population=50_000, positives=200),
+            ),
             patch.object(
                 sandbox_inference, "write_model", side_effect=lambda prefix, content: stored.update(model=content)
             ),
@@ -626,9 +671,15 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             ),
             patch.object(sandbox_inference.Sandbox, "create", return_value=fake),
         ):
-            metrics = fit_champion_model(team=self.team, pipeline=pipeline, prefix=model.artifact_prefix)
+            metrics = fit_champion_model(
+                team=self.team, pipeline=pipeline, prefix=model.artifact_prefix, model_id=str(model.pk)
+            )
 
         assert metrics["holdout_auc"] == 0.73
+        model.refresh_from_db()
+        assert model.negative_sample_rate == 0.1
+        # The unsampled counts, so the rate is not inflated by 1 / negative_sample_rate.
+        assert training_base_rate(model.metrics) == 0.004
         assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
         assert json.loads(stored[_FEATURE_COLUMNS_JSON]) == ["events_total", "pageviews"]
         assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training
@@ -696,6 +747,7 @@ class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
             holdout_auc=0.71,
             n_train=2,
             n_features=2,
+            rows_eligible=2,
         )
         emit = MagicMock(
             side_effect=lambda **kwargs: CaptureInternalResult(

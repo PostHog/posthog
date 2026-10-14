@@ -46,7 +46,7 @@
  * ## Configuration
  *
  * `handleResults()` requires a `PipelineConfig` with:
- * - `outputs`: IngestionOutputs containing DLQ, ingestion warnings, and any redirect outputs
+ * - `outputs`: IngestionOutputs containing the DLQ and any redirect outputs
  * - `promiseScheduler`: For scheduling async operations
  *
  * ## Required: handleSideEffects()

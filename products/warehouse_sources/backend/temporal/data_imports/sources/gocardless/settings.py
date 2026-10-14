@@ -1,18 +1,38 @@
 from dataclasses import dataclass, field
+from datetime import date
+from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# GoCardless list pages cap at 500 items.
+PAGE_SIZE = 500
 
-@dataclass
+# Lower bound of the value date range that a full listing asks for. GoCardless provisioned no
+# payment account before this date, so the range covers every transaction.
+VALUE_DATE_RANGE_START = date(2015, 1, 1)
+
+
+@dataclass(frozen=True)
 class GoCardlessEndpointConfig:
     name: str
     path: str
     # Key the rows live under in the response body (GoCardless wraps per resource).
     data_key: str
-    primary_key: str = "id"
+    # None for resources with no id, which only ever sync as a full replace.
+    primary_key: Optional[str] = "id"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Every GoCardless resource carries an immutable created_at.
-    partition_key: str = "created_at"
+    # Immutable created_at on every resource that has one; None for resources without it.
+    partition_key: Optional[str] = "created_at"
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
+    fanout: Optional[DependentEndpointConfig] = None
+    # Bounds the fan-out parent listing to rows created in the last N days.
+    parent_created_within_days: Optional[int] = None
+    # The list endpoint rejects a request without value_date_from and value_date_to.
+    requires_value_date_range: bool = False
 
 
 # GoCardless list endpoints filter only on created_at (no updated_at), and core
@@ -63,6 +83,93 @@ GOCARDLESS_ENDPOINTS: dict[str, GoCardlessEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "customer_bank_accounts": GoCardlessEndpointConfig(
+        name="customer_bank_accounts",
+        path="/customer_bank_accounts",
+        data_key="customer_bank_accounts",
+    ),
+    "creditors": GoCardlessEndpointConfig(
+        name="creditors",
+        path="/creditors",
+        data_key="creditors",
+    ),
+    # /balances requires a creditor filter, so it fans out over creditors. A balance row has no
+    # id or created_at; it is a point-in-time snapshot, so it is replaced on every sync.
+    "balances": GoCardlessEndpointConfig(
+        name="balances",
+        path="/balances?creditor={creditor}",
+        data_key="balances",
+        primary_key=None,
+        partition_key=None,
+        fanout=DependentEndpointConfig(
+            parent_name="creditors",
+            resolve_param="creditor",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "creditor_id"},
+        ),
+    ),
+    # /payout_items requires a payout filter and has no id or created_at, so it fans out over
+    # payouts and syncs as a full replace. GoCardless serves items only for payouts created in
+    # the last 6 months and answers 410 Gone for older ones, so the parent listing is bounded
+    # to that window and a boundary 410 is skipped rather than failing the table.
+    "payout_items": GoCardlessEndpointConfig(
+        name="payout_items",
+        path="/payout_items?payout={payout}",
+        data_key="payout_items",
+        primary_key=None,
+        partition_key=None,
+        fanout=DependentEndpointConfig(
+            parent_name="payouts",
+            resolve_param="payout",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "payout_id"},
+            child_response_actions=[{"status_code": 410, "action": "ignore"}],
+        ),
+        parent_created_within_days=186,
+    ),
+    "instalment_schedules": GoCardlessEndpointConfig(
+        name="instalment_schedules",
+        path="/instalment_schedules",
+        data_key="instalment_schedules",
+    ),
+    "billing_requests": GoCardlessEndpointConfig(
+        name="billing_requests",
+        path="/billing_requests",
+        data_key="billing_requests",
+    ),
+    "outbound_payments": GoCardlessEndpointConfig(
+        name="outbound_payments",
+        path="/outbound_payments",
+        data_key="outbound_payments",
+    ),
+    # Transactions are listed per payment account only, so they fan out over /payment_accounts.
+    # A transaction has a value_date but no created_at, so the table is not partitioned.
+    "payment_account_transactions": GoCardlessEndpointConfig(
+        name="payment_account_transactions",
+        path="/payment_accounts/{payment_account}/transactions",
+        data_key="payment_account_transactions",
+        partition_key=None,
+        requires_value_date_range=True,
+        fanout=DependentEndpointConfig(
+            parent_name="payment_accounts",
+            resolve_param="payment_account",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "payment_account_id"},
+        ),
+    ),
+}
+
+# Fan-out parents that are not offered as tables of their own.
+GOCARDLESS_FANOUT_PARENTS: dict[str, GoCardlessEndpointConfig] = {
+    "payment_accounts": GoCardlessEndpointConfig(
+        name="payment_accounts",
+        path="/payment_accounts",
+        data_key="payment_accounts",
+        partition_key=None,
     ),
 }
 

@@ -61,16 +61,10 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     source_config = serializers.DictField(
         child=serializers.JSONField(),
         read_only=True,
-        help_text="Source-specific query settings. The shape depends on source_kind.",
-    )
-    threshold_count = serializers.IntegerField(
-        read_only=True, help_text="Count the evaluated value is compared against."
-    )
-    threshold_operator = serializers.CharField(
-        read_only=True, help_text="Comparison operator applied between the value and threshold_count."
-    )
-    window_minutes = serializers.IntegerField(
-        read_only=True, help_text="Length of the evaluated time window, in minutes."
+        help_text=(
+            "Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated "
+            "against is under the condition key."
+        ),
     )
     check_interval_minutes = serializers.IntegerField(
         read_only=True,
@@ -129,6 +123,11 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
 SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
 }
+
+# Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
+# and a reader can hold access to insights in general but not to that insight. This product
+# cannot check access to one insight, so the copies stay out of the API until it can.
+UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
 
 
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

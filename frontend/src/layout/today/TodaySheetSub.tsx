@@ -30,7 +30,7 @@ export function TodaySheetSub({
     return (
         <>
             <ItemMenuItem
-                className="flex-nowrap text-base"
+                className="flex-nowrap"
                 aria-haspopup="menu"
                 onClick={() => sheet?.openPage(pageId, title)}
                 data-attr={dataAttr}

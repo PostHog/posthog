@@ -1,16 +1,15 @@
 from typing import Any, cast
 
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moengage import (
     MoEngageSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.source import MoEngageSource
-
-_VALIDATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.moengage.source.validate_moengage_credentials"
-)
 
 
 def _config(data_center: str = "01", start_date: str | None = None) -> MoEngageSourceConfig:
@@ -26,38 +25,43 @@ class TestMoEngageValidateCredentials:
     def test_rejects_unknown_data_center_without_calling_the_api(self, data_center: str) -> None:
         # The data center is interpolated into the API hostname, so a value outside the fixed set
         # must be refused before any request carries the credential.
-        with mock.patch(_VALIDATE) as mock_validate:
+        with scripted_network([]) as network:
             is_valid, message = MoEngageSource().validate_credentials(_config(data_center=data_center), team_id=1)
 
         assert is_valid is False
         assert message is not None and "data center" in message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("start_date", ["last week", "01/05/2025", "2025-13-40"])
     def test_rejects_malformed_start_date_without_calling_the_api(self, start_date: str) -> None:
         # An unparseable start date would otherwise pass source creation and crash every daily
         # report sync.
-        with mock.patch(_VALIDATE) as mock_validate:
+        with scripted_network([]) as network:
             is_valid, message = MoEngageSource().validate_credentials(_config(start_date=start_date), team_id=1)
 
         assert is_valid is False
         assert message is not None and "YYYY-MM-DD" in message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     def test_rejects_a_start_date_past_the_backfill_cap_without_calling_the_api(self) -> None:
         # A start date far enough in the past (e.g. 0001-01-01) would otherwise fan out one
         # request set per day for hundreds of thousands of days.
-        with mock.patch(_VALIDATE) as mock_validate:
+        with scripted_network([]) as network:
             is_valid, message = MoEngageSource().validate_credentials(_config(start_date="0001-01-01"), team_id=1)
 
         assert is_valid is False
         assert message is not None and "years ago" in message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("start_date", [None, "", "2025-01-01"])
     def test_valid_config_reaches_the_credential_probe(self, start_date: str | None) -> None:
-        with mock.patch(_VALIDATE, return_value=(True, None)) as mock_validate:
+        with scripted_network([ScriptedResponse(json={})]) as network:
             is_valid, message = MoEngageSource().validate_credentials(_config(start_date=start_date), team_id=1)
 
         assert (is_valid, message) == (True, None)
-        mock_validate.assert_called_once_with("01", "ws-1", "key")
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.method == "POST"
+        assert request.path == "/v5/campaigns/search"
+        assert request.headers["moe-appkey"] == "ws-1"
+        assert request.json() == {"limit": 1, "page": 1}

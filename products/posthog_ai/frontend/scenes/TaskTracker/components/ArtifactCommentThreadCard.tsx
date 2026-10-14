@@ -6,8 +6,8 @@ import { Badge, Button, Text, cn } from '@posthog/quill-primitives'
 
 import { ArtifactCommentThread, threadAnchorLabel } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
-import { ArtifactCommentComposer } from './ArtifactCommentComposer'
 import { ArtifactCommentThreadEntries } from './ArtifactCommentThreadEntries'
+import { ArtifactReplyComposer } from './ArtifactReplyComposer'
 
 /** One comment thread in the comments menu: what it is about, its comments, and a reply box. */
 export function ArtifactCommentThreadCard({
@@ -17,8 +17,8 @@ export function ArtifactCommentThreadCard({
     logicProps: TaskArtifactCommentsLogicProps
     thread: ArtifactCommentThread
 }): JSX.Element {
-    const { activeThreadId, writing, drafts } = useValues(taskArtifactCommentsLogic(logicProps))
-    const { activateThread, replyToThread, setDraft } = useActions(taskArtifactCommentsLogic(logicProps))
+    const { activeThreadId, drafts } = useValues(taskArtifactCommentsLogic(logicProps))
+    const { activateThread } = useActions(taskArtifactCommentsLogic(logicProps))
     const ref = useRef<HTMLElement>(null)
     const rootId = thread.root.id
     const active = activeThreadId === rootId
@@ -88,18 +88,7 @@ export function ArtifactCommentThreadCard({
             )}
             {!thread.resolved && (active || !!drafts[rootId]) && (
                 <div className="pr-2 pl-9">
-                    <ArtifactCommentComposer
-                        value={drafts[rootId] ?? ''}
-                        onChange={(value) => setDraft(rootId, value)}
-                        onSubmit={() => replyToThread(rootId)}
-                        saving={writing === rootId}
-                        busy={!!writing && writing !== rootId}
-                        label="Reply"
-                        placeholder="Reply"
-                        submitLabel="Reply"
-                        rows={1}
-                        dataAttr="task-artifact-comment-reply"
-                    />
+                    <ArtifactReplyComposer logicProps={logicProps} rootId={rootId} rows={1} />
                 </div>
             )}
         </section>

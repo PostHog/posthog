@@ -358,7 +358,10 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             }
         },
         toggleFlagActive: async ({ flagKey, teamId, flagId, active }) => {
-            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
+            const sibling = values.siblingsByFlagKey[flagKey]?.find((s) => s.team_id === teamId && s.flag_id === flagId)
+            // Before siblings load, the current team's cell renders from the representative row.
+            const row = sibling ?? values.flags.find((f) => f.team_id === teamId && f.id === flagId)
+            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active, filters: row?.filters })
             if (updatedFlag) {
                 actions.flagActiveUpdated(flagKey, teamId, flagId, updatedFlag.active ?? active)
             } else {

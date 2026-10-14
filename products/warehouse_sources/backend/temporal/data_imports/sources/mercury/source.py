@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -17,7 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    SourceInputs,
+    SourceResponse,
+    TDataType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
 )
@@ -37,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.mercury.com/reference"
 
@@ -108,6 +115,10 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         endpoint_config = MERCURY_ENDPOINTS[inputs.schema_name]
+        # Derived from settings because fan-out child resources carry no `columns` hint of their own.
+        column_hints: dict[str, TDataType | None] | None = (
+            dict.fromkeys(endpoint_config.timestamp_columns, "timestamp") or None
+        )
         resource = mercury_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
@@ -124,8 +135,8 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
             return SourceResponse(
                 name=resource.name,
                 items=lambda: resource,
-                primary_keys=[endpoint_config.primary_key],
-                column_hints=resource.column_hints,
+                primary_keys=list(endpoint_config.primary_keys),
+                column_hints=column_hints,
                 partition_count=1,
                 partition_size=1,
                 partition_mode="datetime",
@@ -137,8 +148,8 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=[endpoint_config.primary_key],
-            column_hints=resource.column_hints,
+            primary_keys=list(endpoint_config.primary_keys),
+            column_hints=column_hints,
             sort_mode="asc",
         )
 

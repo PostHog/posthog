@@ -39,6 +39,18 @@ export const Overview: Story = {
     },
 }
 
+export const InsideQuill: Story = {
+    render: () => {
+        return (
+            <div data-quill className="deprecated-space-y-2">
+                <LemonCheckbox label="Unchecked" />
+                <LemonCheckbox label="Checked" checked />
+                <LemonCheckbox label="Indeterminate" checked="indeterminate" />
+            </div>
+        )
+    },
+}
+
 export const Disabled: Story = {
     args: {
         label: "You can't check this out",

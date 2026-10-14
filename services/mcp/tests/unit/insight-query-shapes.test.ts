@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
@@ -60,4 +61,31 @@ describe('insight query shapes', () => {
 
         expect(schema.safeParse({ ...base, query }).success).toBe(false)
     })
+
+    it.each(tools)('$tool names every SQL display type in the display guidance', ({ tool }) => {
+        const schema = z.toJSONSchema(GENERATED_TOOLS[tool]!().schema, { io: 'input', reused: 'inline' })
+        const display = findSqlDisplay(schema)!
+
+        for (const value of display.enum) {
+            expect(display.description).toContain(`\`${value}\``)
+        }
+    })
 })
+
+function findSqlDisplay(node: unknown): { enum: string[]; description: string } | undefined {
+    if (!node || typeof node !== 'object') {
+        return undefined
+    }
+    const display = (node as { properties?: { display?: { enum?: string[]; description: string } } }).properties
+        ?.display
+    if (display?.enum?.includes('ActionsTable')) {
+        return display as { enum: string[]; description: string }
+    }
+    for (const child of Object.values(node)) {
+        const found = findSqlDisplay(child)
+        if (found) {
+            return found
+        }
+    }
+    return undefined
+}

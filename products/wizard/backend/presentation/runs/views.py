@@ -6,6 +6,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
+import structlog
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -17,7 +18,13 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions import Conflict
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
+from posthog.models import User
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import WizardRunDTO
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStatus
@@ -40,6 +47,8 @@ from products.wizard.backend.presentation.runs.serializers import (
 from products.wizard.backend.presentation.runs.stream import wizard_run_event_stream
 from products.wizard.backend.presentation.sessions.views import EventStreamRenderer, _wizard_sync_killswitch_enabled
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
+
+logger = structlog.get_logger(__name__)
 
 
 class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -115,6 +124,7 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if params.environment == WizardRunEnvironment.CLOUD:
             self._validate_cloud_creation(request)
+            self._refuse_blocked_gateway_identity(request)
 
         try:
             result = wizard_facade.create_run_with_result(params)
@@ -124,6 +134,30 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response_status = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
 
         return Response(WizardRunSerializer(result.run).data, status=response_status)
+
+    def _refuse_blocked_gateway_identity(self, request: Request) -> None:
+        """Refuse a cloud run to an identity an enforced AI gateway rule blocks.
+
+        The run mints its gateway token later, in a workflow with no request, so this is the only
+        point where a rule on the caller's IP can match.
+        """
+        user = cast(User, request.user)
+        try:
+            refused = security_access_refused(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(self.team.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_run",
+            )
+        except Exception:
+            logger.exception("security_access_check_site_failed", call_site="wizard_run")
+            refused = False
+        if refused:
+            raise PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
     @staticmethod
     def _validate_cloud_creation(request: Request) -> None:

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConfig]):
+    codebase_detection = detect(env=("^HUMANITIX_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://api.humanitix.com/v1/documentation"
@@ -55,7 +58,7 @@ class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Humanitix API key to pull your Humanitix data into the PostHog Data warehouse.
 
-You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events and tags.
+You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events, tags, orders, and tickets.
 """,
             iconPath="/static/services/humanitix.png",
             docsUrl="https://posthog.com/docs/cdp/sources/humanitix",
@@ -99,8 +102,7 @@ You can generate an API key under **Account → Advanced → Public API key** in
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Humanitix's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
+        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty); settings.py explains why.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

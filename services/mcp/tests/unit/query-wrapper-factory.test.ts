@@ -639,3 +639,44 @@ describe('createQueryWrapper warnings', () => {
         expect(result).not.toHaveProperty('warnings')
     })
 })
+
+describe('createQueryWrapper columns', () => {
+    const schema = z.object({ breakdownBy: z.string() })
+
+    function contextWithRunQuery(data: Record<string, unknown>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue(data) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('forwards the column names that label each positional web stats row', async () => {
+        const columns = [
+            'context.columns.breakdown_value',
+            'context.columns.visitors',
+            'context.columns.views',
+            'context.columns.avg_time_on_page',
+            'context.columns.bounce_rate',
+            'context.columns.ui_fill_fraction',
+            'context.columns.cross_sell',
+        ]
+        const results = [['/pricing', [120, null], [300, null], [42.5, null], [0.35, null], 0.6, '']]
+        const tool = createQueryWrapper({ name: 'query-web-stats', schema, kind: 'WebStatsTableQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ columns, results }), { breakdownBy: 'Page' })) as any
+
+        expect(result.columns).toEqual(columns)
+        expect(result.results).toEqual(results)
+    })
+
+    it('omits the key when the backend returns no columns', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TrendsQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [] }), { breakdownBy: 'Page' })) as any
+
+        expect(result).not.toHaveProperty('columns')
+    })
+})

@@ -1,20 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product platform_features
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product platform_features
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Platform Features
 feature: platform_features
 url_prefix: /
 ui_apps: {}
 tools:
-    activity-log-list:
-        operation: activity_log_list
-        enabled: false
-    advanced-activity-logs-export:
-        operation: advanced_activity_logs_export_create
-        enabled: false
     advanced-activity-logs-filters:
         operation: advanced_activity_logs_available_filters_retrieve
         enabled: true
@@ -73,12 +65,6 @@ tools:
                 - detail.changes
                 - created_at
             selectable: true
-    approval-policies-create:
-        operation: approval_policies_create
-        enabled: false
-    approval-policies-destroy:
-        operation: approval_policies_destroy
-        enabled: false
     approval-policies-list:
         operation: approval_policies_list
         enabled: true
@@ -92,12 +78,6 @@ tools:
         description: >
             List all approval policies configured for this project. Shows which actions require approval, who can
             approve, and bypass rules.
-    approval-policies-partial-update:
-        operation: approval_policies_partial_update
-        enabled: false
-    approval-policies-update:
-        operation: approval_policies_update
-        enabled: false
     approval-policy-get:
         operation: approval_policies_retrieve
         enabled: true
@@ -175,9 +155,6 @@ tools:
                 About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is
                 applied immediately. Reply 'confirm' to proceed.
             action_label: approve change request
-    change-requests-cancel:
-        operation: change_requests_cancel_create
-        enabled: false
     change-requests-list:
         operation: change_requests_list
         enabled: true
@@ -300,9 +277,6 @@ tools:
         title: Get all replies in a comment thread.
         description: |
             Get the full thread of replies for a parent comment. Useful for reading complete discussions on a resource.
-    comments-complete-create:
-        operation: comments_complete_create
-        enabled: false
     comments-create:
         operation: comments_create
         enabled: true
@@ -317,9 +291,6 @@ tools:
             Create a comment on an accessible resource, or reply by passing `source_comment`. For a canvas use scope
             `canvas` and the canvas id as `item_id`. A task id in item_context.taskId is optional. Canvas visibility is
             enforced: public-channel canvases and the authenticated user's personal-channel canvases are accessible.
-    comments-destroy:
-        operation: comments_destroy
-        enabled: false
     comments-list:
         operation: comments_list
         enabled: true
@@ -333,30 +304,6 @@ tools:
         description: >
             List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to
             find discussions on specific resources. Returns comment content, author, and threading info.
-    comments-partial-update:
-        operation: comments_partial_update
-        enabled: false
-    comments-reopen-create:
-        operation: comments_reopen_create
-        enabled: false
-    comments-send-to-slack-create:
-        operation: comments_send_to_slack_create
-        enabled: false
-    comments-update:
-        operation: comments_update
-        enabled: false
-    members-destroy:
-        operation: members_destroy
-        enabled: false
-    members-partial-update:
-        operation: members_partial_update
-        enabled: false
-    members-scoped-api-keys:
-        operation: members_scoped_api_keys_retrieve
-        enabled: false
-    members-update:
-        operation: members_update
-        enabled: false
     org-member-get-github-login:
         operation: members_github_login_retrieve
         enabled: true
@@ -461,12 +408,6 @@ tools:
                 - teams.*.project_id
                 - projects.*.id
                 - projects.*.name
-    organizations-create:
-        operation: create
-        enabled: false
-    organizations-destroy:
-        operation: destroy
-        enabled: false
     organizations-list:
         operation: list
         enabled: true
@@ -487,21 +428,6 @@ tools:
                 - name
                 - slug
                 - membership_level
-    organizations-partial-update:
-        operation: partial_update
-        enabled: false
-    organizations-update:
-        operation: update
-        enabled: false
-    personal-api-keys-list:
-        operation: personal_api_keys_list
-        enabled: false
-    remove-blocked-members-and-enforce-verified-domains-create:
-        operation: remove_blocked_members_and_enforce_verified_domains_create
-        enabled: false
-    request-ai-access-create:
-        operation: request_ai_access_create
-        enabled: false
     role-get:
         operation: roles_retrieve
         enabled: true
@@ -532,21 +458,6 @@ tools:
         param_overrides:
             role_id:
                 description: Required. The role id from roles-list.
-    role-membership-get:
-        operation: roles_role_memberships_retrieve
-        enabled: false
-    role-memberships-create:
-        operation: roles_role_memberships_create
-        enabled: false
-    role-memberships-destroy:
-        operation: roles_role_memberships_destroy
-        enabled: false
-    roles-create:
-        operation: roles_create
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
     roles-list:
         operation: roles_list
         enabled: true
@@ -560,21 +471,6 @@ tools:
         description: >
             List all roles defined in the organization. Roles group members and can be used in approval policies and
             access control rules.
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-update:
-        operation: roles_update
-        enabled: false
-    teams-data-freshness-retrieve:
-        operation: teams_data_freshness_retrieve
-        enabled: false
-    user-facet-settings-partial-update:
-        operation: user_facet_settings_partial_update
-        enabled: false
-    user-facet-settings-retrieve:
-        operation: user_facet_settings_retrieve
-        enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve
         enabled: true
@@ -612,6 +508,3 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
-    welcome-current-retrieve:
-        operation: welcome_current_retrieve
-        enabled: false

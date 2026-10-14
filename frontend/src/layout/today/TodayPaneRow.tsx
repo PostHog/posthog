@@ -32,7 +32,7 @@ export function TodayPaneRow({
                 active={active}
                 title={label}
                 data-attr={dataAttr}
-                className={cn('font-medium', action && 'pr-8')}
+                className={cn(action && 'pr-8')}
             >
                 {icon && (
                     <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>

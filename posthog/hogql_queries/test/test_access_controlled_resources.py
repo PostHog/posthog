@@ -297,6 +297,21 @@ class TestQueriedAccessControlledResources(BaseTest):
                 "select * from view_a",
                 {"warehouse_view", "warehouse_table", "external_data_source"},
             ),
+            (
+                # A model is queryable as `models.<stored name>` too. That read must carry the same
+                # scopes, or a denied user is served an allowed user's cached rows on a hit.
+                "model read through the models root",
+                {"notebook_view": "select * from system.notebooks"},
+                "select * from models.notebook_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                # A stored `models.x` row keeps the name, so the derived slot of `x` must not answer for it.
+                "stored models name wins over the derived one",
+                {"revenue": "select * from system.notebooks", "models.revenue": "select 1 as a"},
+                "select * from models.revenue",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
         ]
     )
     def test_view_definitions_are_walked(self, _name, views, sql, expected):
@@ -305,6 +320,25 @@ class TestQueriedAccessControlledResources(BaseTest):
                 team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
             )
         assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
+    @parameterized.expand(
+        [
+            ("endpoint", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("managed_viewset", DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET),
+        ]
+    )
+    def test_machine_origin_view_gets_no_models_root_read(self, _name, origin):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="machine_view",
+            origin=origin,
+            query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        # These rows get no `models.` slot in the schema, so the name reads nothing and partitions on nothing.
+        assert (
+            queried_access_controlled_resources(HogQLQuery(query="select * from models.machine_view"), self.team)
+            == set()
+        )
 
     def test_view_fan_out_does_not_scale_queries(self) -> None:
         # Views that share a base view must each be walked once, so six of them cost the same queries as two.

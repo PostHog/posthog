@@ -4,21 +4,27 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureScoutAction, captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic, ScoutDetailTab } from '../../../inboxSceneLogic'
+import { scoutAiContextItems } from '../../../logics/scoutAiLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
-import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
 import { LeaveScoutNoteButton, ScoutNotesPanel } from './ScoutNotesPanel'
 import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRunFilterPills, ScoutRunHistorySection } from './ScoutRunHistorySection'
+import { ScoutTrials } from './trials/ScoutTrials'
 
 /** The two panes that sit in the right rail at full width, and join the main tab bar below it. */
 const RAIL_TABS: ScoutDetailTab[] = ['told', 'learned']
@@ -43,7 +49,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const { entries } = useValues(scratchpadLogic)
     const { scoutNotes } = useValues(scoutNotesLogic({ skillName }))
     const { touchedReports, emissionRows, scoutRunsLoadedOnce } = useValues(scoutDetailLogic({ skillName }))
-    const { scoutDetailTab } = useValues(inboxSceneLogic)
+    const { scoutDetailTab, isStaff } = useValues(inboxSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { setScoutDetailTab } = useActions(inboxSceneLogic)
     const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
     // Above the breakpoint both tab bars are on screen, so a click in one has to leave the other
@@ -75,11 +82,17 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const rollup = rollups.get(skillName)
     const learnedCount = entriesForSkill(entries, skillName).length
     const reportCount = touchedReports.length
+    const canAccessTrials = isStaff && currentTeamId === 2
     // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
     // for the rest. Held until the runs window settles, so the default doesn't move under a reader
     // a beat after the page opens.
     const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
-    const tab = scoutDetailTab ?? defaultMainTab
+    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultMainTab
+    const scoutName = config ? scoutDisplayName(config) : null
+
+    // Registered by the page as well as the AI panel, so the scout is already attached when the
+    // panel composer mounts and sends the question at once. Any PostHog AI chat opened here gets it.
+    useAttachedContext(scoutName ? scoutAiContextItems({ skillName, scoutName }) : null)
 
     // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
     // off the polled window, so the counts are whatever had loaded by then.
@@ -163,7 +176,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const signalCount = emissionRows.length
     const runCount = rollup?.runs.length ?? 0
     const windowEmittedCount = rollup?.emittedCount ?? 0
-    const mainTab = isRailTab(tab) ? (mainColumnTab ?? defaultMainTab) : tab
+    const previousMainTab = mainColumnTab === 'trials' && !canAccessTrials ? null : mainColumnTab
+    const mainTab = isRailTab(tab) ? (previousMainTab ?? defaultMainTab) : tab
     const railTab = isRailTab(tab) ? tab : railColumnTab
 
     const switchTab = (next: ScoutDetailTab): void => {
@@ -188,6 +202,11 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
             label: `Reports ${reportCount}`,
         },
         { key: 'runs' as ScoutDetailTab, label: `Runs ${runCount}` },
+        canAccessTrials && {
+            key: 'trials' as ScoutDetailTab,
+            label: 'Trials',
+            'data-attr': 'scout-detail-trials-tab',
+        },
         (!scoutRunsLoadedOnce || windowEmittedCount > 0 || mainTab === 'signals') && {
             key: 'signals' as ScoutDetailTab,
             // The window's count stands in until the rows land, so a failed fetch is not labelled
@@ -203,6 +222,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const mainPanel = (which: ScoutDetailTab): JSX.Element =>
         which === 'runs' ? (
             <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
+        ) : which === 'trials' && canAccessTrials ? (
+            <ScoutTrials configId={config.id} />
         ) : which === 'signals' ? (
             <ScoutSignalsPanel skillName={skillName} />
         ) : (
@@ -220,6 +241,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 noteCount={scoutNotes.length}
                 learnedCount={learnedCount}
             />
+            <ScoutAskAiComposer skillName={skillName} scoutName={scoutDisplayName(config)} />
 
             <div className="grid grid-cols-1 items-start gap-4 px-4 py-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="flex min-w-0 flex-col gap-4">
@@ -236,7 +258,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                             tabs={[...mainTabs, ...railTabs]}
                         />
                         {/* The open pane's control gets its own row here rather than the bar's
-                            right slot. This bar carries five tabs, and the slot does not shrink:
+                            right slot. This bar carries the rail tabs, and the slot does not shrink:
                             it pins over the tab strip and hides the rail tabs behind it. The note
                             button is repeated from the rail bar because the rail column itself is
                             not rendered at this width, which would leave the pane unwritable. */}

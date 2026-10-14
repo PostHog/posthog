@@ -54,6 +54,7 @@ describe('pullRequestDetailLogic', () => {
             const job: WorkflowJobApi = {
                 id: 7,
                 run_id: 42,
+                steps: [],
                 ci_engine: ciEngine,
                 name: 'Python tests',
                 status: 'completed',

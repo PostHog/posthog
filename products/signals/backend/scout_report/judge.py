@@ -212,6 +212,27 @@ def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     ]
 
 
+def _decision_explanations_signal(decision_explanations: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored actionability and priority explanations as one `SignalData` for the judge.
+
+    Auto-start copies the priority explanation into the implementation task it opens, so an edit
+    that rewrites it reaches an action-capable run. Returns None when the edit sets no decision, so
+    every other edit produces a judge prompt byte-identical to before."""
+    if not decision_explanations:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report decision explanations (why the report is or is not actionable, and its priority):\n\n"
+        + "\n\n".join(decision_explanations),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_decision_explanations",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 async def judge_scout_report(
     *,
     team_id: int,
@@ -268,6 +289,7 @@ async def judge_edited_report_content(
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
     link_reasons: Sequence[str] = (),
+    decision_explanations: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -303,6 +325,9 @@ async def judge_edited_report_content(
     link_signal = _link_reasons_signal(link_reasons)
     if link_signal is not None:
         safety_input.append(link_signal)
+    decision_signal = _decision_explanations_signal(decision_explanations)
+    if decision_signal is not None:
+        safety_input.append(decision_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

@@ -57,11 +57,13 @@ from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
     FIND_BACKFILL_CANDIDATES_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_backfill_tick_outcome
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.schedule import (
     a_delete_backfill_schedule,
     a_pause_backfill_schedule,
@@ -112,7 +114,9 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
-    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    scanner_budget = (
+        compute_scanner_budget(backfill.scanner, org_state=quota) if backfill.scanner.has_spend_ceiling else None
+    )
     if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
         # Children would decline at create while the cursor walks past their sessions; the hold lets
         # the backfill resume when the period resets or the limit rises.
@@ -348,11 +352,13 @@ async def delete_backfill_schedule_activity(inputs: BackfillScheduleOpInputs) ->
 
 def _active_backfills_by_id() -> dict[UUID, tuple[int, UUID, str]]:
     """`{backfill_id: (team_id, scanner_id, status)}` for every non-terminal backfill."""
-    rows = ReplayScannerBackfill.objects.unscoped().filter(status__in=ACTIVE_BACKFILL_STATUSES)
-    return {
-        row_id: (team_id, scanner_id, row_status)
-        for row_id, team_id, scanner_id, row_status in rows.values_list("id", "team_id", "scanner_id", "status")
-    }
+    with bounded_queries(REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT):
+        rows = list(
+            ReplayScannerBackfill.objects.unscoped()
+            .filter(status__in=ACTIVE_BACKFILL_STATUSES)
+            .values_list("id", "team_id", "scanner_id", "status")
+        )
+    return {row_id: (team_id, scanner_id, row_status) for row_id, team_id, scanner_id, row_status in rows}
 
 
 async def _recreate_schedule(

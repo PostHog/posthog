@@ -4,6 +4,7 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.test.utils import override_settings
 
 from parameterized import parameterized
@@ -64,7 +65,7 @@ def _empty_listing_result() -> RecordingsListingResult:
     return RecordingsListingResult(recordings=[], more_recordings_available=False, timings_header="", next_cursor=None)
 
 
-class TestWidgetRegistry(APIBaseTest):
+class TestWidgetRegistry(SimpleTestCase):
     def test_widget_registry_catalog_and_expected_types_stay_in_sync(self) -> None:
         registry_types = frozenset(WIDGET_REGISTRY.keys())
         assert EXPECTED_WIDGET_TYPES == registry_types
@@ -575,13 +576,32 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.severityLevels, ["error"])
         self.assertEqual(query.limit, 15)
 
+    @parameterized.expand(
+        [
+            ("invalid_severity", {"severityLevels": ["critical"]}),
+            ("filters_list", ["invalid"]),
+            ("filters_string", "invalid"),
+            ("filters_empty_list", []),
+            ("filters_empty_string", ""),
+            ("filters_false", False),
+            ("filters_zero", 0),
+            ("date_range_list", {"dateRange": ["invalid"]}),
+            ("date_range_string", {"dateRange": "invalid"}),
+            ("date_range_empty_list", {"dateRange": []}),
+            ("date_range_empty_string", {"dateRange": ""}),
+            ("date_range_false", {"dateRange": False}),
+            ("date_range_zero", {"dateRange": 0}),
+        ]
+    )
     @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
-    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(self, mock_runner_cls: MagicMock) -> None:
+    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(
+        self, _name: str, filters: Any, mock_runner_cls: MagicMock
+    ) -> None:
         mock_runner_cls.return_value.calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False}
         )
         # `filters` has no inner schema validation on write, so a stored level outside the enum is possible.
-        view = LogsView.objects.create(team=self.team, name="Bad view", filters={"severityLevels": ["critical"]})
+        view = LogsView.objects.create(team=self.team, name="Bad view", filters=filters)
 
         # In-process so the lookup sees the view (see test_runs_logs_widget_with_saved_view). A malformed
         # view degrades to the widget's own config rather than raising.

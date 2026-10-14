@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,45 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]):
+    codebase_detection = detect(
+        env=("^SENDGRID_",),
+        script_hosts=("cdn.forms-content.sg-form.com", "cdn.forms-content-1.sg-form.com"),
+        npm=(
+            "@sendgrid/mail",
+            "@sendgrid/client",
+            "sendgrid",
+            "@sendgrid/eventwebhook",
+            "@sendgrid/helpers",
+            "@sendgrid/inbound-mail-parser",
+            "@sendgrid/contact-importer",
+            "@sendgrid/subscription-widget",
+            "smtpapi",
+            "nodemailer-sendgrid-transport",
+            "nodemailer-sendgrid",
+        ),
+        pypi=("sendgrid", "smtpapi", "django-sendgrid-v5", "sendgrid-django"),
+        cargo=("sendgrid",),
+        cocoapods=("SendGrid",),
+        composer=(
+            "sendgrid/sendgrid",
+            "sendgrid/smtpapi",
+            "s-ichikawa/laravel-sendgrid-driver",
+            "symfony/sendgrid-mailer",
+        ),
+        go=("github.com/sendgrid/sendgrid-go", "github.com/sendgrid/smtpapi-go"),
+        hex=("sendgrid",),
+        maven=("com.sendgrid:sendgrid-java", "com.sendgrid:smtpapi-java"),
+        rubygems=(
+            "sendgrid-ruby",
+            "smtpapi",
+            "sendgrid-actionmailer",
+            "sendgrid-rails",
+            "sendgrid",
+            "griddler-sendgrid",
+        ),
+        swiftpm=("github.com/scottkawai/sendgrid-swift",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://www.twilio.com/docs/sendgrid"

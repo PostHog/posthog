@@ -19,7 +19,19 @@ AWS_BATCH_ENDPOINTS: dict[str, AwsBatchEndpoint] = {
         operation="ListJobs",
         result_key="jobSummaryList",
         primary_key="job_arn",
-        description="Jobs in each queue, with their status, attempts, and execution details. Array children are not expanded.",
+        description="Jobs in each queue, with their status, attempts, and execution details. Array children and nodes are in the job_children table.",
+    ),
+    "job_children": AwsBatchEndpoint(
+        operation="DescribeJobs",
+        result_key="jobs",
+        primary_key="job_arn",
+        description="Child jobs of array jobs and nodes of multi-node parallel jobs, with their execution details.",
+    ),
+    "service_jobs": AwsBatchEndpoint(
+        operation="ListServiceJobs",
+        result_key="jobSummaryList",
+        primary_key="job_arn",
+        description="Service jobs, such as SageMaker training jobs, in each service job queue.",
     ),
     "job_queues": AwsBatchEndpoint(
         operation="DescribeJobQueues",
@@ -39,6 +51,18 @@ AWS_BATCH_ENDPOINTS: dict[str, AwsBatchEndpoint] = {
         primary_key="job_definition_arn",
         description="Job definition revisions, including their resource requirements and container settings.",
     ),
+    "scheduling_policies": AwsBatchEndpoint(
+        operation="ListSchedulingPolicies",
+        result_key="schedulingPolicies",
+        primary_key="arn",
+        description="Scheduling policies and their fair-share settings.",
+    ),
+    "consumable_resources": AwsBatchEndpoint(
+        operation="ListConsumableResources",
+        result_key="consumableResources",
+        primary_key="consumable_resource_arn",
+        description="Consumable resources with their total, in-use, and available quantities.",
+    ),
 }
 ENDPOINTS = tuple(AWS_BATCH_ENDPOINTS)
 ENDPOINT_DESCRIPTIONS = {name: endpoint.description for name, endpoint in AWS_BATCH_ENDPOINTS.items()}
@@ -48,7 +72,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 PERMISSION_MESSAGE = (
     "AWS denied access to Batch. Grant batch:DescribeJobQueues, batch:ListJobs, batch:DescribeJobs, "
-    "batch:DescribeComputeEnvironments, and batch:DescribeJobDefinitions for the tables you select."
+    "batch:ListServiceJobs, batch:DescribeComputeEnvironments, batch:DescribeJobDefinitions, "
+    "batch:ListSchedulingPolicies, batch:DescribeSchedulingPolicies, batch:ListConsumableResources, "
+    "and batch:DescribeConsumableResource for the tables you select."
 )
 CREDENTIAL_MESSAGE = "AWS rejected the credentials. Check the access key ID, secret access key, and session token."
 NON_RETRYABLE_ERRORS: dict[str, str] = {

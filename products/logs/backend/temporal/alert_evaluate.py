@@ -4,18 +4,14 @@ The evaluation itself lives in `products/logs/backend/alert_source_cycle.py`, so
 plain function a test can call without Temporal.
 """
 
-import asyncio
 import datetime as dt
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from django.conf import settings
-
     from posthog.temporal.common.utils import close_db_connections
 
     from products.alerts_platform.backend.facade.contracts import (
@@ -24,6 +20,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.temporal import start_deliveries
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -42,7 +39,7 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-# What the source needs from the platform's `SOURCE_EVALUATION_TIMEOUT`, which has to hold both
+# What the source needs from its binding's `evaluation_timeout`, which has to hold both
 # activities and still leave room to start the delivery children.
 EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
 
@@ -95,32 +92,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        # The evaluation key names the window and the slot but not the alert, because a delivery
-        # addresses the history row with it. The id joins the two, so two alerts in one slot do
-        # not collide. A re-run of the same occasion reuses these ids, and a reused id raises, so
-        # one already-started preview must not stop the rest.
-        results = await asyncio.gather(
-            *(
-                workflow.start_child_workflow(
-                    "alerts-platform-deliver-preview",
-                    delivery,
-                    id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
-                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=1),
-                )
-                for delivery in evaluation.deliveries
-            ),
-            return_exceptions=True,
-        )
-        started = 0
-        for result in results:
-            if isinstance(result, WorkflowAlreadyStartedError):
-                continue
-            if isinstance(result, BaseException):
-                raise result
-            started += 1
-        return started
+        return await start_deliveries(evaluation.deliveries)
 
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]

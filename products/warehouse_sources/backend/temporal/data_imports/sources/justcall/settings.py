@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class JustCallEndpointConfig:
     name: str
     path: str
@@ -22,6 +22,9 @@ class JustCallEndpointConfig:
     # `asc`/`desc`; phone-numbers documents uppercase `ASC`/`DESC`). Ascending keeps already-paged
     # results stable under concurrent inserts and lets the incremental watermark advance monotonically.
     order: str = "asc"
+    # Per-endpoint page-size cap where JustCall documents a lower maximum than the default of 100.
+    page_size: Optional[int] = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
 
 def _incremental_fields(cursor: str) -> list[IncrementalField]:
@@ -40,8 +43,9 @@ def _incremental_fields(cursor: str) -> list[IncrementalField]:
 
 # Endpoints are the JustCall v2.1 list resources a warehouse user is most likely to want:
 # telephony (calls), messaging (texts), the sales-dialer contact-center calls, plus the
-# supporting dimensions (contacts, users, phone numbers). Analytics/aggregate endpoints are
-# intentionally excluded — they return computed rollups, not raw records.
+# supporting dimensions (contacts, users, user groups, phone numbers, campaigns), and the per-call
+# JustCall AI analysis. Analytics/aggregate endpoints are intentionally excluded — they return
+# computed rollups, not raw records.
 JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
     "calls": JustCallEndpointConfig(
         name="calls",
@@ -72,6 +76,25 @@ JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
         name="phone_numbers",
         path="/phone-numbers",
         order="ASC",
+    ),
+    "user_groups": JustCallEndpointConfig(
+        name="user_groups",
+        path="/user_groups",
+    ),
+    # Campaign status and contact counts change after creation, so a creation-date
+    # `from_datetime` filter would miss updates; campaigns are a small table, so full refresh.
+    "sales_dialer_campaigns": JustCallEndpointConfig(
+        name="sales_dialer_campaigns",
+        path="/sales_dialer/campaigns",
+        page_size=50,
+    ),
+    # Rows carry no date field to use as a cursor, so full refresh. Only JustCall-platform calls are
+    # requested: `id` is the call id, which is not unique across the JustCall and Sales Dialer platforms.
+    "calls_ai": JustCallEndpointConfig(
+        name="calls_ai",
+        path="/calls_ai",
+        page_size=20,
+        extra_params={"platform": "justcall", "fetch_transcription": "true"},
     ),
 }
 

@@ -6,6 +6,8 @@ import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,6 +17,8 @@ from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
+from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
+from products.posthog_ai.eval_harness.harness import lifecycle
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
@@ -27,6 +31,7 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
 from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
@@ -73,18 +78,18 @@ class _Provider(SandboxProviderStrategy):
         self.cleaned_task_ids.append(task_id)
 
 
-class _TaskRun:
-    id = "run-id"
-
-    def get_workflow_id(self, task_id: str, run_id: str) -> str:
-        return f"{task_id}-{run_id}"
+_TASK_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 def _patch_runner_boundaries(monkeypatch: pytest.MonkeyPatch, handle: _FakeWorkflowHandle, poll: AsyncMock) -> None:
-    task = SimpleNamespace(id="task-id")
-    task_run = _TaskRun()
+    task_run = AgentTaskRunDTO(
+        task_id=_TASK_ID,
+        run_id=UUID("00000000-0000-0000-0000-000000000002"),
+        team_id=25,
+        workflow_id="eval-task-workflow",
+    )
     client = SimpleNamespace(get_workflow_handle=lambda _workflow_id: handle)
-    monkeypatch.setattr(runner, "create_task_and_trigger", AsyncMock(return_value=(task, task_run)))
+    monkeypatch.setattr(runner, "create_task_and_trigger", AsyncMock(return_value=task_run))
     monkeypatch.setattr(runner, "async_connect", AsyncMock(return_value=client))
     monkeypatch.setattr(runner, "poll_for_turn", poll)
 
@@ -164,6 +169,68 @@ def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str,
     assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
 
 
+@pytest.mark.parametrize(
+    "outcome, fail_under, score, expected_exit_code",
+    [
+        pytest.param("case_error", None, 1.0, 1, id="case_error_without_gate"),
+        pytest.param("engine_error", None, 1.0, 1, id="engine_error_without_gate"),
+        pytest.param("both_errors", 0.5, 1.0, 1, id="errors_with_passing_gate"),
+        pytest.param("case_error", 1.0, 1.0, 1, id="case_error_with_perfect_score"),
+        pytest.param("crash", None, 1.0, 1, id="suite_crash"),
+        pytest.param("ok", None, 0.0, 0, id="low_score_without_gate"),
+        pytest.param("ok", 0.5, 0.5, 0, id="score_meets_gate"),
+        pytest.param("ok", 0.5, 0.0, 1, id="score_below_gate"),
+        pytest.param("ok", 0.5, None, 1, id="no_scores_with_gate"),
+        pytest.param("timeout", None, 0.0, 0, id="timeout_without_gate"),
+        pytest.param("timeout", 0.5, 0.0, 1, id="timeout_below_gate"),
+    ],
+)
+def test_eval_run_exit_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash"],
+    fail_under: float | None,
+    score: float | None,
+    expected_exit_code: int,
+) -> None:
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+
+    async def suite(ctx: EvalContext) -> None:
+        if outcome == "crash":
+            raise RuntimeError("Synthetic suite failure")
+        await ctx.reporter.case_done("experiment", "completed-case", duration_seconds=1.0)
+        if outcome in {"case_error", "both_errors", "timeout"}:
+            await ctx.reporter.case_done(
+                "experiment",
+                "failed-case",
+                duration_seconds=1.0,
+                status="timeout" if outcome == "timeout" else "error",
+            )
+        await ctx.reporter.record_summary(
+            "experiment",
+            EvalSummary(
+                engine_name="Braintrust",
+                experiment_name="experiment",
+                scores={"score": AggregateScore("score", score)} if score is not None else {},
+            ),
+            error_count=1 if outcome in {"engine_error", "both_errors"} else 0,
+        )
+
+    monkeypatch.setattr(
+        lifecycle,
+        "discover_suites",
+        lambda _selectors: [EvalSuite(domain="test", module_name="exit_status", fn_name="suite", fn=suite)],
+    )
+    monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
+    monkeypatch.setattr(lifecycle, "validate_eval_env", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", lambda *_args: None)
+    args = [] if fail_under is None else ["--fail-under", str(fail_under)]
+
+    assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
+    output = capsys.readouterr().out
+    assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("delivery", ["bundled", "exec"])
 @pytest.mark.parametrize("origin", ["eval", "slack", None])
@@ -227,7 +294,7 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
 
     assert result.artifacts.exit_code == 0
     assert handle.signals == [["completed", None]]
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -244,7 +311,7 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
         )
 
     assert handle.signals[0][0] == "failed"
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -273,7 +340,7 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
         await case_task
 
     assert handle.signals[0][0] == "failed"
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 @pytest.mark.asyncio
@@ -300,7 +367,7 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
         )
 
     assert handle.cancelled
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
 def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pytest.MonkeyPatch) -> None:

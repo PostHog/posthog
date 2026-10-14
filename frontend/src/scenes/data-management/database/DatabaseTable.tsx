@@ -22,6 +22,7 @@ interface DatabaseTableProps {
     tables: DatabaseSchemaTable[]
     inEditSchemaMode: boolean
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
+    fieldDescriptions?: Record<string, string>
 }
 
 const nonEditableSchemaTypes = [
@@ -103,7 +104,13 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
     return <More overlay={overlay()} />
 }
 
-export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
+export function DatabaseTable({
+    table,
+    tables,
+    inEditSchemaMode,
+    schemaOnChange,
+    fieldDescriptions,
+}: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
     const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
@@ -117,8 +124,8 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Column',
                     key: 'key',
                     dataIndex: 'name',
-                    render: function RenderColumn(column) {
-                        return <code>{column}</code>
+                    render: function RenderColumn(_, { name }) {
+                        return <code>{name}</code>
                     },
                 },
                 {
@@ -211,7 +218,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                             )
                         }
 
-                        return ''
+                        return fieldDescriptions?.[field.name] ?? ''
                     },
                 },
                 {

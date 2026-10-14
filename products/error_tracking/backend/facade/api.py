@@ -11,7 +11,7 @@ from django.db.models import QuerySet
 
 import posthoganalytics
 
-from posthog.event_usage import groups
+from posthog.event_usage import AnalyticsProps, groups
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
@@ -154,7 +154,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
@@ -314,6 +314,13 @@ def list_releases(
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_release(release) for release in rows], total
+
+
+def list_releases_created_between(
+    team_id: int, *, start: datetime, end: datetime, limit: int
+) -> list[contracts.ErrorTrackingRelease]:
+    rows = logic.list_releases(team_id).filter(created_at__gte=start, created_at__lte=end)[:limit]
+    return [_to_release(release) for release in rows]
 
 
 def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:
@@ -653,6 +660,7 @@ def create_external_reference(
     config: dict[str, Any] | None = None,
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
+    analytics_props: AnalyticsProps | None = None,
 ) -> contracts.ErrorTrackingExternalReference:
     reference, created = external_references.create_external_reference(
         team_id=team_id,
@@ -669,6 +677,7 @@ def create_external_reference(
             distinct_id=distinct_id,
             groups=groups(reference.issue.team.organization, reference.issue.team),
             properties={
+                **(analytics_props or {}),
                 "issue_id": reference.issue_id,
                 "integration_kind": reference.integration.kind,
                 # Distinguish linking an existing issue from creating a brand-new one.

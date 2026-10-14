@@ -59,46 +59,10 @@ def activity_log_ordering(request: Request) -> tuple[str, str]:
     return ("-created_at", "-id")
 
 
-def restrict_loop_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
-    """Keep personal loops' config out of the team-wide activity feed.
-
-    Loop activity is team-scoped in the log, but a personal loop is owner-only (see
-    products/tasks/docs/LOOPS.md "Access control"). The static visibility manager can't express
-    per-user ownership, so restrict `Loop`-scoped rows to the loops this user may actually see.
-    Lazy import keeps the tasks product off this module's import path.
-    """
-    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
-
-    visible_ids = loops_facade.visible_loop_ids(team_id, user)
-    return queryset.exclude(Q(scope="Loop") & ~Q(item_id__in=visible_ids))
-
-
-def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
-    """Org-wide equivalent of `restrict_loop_activity`. The org route has no single `team_id`, so it
-    can't build a per-team allowlist; instead deny other users' personal-loop rows across the org.
-
-    Two filters, both required. The persisted per-row context (`detail.context.visibility` /
-    `created_by_user_id`, snapshotted at log time) is the primary one: `ActivityLog` outlives its
-    loop (project deletion cascades `Loop` rows away while the log keeps plain `team_id` /
-    `organization_id`), so a live-row denylist alone would open another user's deleted personal-loop
-    history to org admins. The live-row denylist stays on top so a currently-personal loop hides ALL
-    its rows, including ones logged back when it was team-visible.
-
-    No object-level loop RBAC here, deliberately: this route is restricted to org admins and owners
-    (`OrganizationActivityLogPermission`), who pass the RBAC precheck for every object, so the
-    filter the team route applies via `visible_loop_ids` would be a no-op on this one."""
-    from products.tasks.backend.facade import loops as loops_facade  # noqa: PLC0415
-
-    user_id = getattr(user, "id", None)
-    persisted_personal = Q(scope="Loop") & Q(detail__context__visibility="personal")
-    if user_id is not None:
-        persisted_personal &= ~Q(detail__context__created_by_user_id=str(user_id))
-    queryset = queryset.exclude(persisted_personal)
-
-    hidden_ids = loops_facade.hidden_personal_loop_ids_for_org(organization_id, user)
-    if not hidden_ids:
-        return queryset
-    return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
+def exclude_loop_activity(queryset: QuerySet[ActivityLog]) -> QuerySet[ActivityLog]:
+    # Legacy loop rows can hold another member's personal loop config, and the loops that decided
+    # who may see them are gone, so no one sees them.
+    return queryset.exclude(scope="Loop")
 
 
 def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
@@ -107,9 +71,9 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
     Restrict `Canvas`-scoped rows to canvases this user may access through `CanvasViewSet`.
     Lazy import keeps the canvas product off this module's path.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, getattr(user, "id", None))
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
 
 
@@ -118,9 +82,9 @@ def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organizati
     `team_id`, so deny canvases hidden by channel visibility or source policy across the
     org. Canvases are soft-deleted, so their visibility stays computable without a snapshot.
     """
-    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+    from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, getattr(user, "id", None))
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
@@ -169,6 +133,11 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "detail",
             "created_at",
         ]
+
+    def to_representation(self, instance: ActivityLog) -> dict:
+        data = super().to_representation(instance)
+        data["detail"] = instance.safe_detail
+        return data
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -361,7 +330,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset
@@ -552,7 +521,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         ]
 
     def get_detail(self, obj):
-        return json.dumps(obj.detail) if obj.detail else ""
+        return json.dumps(obj.safe_detail) if obj.detail else ""
 
 
 class StaticFiltersSerializer(serializers.Serializer):
@@ -647,7 +616,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
@@ -716,17 +685,21 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if not filters_serializer.is_valid():
             return Response({"error": "Filters are invalid"}, status=400)
 
-        query_params = {}
+        query_params: dict[str, str | list[str]] = {}
 
-        # Transform body params to query params to include the filters in the export path
+        # Transform body params to query params to include the filters in the export path.
+        # Lists become repeated keys (?users=a&users=b): the filters serializer reads them via
+        # getlist, so a comma-joined value would be validated as one item. Only unset or empty
+        # values are skipped: an explicit False is a filter too (is_system=false).
         for key, value in filters_serializer.validated_data.items():
-            if value:
-                if isinstance(value, list):
-                    query_params[key] = ",".join(str(v) for v in value)
-                elif isinstance(value, dict):
-                    query_params[key] = json.dumps(value)
-                else:
-                    query_params[key] = str(value)
+            if value is None or value in ("", [], {}):
+                continue
+            if isinstance(value, list):
+                query_params[key] = [str(v) for v in value]
+            elif isinstance(value, dict):
+                query_params[key] = json.dumps(value)
+            else:
+                query_params[key] = str(value)
 
         try:
             serializable_filters = self._make_filters_serializable(filters_serializer.validated_data)
@@ -742,7 +715,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 export_format=format_mapping[export_format],
                 export_context={
-                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params)}",
+                    "path": f"/api/projects/{self.team_id}/advanced_activity_logs/?{urlencode(query_params, doseq=True)}",
                     "method": "GET",
                     "filters": serializable_filters,
                     "filename": filename,
@@ -818,8 +791,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
             queryset = queryset.filter(created_at__gte=lookback_date)
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
-        # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
-        queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
+        queryset = exclude_loop_activity(queryset)
         queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))

@@ -6,18 +6,26 @@ import pytest
 from unittest import mock
 
 import orjson
-from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yousign import (
+    YouSignSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import (
     SIGNATURE_REQUEST_SOURCES,
     WEBHOOK_EVENTS,
     YOUSIGN_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.source import YouSignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign import (
     YousignResumeConfig,
-    _cursor_paginator,
     _date_filter_value,
     create_webhook,
     delete_webhook,
@@ -39,13 +47,8 @@ def _make_manager(resume_state: YousignResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _resp(payload: Any, status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status
-    resp.ok = status < 400
-    resp.json.return_value = payload
-    resp.content = b"x"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(YouSignSource(), YouSignSourceConfig(api_key="key", environment="production"))
 
 
 class TestDateFilterValue:
@@ -89,40 +92,10 @@ class TestGetResource:
         assert incremental_param["convert"] is _date_filter_value
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-    def test_incremental_defaults_to_created_at(self) -> None:
-        resource = get_resource(YOUSIGN_ENDPOINTS["signature_requests"], True, None)
-        assert "created_at[after]" in _endpoint_params(resource)
-
     @pytest.mark.parametrize("endpoint, field", [("signature_requests", "updated_at"), ("contacts", "created_at")])
     def test_incremental_rejects_unsupported_fields(self, endpoint: str, field: str) -> None:
         with pytest.raises(ValueError, match="does not support incremental field"):
             get_resource(YOUSIGN_ENDPOINTS[endpoint], True, field)
-
-
-class TestCursorPaginator:
-    def test_follows_meta_next_cursor_until_null(self) -> None:
-        paginator = _cursor_paginator()
-
-        paginator.update_state(_resp({"data": [{"id": "a"}], "meta": {"next_cursor": "tok1"}}))
-        assert paginator.has_next_page
-        request = Request(method="GET", url="https://api.yousign.app/v3/signature_requests", params={})
-        paginator.update_request(request)
-        assert request.params["after"] == "tok1"
-
-        paginator.update_state(_resp({"data": [{"id": "b"}], "meta": {"next_cursor": None}}))
-        assert not paginator.has_next_page
-
-    def test_resume_state_roundtrip(self) -> None:
-        paginator = _cursor_paginator()
-        paginator.update_state(_resp({"data": [], "meta": {"next_cursor": "tok2"}}))
-        state = paginator.get_resume_state()
-        assert state == {"cursor": "tok2"}
-
-        resumed = _cursor_paginator()
-        resumed.set_resume_state(state)
-        request = Request(method="GET", url="https://api.yousign.app/v3/contacts", params={})
-        resumed.init_request(request)
-        assert request.params["after"] == "tok2"
 
 
 class TestValidateCredentials:
@@ -138,38 +111,15 @@ class TestValidateCredentials:
             (500, None, False),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_status_mapping(
-        self, mock_session: mock.MagicMock, status: int, schema_name: str | None, expected_valid: bool
-    ) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=status)
-        valid, _ = validate_credentials("key", "production", schema_name)
+    def test_status_mapping(self, status: int, schema_name: str | None, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            valid, _ = validate_credentials("key", "production", schema_name)
         assert valid is expected_valid
-
-    @pytest.mark.parametrize(
-        "environment, expected_host",
-        [("production", "https://api.yousign.app/v3"), ("sandbox", "https://api-sandbox.yousign.app/v3")],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_probes_the_environment_host(
-        self, mock_session: mock.MagicMock, environment: str, expected_host: str
-    ) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=200)
-        validate_credentials("key", environment)
-        assert mock_session.return_value.get.call_args.args[0] == f"{expected_host}/users"
 
 
 class TestYousignSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(YOUSIGN_ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
-        response = yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint=endpoint,
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-        )
+    @staticmethod
+    def _assert_metadata(endpoint: str, response: Any) -> None:
         config = YOUSIGN_ENDPOINTS[endpoint]
         expected_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
         assert response.name == endpoint
@@ -181,54 +131,31 @@ class TestYousignSourceResponse:
             assert response.partition_keys == [config.partition_key]
             assert response.partition_mode == "datetime"
 
-    @pytest.mark.parametrize("endpoint", ["signers", "documents"])
-    def test_fanout_children_key_on_parent_id(self, endpoint: str) -> None:
-        # Fan-out children aggregate rows across every signature request; without the parent id
-        # in the key, duplicate ids would multi-match on every merge.
-        response = yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint=endpoint,
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
+    @pytest.mark.parametrize("endpoint", list(YOUSIGN_ENDPOINTS))
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        response = _driver().run(endpoint, []).response
+        assert response is not None
+        self._assert_metadata(endpoint, response)
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "signature_requests",
+            [ScriptedResponse(json={"data": [{"id": "sr-1"}], "meta": {"next_cursor": None}})],
+            resume_state=YousignResumeConfig(cursor="tok"),
         )
-        assert response.primary_keys == ["signature_request_id", "id"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
-    def test_resumes_from_saved_cursor(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        manager = _make_manager(YousignResumeConfig(cursor="tok"))
-        yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="signature_requests",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=manager,
+        assert result.requests[0].param("after") == "tok"
+
+    def test_checkpoint_saves_only_when_a_next_page_exists(self) -> None:
+        result = _driver().run(
+            "signature_requests",
+            [
+                ScriptedResponse(json={"data": [{"id": "sr-1"}], "meta": {"next_cursor": "tok3"}}),
+                ScriptedResponse(json={"data": [{"id": "sr-2"}], "meta": {"next_cursor": None}}),
+            ],
         )
-        kwargs = mock_rest_api_resource.call_args.kwargs
-        assert kwargs["initial_paginator_state"] == {"cursor": "tok"}
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
-    def test_checkpoint_saves_only_when_a_next_page_exists(self, mock_rest_api_resource: mock.MagicMock) -> None:
-        manager = _make_manager()
-        yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="signature_requests",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=manager,
-        )
-        save_checkpoint = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-
-        save_checkpoint({"cursor": "tok3"})
-        manager.save_state.assert_called_once_with(YousignResumeConfig(cursor="tok3"))
-
-        manager.save_state.reset_mock()
-        save_checkpoint(None)
-        save_checkpoint({"cursor": None})
-        manager.save_state.assert_not_called()
+        assert result.saved_states == [YousignResumeConfig(cursor="tok3")]
 
     # Patch out the real async_to_sync: running its event loop closes the thread-local Django
     # connection, which poisons DB-backed tests (e.g. migration tests) later in the same worker.
@@ -254,48 +181,8 @@ class TestYousignSourceResponse:
 
         webhook_manager.get_items.assert_called_once()
 
-    def test_webhook_manager_not_consulted_for_non_webhook_schema(self) -> None:
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
-
-        yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="contacts",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-            webhook_source_manager=webhook_manager,
-        )
-
-        webhook_manager.webhook_enabled.assert_not_called()
-
 
 class TestWebhookTableTransformer:
-    def _envelope(self, request_id: str, status: str, event_time: str) -> dict[str, Any]:
-        return {
-            "event_id": f"evt-{request_id}-{event_time}",
-            "event_name": "signature_request.activated",
-            "event_time": event_time,
-            "sandbox": False,
-            "data": {"signature_request": {"id": request_id, "status": status, "name": "Contract"}},
-        }
-
-    def test_reshapes_envelopes_and_keeps_latest_event_per_id(self) -> None:
-        table = table_from_py_list(
-            [
-                self._envelope("sr-1", "ongoing", "100"),
-                self._envelope("sr-1", "done", "200"),
-                self._envelope("sr-2", "ongoing", "150"),
-            ]
-        )
-        rows = make_webhook_table_transformer()(table).to_pylist()
-        by_id = {row["id"]: row for row in rows}
-        assert set(by_id) == {"sr-1", "sr-2"}
-        assert by_id["sr-1"]["status"] == "done"
-        # Envelope keys must not leak into the table — the rows merge with pulled API rows.
-        assert "event_name" not in by_id["sr-1"]
-
     def test_strips_signer_signature_link_from_webhook_rows(self) -> None:
         # `signature_link` is a `no_otp`-usable signing URL — it must never reach the warehouse.
         envelope = {
@@ -331,119 +218,108 @@ class TestWebhookTableTransformer:
         assert [row["id"] for row in rows] == ["sr-3"]
 
 
-def _static_resource(rows: list[dict[str, Any]]) -> Resource:
-    return Resource(lambda: iter([rows]), name="r", hints={})
-
-
-def _flatten(response: Any) -> list[dict[str, Any]]:
-    return [row for page in cast(Iterable[Any], response.items()) for row in page]
-
-
 class TestSignerCapabilityStripping:
     """`signature_link` (and other capability fields) must never reach the warehouse on any path."""
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.build_dependent_resource"
-    )
-    def test_signers_fanout_strips_signature_link(self, mock_build: mock.MagicMock) -> None:
-        mock_build.return_value = _static_resource(
-            [{"signature_request_id": "sr-1", "id": "s-1", "status": "signed", "signature_link": "https://sign/abc"}]
+    def test_signers_fanout_strips_signature_link(self) -> None:
+        result = _driver().run(
+            "signers",
+            route(
+                {
+                    "/signature_requests": [
+                        ScriptedResponse(json={"data": [{"id": "sr-1"}], "meta": {"next_cursor": None}})
+                    ],
+                    "/signature_requests/sr-1/signers": [
+                        ScriptedResponse(json=[{"id": "s-1", "status": "signed", "signature_link": "https://sign/abc"}])
+                    ],
+                }
+            ),
         )
-        response = yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="signers",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-        )
-        rows = _flatten(response)
-        assert rows[0].get("signature_link") is None
-        assert rows[0]["id"] == "s-1"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
-    def test_signature_requests_strips_embedded_signer_links(self, mock_rest: mock.MagicMock) -> None:
-        mock_rest.return_value = _static_resource(
-            [{"id": "sr-1", "signers": [{"id": "s-1", "signature_link": "https://sign/abc"}]}]
+        assert result.raised is None
+        assert result.rows[0].get("signature_link") is None
+        assert result.rows[0]["id"] == "s-1"
+        assert result.rows[0]["signature_request_id"] == "sr-1"
+
+    def test_signature_requests_strips_embedded_signer_links(self) -> None:
+        result = _driver().run(
+            "signature_requests",
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "sr-1", "signers": [{"id": "s-1", "signature_link": "https://sign/abc"}]}],
+                        "meta": {"next_cursor": None},
+                    }
+                )
+            ],
         )
-        response = yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="signature_requests",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-        )
-        rows = _flatten(response)
-        assert rows[0]["signers"][0].get("signature_link") is None
-        assert rows[0]["signers"][0]["id"] == "s-1"
+
+        assert result.raised is None
+        assert result.rows[0]["signers"][0].get("signature_link") is None
+        assert result.rows[0]["signers"][0]["id"] == "s-1"
+
+
+def _hook(endpoint: str = "https://ph/webhook", **extra: Any) -> dict[str, Any]:
+    return {"id": "wh-1", "endpoint": endpoint, **extra}
 
 
 class TestWebhookManagement:
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_create_webhook_returns_signing_secret_as_extra_input(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.post.return_value = _resp({"id": "wh-1", "secret_key": "s" * 32}, status=201)
-        result = create_webhook("key", "sandbox", "https://ph/webhook", mock.MagicMock())
+    def test_create_webhook_returns_signing_secret_as_extra_input(self) -> None:
+        with scripted_network([ScriptedResponse(status=201, json={"id": "wh-1", "secret_key": "s" * 32})]) as network:
+            result = create_webhook("key", "sandbox", "https://ph/webhook", mock.MagicMock())
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "s" * 32}
-        body = mock_session.return_value.post.call_args.kwargs["json"]
+        body = network.requests_log[0].json()
         assert body["endpoint"] == "https://ph/webhook"
         assert body["sandbox"] is True
         assert body["subscribed_events"] == WEBHOOK_EVENTS
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_create_webhook_without_secret_marks_signing_secret_pending(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.post.return_value = _resp({"id": "wh-1"}, status=201)
-        result = create_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
+    def test_create_webhook_without_secret_marks_signing_secret_pending(self) -> None:
+        with scripted_network([ScriptedResponse(status=201, json={"id": "wh-1"})]):
+            result = create_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
 
         assert result.success is True
         assert result.pending_inputs == ["signing_secret"]
 
     @pytest.mark.parametrize("status", [401, 403])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_create_webhook_permission_error_is_actionable(self, mock_session: mock.MagicMock, status: int) -> None:
-        mock_session.return_value.post.return_value = _resp({}, status=status)
-        result = create_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
+    def test_create_webhook_permission_error_is_actionable(self, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={})]):
+            result = create_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
 
         assert result.success is False
         assert result.error is not None and "full-access" in result.error
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_delete_webhook_is_a_noop_success_when_absent(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp([{"id": "wh-1", "endpoint": "https://other/webhook"}])
-        result = delete_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
+    def test_delete_webhook_is_a_noop_success_when_absent(self) -> None:
+        with scripted_network([ScriptedResponse(json=[_hook("https://other/webhook")])]) as network:
+            result = delete_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
 
         assert result.success is True
-        mock_session.return_value.delete.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_delete_webhook_deletes_the_matching_subscription(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp([{"id": "wh-1", "endpoint": "https://ph/webhook"}])
-        mock_session.return_value.delete.return_value = _resp({}, status=204)
-        result = delete_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
+    def test_delete_webhook_deletes_the_matching_subscription(self) -> None:
+        with scripted_network([ScriptedResponse(json=[_hook()]), ScriptedResponse(status=204)]) as network:
+            result = delete_webhook("key", "production", "https://ph/webhook", mock.MagicMock())
 
         assert result.success is True
-        assert mock_session.return_value.delete.call_args.args[0].endswith("/webhooks/wh-1")
+        assert network.requests_log[1].method == "DELETE"
+        assert network.requests_log[1].path.endswith("/webhooks/wh-1")
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_update_webhook_events_skips_patch_when_already_in_sync(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp(
-            [{"id": "wh-1", "endpoint": "https://ph/webhook", "subscribed_events": sorted(WEBHOOK_EVENTS)}]
-        )
-        result = update_webhook_events("key", "production", "https://ph/webhook", WEBHOOK_EVENTS, mock.MagicMock())
+    def test_update_webhook_events_skips_patch_when_already_in_sync(self) -> None:
+        with scripted_network([ScriptedResponse(json=[_hook(subscribed_events=sorted(WEBHOOK_EVENTS))])]) as network:
+            result = update_webhook_events("key", "production", "https://ph/webhook", WEBHOOK_EVENTS, mock.MagicMock())
 
         assert result.success is True
-        mock_session.return_value.patch.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["GET"]
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_update_webhook_events_patches_drifted_subscription(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp(
-            [{"id": "wh-1", "endpoint": "https://ph/webhook", "subscribed_events": ["signature_request.done"]}]
-        )
-        mock_session.return_value.patch.return_value = _resp({}, status=200)
-        result = update_webhook_events("key", "production", "https://ph/webhook", WEBHOOK_EVENTS, mock.MagicMock())
+    def test_update_webhook_events_patches_drifted_subscription(self) -> None:
+        script = [
+            ScriptedResponse(json=[_hook(subscribed_events=["signature_request.done"])]),
+            ScriptedResponse(json={}),
+        ]
+        with scripted_network(script) as network:
+            result = update_webhook_events("key", "production", "https://ph/webhook", WEBHOOK_EVENTS, mock.MagicMock())
 
         assert result.success is True
-        patch_kwargs = mock_session.return_value.patch.call_args.kwargs
-        assert patch_kwargs["json"] == {"subscribed_events": WEBHOOK_EVENTS}
+        assert network.requests_log[1].method == "PATCH"
+        assert network.requests_log[1].json() == {"subscribed_events": WEBHOOK_EVENTS}

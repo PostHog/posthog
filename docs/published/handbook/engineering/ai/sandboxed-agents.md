@@ -188,6 +188,17 @@ Use the `posthog_mcp_scopes` parameter to control access:
 | `"read_only"`      | Read access to actions, cohorts, dashboards, experiments, feature flags, insights, queries, surveys, etc. | Agent only needs to read data for analysis or reporting                                            |
 | `"full"` (default) | Read + write access to all MCP-exposed resources                                                          | Agent needs to create or modify PostHog resources (e.g., create feature flags, update experiments) |
 
+The internal `signals_research` preset also reads the project-member roster through `scout-members-list`.
+It can write to the scratchpad, but it cannot emit signals, edit reports, or start tasks.
+Report research returns reviewer decisions as structured output; the pipeline validates project access before it stores them.
+The `signals-research-reviewer-selection` flag controls this selection path.
+Research picks route the report. Autostart permits a research-selected task user only when the ownership or commit resolver independently confirms the same member.
+The check uses current project access and the member’s linked GitHub account. Personal priority settings and skill-owner exclusions still apply.
+This requires additional GitHub lookups. Failed or unmatched lookups retain the existing team fallback and no-runner behavior.
+Non-owner scout picks keep their existing task-user rules; they do not use this additional confirmation.
+A missing decision or a decision with no valid members uses the ownership and commit resolver.
+An explicit empty decision clears automatic suggestions and records its reason in the report log. Human reviewer edits take precedence.
+
 ### Custom scopes
 
 For more granular control, pass an explicit list of scopes instead of a preset:
@@ -208,10 +219,31 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 
 Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
 
+An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
+Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
+
 See `posthog/temporal/oauth.py` for the full list.
 
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
+
+### Scout tool selections
+
+Scout configs can store an exact `allowed_mcp_tools` list beside their scope grants.
+`null` preserves unrestricted tool selection within the scout's scopes; `[]` selects no additional tools.
+The `read_only` and `support_notes` tool presets expand into a snapshot when saved, so later preset changes do not change existing grants.
+A preset containing a non-holdable tool is rejected, as is an explicit selection containing unknown, superseded, non-holdable, or built-in run-context tools.
+
+For an explicit list, the API derives `write_scopes` from selected write tools and refuses direct scope edits.
+Adding a write tool requires the scout's acting user or a project admin, and a credential carrying its required scopes, even if the scout already holds those scopes.
+Removing tools or narrowing an unrestricted selection without adding scopes needs ordinary scout configuration access.
+Clearing the list restores unrestricted tool selection and requires grant authorization; it preserves the last derived scopes, which can then be edited separately.
+Sandbox-bound tokens cannot change either tool-selection field.
+Both fields and their initial values are activity-logged.
+
+The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
+Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
+The tool picker and runtime enforcement are separate changes.
 
 ### Activity attribution
 
@@ -318,6 +350,7 @@ The prompt asks for a few distinct judgments about required outcomes and decisio
 Each passing condition explains the required result in plain language. For complex policies, a short description of the governing source rules follows that explanation to preserve conditions and exceptions.
 Writing instructions and a short example follow the source and schema. They ask for readable titles, descriptions, passing conditions, applicability and summaries without narrowing the source rules or losing permitted outcomes.
 Later evaluation must receive those reference instructions alongside the rubric; a tested variant's changed instructions must not silently replace them.
+The generator saves its exact governing source before starting the session, including the skill version, description, instructions, report-disposition rules, reference texts and completeness markers. A resumed attempt reuses this immutable context. Historical examples remain separate.
 Each suggestion must work independently with the saved criteria and source, and missing evaluation evidence must remain distinct from a known unmet requirement.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
 The agent first drafts a complete set of source-specific criteria, then receives the full saved rubric and selects which draft items add useful judgments.
@@ -335,6 +368,8 @@ The worker ends the session after success or failure.
 The generation panel explains that suggestions take a few minutes and shows elapsed time while the agent works.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
+Saving with `adopt_generation_id` explicitly binds the whole rubric to that completed generation's captured source. Both the rubric revision and generation identifier must match. Ordinary criterion edits retain the saved source; skill edits and later generations do not replace it.
+Older rubrics without captured source context remain readable, but their reference context is not reconstructed from current instructions or task logs.
 Save includes checked suggestions and shows the number of new criteria it will add.
 Suggestions appear above the criteria and start unselected. Owners can select them individually or select all.
 Suggested and saved criteria show their title and description first. Expanding a row reveals the passing rules and when they apply.

@@ -2,10 +2,13 @@ use std::collections::HashMap;
 
 use common_types::ClickHouseEvent;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::error::{EventError, UnhandledError};
+use crate::{
+    core::code_variables::mask_code_variables,
+    error::{EventError, UnhandledError},
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnyEvent {
@@ -22,6 +25,20 @@ pub struct AnyEvent {
 
 impl AnyEvent {
     pub fn drop_code_variables(&mut self) {
+        self.for_each_frame(|frame| {
+            frame.remove("code_variables");
+        });
+    }
+
+    pub fn mask_code_variables(&mut self) {
+        self.for_each_frame(|frame| {
+            if let Some(code_variables) = frame.get_mut("code_variables") {
+                mask_code_variables(code_variables);
+            }
+        });
+    }
+
+    fn for_each_frame(&mut self, mut apply: impl FnMut(&mut Map<String, Value>)) {
         let Some(exceptions) = self
             .properties
             .get_mut("$exception_list")
@@ -37,7 +54,7 @@ impl AnyEvent {
                 continue;
             };
             for frame in frames.iter_mut().filter_map(Value::as_object_mut) {
-                frame.remove("code_variables");
+                apply(frame);
             }
         }
     }

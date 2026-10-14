@@ -30,7 +30,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
-from posthog.permissions import AccessControlPermission, posthog_feature_flag_enabled
+from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
@@ -46,7 +46,9 @@ from products.access_control.backend.presentation.access_control import (
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
-from ..llm.providers.openrouter import is_non_chat_model
+from ..llm.decisions import decision_evaluations_enabled, is_decision_model
+from ..llm.errors import ProviderConnectionError
+from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -79,34 +81,13 @@ from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 logger = structlog.get_logger(__name__)
-
-NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
-CATEGORICAL_EVALUATIONS_FEATURE_FLAG = "llm-analytics-categorical-evaluations"
-
-
-def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key: str) -> bool:
-    request = serializer.context.get("request")
-    get_team = serializer.context.get("get_team")
-    user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False) or not callable(get_team):
-        return False
-
-    team = get_team()
-    try:
-        return posthog_feature_flag_enabled(
-            flag_key,
-            str(user.distinct_id),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        return False
 
 
 @extend_schema_field(
@@ -184,12 +165,12 @@ class _EvaluationConfigField(serializers.JSONField):
             "min": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.",
+                "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
             },
             "max": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.",
+                "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
             },
             "step": {
                 "type": "number",
@@ -387,7 +368,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class EvaluationConditionSerializer(serializers.Serializer):
+class EvaluationConditionSerializer(ConditionSetSerializer):
     """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
@@ -541,21 +522,30 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
+    def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        should_validate_model = (
+            self.instance is None
+            or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
+            or data.get("enabled", False)
+        )
+        if not should_validate_model:
+            return False
+
+        model_configuration = self._effective_model_configuration(data) or {}
+        model_provider = model_configuration.get("provider")
+        try:
+            return is_decision_model(
+                model_provider,
+                model_configuration.get("model"),
+                openrouter_enabled=model_provider == "openrouter"
+                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+            )
+        except ProviderConnectionError as e:
+            raise serializers.ValidationError({"model_configuration": str(e)}) from e
+
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
-        flag_key = {
-            "numeric": NUMERIC_EVALUATIONS_FEATURE_FLAG,
-            "categorical": CATEGORICAL_EVALUATIONS_FEATURE_FLAG,
-        }.get(str(output_type))
-        if (
-            flag_key
-            and (self.instance is None or self.instance.output_type != output_type)
-            and not _evaluation_output_enabled(self, flag_key)
-        ):
-            raise serializers.ValidationError(
-                {"output_type": f"{str(output_type).capitalize()} evaluations are not enabled for this project."}
-            )
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -566,12 +556,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
-        model_provider = (
-            model_configuration.get("provider")
-            if isinstance(model_configuration, dict)
-            else getattr(model_configuration, "provider", None)
-        )
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical", "numeric"):
+        uses_decision_model = self._uses_decision_model(data)
+        if uses_decision_model and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )
@@ -595,7 +581,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
 
         if data.get("model_configuration") or data.get("enabled"):
-            self._validate_chat_model(data)
+            self._validate_chat_model(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
             self.instance is None
@@ -622,11 +608,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
 
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type == "numeric":
+        if uses_decision_model and output_type == "numeric":
             config = data.get("output_config", getattr(self.instance, "output_config", {}))
             if config.get("min") is None or config.get("max") is None or config["min"] >= config["max"]:
                 raise serializers.ValidationError(
-                    {"output_config": "System One numeric evaluations require a minimum score below the maximum score."}
+                    {
+                        "output_config": "Numeric evaluations with decision models require a minimum score below the maximum score."
+                    }
                 )
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
@@ -667,19 +655,22 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         return data
 
-    def _validate_chat_model(self, data: dict) -> None:
-        """The judge calls chat completions, so a model without text output fails on every run."""
+    def _validate_chat_model(self, data: dict, *, uses_decision_model: bool) -> None:
+        """OpenRouter judges use either chat completions or typed decisions."""
         model_config = self._effective_model_configuration(data)
         if not model_config or model_config.get("provider") != LLMProvider.OPENROUTER:
             return
         model = model_config.get("model")
+        if uses_decision_model:
+            return
         if model and is_non_chat_model(model):
+            guidance = (
+                "Choose a chat model or a supported decision model."
+                if decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL)
+                else "Choose a chat model."
+            )
             raise serializers.ValidationError(
-                {
-                    "model_configuration": (
-                        f"'{model}' does not support chat completions, so it cannot be an LLM judge. Choose a chat model."
-                    )
-                }
+                {"model_configuration": f"'{model}' is not supported as an evaluation judge. {guidance}"}
             )
 
     def _validate_can_run(self, data: dict) -> None:

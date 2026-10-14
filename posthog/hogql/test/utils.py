@@ -174,8 +174,8 @@ def json_dynamic_read_sql_from_parts(
     next `%(hogql_val_N)s` placeholder each time. The shape mirrors `_json_subcolumn_value_expr`: a non-empty
     sub-object wins, an empty scalar reads as NULL, containers render as JSON.
     """
-    sub_object_read = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
-    sub_object_again = f"JSONStripEmptyStringsAndNulls(toJSONString({sub_object()}))" if with_sub_object else ""
+    sub_object_read = f"toJSONString({sub_object()})" if with_sub_object else ""
+    sub_object_again = f"toJSONString({sub_object()})" if with_sub_object else ""
     empty_check = f"isNull(nullIf(toString({field()}), ''))"
     if as_json:
         typed = f"nullIf(nullIf(toJSONString({field()}), '[]'), '{{}}')"

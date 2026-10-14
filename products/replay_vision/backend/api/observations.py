@@ -63,9 +63,14 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.observation_formatting import summarize_observation
-from products.replay_vision.backend.prompt_questions import question_for_snapshot
+from products.replay_vision.backend.prompt_questions import question_for_snapshot, valence_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -136,9 +141,6 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
-    verify_positives = serializers.CharField(
-        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
-    )
     variant_sampling_rates = serializers.DictField(
         child=serializers.FloatField(),
         required=False,
@@ -151,28 +153,6 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
 
 
-class VerificationRecordSerializer(serializers.Serializer):
-    """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
-
-    mode = serializers.CharField(
-        help_text="Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict.",
-    )
-    draws = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran.",
-    )
-    resolved_verdict = serializers.CharField(
-        help_text="The verdict verification settled on: the first pass when the second draw agrees, else the dissent.",
-    )
-    served_verdict = serializers.CharField(
-        help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",
-    )
-    skipped_reason = serializers.CharField(
-        allow_null=True,
-        help_text="Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
-    )
-
-
 class ScannerResultSerializer(serializers.Serializer):
     """Mirrors `temporal.types.ScannerResult` for OpenAPI generation."""
 
@@ -182,10 +162,6 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
-    )
-    verification = VerificationRecordSerializer(
-        allow_null=True,
-        help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
     )
     experiment_variant = serializers.CharField(
         required=False,
@@ -221,7 +197,7 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 
 class ReplayObservationMediaSerializer(serializers.Serializer):
-    """One thumbnail or clip illustrating an observation."""
+    """One frame illustrating an observation."""
 
     id = serializers.UUIDField(read_only=True, help_text="Id of this media entry.")
     kind = serializers.ChoiceField(
@@ -229,7 +205,7 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one "
-            "summary chapter, `clip` for a short video."
+            "summary chapter."
         ),
     )
     position = serializers.IntegerField(
@@ -240,19 +216,9 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         help_text="Export asset holding the bytes; fetch it from the export content endpoint.",
     )
-    description = serializers.CharField(
-        read_only=True,
-        allow_null=True,
-        help_text="One sentence saying what the clip shows. Null for thumbnails.",
-    )
     video_start_ms = serializers.IntegerField(
         read_only=True,
         help_text="Where this media starts in the analysis video, in milliseconds.",
-    )
-    video_end_ms = serializers.IntegerField(
-        read_only=True,
-        allow_null=True,
-        help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
     )
 
 
@@ -382,7 +348,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
     media = serializers.SerializerMethodField(
-        help_text="Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes.",
+        help_text="Frames illustrating this observation, in order. Empty until the media render finishes.",
     )
 
     @extend_schema_field(ReplayObservationMediaSerializer(many=True))
@@ -393,9 +359,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
                 "kind": media.kind,
                 "position": media.position,
                 "asset_id": media.asset_id,
-                "description": media.description,
                 "video_start_ms": media.video_start_ms,
-                "video_end_ms": media.video_end_ms,
             }
             for media in obj.media.all()
             # No content location means the render has not landed yet, so there is nothing to fetch.
@@ -416,6 +380,24 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         return question_for_snapshot(
             snapshot_config=(obj.scanner_snapshot or {}).get("scanner_config"),
             question=getattr(obj, "scanner_prompt_question", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
+
+    prompt_valence = serializers.SerializerMethodField(
+        help_text=(
+            "For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it "
+            "is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, "
+            "when not judged, or when the prompt has changed since this observation was scanned."
+        ),
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=PromptValence.choices, allow_null=True))
+    def get_prompt_valence(self, obj: ReplayObservation) -> PromptValence | None:
+        snapshot = obj.scanner_snapshot or {}
+        return valence_for_snapshot(
+            snapshot_config=snapshot.get("scanner_config"),
+            scanner_type=snapshot.get("scanner_type"),
+            valence=getattr(obj, "scanner_prompt_valence", "") or "",
             source=getattr(obj, "scanner_prompt_question_source", "") or "",
         )
 
@@ -445,6 +427,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_snapshot",
             "scanner_result",
             "prompt_question",
+            "prompt_valence",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",
@@ -1412,7 +1395,7 @@ class ReplayObservationViewSet(
             )
         verdict_changed = previous is None or previous["is_correct"] != label.is_correct
         feedback_changed = previous is None or previous["feedback"] != label.feedback
-        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core rating signal: thumbs up/down on whether the scanner got the session right.
         # The feedback box autosaves while the user types and resends the whole label each time, so a save
         # that changes nothing reaches here often. Reporting those counts one rated session many times over.
         if verdict_changed or feedback_changed:

@@ -14,16 +14,21 @@ import {
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
+    PinnedContextSwitchError,
     PostHogApiError,
     PostHogValidationError,
     ToolInputValidationError,
     MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    hasTimeoutCause,
+    isTimeoutError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
     createExecTool,
     describeApiValidationError,
@@ -31,6 +36,7 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
+    getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
@@ -54,7 +60,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
+import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -110,17 +116,20 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
-// The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
-// The intent is extra detail on an audit row: if the copy fails, the call runs without it.
-function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
-    if (!intent) {
-        return state
+// A private response must not suppress another call sharing this JSON-RPC batch or token.
+function stateForToolCall(state: ResolvedState, intent: string | undefined): ResolvedState {
+    const scoped = { ...state, context: { ...state.context } }
+    scoped.context.api = state.context.api.withAnalyticsSuppression(() => {
+        scoped.suppressAnalytics = true
+    })
+    if (intent) {
+        try {
+            scoped.context.api = scoped.context.api.withIntent(intent)
+        } catch {
+            // Audit detail is optional; the per-call privacy boundary is not.
+        }
     }
-    try {
-        return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
-    } catch {
-        return state
-    }
+    return scoped
 }
 
 export class ToolExecutor {
@@ -219,7 +228,7 @@ export class ToolExecutor {
         if (preparedCall?.conversationId) {
             state.requestContext.mcpConversationId = preparedCall.conversationId
         }
-        const callState = stateCarryingIntent(state, analyticsMeta.intent)
+        const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
@@ -260,7 +269,8 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
+            return { content: [{ type: 'text', text }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
@@ -397,9 +407,11 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = markNoncanonicalMetricRun(
-                tool.name,
-                await tool.handler(state.context, validation.data)
+            // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
+            const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
+            const handlerResult = withIgnoredInputKeys(
+                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
+                ignoredKeys
             )
 
             if (isContextSwitch) {
@@ -431,6 +443,8 @@ export class ToolExecutor {
                         renderUiEnabled: state.renderUiEnabled,
                     }),
                     distinctId,
+                    mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
+                        .mcpClientName,
                 })
             }
 
@@ -528,7 +542,13 @@ export class ToolExecutor {
             }
 
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(error, tool.name, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                tool.name,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+            )
         }
     }
 
@@ -679,7 +699,15 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return handleToolError(error, metricTool, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                metricTool,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics ||
+                    isPrivateScoutTrialTool(metricTool) ||
+                    isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+            )
         }
     }
 
@@ -793,6 +821,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()
@@ -821,7 +850,11 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        const renderUiTool = createRenderUiTool(
+            state.allTools,
+            state.context,
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+        )
         if (!renderUiTool) {
             return {
                 content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
@@ -878,7 +911,7 @@ export class ToolExecutor {
                 analyticsMeta
             )
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
     }
 }
@@ -921,9 +954,14 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
     if (error instanceof MCPToolResultError) {
-        return { errorType: error.errorType }
+        const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
+        return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
     }
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError
+    ) {
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {
@@ -944,7 +982,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (hasTimeoutCause(error)) {
         return { errorType: 'timeout' }
     }
 
@@ -1029,7 +1067,11 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
         return `Tool failed: ${error.errorType}`
     }
     // Static recovery walkthroughs generated by our own constructors.
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError
+    ) {
         return error.message
     }
     // Documented value-free: offending field paths + issue codes, never input values.
@@ -1041,7 +1083,7 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (error instanceof ExecCommandError) {
         return `Exec command rejected: ${error.reason}`
     }
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
         return 'Tool call timed out'
     }
     const apiError = findRecoverableApiError(error)

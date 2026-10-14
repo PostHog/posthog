@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,12 +33,36 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     INCREMENTAL_FIELDS,
     INSTANA_ENDPOINTS,
+    METRICS_DEFAULT_LOOKBACK_DAYS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
+    codebase_detection = detect(
+        env=("^INSTANA_",),
+        script_hosts=("eum.instana.io",),
+        npm=("@instana/collector", "@instana/aws-lambda", "@instana/react-native-agent"),
+        pypi=("instana",),
+        cocoapods=("InstanaAgent",),
+        go=(
+            "github.com/instana/go-sensor",
+            "github.com/instana/instana-agent-operator",
+            "github.com/instana/instana-go-client",
+            "github.com/instana/instana-otel-collector",
+            "github.com/instana/rollouts-plugin-metric-instana",
+        ),
+        maven=(
+            "com.instana:instana-java-sdk",
+            "com.instana:android-agent-runtime",
+            "com.instana:instana-java-opentracing",
+            "com.instana:instana-javaagent",
+        ),
+        pub=("instana_agent",),
+        rubygems=("instana", "mina-instana"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -116,18 +141,22 @@ Your base URL is the address you use to open the Instana UI, e.g. `https://unit-
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = INSTANA_ENDPOINTS[endpoint]
+            description: str | None = None
+            if endpoint_config.is_events:
+                description = f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
+            elif endpoint_config.metrics_entity is not None:
+                description = (
+                    f"Daily metrics. Only syncs the last {METRICS_DEFAULT_LOOKBACK_DAYS} full days on initial sync"
+                )
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
                 # Events mutate after creation (`state` and `end` change while an issue is open),
-                # so append mode would materialize each update as a duplicate row — merge only.
+                # and incremental metrics re-fetch the last day, so append mode would materialize
+                # each re-fetch as a duplicate row — merge only.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=(
-                    f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
-                    if endpoint == "events"
-                    else None
-                ),
+                description=description,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

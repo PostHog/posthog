@@ -39,7 +39,6 @@ export function TodayRecentRadioSubmenu<T extends string>({
                 options.map((option) => (
                     <ItemRadio
                         key={option.value}
-                        className="text-base"
                         aria-checked={option.value === value}
                         onClick={() => {
                             onChange(option.value)

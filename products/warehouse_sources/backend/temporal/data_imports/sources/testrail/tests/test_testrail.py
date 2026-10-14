@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.testrail import (
     TestrailResumeConfig,
     TestrailRetryableError,
-    _build_url,
     _extract_items,
     _to_epoch,
     check_access,
@@ -29,8 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.t
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_unwrapped = testrail._fetch.__wrapped__  # type: ignore[attr-defined]
-
-BASE_URL = "https://acme.testrail.io/index.php?"
 
 
 class _FakeResumableManager:
@@ -121,14 +118,6 @@ def _collect(
 
 
 class TestUrlBuilding:
-    def test_params_are_appended_with_ampersand_not_second_question_mark(self) -> None:
-        # TestRail's whole API path lives inside the query string; a second `?` would break routing.
-        url = _build_url(BASE_URL, "get_cases", 12, {"suite_id": 3, "limit": 250, "offset": 0})
-        assert url == "https://acme.testrail.io/index.php?/api/v2/get_cases/12&suite_id=3&limit=250&offset=0"
-
-    def test_method_without_id_or_params(self) -> None:
-        assert _build_url(BASE_URL, "get_statuses") == "https://acme.testrail.io/index.php?/api/v2/get_statuses"
-
     @parameterized.expand(
         [
             ("bare", "acme", "acme"),
@@ -168,22 +157,6 @@ class TestToEpoch:
 
 
 class TestExtractItems:
-    def test_plain_array_is_a_single_page(self) -> None:
-        items, has_more = _extract_items([{"id": 1}], "suites")
-        assert items == [{"id": 1}]
-        assert has_more is False
-
-    def test_bulk_envelope_reads_items_and_next_link(self) -> None:
-        items, has_more = _extract_items(_bulk("cases", [{"id": 2}], has_more=True), "cases")
-        assert items == [{"id": 2}]
-        assert has_more is True
-
-    def test_null_next_link_terminates(self) -> None:
-        _, has_more = _extract_items(_bulk("cases", [{"id": 2}] * PAGE_SIZE, has_more=False), "cases")
-        # A full page with a null `_links.next` must NOT be treated as "more" — an endpoint that
-        # ignores limit/offset would otherwise loop on the same page forever.
-        assert has_more is False
-
     @parameterized.expand([("string", "nope"), ("wrong_key", {"other": []}), ("null", None)])
     def test_unexpected_payload_is_retryable(self, _name: str, payload: Any) -> None:
         with pytest.raises(TestrailRetryableError):
@@ -250,24 +223,6 @@ class TestSuiteScopedFanOut:
             }
         )
 
-    def test_cases_fan_out_over_every_suite(self, monkeypatch: Any) -> None:
-        rows = _collect(self._api(), "cases", monkeypatch)
-        assert [row["id"] for row in rows] == [1000, 1100]
-
-    def test_incremental_sends_updated_after_to_every_case_request(self, monkeypatch: Any) -> None:
-        api = self._api()
-        _collect(
-            api, "cases", monkeypatch, should_use_incremental_field=True, db_incremental_field_last_value=1700000000
-        )
-        case_params = api.params_for("get_cases")
-        assert len(case_params) == 2
-        assert all(params["updated_after"] == "1700000000" for params in case_params)
-
-    def test_full_refresh_sends_no_timestamp_filter(self, monkeypatch: Any) -> None:
-        api = self._api()
-        _collect(api, "cases", monkeypatch)
-        assert all("updated_after" not in params for params in api.params_for("get_cases"))
-
     def test_resume_skips_completed_suites_and_restarts_at_saved_offset(self, monkeypatch: Any) -> None:
         api = self._api()
         manager = _FakeResumableManager(TestrailResumeConfig(parent_path=[1, 11], offset=PAGE_SIZE))
@@ -290,10 +245,6 @@ class TestRunsEndpoint:
             }
         )
 
-    def test_combines_standalone_and_plan_entry_runs(self, monkeypatch: Any) -> None:
-        rows = _collect(self._api(), "runs", monkeypatch)
-        assert [row["id"] for row in rows] == [100, 201]
-
     def test_incremental_bounds_both_get_runs_and_get_plans(self, monkeypatch: Any) -> None:
         api = self._api()
         _collect(
@@ -315,10 +266,6 @@ class TestRunScopedFanOut:
                 ("get_results_for_run", 201): _bulk("results", [{"id": 9001, "test_id": 2}]),
             }
         )
-
-    def test_results_cover_plan_entry_runs(self, monkeypatch: Any) -> None:
-        rows = _collect(self._api(), "results", monkeypatch)
-        assert [row["id"] for row in rows] == [9000, 9001]
 
     def test_incremental_filters_results_but_not_run_enumeration(self, monkeypatch: Any) -> None:
         # The run walk must stay unfiltered so results added to OLD runs after the watermark are

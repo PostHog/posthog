@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   ContentBlock,
@@ -130,6 +130,7 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
+import { attachmentFilePath, safeArtifactFileName } from "../utils/attachments";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
@@ -182,6 +183,7 @@ const agentErrorClassificationSchema = z.enum([
   "turn_ended_without_response",
   "subscription_usage_limit",
   "task_spend_limit",
+  "upstream_request_rejected",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -1269,6 +1271,7 @@ export class AgentServer {
         {
           status: "failed",
           error_message: `Agent server crashed: ${errorMessage}`,
+          error_type: "agent_server_crash",
           state: { agent_version: this.agentVersion },
         },
       );
@@ -2158,6 +2161,7 @@ export class AgentServer {
         : null,
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
+      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
     });
 
     // Only that stamped header makes the run id a trace the generations land
@@ -2352,6 +2356,14 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               serviceTier: this.config.serviceTier,
+              // Codex runs at most 3 sub-agents per session at once by default; the main agent does
+              // not count. A run that starts more sub-agents at once sets its own limit.
+              ...(runState?.codex_max_subagents && {
+                configOverrides: {
+                  "agents.max_concurrent_threads_per_session":
+                    runState.codex_max_subagents,
+                },
+              }),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
@@ -4103,7 +4115,7 @@ export class AgentServer {
       throw new Error(`Skill bundle ${skillName} failed checksum validation`);
     }
 
-    const safeSkillName = this.getSafeArtifactName(skillName);
+    const safeSkillName = safeArtifactFileName(skillName);
     const skillRoot = join(
       this.config.repositoryPath ?? "/tmp/workspace",
       ".posthog",
@@ -4235,32 +4247,18 @@ export class AgentServer {
       throw new Error(`Failed to download artifact ${artifact.name}`);
     }
 
-    const safeName = this.getSafeArtifactName(artifact.name);
-    const artifactDir = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
-      ".posthog",
-      "attachments",
+    const artifactPath = attachmentFilePath(
+      this.config.repositoryPath,
       runId,
-      artifact.id ?? safeName,
+      artifact,
     );
-    await mkdir(artifactDir, { recursive: true });
-
-    const artifactPath = join(artifactDir, safeName);
+    await mkdir(dirname(artifactPath), { recursive: true });
     await writeFile(artifactPath, Buffer.from(data));
 
     return resourceLink(pathToFileURL(artifactPath).toString(), artifact.name, {
       ...(artifact.content_type ? { mimeType: artifact.content_type } : {}),
       ...(typeof artifact.size === "number" ? { size: artifact.size } : {}),
     });
-  }
-
-  private getSafeArtifactName(name: string): string {
-    const baseName = basename(name).trim();
-    const normalizedName = baseName.replace(/[^\w.-]/g, "_");
-    if (normalizedName.length === 0 || /^\.+$/.test(normalizedName)) {
-      return "attachment";
-    }
-    return normalizedName;
   }
 
   /**
@@ -4821,6 +4819,9 @@ export class AgentServer {
       await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
         status,
         error_message: persistedErrorMessage,
+        ...(options?.errorCategory
+          ? { error_type: options.errorCategory }
+          : {}),
         state: { agent_version: this.agentVersion },
       });
       this.logger.debug("Task completion signaled", { status, stopReason });

@@ -1,6 +1,6 @@
 import { Background, BackgroundVariant, FitViewOptions, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useEffect, useId, useMemo } from 'react'
+import { useId, useLayoutEffect, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -25,12 +25,10 @@ function loadingGraph(
     edges: DataModelingEdge[]
     centerNodeId?: string
 } {
-    const dag = 'lineage-loading'
     const node = (id: string, name: string, type: DataModelingNode['type']): DataModelingNode => ({
         id,
         name,
         type,
-        dag,
         created_at: '',
         updated_at: '',
         upstream_count: 0,
@@ -40,7 +38,6 @@ function loadingGraph(
         id,
         source_id,
         target_id,
-        dag,
         properties: {},
         created_at: '',
         updated_at: '',
@@ -105,7 +102,7 @@ export function LineageGraphLoading({
         [fitViewOptions]
     )
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (viewportInitialized && nodesMeasured) {
             void fitView({
                 ...loadingFitViewOptions,

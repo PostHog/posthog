@@ -13,7 +13,7 @@ class TestCustomerIOImportService(BaseTest):
     def setUp(self):
         super().setUp()
         self.api_key = "test-api-key"
-        self.service = CustomerIOImportService(self.team, self.api_key, self.user)
+        self.service = CustomerIOImportService(self.team.id, self.api_key, self.user.id)
 
     def test_process_preferences_csv_complete_flow(self):
         """Test complete CSV processing flow with batching"""
@@ -186,7 +186,7 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
 user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
 """
         # Create service with None API key since CSV doesn't need it
-        service = CustomerIOImportService(self.team, api_key=None, user=self.user)
+        service = CustomerIOImportService(self.team.id, api_key=None, created_by_id=self.user.id)
 
         # Process CSV without creating categories first
         result = service.process_preferences_csv(StringIO(csv_content))

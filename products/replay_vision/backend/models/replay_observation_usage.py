@@ -6,8 +6,8 @@ from posthog.models.utils import UUIDModel
 class ReplayObservationUsage(UUIDModel):
     """Immutable usage receipt, decoupled from the observation row so deletes can't refund spent quota.
 
-    Observations write their own id on success. Prompt-suggestion test runs write a synthetic
-    per-session id (`prompt_evaluation.evaluation_usage_id`).
+    Observations write their own id on success. Receipts from the retired prompt-suggestion test runs
+    carry a synthetic per-session id instead.
     """
 
     organization = models.ForeignKey(
@@ -44,6 +44,8 @@ class ReplayObservationUsage(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["organization", "observation_created_at"]),
+            # Drives the org quota, which buckets receipts by write time so it agrees with billing.
+            models.Index(fields=["organization", "created_at"], name="rlou_org_created_idx"),
             # Drives the daily per-team billing usage query, which buckets receipts by write time.
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
             # Drives the per-scanner credit limit aggregate over the current billing period. Partial

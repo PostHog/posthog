@@ -13,13 +13,18 @@ use std::{
 use super::canonical_log::with_canonical_log;
 use super::types::{RequestContext, RequestPropertyOverrides};
 
+const GEOIP_SUBDIVISION_PREFIX: &str = "$geoip_subdivision_";
+
 pub fn prepare_overrides(
     context: &RequestContext,
     request: &FlagRequest,
+    team_id: i32,
 ) -> Result<RequestPropertyOverrides, FlagError> {
     let geoip_disabled = request.geoip_disable.unwrap_or(false);
+    let include_subdivisions = context.state.config.geoip_subdivisions_enabled_for(team_id);
     let person_property_overrides = get_person_property_overrides(
         geoip_disabled,
+        include_subdivisions,
         request.person_properties.clone(),
         &context.ip,
         &context.state.geoip,
@@ -29,23 +34,11 @@ pub fn prepare_overrides(
     let group_property_overrides =
         get_group_property_overrides(groups.clone(), request.group_properties.clone());
 
-    // Determine hash key with precedence: top-level anon_distinct_id > person_properties.$anon_distinct_id
-    // Frontend SDKs automatically include anon_distinct_id at the top level.
-    // Backend SDKs manually override the anon_distinct_id in person_properties if needed.
-    let hash_key_override = request.anon_distinct_id.clone().or_else(|| {
-        request
-            .person_properties
-            .as_ref()
-            .and_then(|props| props.get("$anon_distinct_id"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    });
-
     Ok(RequestPropertyOverrides {
         person_properties: person_property_overrides,
         group_properties: group_property_overrides,
         groups,
-        hash_key: hash_key_override,
+        hash_key: request.extract_hash_key_override(),
     })
 }
 
@@ -78,6 +71,7 @@ fn record_geoip_divergence(
 /// is the authority for those keys.
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
+    include_subdivisions: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
@@ -86,9 +80,12 @@ pub fn get_person_property_overrides(
         return person_properties;
     }
 
-    let geoip_props = geoip_service
+    let mut geoip_props = geoip_service
         .get_geoip_properties(&ip.to_string())
         .unwrap_or_default();
+    if !include_subdivisions {
+        geoip_props.retain(|key, _| !key.starts_with(GEOIP_SUBDIVISION_PREFIX));
+    }
     if geoip_props.is_empty() {
         return person_properties;
     }
@@ -136,121 +133,5 @@ pub fn get_group_property_overrides(
             Some(result)
         }
         None => existing_overrides,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::flags::flag_request::FlagRequest;
-    use serde_json::json;
-
-    #[test]
-    fn test_anon_distinct_id_from_top_level() {
-        let request = FlagRequest {
-            anon_distinct_id: Some("anon123".to_string()),
-            person_properties: Some(
-                vec![("$anon_distinct_id".to_string(), json!("anon456"))]
-                    .into_iter()
-                    .collect(),
-            ),
-            ..Default::default()
-        };
-
-        let hash_key = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
-
-        assert_eq!(
-            hash_key,
-            Some("anon123".to_string()),
-            "Top-level anon_distinct_id should take precedence"
-        );
-    }
-
-    #[test]
-    fn test_anon_distinct_id_from_person_properties() {
-        let request = FlagRequest {
-            anon_distinct_id: None,
-            person_properties: Some(
-                vec![("$anon_distinct_id".to_string(), json!("anon456"))]
-                    .into_iter()
-                    .collect(),
-            ),
-            ..Default::default()
-        };
-
-        let hash_key = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
-
-        assert_eq!(
-            hash_key,
-            Some("anon456".to_string()),
-            "Should fallback to person_properties.$anon_distinct_id"
-        );
-    }
-
-    #[test]
-    fn test_anon_distinct_id_not_present() {
-        let request = FlagRequest {
-            anon_distinct_id: None,
-            person_properties: Some(
-                vec![("other_property".to_string(), json!("value"))]
-                    .into_iter()
-                    .collect(),
-            ),
-            ..Default::default()
-        };
-
-        let hash_key = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
-
-        assert_eq!(
-            hash_key, None,
-            "Should be None when anon_distinct_id not present anywhere"
-        );
-    }
-
-    #[test]
-    fn test_anon_distinct_id_with_non_string_value() {
-        let request = FlagRequest {
-            anon_distinct_id: None,
-            person_properties: Some(
-                vec![("$anon_distinct_id".to_string(), json!(123))]
-                    .into_iter()
-                    .collect(),
-            ),
-            ..Default::default()
-        };
-
-        let hash_key = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
-
-        assert_eq!(
-            hash_key, None,
-            "Should be None when anon_distinct_id in person_properties is not a string"
-        );
     }
 }

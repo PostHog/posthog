@@ -5,7 +5,8 @@ import { cn } from '@posthog/quill-primitives'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
 
-import { createTextCommentAnchor, resolveTextCommentAnchor } from '../artifactComments'
+import { TextCommentAnchor, createTextCommentAnchor, resolveTextCommentAnchor } from '../artifactComments'
+import { COMMENT_MARK_ATTR, COMMENT_SURFACE_ATTR } from '../artifactCommentScreenshot'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
 import { ArtifactInlineThread, INLINE_THREAD_WIDTH_PX } from './ArtifactInlineThread'
 import { ArtifactPendingComment, PENDING_COMMENT_WIDTH_PX } from './ArtifactPendingComment'
@@ -94,9 +95,11 @@ function outermostRects(rects: Iterable<DOMRect>): DOMRect[] {
  */
 export function ArtifactTextAnnotations({
     logicProps,
+    selectable = true,
     children,
 }: {
     logicProps: TaskArtifactCommentsLogicProps
+    selectable?: boolean
     children: ReactNode
 }): JSX.Element {
     const logic = taskArtifactCommentsLogic(logicProps)
@@ -105,6 +108,7 @@ export function ArtifactTextAnnotations({
     const containerRef = useRef<HTMLDivElement>(null)
     const rootRef = useRef<HTMLDivElement>(null)
     const [rects, setRects] = useState<HighlightRect[]>([])
+    const [pendingRects, setPendingRects] = useState<HighlightRect[]>([])
 
     const textThreads = useMemo(
         () => anchoredThreads.filter((thread) => thread.anchor?.kind === 'text'),
@@ -124,30 +128,31 @@ export function ArtifactTextAnnotations({
         // observer measures again after it ends.
         const scaleX = box.width / container.offsetWidth || 1
         const scaleY = box.height / container.offsetHeight || 1
+        const measure = (anchor: TextCommentAnchor, id: string, label: string): HighlightRect[] => {
+            const resolved = resolveTextCommentAnchor(index.text, anchor)
+            const range = resolved ? rangeFromOffsets(index, resolved.start, resolved.end) : null
+            return range
+                ? outermostRects(range.getClientRects()).map((rect) => ({
+                      id,
+                      label,
+                      left: (rect.left - box.left) / scaleX,
+                      top: (rect.top - box.top) / scaleY,
+                      width: rect.width / scaleX,
+                      height: rect.height / scaleY,
+                  }))
+                : []
+        }
         const next: HighlightRect[] = []
         for (const thread of textThreads) {
             if (thread.anchor?.kind !== 'text') {
                 continue
             }
-            const resolved = resolveTextCommentAnchor(index.text, thread.anchor)
-            const range = resolved ? rangeFromOffsets(index, resolved.start, resolved.end) : null
-            if (!range) {
-                continue
-            }
             const author = thread.root.created_by ? fullNameOrEmail(thread.root.created_by) : 'Deleted user'
-            for (const rect of outermostRects(range.getClientRects())) {
-                next.push({
-                    id: thread.root.id,
-                    label: `Open comment from ${author}`,
-                    left: (rect.left - box.left) / scaleX,
-                    top: (rect.top - box.top) / scaleY,
-                    width: rect.width / scaleX,
-                    height: rect.height / scaleY,
-                })
-            }
+            next.push(...measure(thread.anchor, thread.root.id, `Open comment from ${author}`))
         }
         setRects(next)
-    }, [textThreads])
+        setPendingRects(pendingAnchor?.kind === 'text' ? measure(pendingAnchor, 'pending', 'New comment') : [])
+    }, [textThreads, pendingAnchor])
 
     const recalculateRef = useRef(recalculate)
     useEffect(() => {
@@ -193,6 +198,9 @@ export function ArtifactTextAnnotations({
     }, [activeThreadId])
 
     useEffect(() => {
+        if (!selectable) {
+            return
+        }
         let frame = 0
         const readSelection = (): void => {
             const root = rootRef.current
@@ -211,6 +219,9 @@ export function ArtifactTextAnnotations({
                 if (logic.values.pendingAnchor?.kind === 'text') {
                     dismissPending()
                 }
+                return
+            }
+            if (logic.values.writing === 'pending') {
                 return
             }
             const offsets = selectionOffsets(root, range)
@@ -248,7 +259,7 @@ export function ArtifactTextAnnotations({
             document.removeEventListener('pointerup', onRelease)
             document.removeEventListener('keyup', onRelease)
         }
-    }, [logic, setPendingAnchor, dismissPending])
+    }, [logic, setPendingAnchor, dismissPending, selectable])
 
     const firstRectIndex = new Map<string, number>()
     rects.forEach((rect, index) => {
@@ -262,7 +273,7 @@ export function ArtifactTextAnnotations({
     const maxThreadLeft = (containerRef.current?.clientWidth ?? 0) - INLINE_THREAD_WIDTH_PX - EDGE_MARGIN_PX
 
     return (
-        <div ref={containerRef} className="relative">
+        <div ref={containerRef} className="relative" {...{ [COMMENT_SURFACE_ATTR]: '' }}>
             <div ref={rootRef}>{children}</div>
             <div className="pointer-events-none absolute inset-0 z-10">
                 {rects.map((rect, index) => (
@@ -283,6 +294,14 @@ export function ArtifactTextAnnotations({
                         style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
                         onClick={() => activateThread(rect.id)}
                         data-attr="task-artifact-comment-highlight"
+                    />
+                ))}
+                {pendingRects.map((rect, index) => (
+                    <div
+                        key={`pending-${index}`}
+                        className="absolute rounded-xs bg-yellow-400/45"
+                        style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+                        {...{ [COMMENT_MARK_ATTR]: '' }}
                     />
                 ))}
             </div>

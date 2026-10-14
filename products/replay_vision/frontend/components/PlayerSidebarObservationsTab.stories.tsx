@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { combineUrl } from 'kea-router'
 
 import { App } from 'scenes/App'
@@ -11,8 +12,6 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { SessionRecordingSidebarTab } from '~/types'
-
-import { waitFor } from 'storybook/test'
 
 import {
     MEDIUM,
