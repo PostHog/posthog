@@ -4650,6 +4650,7 @@ export namespace Schemas {
         datePart?: (DatePart | null) | undefined;
         expression: string;
         id: string;
+        label?: (string | null) | undefined;
         localDefinition?:
             | (
                   | BILocalFieldDefinition1
