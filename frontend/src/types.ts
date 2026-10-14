@@ -7586,6 +7586,7 @@ export type HogFunctionTemplateType = Pick<
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    category?: string[]
     code: string
     code_language: 'javascript' | 'hog'
     /** Whether the template should be conditionally rendered based on a feature flag */
