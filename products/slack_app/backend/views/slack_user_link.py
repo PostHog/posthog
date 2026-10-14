@@ -14,7 +14,7 @@ install routes the SPA owns.
 
   When the same workspace also offers the Slack MCP connection, this view
   first renders a consent screen that names both grants and lets the user
-  drop the second one. The screen posts back to this same URL with
+  drop the second one. The screen links back to this same URL with
   ``confirmed=1``, so there is one consent surface for every entry point
   rather than one per button.
 

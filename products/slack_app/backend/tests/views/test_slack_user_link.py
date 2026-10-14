@@ -350,8 +350,13 @@ class TestSlackMcpOffer:
         body = response.content.decode()
         assert "Link your Slack account" in body
         assert "Also connect Slack for PostHog AI" in body
-        # Checked by default is the opt-out the user asked for: they see it before it happens.
-        assert 'name="connect_mcp" value="1" checked' in body
+        # Both choices are links, not a form: the enforced app policy's `form-action` directive
+        # cancels a form submission that redirects off-origin, which this one does.
+        assert "<form" not in body
+        # The prominent action keeps the connection, so the offer is still an opt-out, and the
+        # quieter one declines it. Both have to be reachable without script.
+        assert "&amp;confirmed=1&amp;connect_mcp=1" in body
+        assert '&amp;confirmed=1"' in body
 
     def test_no_consent_screen_when_there_is_nothing_to_offer(self, logged_in_client, workspace_integration):
         client, _ = logged_in_client

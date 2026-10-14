@@ -53,15 +53,26 @@
                 color: #5f5f5b;
             }
 
-            button {
+            .actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 1rem;
+                align-items: center;
+            }
+
+            a.primary {
+                display: inline-block;
                 padding: 0.5rem 1rem;
-                border: 0;
                 border-radius: 0.375rem;
                 background: #1d4aff;
                 color: #fff;
-                font: inherit;
                 font-weight: 600;
-                cursor: pointer;
+                text-decoration: none;
+            }
+
+            a.secondary {
+                font-size: 0.875rem;
+                color: #5f5f5b;
             }
 
             @media (prefers-color-scheme: dark) {
@@ -80,7 +91,8 @@
                     background: #1d1f27;
                 }
 
-                .option p {
+                .option p,
+                a.secondary {
                     color: #b7b7c5;
                 }
             }
@@ -93,21 +105,26 @@
                 PostHog will link your Slack account in <strong>{{ slack_workspace_name }}</strong> to this PostHog
                 account. Mentions of PostHog in Slack then route to you.
             </p>
-            <form method="get" action="">
-                <input type="hidden" name="state" value="{{ state }}">
-                <input type="hidden" name="confirmed" value="1">
-                <label class="option">
-                    <input type="checkbox" name="connect_mcp" value="1" checked>
-                    <span>
-                        <strong>Also connect {{ mcp_server_name }} for PostHog AI</strong>
-                        <p>
-                            PostHog AI can then search your public Slack channels when you ask it to. Slack asks you
-                            to approve this in a second step. To remove it later, go to your MCP servers settings.
-                        </p>
-                    </span>
-                </label>
-                <button type="submit">Continue to Slack</button>
-            </form>
+            <div class="option">
+                <span>
+                    <strong>Also connect {{ mcp_server_name }} for PostHog AI</strong>
+                    <p>
+                        PostHog AI can then search your public Slack channels when you ask it to. Slack asks you
+                        to approve this in a second step. To remove it later, go to your MCP servers settings.
+                    </p>
+                </span>
+            </div>
+            <!--
+                Links rather than a form with a checkbox: the enforced app policy sets
+                `form-action 'self' https://accounts.google.com`, and Chromium judges every hop of a
+                form submission's redirect chain. Continuing here lands on this same view, which
+                redirects to slack.com, so a submitted form is cancelled with nothing shown to the
+                user. A link navigation is not governed by that directive.
+            -->
+            <div class="actions">
+                <a class="primary" href="?state={{ state|urlencode }}&amp;confirmed=1&amp;connect_mcp=1">Continue to Slack</a>
+                <a class="secondary" href="?state={{ state|urlencode }}&amp;confirmed=1">Continue without connecting {{ mcp_server_name }}</a>
+            </div>
         </main>
     </body>
 </html>
