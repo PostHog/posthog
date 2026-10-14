@@ -306,4 +306,50 @@ describe('apiStatusLogic', () => {
             expect(await result).toEqual({ saved: true })
         })
     })
+
+    describe('connection notice', () => {
+        let getSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            // A response to an earlier test's request would otherwise land here and clear the notice.
+            await new Promise((resolve) => setTimeout(resolve, 50))
+            // jsdom reports the page as hidden, which pauses the recheck timer.
+            jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+            // Other logics load through `api.get` on boot, and a success from them would clear the notice.
+            getSpy = jest.spyOn(api, 'get').mockReturnValue(new Promise(() => {}))
+            initKeaTests()
+            jest.useFakeTimers()
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            ['the server answers', () => Promise.resolve(MOCK_DEFAULT_USER), false],
+            ['the server answers with an error', () => Promise.reject({ status: 500 }), false],
+            [
+                'the request still fails to reach the server',
+                () => Promise.reject(new TypeError('Failed to fetch')),
+                true,
+            ],
+        ])(
+            'rechecks the server with no other request, and when %s internetConnectionIssue is %s',
+            async (_, probe, expected) => {
+                getSpy.mockClear()
+                getSpy.mockImplementation(probe)
+                logic.actions.setInternetConnectionIssue(true)
+                expect(getSpy).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(15000)
+
+                expect(getSpy).toHaveBeenCalledWith('/api/users/@me/', expect.anything())
+                expect(logic.values.internetConnectionIssue).toBe(expected)
+            }
+        )
+    })
 })
