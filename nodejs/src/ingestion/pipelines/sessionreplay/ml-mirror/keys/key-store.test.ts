@@ -192,8 +192,8 @@ describe('ML session key batches', () => {
     })
 
     it.each([
-        ['the used session and its month key', true, 4],
-        ['nothing', false, 0],
+        ['the used session and both month keys', true, 6],
+        ['both month keys only', false, 4],
     ])('stores only keys of used sessions: %s', async (_case, sessionUsed, stored) => {
         const unused = { ...session, sessionId: '01a0a4f0-3200-7000-8000-0000000000ff' }
         const batch = await store.prepare([session, unused])
