@@ -42,6 +42,15 @@ describe('tracingSceneLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true })
     }
 
+    it.each([
+        ['a hex trace id', '4bf92f3577b34da6a3ce929d0e0e4736', '4bf92f3577b34da6a3ce929d0e0e4736'],
+        ['a trace id with path characters', 'a/b', null],
+    ])('opens the trace drawer from the URL only for %s', (_name, traceId, expected) => {
+        jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
+        mountAt({ trace: traceId })
+        expect(logic.values.selectedTraceId).toBe(expected)
+    })
+
     it('migrates legacy compare=true links to the custom time comparison', () => {
         const filtersLogic = mountAt({ compare: 'true' })
         expect(filtersLogic.values.comparison).toEqual({

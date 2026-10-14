@@ -5,6 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -708,7 +709,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
             // Drawer params. Guarded on a state/URL mismatch so the actionToUrl writes below don't
             // loop back through here, and so back/forward opens/closes the drawer correctly.
-            const traceFromUrl = typeof searchParams.trace === 'string' ? searchParams.trace : null
+            const traceFromUrl = usableId(typeof searchParams.trace === 'string' ? searchParams.trace : null)
             const spanFromUrl = typeof searchParams.span === 'string' ? searchParams.span : null
             if (traceFromUrl && traceFromUrl !== values.selectedTraceId) {
                 actions.openTrace(traceFromUrl, {
