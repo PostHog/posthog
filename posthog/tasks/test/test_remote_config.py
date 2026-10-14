@@ -91,6 +91,7 @@ class TestRemoteConfig(BaseTest):
     def test_update_team_remote_config_retries_an_incomplete_token_change(self, mock_sync: MagicMock) -> None:
         with pytest.raises(Retry):
             update_team_remote_config.apply(args=[self.team.id], kwargs={"old_token": "phc_old_token"})
+        mock_sync.assert_called_once_with("phc_old_token")
 
 
 class TestRemoteConfigCacheTasks(SimpleTestCase):

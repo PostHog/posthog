@@ -447,7 +447,7 @@ class TestTeamSetTokenAndSave(BaseTest):
 
         # Without the old token, the sync rewrites array/config.json in Redis only.
         # The revoked token then keeps serving.
-        mock_sync_remote_config.assert_called_once_with(self.team.id, old_token="phc_old_token_value")
+        mock_sync_remote_config.assert_any_call(self.team.id, old_token="phc_old_token_value")
 
         log_entry = ActivityLog.objects.get(scope="Team", item_id=str(self.team.pk), activity="updated")
         assert log_entry.detail is not None

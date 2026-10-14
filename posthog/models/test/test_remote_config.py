@@ -865,12 +865,13 @@ class TestRemoteConfigTokenChange(_RemoteConfigBase):
         self.old_token = self.team.api_token
         self.team.api_token = "phc_new_token"
         self.team.save()
+        self.hypercache.clear_cache("phc_new_token")
 
     def test_token_change_writes_the_new_token_to_every_tier(self):
         with patch("posthog.storage.object_storage.write") as mock_s3_write:
             self.remote_config.sync_after_token_change(self.old_token)
 
-        assert self.hypercache.get_from_cache("phc_new_token") is not None
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
         written_keys = [call.args[0] for call in mock_s3_write.call_args_list]
         assert self.hypercache.get_cache_key("phc_new_token") in written_keys
 

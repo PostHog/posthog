@@ -86,11 +86,6 @@ DEFAULT_CURRENCY = CurrencyCode.USD.value
 
 ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
 
-# _persist_api_token_change stores the old api_token under this instance attribute.
-# The RemoteConfig post_save receiver pops it. The name lives here so that remote_config.py,
-# which imports Team, can read it without an import cycle.
-REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR = "_remote_config_previous_api_token"
-
 
 class AvailableExtraSettings:
     pass
@@ -974,9 +969,13 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.tasks.remote_config import update_team_remote_config
 
-        self.__dict__[REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR] = old_token
         self.save()
+        # The post_save receiver also dispatches the plain remote config sync for this save.
+        # A worker that predates the old_token argument rejects this task. That worker still
+        # runs the plain sync, which writes the new token's Redis entry.
+        transaction.on_commit(lambda: update_team_remote_config.delay(self.id, old_token=old_token))
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
         log_activity(

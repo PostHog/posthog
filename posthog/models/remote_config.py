@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
-from posthog.models.team.team import REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR, Team
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
@@ -418,6 +418,8 @@ class RemoteConfig(UUIDTModel):
         When called we sync to any configured CDNs as well as redis for the /decide endpoint.
 
         Returns False when the cache write failed. The failure is logged and captured, not raised.
+        Without force, an unchanged config writes Redis only, so True does not mean object storage
+        holds a copy.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
@@ -481,13 +483,16 @@ class RemoteConfig(UUIDTModel):
             RemoteConfig.get_hypercache().delete_cache_entry(old_token)
         except Exception as e:
             # A failed eviction leaves the revoked token serving. The new token still needs
-            # its durable copy, so the forced sync runs before the failure is raised.
+            # its object-storage copy, so the forced sync runs before the failure is raised.
             logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
             capture_exception(e)
             evicted = False
 
         self._purge_cdn(token=old_token)
-        written = self.sync(force=True)
+        try:
+            written = self.sync(force=True)
+        except Exception as e:
+            raise RemoteConfigTokenChangeSyncError(f"Token change sync for team {self.team_id} failed") from e
         if not evicted or not written:
             raise RemoteConfigTokenChangeSyncError(
                 f"Token change sync for team {self.team_id} is incomplete: evicted={evicted}, written={written}"
@@ -556,21 +561,15 @@ class RemoteConfig(UUIDTModel):
         return f"RemoteConfig {self.team_id}"
 
 
-def _update_team_remote_config(team_id: int, old_token: str | None = None):
+def _update_team_remote_config(team_id: int):
     from posthog.tasks.remote_config import update_team_remote_config
 
-    # The plain path omits the kwarg so that a worker still on the previous task signature
-    # accepts the message during a rolling deploy.
-    if old_token:
-        update_team_remote_config.delay(team_id, old_token=old_token)
-    else:
-        update_team_remote_config.delay(team_id)
+    update_team_remote_config.delay(team_id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    old_token = instance.__dict__.pop(REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR, None)
-    transaction.on_commit(lambda: _update_team_remote_config(instance.id, old_token))
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
 
 
 @receiver(post_save, sender=FeatureFlag)
