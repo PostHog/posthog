@@ -97,12 +97,15 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
             label="AWS Batch",
             caption=(
                 "Sync AWS Batch jobs and resources from one region. "
-                "Grant `batch:DescribeJobQueues`, `batch:ListJobs`, and `batch:DescribeJobs` to read jobs. "
+                "Grant `batch:DescribeJobQueues`, `batch:ListJobs`, and `batch:DescribeJobs` to read jobs and job children. "
+                "Grant `batch:DescribeJobQueues` and `batch:ListServiceJobs` to read service jobs. "
                 "Grant `batch:DescribeComputeEnvironments` and `batch:DescribeJobDefinitions` to read those tables. "
+                "Grant `batch:ListSchedulingPolicies` and `batch:DescribeSchedulingPolicies` to read scheduling policies. "
+                "Grant `batch:ListConsumableResources` and `batch:DescribeConsumableResource` to read consumable resources. "
                 "Enter an access key ID and secret access key. Add a session token for temporary credentials. "
                 "All tables use full refresh so later job status changes remain visible. "
-                "The jobs table includes jobs that AWS still retains in existing queues. "
-                "Array children and individual nodes are not expanded."
+                "The jobs and service jobs tables include jobs that AWS still retains in existing queues. "
+                "The job children table includes the children of array jobs and the nodes of multi-node parallel jobs."
             ),
             iconPath="/static/services/aws_batch.png",
             releaseStatus=ReleaseStatus.ALPHA,
