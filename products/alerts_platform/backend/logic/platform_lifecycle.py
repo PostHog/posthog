@@ -14,10 +14,10 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    TEAM_BATCHED_SOURCES,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
-    SourceKind,
     source_condition,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
@@ -211,10 +211,9 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
 
 
 def _shard_offset_seconds(configuration: PlatformAlertConfiguration) -> int:
-    """Logs batches a team's due alerts into one query per slot, so a logs configuration takes
-    its team's slot, the same slot production logs gives it. Insight queries one alert at a time,
-    and spreading its alerts by configuration keeps a team's checks from landing in one minute."""
-    if configuration.source_kind == SourceKind.LOGS:
+    """A team-batched source takes its team's slot, the same slot its own stack gives it. Any other
+    source spreads by configuration, so one team's checks do not all land in one minute."""
+    if configuration.source_kind in TEAM_BATCHED_SOURCES:
         return compute_team_shard_offset_seconds(configuration.team_id, configuration.check_interval_minutes)
     return compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes)
 

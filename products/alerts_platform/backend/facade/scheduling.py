@@ -89,7 +89,7 @@ def advance_next_check_at(
     it. Snapping to the cadence grid aligns every alert sharing a cadence onto
     the same canonical grid regardless of when it was created.
 
-    `shard_offset_seconds` shifts the canonical grid per-alert to spread load
+    `shard_offset_seconds` shifts the canonical grid per alert or per team to spread load
     across cron fires. Existing drifted alerts heal lazily on their next run.
     """
     if check_interval_minutes <= 0:

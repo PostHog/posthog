@@ -145,12 +145,12 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("logs_shares_the_team_slot", PlatformAlertConfiguration.SourceKind.LOGS, True),
-            ("insight_spreads_by_configuration", PlatformAlertConfiguration.SourceKind.INSIGHT, False),
+            ("logs_shares_the_team_slot", PlatformAlertConfiguration.SourceKind.LOGS, 1),
+            ("insight_spreads_by_configuration", PlatformAlertConfiguration.SourceKind.INSIGHT, 2),
         ]
     )
     def test_a_team_alerts_on_one_cadence_are_due_together_only_where_the_source_batches_them(
-        self, _name: str, source_kind: str, same_slot: bool
+        self, _name: str, source_kind: str, expected_slots: int
     ) -> None:
         # Ids 1 and 2 fall in different slots of a 5-minute cadence when the offset is per configuration.
         with team_scope(self.team.id):
@@ -177,14 +177,14 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
             for c in configurations
         ]
-        with self.captureOnCommitCallbacks(execute=True):
-            record_outcomes(self.team.id, outcomes, self.cutoff)
+        record_outcomes(self.team.id, outcomes, self.cutoff)
 
         with team_scope(self.team.id):
             due = {
-                c.next_check_at for c in PlatformAlertConfiguration.objects.filter(id__in=[UUID(int=1), UUID(int=2)])
+                c.next_check_at
+                for c in PlatformAlertConfiguration.objects.filter(id__in=[c.id for c in configurations])
             }
-        assert (len(due) == 1) is same_slot
+        assert len(due) == expected_slots
 
     def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
         fields: dict[str, Any] = {

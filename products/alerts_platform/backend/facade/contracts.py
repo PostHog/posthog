@@ -27,6 +27,11 @@ class SourceKind(StrEnum):
     INSIGHT = "insight"
 
 
+# Sources that answer one team's due alerts in one query per slot. Their alerts take the team's
+# slot, because alerts spread over several slots cannot share that query.
+TEAM_BATCHED_SOURCES: Final = frozenset({SourceKind.LOGS})
+
+
 @frozen
 class DemandDiscoveryInputs:
     cutoff: str
