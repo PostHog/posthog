@@ -522,6 +522,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
             .nullish()
             .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         next_steps: zod
             .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
             .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
@@ -631,6 +637,12 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
             .nullish()
             .describe(
                 'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
+            ),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
             ),
         agent_confidence: zod
             .number()
