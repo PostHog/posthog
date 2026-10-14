@@ -713,25 +713,33 @@ def stale_managed_view_copies() -> QuerySet[Node]:
     ).exclude(dag__name=REVENUE_ANALYTICS_DAG_NAME)
 
 
-def _user_readers_of(copies: QuerySet[Node]) -> QuerySet[Node]:
-    return (
+def _user_readers_of(copies: QuerySet[Node]) -> list[tuple[UUID, UUID]]:
+    return list(
         Node.objects.filter(
             incoming_edges__source__in=copies,
             saved_query__isnull=False,
             saved_query__managed_viewset__isnull=True,
             saved_query__deleted=False,
         )
-        .select_related("saved_query", "dag")
+        .values_list("id", "saved_query_id")
         .distinct()
     )
 
 
-def _repoint_reader(reader: Node, database: Database) -> None:
-    assert reader.saved_query is not None
+def _repoint_reader(team_id: int, node_id: UUID, saved_query_id: UUID, database: Database) -> None:
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
     try:
-        sync_saved_query_to_dag(reader.saved_query, dag=reader.dag, reconcile=False, database=database)
+        with transaction.atomic():
+            saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
+                team_id=team_id, id=saved_query_id
+            )
+            node = Node.objects.select_related("dag").filter(team_id=team_id, id=node_id).first()
+            if node is None:
+                return
+            sync_saved_query_to_dag(saved_query, dag=node.dag, reconcile=False, database=database)
     except Exception:
-        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(reader.id))
+        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(node_id))
 
 
 def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> None:
@@ -749,14 +757,14 @@ def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> Non
 
 def retire_stale_managed_view_copies(team_id: int, copy_ids: Iterable[UUID]) -> None:
     copies = stale_managed_view_copies().filter(team_id=team_id, id__in=list(copy_ids))
-    readers = list(_user_readers_of(copies))
+    readers = _user_readers_of(copies)
     if readers:
         database = Database.create_for(
             team_id=team_id,
             bypass_warehouse_access_control=True,
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
-        for reader in readers:
-            _repoint_reader(reader, database)
-    for dag in DAG.objects.filter(id__in=copies.values("dag_id")).order_by("id"):
+        for node_id, saved_query_id in readers:
+            _repoint_reader(team_id, node_id, saved_query_id, database)
+    for dag in DAG.objects.filter(team_id=team_id, id__in=copies.values("dag_id")).order_by("id"):
         _delete_unread_copies(team_id, dag, copies)
