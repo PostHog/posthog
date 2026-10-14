@@ -2233,9 +2233,9 @@ snapshots:
     components-product-empty-state--data-warehouse-needs-setup--light:
         hash: v1.k794b7964.00719fec7ae732c14e138f5490b704dd4b43851f8b64ed4f0b520c405e036d61.cMX_6z3cOUjIzxBTb0s6zFxXtvMkSIc8bpg-WdgariU
     components-product-empty-state--datasets-needs-setup--dark:
-        hash: v1.k794b7964.01f60a890684cbe8ce2e6710438881a14cea589f0329a0c7bb81e6ba3c7d705c.RDQRVZbNasaNJAmELuFQwrgwmPHFLSDnpqwMR65kwLc
+        hash: v1.k794b7964.f1df9041bbf4883ec7978a2fc9a4e16f813de314dacfddafa00f43b4ba7eff6b.xUa2mTq-kwAFtUkjC9J-AUa27SKYrzlmK1MQnc_Mu1Y
     components-product-empty-state--datasets-needs-setup--light:
-        hash: v1.k794b7964.7822854706ae6666084d7fc87da5c4fcdd8203bf699cff091e4127311c0d36c6.THvugQSJkiPaI4f_IXmCG5wi_pP4W2uFYHeqWhBzZ9k
+        hash: v1.k794b7964.a074d7e629a8325bbf155f33a979a086e08592b98aef2c4e57f56329f5a164d0.B9zZ6fZHgw8Z81PPY5swmKBRgoIZ1B045bhOCAWgV9A
     components-product-empty-state--destinations-needs-setup--dark:
         hash: v1.k794b7964.257dac1f2339b456e84031f7b087d081d4bdc6373545f755a1d59901d2b12be3.UrYCWLgZjZ81WivesRcKLD0sOzNOwWIBQUomKBs13xo
     components-product-empty-state--destinations-needs-setup--light:
@@ -2253,9 +2253,9 @@ snapshots:
     components-product-empty-state--empty-with-action--light:
         hash: v1.k794b7964.80a94ce3b72b30fc78f17c3df97f60b02513da190f16b10b785ddc6410e29610.LI50ALV6r5CTuWZhpD9jAdNFn5t82tuAdtAuP0FZw7o
     components-product-empty-state--endpoints-needs-setup--dark:
-        hash: v1.k794b7964.3c5039cbcc774991bfb7e05d84438d5f1b9620c84a344712afc9b5c13c9ceea6.zm9S5unaKvH8yjtwEX4Yy_j65dpsk6ggEHqogRNH4i8
+        hash: v1.k794b7964.ec42f33cbdbd5f733815fe21613cc8941a938c20215690bc68259e5121cdd878.zOjDqHOwpdTqwqdHqHxES8nivlagIolMagezssu0XMw
     components-product-empty-state--endpoints-needs-setup--light:
-        hash: v1.k794b7964.469d0d5a9946460cfb61138bf4e7d188b8b1dfe4c3ef28464094c233776cafd8.mVmnTe1dNcZjfkGE_Hk_YqapXw603g_7v6ZgtmvQoM4
+        hash: v1.k794b7964.db34d39ee77830601f8ffcc260b08e6da668b7b6020e3046c3bb98ea9391b8bc.sWFMZaSbahNkj7JMFztcUDt4VLe_10MR2lDjAQJ_kWs
     components-product-empty-state--engineering-analytics-needs-setup--dark:
         hash: v1.k794b7964.f4701ace2d331f207653d041cbee247542a2fdcc8bd4b8ac6e1aee20bdf1fe21.me5Fb7zbwdX-93VdIfM8UE6Yv3pOH4FsbXCUxIlsYiU
     components-product-empty-state--engineering-analytics-needs-setup--light:
@@ -2277,9 +2277,9 @@ snapshots:
     components-product-empty-state--error-tracking-waiting-for-data-new-wizard--light:
         hash: v1.k794b7964.1c2478e9c9e74eb47d896585f4f78e377c27a838e4f60cb35f7e685709d4fff9.xW8y7FqybbzrWn2szBUXyfUTJMNMrCVmSVBDVa6Fpbg
     components-product-empty-state--evaluations-needs-setup--dark:
-        hash: v1.k794b7964.d66a917dd9bbb71fe2c50f81b2c5a873af729170292973601909c77c6ed54304.X1ueW3Kooz45WUhf9edIjjWCpiT9MwXfZAuclmpxL_M
+        hash: v1.k794b7964.86a1b36b37f9dba0c971d777a8c88d7826037d7555560bb58290f354a4098fa2.yFdmlSWulwx9q7PbzGH5DIbxYeTqN5evO1mASoujGTs
     components-product-empty-state--evaluations-needs-setup--light:
-        hash: v1.k794b7964.8f1c1a0f298854ab3d87e5d52a4531daf193a9a4415bfaefc2962d1403860d33.4vgyKRIRxjX1MkCE9LQv5yEOfh3jfs1SEMiFvIzAOSI
+        hash: v1.k794b7964.5558ae08fe036047b496a2b39a36103445afb56eda50861dc5e25997994740e8.Nxl8CSYD-xHBRdqky0ya_qSAoIRQcyBFTRgsgarS-BM
     components-product-empty-state--experiments-needs-setup--dark:
         hash: v1.k794b7964.2cdc47f158cecd85687618856c238c7ac65456dfa887db9e5e66baa9476cd145.mBKJtWHPn-vr4FCycrTMD2WE4K4a6cOT8SGg4p6MzbE
     components-product-empty-state--experiments-needs-setup--light:
