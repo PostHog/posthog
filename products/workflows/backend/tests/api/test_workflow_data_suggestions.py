@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
@@ -15,7 +13,6 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import EventDefinition, Team
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -43,13 +40,12 @@ from products.workflows.backend.services.data_suggestions.service import (
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
-from products.workflows.backend.services.data_suggestions.team_context import email_sender, recent_event_names
+from products.workflows.backend.services.data_suggestions.team_context import email_sender
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
-TEAM_CONTEXT = "products.workflows.backend.services.data_suggestions.team_context"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
 FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
@@ -116,7 +112,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("user_registered", 3),
             ("query executed", 30),
         ]:
-            EventDefinition.objects.create(team=self.team, name=event)
             for index in range(count):
                 _create_event(team=self.team, event=event, distinct_id=f"person-{index}")
         flush_persons_and_events()
@@ -234,26 +229,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=2 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:
-        counts = weekly_counts(self.team, recent_event_names(self.team, exclude=set()))
+        counts = weekly_counts(self.team)
 
         assert counts["query executed"] % 2 == 0
 
     @patch(f"{EVENT_VOLUME}.estimated_weekly_events", return_value=10**9 * FULL_SCAN_MAX_WEEKLY_EVENTS)
     def test_events_a_sample_misses_are_counted_exactly(self, _estimate: MagicMock, _flag) -> None:
-        assert weekly_counts(self.team, recent_event_names(self.team, exclude=set())) == {
+        assert weekly_counts(self.team) == {
             "trial_started": 3,
             "signed_up": 2,
             "user_registered": 3,
             "query executed": 30,
         }
 
-    def test_counts_every_candidate_event_past_the_default_row_limit(self, _flag) -> None:
+    def test_counts_every_event_past_the_default_row_limit(self, _flag) -> None:
         names = [f"quiet_{index}" for index in range(150)]
         for name in names:
             _create_event(team=self.team, event=name, distinct_id="person-1")
         flush_persons_and_events()
 
-        assert set(weekly_counts(self.team, names)) == set(names)
+        assert set(names) <= set(weekly_counts(self.team))
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock, _flag) -> None:
@@ -269,29 +264,6 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert retry.status == poll.status == "building"
-
-    @patch(f"{TEAM_CONTEXT}.EVENT_DEFINITIONS_LIMIT", 2)
-    @patch(f"{SERVICE}.suggest_ideas", return_value=[])
-    def test_recently_seen_events_win_over_definitions_never_seen(self, suggest_ideas: MagicMock, _flag) -> None:
-        EventDefinition.objects.filter(team=self.team, name__in=["trial_started", "user_registered"]).update(
-            last_seen_at=timezone.now()
-        )
-        # The newest definition is a `$` event, which must not take one of the limited places.
-        EventDefinition.objects.filter(team=self.team, name="$pageview").update(
-            last_seen_at=timezone.now() + timedelta(minutes=1)
-        )
-
-        self._list()
-
-        assert dict(suggest_ideas.call_args.kwargs["context"].events) == {"trial_started": 3, "user_registered": 3}
-
-    def test_reads_definitions_a_sibling_environment_registered_first(self, _flag) -> None:
-        sibling = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
-        EventDefinition.objects.filter(team=self.team, name="trial_started").update(
-            team_id=sibling.id, project_id=self.team.project_id
-        )
-
-        assert "trial_started" in recent_event_names(self.team, exclude=set())
 
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
     def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock, _flag) -> None:
