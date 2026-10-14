@@ -485,6 +485,7 @@ export function ActionFilterRow({
             value={getValue(value, node)}
             filter={node}
             suggestedFiltersLabel={suggestedFiltersLabel}
+            rememberCategoryKey="action-filter-row"
             enableKeywordShortcuts
             promoteSelectedItemToFirstPosition
             selectingKeyOnly
