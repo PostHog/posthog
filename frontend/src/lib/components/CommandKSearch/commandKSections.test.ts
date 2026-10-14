@@ -55,7 +55,46 @@ const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
     return { remote, remoteQueries: { results: 'revenue' } }
 }
 
+const page = (name: string, category: string, searchKeywords?: string[]): SearchItem => ({
+    id: name,
+    name,
+    category,
+    searchKeywords,
+})
+
+const localWithModels = (): LocalLists => ({
+    ...emptyLocal(),
+    products: [
+        page('Playground', 'tools', ['model comparison']),
+        page('MCP analytics', 'tools', ['model context protocol']),
+    ],
+    'data-management': [page('Models', 'data-management')],
+})
+
 describe('buildSections', () => {
+    test.each<[string, string, Record<string, string[]>]>([
+        [
+            'drops keyword-only rows when another section has an exact name match',
+            'models',
+            { 'data-management': ['Models'] },
+        ],
+        [
+            'drops keyword-only rows when another section has a prefix name match',
+            'mod',
+            { 'data-management': ['Models'] },
+        ],
+        ['keeps keyword-only rows when no section matches by name', 'model comparison', { products: ['Playground'] }],
+    ])('%s', (_, localQuery, expected) => {
+        const sections = buildSections(input('search', { local: localWithModels(), localQuery }))
+        const names = Object.fromEntries(
+            sections.map((section) => [
+                section.key,
+                section.rows.map((row) => (row.kind === 'item' ? row.item.name : row.key)),
+            ])
+        )
+        expect(names).toEqual(expected)
+    })
+
     test.each<[string, SectionsInput, string, number]>([
         ['remote results', input('search', remoteResults(itemsWithRepeats(RESULTS_LIMIT))), 'results', RESULTS_LIMIT],
         [
