@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, ClassVar
@@ -14,6 +15,8 @@ from braintrust.logger import Span, SpanImpl
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
 from . import braintrust_patches  # noqa: F401
 from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+
+logger = logging.getLogger(__name__)
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -138,7 +141,12 @@ class BraintrustEngine:
         if spec.on_results is not None:
             await spec.on_results(translated)
             if trial_spans:
-                await asyncio.to_thread(self._persist_trial_metadata, translated, trial_spans)
+                try:
+                    await asyncio.to_thread(self._persist_trial_metadata, translated, trial_spans)
+                except Exception:
+                    logger.warning(
+                        "Could not upload final trial metadata; completed eval results remain available", exc_info=True
+                    )
         return translated
 
     def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
@@ -167,6 +175,7 @@ class BraintrustEngine:
                     scores=dict(case.scores or {}),
                     expected=case.expected,
                     metadata=dict(case.metadata or {}),
+                    error_kind="task" if case.error is not None else "scorer",
                     error=(
                         str(case.error)
                         if case.error is not None

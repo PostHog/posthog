@@ -95,6 +95,8 @@ Two consequences worth internalizing:
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
 - A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It has one permit on ordinary local machines and four when `CODER` or `CI` is set, so managed environments prepare cases faster without making setup concurrency follow Modal's unbounded sandbox capacity.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
+- All turns share a monotonic poll deadline. The harness reserves up to 120 seconds, capped at one quarter of the case budget, for diagnostic recovery and cleanup before outer cancellation.
+- Poll timeouts retain their stage and log counts in case metadata and local artifacts. They follow the existing scored-timeout path.
 - One-shot suites never touch the sandbox semaphore; a separate global `one_shot_slots` semaphore bounds their concurrently running cases under the same acquire-once, budget-inside rules.
 
 There are two event loops. The main loop owns the Temporal dev server, the suites, and the reporter.

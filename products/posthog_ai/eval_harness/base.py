@@ -24,7 +24,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
-from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
@@ -260,12 +260,31 @@ class _BaseEvalRun:
         cancelled = False
         try:
             return await self._execute_case(input, hooks)
-        except TimeoutError:
+        except (TimeoutError, TurnPollTimeout) as error:
             # A case that outran its budget is a task result (too slow), not an
             # infra error: score it 0 rather than letting Braintrust mark it errored.
             status = "timeout"
-            logger.warning("Eval case '%s' timed out after %ds", case_name, self.ctx.per_case_timeout_seconds)
-            return self._timeout_output()
+            output = self._timeout_output()
+            if isinstance(error, TurnPollTimeout):
+                hooks.metadata["poll_timeout"] = error.diagnostics()
+                output["stderr"] = str(error)
+            if poll_timeout := hooks.metadata.get("poll_timeout"):
+                output["poll_timeout"] = poll_timeout
+            logger.warning("Eval case '%s' timed out: %s", case_name, output.get("stderr") or output.get("error"))
+            try:
+                write_case_logs(
+                    case_dir=self.run_log_dir,
+                    case_name=case_name,
+                    raw_log="",
+                    artifacts=output,
+                    prompt=input.get("prompt", ""),
+                    duration=time.monotonic() - case_started,
+                    last_message=str(output.get("stderr") or output.get("error") or "Case timed out"),
+                    trial_id=hooks.metadata["trial_id"],
+                )
+            except Exception:
+                logger.exception("Failed to write timeout logs for '%s'", case_name)
+            return output
         except asyncio.CancelledError:
             cancelled = True
             raise
@@ -649,6 +668,14 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         prepared.context,
                         provider=self._provider_strategy,
                         on_cleanup=partial(self._set_case_phase, hooks, "cleanup"),
+                        timeout_seconds=ctx.per_case_timeout_seconds,
+                        on_poll_timeout=(
+                            lambda error: (
+                                hooks.metadata.update({"poll_timeout": error.diagnostics()})
+                                if hooks is not None
+                                else None
+                            )
+                        ),
                     ),
                     timeout=ctx.per_case_timeout_seconds,
                 )

@@ -14,8 +14,10 @@ from braintrust.logger import ExperimentSummary, ScoreSummary, SpanImpl
 from braintrust.span_identifier_v3 import SpanObjectTypeV3
 from braintrust.util import LazyValue
 
+from products.posthog_ai.eval_harness.engines import braintrust as engine_module
 from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine, _BraintrustCaseHooks
 from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec
+from products.posthog_ai.eval_harness.harness.trial_stats import trial_stats
 
 
 def _summary(**overrides: Any) -> ExperimentSummary:
@@ -44,7 +46,7 @@ def test_translate_preserves_none_scores_and_stringifies_errors() -> None:
             EvalResult(
                 input={"name": "scorer-error"},
                 output={},
-                scores={},
+                scores={"other": 1.0},
                 metadata={"scorer_errors": {"acc": "Traceback: scorer failed"}},
             ),
         ],
@@ -52,10 +54,12 @@ def test_translate_preserves_none_scores_and_stringifies_errors() -> None:
 
     translated = BraintrustEngine()._translate(result)
 
-    assert [r.scores for r in translated.results] == [{"acc": 1.0}, {"acc": None}, {}, {}]
+    assert [r.scores for r in translated.results] == [{"acc": 1.0}, {"acc": None}, {}, {"other": 1.0}]
     assert translated.results[2].error == "infra boom"
     assert translated.results[0].error is None
     assert translated.results[3].error == "Scorer errors: acc"
+    assert translated.results[3].error_kind == "scorer"
+    assert {stats.name: stats.mean for stats in trial_stats(translated.results, trials=1)} == {"acc": 1.0, "other": 1.0}
     assert translated.results[0].input == {"name": "a"}
     assert translated.results[0].expected == {"e": 1}
     assert translated.results[0].metadata == {"m": 1}
@@ -66,14 +70,24 @@ def test_translate_preserves_none_scores_and_stringifies_errors() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scorer_fails", [False, True])
+@pytest.mark.parametrize("metadata_fails", [False, True])
 async def test_public_trial_metadata_keeps_final_scoring_durations(
-    monkeypatch: pytest.MonkeyPatch, scorer_fails: bool
+    monkeypatch: pytest.MonkeyPatch, scorer_fails: bool, metadata_fails: bool
 ) -> None:
+    logger = MagicMock()
+    monkeypatch.setattr(engine_module, "logger", logger)
     events: list[dict[str, Any]] = []
     flushed: list[list[dict[str, Any]]] = []
     background = MagicMock()
     background.log.side_effect = lambda event: events.append(event.get())
-    background.flush.side_effect = lambda: flushed.append(list(events))
+    updating_metadata = False
+
+    def flush() -> None:
+        if updating_metadata and metadata_fails:
+            raise ConnectionError("metadata upload failed")
+        flushed.append(list(events))
+
+    background.flush.side_effect = flush
     monkeypatch.setattr(bt_logger._state, "global_bg_logger", lambda: background)
 
     def start_span(name: str, **kwargs: Any) -> SpanImpl:
@@ -106,7 +120,9 @@ async def test_public_trial_metadata_keeps_final_scoring_durations(
         return 1.0
 
     async def on_results(result: ExperimentResult) -> None:
+        nonlocal updating_metadata
         assert flushed
+        updating_metadata = True
         for case in result.results:
             assert (case.error is not None) is scorer_fails
             case.metadata["phase_durations"]["scoring"] = 3.0
@@ -133,7 +149,12 @@ async def test_public_trial_metadata_keeps_final_scoring_durations(
             rows[event["id"]].update(event)
     assert len(rows) == 2
     assert {row["metadata"]["trial_id"] for row in rows.values()} == {"trial-0", "trial-1"}
-    assert all(row["metadata"]["phase_durations"] == {"agent": 2.0, "scoring": 3.0} for row in rows.values())
+    if metadata_fails:
+        logger.warning.assert_called_once_with(
+            "Could not upload final trial metadata; completed eval results remain available", exc_info=True
+        )
+    else:
+        assert all(row["metadata"]["phase_durations"] == {"agent": 2.0, "scoring": 3.0} for row in rows.values())
     assert all(case.metadata["phase_durations"]["scoring"] == 3.0 for case in result.results)
 
 

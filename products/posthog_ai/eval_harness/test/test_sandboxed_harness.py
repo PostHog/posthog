@@ -4,9 +4,10 @@ import os
 import sys
 import asyncio
 import subprocess
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 import pytest
@@ -30,7 +31,7 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
-from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.facade.agents import MultiTurnSession, TurnPollResult, TurnPollTimeout
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
@@ -267,20 +268,19 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+@pytest.mark.parametrize("budget", [None, 900, 20])
 async def test_success_waits_for_workflow_cleanup_before_returning(
-    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+    monkeypatch: pytest.MonkeyPatch, budget: int | None, reporting_error: Exception | None
 ) -> None:
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
-    _patch_runner_boundaries(
-        monkeypatch,
-        handle,
-        AsyncMock(
-            return_value=TurnPollResult(
-                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
-            )
-        ),
+    poll = AsyncMock(
+        return_value=TurnPollResult(
+            last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+        )
     )
+    _patch_runner_boundaries(monkeypatch, handle, poll)
 
     cleanup_started = asyncio.Event()
 
@@ -295,6 +295,7 @@ async def test_success_waits_for_workflow_cleanup_before_returning(
             MagicMock(),
             provider=provider,
             on_cleanup=on_cleanup,
+            timeout_seconds=budget,
         )
     )
     await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
@@ -307,6 +308,11 @@ async def test_success_waits_for_workflow_cleanup_before_returning(
     assert result.artifacts.exit_code == 0
     assert handle.signals == [["completed", None]]
     assert provider.cleaned_task_ids == [str(_TASK_ID)]
+
+    expected = 1000 + budget - min(120, budget / 4) if budget is not None else None
+    assert poll.await_args is not None
+    assert poll.await_args.kwargs["poll_deadline"] == expected
+    assert poll.await_args.kwargs["workflow_handle"] is handle
 
 
 @pytest.mark.asyncio
@@ -331,10 +337,20 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(
 
 
 @pytest.mark.asyncio
-async def test_cancellation_during_failure_progress_waits_for_workflow_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("poll_failed", [False, True])
+async def test_cancellation_during_progress_waits_for_workflow_cleanup(
+    monkeypatch: pytest.MonkeyPatch, poll_failed: bool
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
-    _patch_runner_boundaries(monkeypatch, handle, AsyncMock(side_effect=RuntimeError("poll failed")))
+    _patch_runner_boundaries(
+        monkeypatch,
+        handle,
+        AsyncMock(
+            side_effect=RuntimeError("poll failed") if poll_failed else None,
+            return_value=TurnPollResult(last_message="done", full_log="", total_lines=0, printed_lines=0),
+        ),
+    )
     progress_started = asyncio.Event()
     progress_release = asyncio.Event()
 
@@ -355,13 +371,13 @@ async def test_cancellation_during_failure_progress_waits_for_workflow_cleanup(m
         case_task.cancel()
         await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
         assert not case_task.done()
+        handle.terminal.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(case_task, timeout=1)
     finally:
         progress_release.set()
         handle.terminal.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(case_task, timeout=1)
-    assert handle.signals[0][0] == "failed"
+    assert handle.signals[0][0] == ("failed" if poll_failed else "completed")
     assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
 
@@ -500,3 +516,57 @@ class TestSliceTurnLogs:
 
     def test_a_malformed_line_disables_slicing(self) -> None:
         assert runner._slice_turn_logs('{"line": 0}\nnot json\n{"line": 1}', [1, 3]) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_failure", [False, True])
+@pytest.mark.parametrize("cleanup_cancelled", [False, True])
+async def test_multi_turn_timeout_retains_cleanup_state(
+    monkeypatch: pytest.MonkeyPatch, initial_failure: bool, cleanup_cancelled: bool
+) -> None:
+    handle = _FakeWorkflowHandle(complete_on_signal=not cleanup_cancelled)
+    provider = _Provider()
+    error = TurnPollTimeout(
+        "Poll budget expired",
+        stage="no_turn_output",
+        elapsed=10,
+        stale_seconds=10,
+        total_lines=0,
+        turn_relevant_lines=0,
+    )
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
+    monkeypatch.setattr(
+        runner, "async_connect", AsyncMock(return_value=SimpleNamespace(get_workflow_handle=lambda _: handle))
+    )
+    task_run = MagicMock(task_id=_TASK_ID)
+    session = MagicMock(task=SimpleNamespace(id=_TASK_ID), workflow_handle=handle, log_lines_seen=0)
+    session.send_followup_raw = AsyncMock(side_effect=error)
+
+    async def start(**kwargs: object) -> tuple[MultiTurnSession, str]:
+        assert kwargs["poll_deadline"] == 1780.0
+        callback = cast(Callable[[object], Awaitable[None]], kwargs["on_task_run_created"])
+        await callback(task_run)
+        if initial_failure:
+            raise error
+        return session, "done"
+
+    monkeypatch.setattr(runner.MultiTurnSession, "start_raw", start)
+    diagnostics: dict[str, object] = {}
+    case_task = asyncio.create_task(
+        runner.run_eval_case(
+            SandboxedEvalCase(name="case", prompt="prompt", followups=["followup"]),
+            MagicMock(),
+            provider=provider,
+            timeout_seconds=900,
+            on_poll_timeout=lambda error: diagnostics.update(error.diagnostics()),
+        )
+    )
+    await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    assert diagnostics == error.diagnostics()
+    if cleanup_cancelled:
+        case_task.cancel()
+        handle.terminal.set()
+    with pytest.raises(asyncio.CancelledError if cleanup_cancelled else TurnPollTimeout):
+        await case_task
+    assert handle.signals[0][0] == "failed"
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]

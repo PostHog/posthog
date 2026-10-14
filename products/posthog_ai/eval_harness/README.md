@@ -101,6 +101,12 @@ Case metadata records `setup_attempts` and `setup_retry_errors`.
 The runner retries neither agent work nor low scores, case timeouts, authentication errors, setup code errors, or services that exit during startup.
 Existing sandbox-creation and storage-read retries still apply.
 
+The case budget starts after team setup. Polling uses one monotonic deadline across all turns.
+The harness reserves up to 120 seconds, capped at one quarter of the case budget, for log recovery and cleanup.
+The outer case timeout remains the final guard. Slow setup or storage reads cannot give a follow-up a fresh case budget.
+Poll timeouts keep their diagnostic stage and log counts in case metadata and the local artifacts file. They remain scored timeouts.
+A timeout summary contains the failure reason. Its raw log file can be empty; the full run transcript retains streamed agent output.
+
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
 
@@ -114,14 +120,43 @@ hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime cla
 hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
 ```
 
-Both runs use the same six prompts and Braintrust history key.
+Both runs use the same prompts and Braintrust history key.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`, so compare cross-run scores within one runtime and delivery mode.
+Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
+
+### Claude and Codex smoke comparison
+
+Start with one fixed MCP case. It checks skill discovery and tool use for a historical traffic query.
+Both commands below use the same case, provider, skill delivery, concurrency, and scorers.
+Run them in order from the same checkout. Separate harness processes share service ports, so do not run them together.
+
+Prepare the normal [provider prerequisites](#providers) and both model credentials before starting.
+Claude requires `LLM_GATEWAY_ANTHROPIC_API_KEY`; Codex also requires `LLM_GATEWAY_OPENAI_API_KEY`.
+
+```bash
+eval_comparison_args=(
+    cli_mcp/eval_skill_distribution::eval_skill_distribution
+    --eval historical_traffic_share_by_type
+    --provider modal
+    --max-sandboxes 1
+    --skill-delivery exec
+    --trials 1
+)
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-5.5
+```
+
+Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
+Keep both transcript paths and both agent-log directories. Each directory contains `case_results.jsonl` with scores and trial IDs.
+Check the recorded `git_sha` and `git_dirty` values before comparing runs.
+Treat missing or errored trials as incomplete coverage, rather than a model score.
+This is a smoke comparison, not a broad model ranking. Set `--trials 3` in the shared arguments to check repeatability after the first pair completes.
+Remove `--eval historical_traffic_share_by_type` to compare the full skill-distribution suite.
 
 ## Providers
 
