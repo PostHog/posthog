@@ -1926,6 +1926,176 @@
         {
             "metadata": {
                 "relations": {
+                    "editor": {},
+                    "fallback": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "policy_chain"
+                            }
+                        ]
+                    },
+                    "has_local_rule": {},
+                    "has_rule": {},
+                    "manager": {},
+                    "policy": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "access_policy"
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "editor": {
+                    "union": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "editor"
+                                    },
+                                    "tupleset": {
+                                        "relation": "policy"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "editor"
+                                            },
+                                            "tupleset": {
+                                                "relation": "fallback"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_local_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "fallback": {
+                    "this": {}
+                },
+                "has_local_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
+                "has_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "has_local_rule"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "has_rule"
+                                    },
+                                    "tupleset": {
+                                        "relation": "fallback"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "manager": {
+                    "union": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "manager"
+                                    },
+                                    "tupleset": {
+                                        "relation": "policy"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "manager"
+                                            },
+                                            "tupleset": {
+                                                "relation": "fallback"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_local_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy": {
+                    "this": {}
+                },
+                "viewer": {
+                    "union": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "viewer"
+                                    },
+                                    "tupleset": {
+                                        "relation": "policy"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "viewer"
+                                            },
+                                            "tupleset": {
+                                                "relation": "fallback"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_local_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "policy_chain"
+        },
+        {
+            "metadata": {
+                "relations": {
                     "can_create": {},
                     "can_list": {},
                     "can_manage_access": {},
@@ -2202,6 +2372,9 @@
                         "directly_related_user_types": [
                             {
                                 "type": "access_policy"
+                            },
+                            {
+                                "type": "policy_chain"
                             }
                         ]
                     },
@@ -2633,6 +2806,9 @@
                         "directly_related_user_types": [
                             {
                                 "type": "access_policy"
+                            },
+                            {
+                                "type": "policy_chain"
                             }
                         ]
                     },
@@ -3014,6 +3190,9 @@
                         "directly_related_user_types": [
                             {
                                 "type": "access_policy"
+                            },
+                            {
+                                "type": "policy_chain"
                             }
                         ]
                     },
@@ -3343,6 +3522,9 @@
                         "directly_related_user_types": [
                             {
                                 "type": "access_policy"
+                            },
+                            {
+                                "type": "policy_chain"
                             }
                         ]
                     },
@@ -3648,6 +3830,317 @@
                 }
             },
             "type": "session_recording"
+        },
+        {
+            "metadata": {
+                "relations": {
+                    "can_delete": {},
+                    "can_edit": {},
+                    "can_manage_access": {},
+                    "can_query": {},
+                    "can_view": {},
+                    "creator": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
+                    "editor": {},
+                    "has_rule": {},
+                    "manager": {},
+                    "policy": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "access_policy"
+                            },
+                            {
+                                "type": "policy_chain"
+                            }
+                        ]
+                    },
+                    "project": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "project"
+                            }
+                        ]
+                    },
+                    "resource": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "resource"
+                            }
+                        ]
+                    },
+                    "viewer": {}
+                }
+            },
+            "relations": {
+                "can_delete": {
+                    "computedUserset": {
+                        "relation": "can_edit"
+                    }
+                },
+                "can_edit": {
+                    "computedUserset": {
+                        "relation": "editor"
+                    }
+                },
+                "can_manage_access": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "manager"
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "can_manage_access"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "can_query": {
+                    "computedUserset": {
+                        "relation": "can_view"
+                    }
+                },
+                "can_view": {
+                    "computedUserset": {
+                        "relation": "viewer"
+                    }
+                },
+                "creator": {
+                    "this": {}
+                },
+                "editor": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "editor"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "editor"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
+                "manager": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "manager"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "manager"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy": {
+                    "this": {}
+                },
+                "project": {
+                    "this": {}
+                },
+                "resource": {
+                    "this": {}
+                },
+                "viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "member"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "creator"
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "project"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "tupleToUserset": {
+                                                "computedUserset": {
+                                                    "relation": "viewer"
+                                                },
+                                                "tupleset": {
+                                                    "relation": "policy"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "warehouse_table"
         }
     ]
 }

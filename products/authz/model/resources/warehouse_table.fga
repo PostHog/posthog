@@ -1,0 +1,4 @@
+type warehouse_table extends object
+  relations
+    # Reading table data requires the same resolved access as viewing the table.
+    define can_query: can_view
