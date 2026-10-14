@@ -1126,6 +1126,13 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    def test_create_run_stamps_server_startup_time_and_preserves_it_in_analytics(self):
+        run = self.task.create_run(extra_state={"startup_requested_at": "untrusted-time"})
+        run.refresh_from_db()
+
+        self.assertNotEqual(run.state["startup_requested_at"], "untrusted-time")
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.state["startup_requested_at"])
+
     def test_create_run_snapshots_task_ownership_version(self):
         ownership_version = str(uuid.uuid4())
         self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}

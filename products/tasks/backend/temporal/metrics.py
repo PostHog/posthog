@@ -2,15 +2,19 @@ import os
 import time
 import datetime as dt
 from collections.abc import Mapping
+from contextlib import AbstractContextManager, ContextDecorator
 from typing import Any
 
 import posthoganalytics
+from opentelemetry import trace
+from opentelemetry.trace import Span
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 
 Attributes = dict[str, str | int | float | bool]
+tracer = trace.get_tracer(__name__)
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
     "tasks_process_sandbox_step_latency",
@@ -618,7 +622,7 @@ def record_agent_boot_milestone_ms(
         pass
 
 
-class StepTimer:
+class StepTimer(ContextDecorator):
     def __init__(
         self,
         step: str,
@@ -639,11 +643,24 @@ class StepTimer:
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
         self._start_counter: float | None = None
+        self._span: AbstractContextManager[Span] | None = None
+
+    def _recreate_cm(self) -> "StepTimer":
+        return StepTimer(
+            self.step,
+            used_snapshot=self.used_snapshot,
+            boot_path=self.boot_path,
+            origin_product=self.origin_product,
+            runtime=self.runtime,
+            sandbox_backend=self.sandbox_backend,
+        )
 
     def set_used_snapshot(self, used_snapshot: bool) -> None:
         self.used_snapshot = used_snapshot
 
     def __enter__(self) -> "StepTimer":
+        self._span = tracer.start_as_current_span("tasks.step." + self.step)
+        self._span.__enter__()
         self._start_counter = time.perf_counter()
         return self
 
@@ -653,6 +670,9 @@ class StepTimer:
 
         delta_ms = int((time.perf_counter() - self._start_counter) * 1000)
         self.elapsed_ms = delta_ms
+        if self._span is not None:
+            self._span.__exit__(exc_type, exc_value, traceback)
+            self._span = None
         delta = dt.timedelta(milliseconds=delta_ms)
 
         attributes: Attributes = {

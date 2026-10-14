@@ -8,10 +8,12 @@ from temporalio import activity, workflow
 from posthog.temporal.common.logger import get_logger
 
 from products.tasks.backend.models import LogLevel
+from products.tasks.backend.temporal.metrics import StepTimer
 
 logger = get_logger(__name__)
 
 
+@StepTimer("agent_log")
 def emit_agent_log(run_id: str, level: LogLevel, message: str) -> None:
     """Emit a console-style agent event for user-facing logs.
 

@@ -10,6 +10,7 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from opentelemetry import trace
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
@@ -57,6 +59,16 @@ _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
     ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
     ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
 )
+
+
+def tag_startup_dispatch(task_run: TaskRun | None) -> None:
+    if task_run is not None and not task_run.task.is_scout_experiment:
+        trace.get_current_span().set_attributes(
+            {
+                "run_id": str(task_run.id),
+                "origin_product": task_run.task.origin_product or "unknown",
+            }
+        )
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -151,6 +163,7 @@ def _evaluate_boot_rollout_flag(
         return False
 
 
+@tracer.start_as_current_span("tasks.startup.capture_dispatch_flags")
 def _capture_run_feature_flags(run_id: str) -> None:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
@@ -246,6 +259,7 @@ async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
+@tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "direct"})
 async def execute_task_processing_workflow_async(
     task_id: str,
     run_id: str,
@@ -278,6 +292,7 @@ async def execute_task_processing_workflow_async(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
         await sync_to_async(_capture_run_feature_flags)(run_id)
@@ -301,7 +316,8 @@ async def execute_task_processing_workflow_async(
             extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
         )
 
-        client = await async_connect()
+        with tracer.start_as_current_span("tasks.startup.temporal_connect"):
+            client = await async_connect()
         await client.start_workflow(
             "process-task",
             workflow_input,
@@ -344,6 +360,7 @@ async def execute_task_processing_workflow_async(
         )
 
 
+@tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "direct"})
 def execute_task_processing_workflow(
     task_id: str,
     run_id: str,
@@ -370,6 +387,7 @@ def execute_task_processing_workflow(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         logger.info(
             "execute_task_processing_workflow_called",
@@ -398,7 +416,8 @@ def execute_task_processing_workflow(
             extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
         )
 
-        client = sync_connect()
+        with tracer.start_as_current_span("tasks.startup.temporal_connect"):
+            client = sync_connect()
 
         logger.info(
             "task_processing_temporal_connected",

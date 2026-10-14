@@ -172,6 +172,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
     return branch
 
 
+@StepTimer("repository_directory_check")
 def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
     """Fail fast when the repository the agent-server will use as its cwd was never materialized.
 
@@ -773,7 +774,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         # Classic (non-deferred) path only: any clone has already happened by now, so a missing
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
@@ -866,7 +868,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
+        with StepTimer("read_agent_boot_metrics"):
+            session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
         if session_init_ms is not None:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
@@ -914,7 +917,8 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
         with StepTimer(
@@ -946,14 +950,16 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 @activity.defn
 @asyncify
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
-    sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+    with StepTimer("sandbox_lookup"):
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     for repository in input.failed_repositories or []:
         repo_path = sandbox_repo_path(repository)
         result = sandbox.execute(f"mkdir -p {shlex.quote(repo_path)}", timeout_seconds=10)
         if result.exit_code != 0:
             raise RuntimeError(f"Failed to create fallback workspace for {repository}: {result.stderr}")
     if input.release_barrier:
-        sandbox.mark_repo_ready(REPO_READY_FILE)
+        with StepTimer("release_repository_gate"):
+            sandbox.mark_repo_ready(REPO_READY_FILE)
     if input.failed_repositories:
         action = "released agent with" if input.release_barrier else "created"
         emit_agent_log(
@@ -980,7 +986,8 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         ),
         guard_organization_execution(ctx.team_id),
     ):
-        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        with StepTimer("sandbox_lookup"):
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
         attempt = current_activity_attempt()
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
@@ -1067,7 +1074,8 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
+        with StepTimer("read_agent_boot_metrics"):
+            session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
         if session_init_ms is not None:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime

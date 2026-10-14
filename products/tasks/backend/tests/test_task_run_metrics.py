@@ -1,3 +1,7 @@
+from contextlib import nullcontext
+from datetime import timedelta
+
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import TestCase
@@ -10,6 +14,7 @@ from posthog.models import Organization, Team, User
 from products.tasks.backend.metrics import CustomImageBuildOutcome, observe_custom_image_build, observe_sandbox_deadline
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
     TrackWorkflowEventInput,
     track_workflow_event,
@@ -43,6 +48,31 @@ class TestSandboxDeadlineMetrics:
         observe_sandbox_deadline(dict[str, object](labels))
 
         assert _sample_value("posthog_tasks_sandbox_deadline_total", labels) == before + 1
+
+
+class TestStartupStepMetrics:
+    @pytest.mark.parametrize("fails", [False, True])
+    def test_decorated_timer_keeps_nested_attempt_durations_and_failures_separate(self, fails: bool) -> None:
+        @StepTimer("flag_streaming")
+        def work(nested: bool) -> None:
+            if nested:
+                work(False)
+            elif fails:
+                raise ValueError("failed step")
+
+        meter = MagicMock()
+        with (
+            patch("products.tasks.backend.temporal.metrics.time.perf_counter", side_effect=[0, 1, 2, 4]),
+            patch("products.tasks.backend.temporal.metrics._metric_meter", return_value=meter) as metric_meter,
+            pytest.raises(ValueError, match="failed step") if fails else nullcontext(),
+        ):
+            work(True)
+
+        durations = [args.args[0] for args in meter.create_histogram_timedelta.return_value.record.call_args_list]
+        assert durations == [timedelta(seconds=1), timedelta(seconds=4)]
+        assert [args.args[0]["status"] for args in metric_meter.call_args_list] == [
+            "FAILED" if fails else "COMPLETED"
+        ] * 2
 
 
 class TestTaskRunMetrics(TestCase):

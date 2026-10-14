@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections
 
 from asgiref.sync import sync_to_async
+from opentelemetry import trace
 from prometheus_client import start_http_server
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -48,11 +49,12 @@ from products.tasks.backend.metrics import (
     observe_task_run_workflow_start,
 )
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
-from products.tasks.backend.temporal.client import _capture_run_feature_flags
+from products.tasks.backend.temporal.client import _capture_run_feature_flags, tag_startup_dispatch
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.visibility import task_control_q
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE = 500
 
 
@@ -200,6 +202,7 @@ class Command(BaseCommand):
         )
         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="failed").inc()
 
+    @tracer.start_as_current_span("tasks.startup.dispatch", attributes={"dispatch_route": "dispatcher"})
     async def _process(
         self, client: Client, dispatch: TaskWorkflowDispatch, instance_id: str, semaphore: asyncio.Semaphore
     ) -> None:
@@ -215,6 +218,7 @@ class Command(BaseCommand):
                 )
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                 return
+            tag_startup_dispatch(run)
             try:
                 await Team.objects.aget(id=run.team_id)
                 is_restart = dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART

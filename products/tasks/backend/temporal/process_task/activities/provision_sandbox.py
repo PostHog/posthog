@@ -236,7 +236,8 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
         f"echo $! > {state_dir}/launcher.pid"
     )
     try:
-        result = sandbox.execute(launch, timeout_seconds=30)
+        with StepTimer("desktop_workspace_launch"):
+            result = sandbox.execute(launch, timeout_seconds=30)
     except Exception as e:
         logger.warning("desktop_bootstrap_launch_failed", extra={"run_id": ctx.run_id, "error": str(e)})
         return
@@ -396,6 +397,7 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     return ctx.github_integration_id
 
 
+@StepTimer("github_credentials")
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -465,6 +467,7 @@ def _resolve_sandbox_github_token(
         )
 
 
+@StepTimer("load_task")
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
         task = Task.objects.select_related("created_by", "github_integration", "github_user_integration", "team").get(
@@ -535,6 +538,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
     return "base"
 
 
+@StepTimer("environment_variables")
 def _build_environment_variables(
     ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
 ) -> dict[str, str]:
@@ -729,14 +733,16 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         task = _load_task(ctx)
         shallow_clone = not needs_full_history(task.origin_product)
 
-        actor_user = get_task_run_credential_user(task, ctx.state)
+        with StepTimer("resolve_actor"):
+            actor_user = get_task_run_credential_user(task, ctx.state)
         credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
         github_token = _resolve_sandbox_github_token(
             ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
+            with StepTimer("posthog_access_token"):
+                access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -838,6 +844,7 @@ def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig
     return not used_snapshot or config.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
 
 
+@StepTimer("sandbox_agent_version")
 def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
     version: str | None = None
     try:
@@ -885,7 +892,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
-        check_organization_execution(ctx.team_id)
+        with StepTimer("organization_execution_check"):
+            check_organization_execution(ctx.team_id)
         if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
             if reason := get_compute_quota_denial_reason(task):
@@ -1008,8 +1016,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 record_network_enforcement(
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "success"
                 )
-            if not sandbox.start_cpu_billing_sampler():
-                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+            with StepTimer("cpu_sampler_start"):
+                if not sandbox.start_cpu_billing_sampler():
+                    activity.logger.warning(
+                        "Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id}
+                    )
             if sandbox.config.image_fallback:
                 emit_agent_log(
                     ctx.run_id,
@@ -1042,7 +1053,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 sandbox_backend=sandbox_backend,
             )
 
-            credentials = sandbox.get_connect_credentials()
+            with StepTimer("sandbox_connect_credentials"):
+                credentials = sandbox.get_connect_credentials()
             jwt_kid = persist_sandbox_connection(
                 run_id=ctx.run_id,
                 sandbox=sandbox,
