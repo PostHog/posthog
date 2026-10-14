@@ -4,16 +4,19 @@
 //! membership output has to move to its own cluster, while markers stay alongside the seed topic on
 //! ingestion, and one shared producer would force them to move together.
 //!
-//! One topic property the seeder's watcher depends on, recorded here because the topic is
-//! provisioned in another repo and would fail silently: a stable partition count. The watcher
-//! captures a start offset per partition at dispatch and is assigned exactly those, so a partition
-//! added mid-run is never read. Added before that run's observation ends are captured, it holds the
-//! run open until a re-dispatch; added after them, it is not even consulted, and the run settles
-//! short on the markers that landed where nothing was watching.
+//! Two topic properties the seeder's watcher depends on, recorded here because the topic is
+//! provisioned in another repo and would fail silently. The first is a stable partition count. The
+//! watcher captures a start offset per partition at dispatch and is assigned exactly those, so a
+//! partition added mid-run is never read. Added before that run's observation ends are captured, it
+//! holds the run open until a re-dispatch; added after them, it is not even consulted, and the run
+//! settles short on the markers that landed where nothing was watching.
 //!
-//! The key ([`reconcile_marker_key`]) carries the body partition, so a run's 64 certificates are
-//! 64 distinct keys rather than one — what stops a compacting topic from keeping whichever arrived
-//! last and recording a completed backfill as short.
+//! The second is the `delete` cleanup policy, never compaction. The key ([`reconcile_marker_key`])
+//! carries the body partition, so a run's 64 certificates are 64 distinct keys rather than one. A
+//! complete and a withheld marker for the same body partition share their key, which puts them on
+//! one topic partition in the order they were produced, and the seeder ignores a withheld marker
+//! that follows its partition's certificate. Compaction would keep only the later of the two, so a
+//! watcher that reads after it would supersede a cohort the partition certified.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -106,9 +109,8 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
     }
 }
 
-/// One key per run, cohort and partition: the partition is what makes 64 distinct keys out of one
-/// dispatch. A complete and a withheld marker for the same partition share the key, so the topic must
-/// not compact. Nothing downstream reads the key.
+/// One key per run, cohort and body partition, shared by its complete and withheld markers so both
+/// land on one topic partition in order. Nothing downstream reads the key.
 fn reconcile_marker_key(marker: &ReconcileMarker) -> Option<String> {
     Some(format!(
         "{}:{}:{}:{}",

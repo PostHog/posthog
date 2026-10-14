@@ -741,7 +741,7 @@ async fn drain_dirty(
     }
 }
 
-/// Withhold every consecutive withheld job at the head in one produce, releasing the acked prefix.
+/// Withhold the consecutive withheld jobs at the head in one produce, releasing the acked prefix.
 async fn drain_withheld(
     partition_id: u16,
     merge: &MergeWorkerDeps,
@@ -757,6 +757,9 @@ async fn drain_withheld(
                 ReconcileGuard::Proceed { .. } | ReconcileGuard::Retry(_) => None,
             }
         }))
+        // A tick produces at most one scan page of messages, as a scan tick does, so a burst spreads
+        // over ticks instead of holding the live lane behind one unbounded produce.
+        .take(merge.reconcile.scan_page)
         .collect();
     let markers = queue
         .jobs
@@ -2491,6 +2494,27 @@ mod tests {
         assert!(!sink.changes().is_empty());
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert_eq!(shell.committable(), Some(9));
+    }
+
+    #[tokio::test]
+    async fn a_withheld_burst_produces_at_most_one_scan_page_per_tick() {
+        let mut shell = DrainShell::new(
+            false,
+            Arc::new(CaptureSink::new()),
+            CaptureCascadeSink::new(),
+            2,
+        );
+        shell.cover(SliceCoverage::Since(CoverageStartMs(SLICE_START)));
+        let before_slice =
+            |run_id| bounded_tile(TEAM, COHORT, run_id, ScopeKind::Behavioral, SLICE_START - 1);
+        for run_id in 1..=3 {
+            shell.enqueue(before_slice(run_id), 4 + run_id as i64);
+        }
+
+        shell.tick().await;
+
+        assert_eq!(shell.markers.markers().len(), 2);
+        assert_eq!(shell.queue.front_run_id(), Some(RunId(Uuid::from_u128(3))));
     }
 
     /// Fails the first marker of its first produce and acks the rest.

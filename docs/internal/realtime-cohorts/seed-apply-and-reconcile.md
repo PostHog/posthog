@@ -171,7 +171,7 @@ A timer sends a drain message down every worker's live lane every couple of seco
    The job is withheld when the slice's history begins after the run's boundary, or when the request carries no boundary and the slice does not hold its whole history.
    That check runs before the scan, because rows emitted from such a slice would re-assert its partial answers downstream.
    A withheld job produces one `reconcile_withheld` marker with the reason, then releases its seed offset once the marker is acknowledged.
-   Consecutive withheld jobs at the head of the queue share one produce, so a burst of them costs the drain one broker round trip.
+   Consecutive withheld jobs at the head of the queue share one produce of up to one scan page, so a burst of them costs the drain one broker round trip per tick.
    A failed produce keeps the job, and the jobs behind it, at the head of the queue, and the guard decides them again on the next drain.
    `cohort_reconcile_jobs_discarded_total{reason}` counts withheld jobs.
 2. **Scanning.**
