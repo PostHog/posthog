@@ -123,6 +123,24 @@ export function hasSectionLayoutChanged(before: Layout, after: Layout): boolean 
     )
 }
 
+/**
+ * The dashboard layout after one band's grid reports its layout, or null when no tile in that band moved.
+ * A grid also reports its layout when only its width crosses a breakpoint, and restacking the bands then would
+ * move tiles that the person did not touch.
+ */
+export function getLayoutAfterSectionChange(
+    sectionLayouts: Layout[],
+    sectionIndex: number,
+    reportedLayout: Layout
+): Layout | null {
+    if (!hasSectionLayoutChanged(sectionLayouts[sectionIndex] ?? [], reportedLayout)) {
+        return null
+    }
+    return stackSectionLayouts(
+        sectionLayouts.map((layout, index) => (index === sectionIndex ? reportedLayout : layout))
+    )
+}
+
 /** Group keys that start closed: the viewer's own choice wins over the dashboard's saved default. */
 export function getCollapsedTileGroupKeys({
     tiles,

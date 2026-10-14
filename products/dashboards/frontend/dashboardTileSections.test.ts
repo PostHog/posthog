@@ -5,6 +5,7 @@ import type { DashboardTile } from '~/types'
 import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
+    getLayoutAfterSectionChange,
     getSectionLayouts,
     hasSectionLayoutChanged,
     stackSectionLayouts,
@@ -144,6 +145,30 @@ describe('dashboardTileSections', () => {
         { name: 'a tile added', after: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2)], expected: true },
     ])('hasSectionLayoutChanged is $expected for $name', ({ after, expected }) => {
         expect(hasSectionLayoutChanged([box(1, 0, 0), box(2, 6, 0)], after)).toBe(expected)
+    })
+
+    it.each([
+        {
+            name: 'nothing when the band reports its tiles in another order',
+            index: 0,
+            reported: [box(2, 6, 0), box(1, 0, 0)],
+            expected: null,
+        },
+        {
+            name: 'the moved band with the bands below it stacked under it',
+            index: 0,
+            reported: [box(1, 0, 0), box(2, 0, 2)],
+            expected: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4, 12)],
+        },
+        {
+            name: 'a later band moved with the bands above it kept',
+            index: 1,
+            reported: [box(3, 0, 0, 4)],
+            expected: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2, 4)],
+        },
+    ])('getLayoutAfterSectionChange gives $name', ({ index, reported, expected }) => {
+        const sectionLayouts = [[box(1, 0, 0), box(2, 6, 0)], [box(3, 0, 0, 12)]]
+        expect(getLayoutAfterSectionChange(sectionLayouts, index, reported)).toEqual(expected)
     })
 
     it.each<CollapsedCase>([

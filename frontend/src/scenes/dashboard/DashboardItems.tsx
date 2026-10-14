@@ -47,9 +47,8 @@ import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/
 import {
     type DashboardSection,
     getDashboardSections,
+    getLayoutAfterSectionChange,
     getSectionLayouts,
-    hasSectionLayoutChanged,
-    stackSectionLayouts,
 } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
@@ -777,18 +776,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             layout: Layout,
             allLayouts: Partial<Record<DashboardLayoutSize, Layout>>
         ): void => {
-            // The grid also reports its layout when only its width crosses a breakpoint. Restacking the bands then
-            // would move tiles that the person did not touch.
-            if (!hasSectionLayoutChanged(gridLayouts.sm ?? [], allLayouts.sm ?? [])) {
-                return
+            const dashboardLayout = getLayoutAfterSectionChange(
+                sectionLayouts.map((otherLayouts) => otherLayouts.sm ?? []),
+                index,
+                allLayouts.sm ?? []
+            )
+            if (dashboardLayout) {
+                handleLayoutChange(layout, { sm: dashboardLayout })
             }
-            handleLayoutChange(layout, {
-                sm: stackSectionLayouts(
-                    sectionLayouts.map((otherLayouts, otherIndex) =>
-                        otherIndex === index ? (allLayouts.sm ?? []) : (otherLayouts.sm ?? [])
-                    )
-                ),
-            })
         }
         const sectionRows = Math.max(0, ...(gridLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
         const grid = (
