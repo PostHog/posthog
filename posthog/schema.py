@@ -122,6 +122,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -30743,6 +30744,10 @@ class HogQLQuery(BaseModel):
             " instead of ClickHouse — a pure-direct source, or a synced source with"
             " direct query enabled."
         ),
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description="Compile and run this query against the hosted Trino target.",
     )
     explain: bool | None = None
     filters: HogQLFilters | None = Field(
