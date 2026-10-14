@@ -4,6 +4,7 @@ Scoping policies by flag owner removes coverage from the flags a product owns, s
 one organization at a time and each step needs the size of the change in front of it first.
 """
 
+from collections import Counter, defaultdict
 from typing import Any, Optional
 
 from django.core.management.base import BaseCommand
@@ -54,26 +55,34 @@ class Command(BaseCommand):
         families: dict[Optional[str], set[str]],
         unowned_family: set[str],
     ) -> None:
-        enabled = set(
-            ApprovalPolicy.objects.enabled().filter(organization=organization).values_list("action_key", flat=True)
-        )
-        team_ids = list(Team.objects.filter(organization=organization).values_list("id", flat=True))
-        counts = owner_kind_counts(FeatureFlag.objects.filter(team_id__in=team_ids, deleted=False))
+        enabled = ApprovalPolicy.objects.enabled().filter(organization=organization)
+        organization_keys = set(enabled.filter(team__isnull=True).values_list("action_key", flat=True))
+        team_keys: dict[int, set[str]] = defaultdict(set)
+        for team_id, action_key in enabled.filter(team__isnull=False).values_list("team_id", "action_key"):
+            team_keys[team_id].add(action_key)
 
         rolled_out = "yes" if scope_by_owner_enabled(organization) else "no"
         self.stdout.write(f"\n{organization.name} ({organization.id})  rolled out: {rolled_out}")
-        self.stdout.write(f"  policies: {', '.join(sorted(enabled)) or '(none)'}")
+        self.stdout.write(f"  organization policies: {', '.join(sorted(organization_keys)) or '(none)'}")
         self.stdout.write(f"  {'owner kind':<22}{'flags':>10}  {'now':<28}{'scoped by owner':<28}")
 
+        # A team policy governs only its own team's flags, so each team is resolved on its own.
+        rows: Counter[tuple[Optional[str], tuple[str, ...], tuple[str, ...]]] = Counter()
         moved = lost = 0
-        for owner_kind, total in sorted(counts.items(), key=lambda row: -row[1]):
-            # Before narrowing every flag is in the unowned family's scope, whoever owns it.
-            now = sorted(unowned_family & enabled)
-            after = sorted(families.get(owner_kind, set()) & enabled)
-            if now and not after:
-                lost += total
-            elif now and after and now != after:
-                moved += total
+        for team_id in Team.objects.filter(organization=organization).values_list("id", flat=True):
+            applicable = organization_keys | team_keys.get(team_id, set())
+            counts = owner_kind_counts(FeatureFlag.objects.filter(team_id=team_id, deleted=False))
+            for owner_kind, total in counts.items():
+                # Before narrowing every flag is in the unowned family's scope, whoever owns it.
+                now = tuple(sorted(unowned_family & applicable))
+                after = tuple(sorted(families.get(owner_kind, set()) & applicable))
+                rows[(owner_kind, now, after)] += total
+                if now and not after:
+                    lost += total
+                elif now and after and now != after:
+                    moved += total
+
+        for (owner_kind, now, after), total in sorted(rows.items(), key=lambda row: -row[1]):
             self.stdout.write(
                 f"  {owner_kind or UNOWNED_LABEL:<22}{total:>10,}  "
                 f"{', '.join(now) or NO_FAMILY:<28}{', '.join(after) or NO_FAMILY:<28}"

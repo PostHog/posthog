@@ -59,17 +59,48 @@ def families_by_owner_kind() -> dict[Optional[str], set[str]]:
     return families
 
 
-def _governing_conditions(owner_kind: Optional[str], team, organization) -> dict[str, dict[str, Any]]:
-    """For each write an enabled policy governs on this product's flags, that policy's conditions."""
+@frozen
+class WriteGate:
+    """What an enabled policy asks of one flag write."""
+
+    # The changes it gates. Empty gates every change.
+    conditions: dict[str, Any]
+    # Who skips it: organization membership levels, and role ids.
+    bypass_levels: frozenset[int]
+    bypass_role_ids: frozenset[str]
+
+    def stops_everything_stopped_by(self, other: "WriteGate") -> bool:
+        """Whether this gate stops every write that `other` stops, for every member."""
+        if self.conditions and self.conditions != other.conditions:
+            return False
+        return self.bypass_levels <= other.bypass_levels and self.bypass_role_ids <= other.bypass_role_ids
+
+
+def _governing_gates(owner_kind: Optional[str], team, organization) -> dict[str, WriteGate]:
+    """For each write an enabled policy governs on this product's flags, what that policy asks."""
     engine = PolicyEngine()
-    governed: dict[str, dict[str, Any]] = {}
+    governed: dict[str, WriteGate] = {}
     for action in _flag_write_actions():
         if action.owner_scope != owner_kind:
             continue
         policy = engine.get_policy(action.key, team, organization)
         if policy is not None:
-            governed[action.operation] = policy.conditions or {}
+            governed[action.operation] = WriteGate(
+                conditions=policy.conditions or {},
+                bypass_levels=frozenset(int(level) for level in policy.bypass_org_membership_levels or []),
+                bypass_role_ids=frozenset(str(role_id) for role_id in policy.bypass_roles.values_list("id", flat=True)),
+            )
     return governed
+
+
+def write_needs_approval(owner_kind: Optional[str], operation: str, team, organization) -> bool:
+    """Whether an enabled policy governs this write on a flag that `owner_kind` owns.
+
+    For a caller that must refuse a write up front, because it runs where a change request
+    cannot survive.
+    """
+    family = owner_kind if scope_by_owner_enabled(organization) else None
+    return operation in _governing_gates(family, team, organization)
 
 
 def adoption_drops_approval_cover(
@@ -92,17 +123,40 @@ def adoption_drops_approval_cover(
     never carries matches nothing, and the gate reads an unmatched condition as "allow", so it
     would let through the write the current policy stopped.
 
+    The target must also let no more members skip the gate. Otherwise a member that the current
+    policy stops could adopt the flag and then make the write unreviewed.
+
     False before the organization is scoped by flag owner: `feature_flag.*` still covers every
     flag whoever owns it, so no owner change can drop the cover.
     """
     if not scope_by_owner_enabled(organization):
         return False
-    governed_now = _governing_conditions(current_owner_kind, team, organization)
-    governed_after = _governing_conditions(target_owner_kind, team, organization)
-    for operation, conditions in governed_now.items():
-        if operation not in governed_after:
-            return True
-        target_conditions = governed_after[operation]
-        if target_conditions and target_conditions != conditions:
-            return True
-    return False
+    governed_now = _governing_gates(current_owner_kind, team, organization)
+    governed_after = _governing_gates(target_owner_kind, team, organization)
+    return any(
+        operation not in governed_after or not governed_after[operation].stops_everything_stopped_by(gate)
+        for operation, gate in governed_now.items()
+    )
+
+
+def adoption_skips_enable_review(
+    flag_active: bool,
+    current_owner_kind: Optional[str],
+    target_owner_kind: str,
+    team,
+    organization,
+) -> bool:
+    """Whether adopting an enabled flag would skip the review the target gives to enabling it.
+
+    The target family reviews the move from off to on, for an experiment its launch. A flag
+    that is already on never makes that move again, so the adopting product starts live with
+    nobody from the target family having reviewed it.
+
+    A flag the target product already owns has been through that family's review, so it is
+    not refused.
+    """
+    if not flag_active or current_owner_kind == target_owner_kind:
+        return False
+    if not scope_by_owner_enabled(organization):
+        return False
+    return "enable" in _governing_gates(target_owner_kind, team, organization)

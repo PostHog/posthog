@@ -5,7 +5,7 @@ from django.db.models.fields.reverse_related import ForeignObjectRel
 
 from rest_framework import serializers
 
-from products.approvals.backend.coverage import adoption_drops_approval_cover
+from products.approvals.backend.coverage import adoption_drops_approval_cover, adoption_skips_enable_review
 from products.feature_flags.backend.facade.config import detect_config_format
 
 if TYPE_CHECKING:
@@ -84,10 +84,10 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     parent that already owns the flag must not raise, so the caller compares the incoming id
     against the stored one first.
 
-    Reject it too when the adoption would leave the flag governed by no approval policy. Which
-    policies cover a flag follows its owner, so pointing a product with no family at a governed
-    flag is a way around that policy rather than a routine edit. See approvals' `coverage` module
-    for when this applies.
+    Reject it too when the adoption would leave the flag less governed by approval policies, or
+    would skip the review the product gives to turning a flag on. Which policies cover a flag
+    follows its owner, so either is a way around a policy rather than a routine edit. See
+    approvals' `coverage` module for when this applies.
 
     This reads before the caller writes, so two products adopting the same free flag at the same
     moment can both pass. No database constraint can span the four owning tables, so the remaining
@@ -111,6 +111,11 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
         raise serializers.ValidationError(
             f"Changes to the feature flag {flag.key} need approval, and {_OWNER_LABELS[product]} "
             f"cannot keep that. Pick a different flag, or make a new one."
+        )
+    if adoption_skips_enable_review(flag.active, owner, product, flag.team, flag.team.organization):
+        raise serializers.ValidationError(
+            f"The feature flag {flag.key} is already on, and turning it on for {_OWNER_LABELS[product]} "
+            f"needs approval. Turn the flag off first, or make a new one."
         )
 
 

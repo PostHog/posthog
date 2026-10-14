@@ -1,7 +1,9 @@
 from collections.abc import Callable
 from typing import Optional
 
-from posthog.ph_client import feature_enabled_or_false
+from django.core.cache import cache
+
+import posthoganalytics
 
 # A recorded classification meaning "nothing owned this resource". It is distinct from NULL,
 # which means no classification was recorded at all: a request created before the column
@@ -27,15 +29,18 @@ def owner_kind_changed(recorded: Optional[str], current: Optional[str]) -> bool:
 SCOPE_BY_OWNER_FLAG = "approvals-scope-by-flag-owner"
 
 
-def scope_by_owner_enabled(organization) -> bool:
-    """Whether this organization evaluates approval policies by which product owns the flag.
+def scope_by_owner_state(organization) -> Optional[bool]:
+    """Whether this organization evaluates approval policies by flag owner, or None when unknown.
 
-    Unresolvable reads as off. The off state is the wider one — every flag keeps the coverage it
-    has today — so a flag lookup that fails locally costs coverage nothing.
+    The flag is evaluated locally, and local evaluation answers None while the flag definitions
+    are unavailable. Reading that as off is not safe for an organization already rolled out: it
+    may have deleted a flag policy and kept the experiment policy, so the old scope would match
+    neither. The last answer the flag gave for the organization stands in until it answers again.
     """
     if organization is None:
         return False
-    return feature_enabled_or_false(
+    remembered_key = f"{SCOPE_BY_OWNER_FLAG}:{organization.id}"
+    resolved = posthoganalytics.feature_enabled(
         SCOPE_BY_OWNER_FLAG,
         f"org-{organization.id}",
         groups={"organization": str(organization.id)},
@@ -43,6 +48,21 @@ def scope_by_owner_enabled(organization) -> bool:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+    if resolved is None:
+        return cache.get(remembered_key)
+    enabled = resolved is True
+    if cache.get(remembered_key) != enabled:
+        cache.set(remembered_key, enabled, timeout=None)
+    return enabled
+
+
+def scope_by_owner_enabled(organization) -> bool:
+    """Whether this organization evaluates approval policies by which product owns the flag.
+
+    Unknown reads as off. That is the scope every organization had before narrowing, so it keeps
+    the coverage of every organization not rolled out.
+    """
+    return scope_by_owner_state(organization) is True
 
 
 def owner_in_scope(owner_scope: Optional[str], organization, derive_owner_kind: Callable[[], Optional[str]]) -> bool:

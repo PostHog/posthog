@@ -28,7 +28,7 @@ from django.db import connection, transaction
 from structlog import get_logger
 
 from products.approvals.backend.models import ApprovalPolicy
-from products.approvals.backend.ownership import scope_by_owner_enabled
+from products.approvals.backend.ownership import scope_by_owner_state
 
 logger = get_logger(__name__)
 
@@ -81,7 +81,7 @@ def sync_experiment_policies() -> None:
 
         created = updated = 0
         live: set[tuple[UUID, int | None, str]] = set()
-        handed_over: set[UUID] = set()
+        handed_over: dict[UUID, bool] = {}
 
         sources = (
             ApprovalPolicy.objects.filter(action_key__in=ACTION_MAP)
@@ -139,15 +139,16 @@ def _try_sync_lock() -> bool:
         return cursor.fetchone()[0]
 
 
-def _is_handed_over(organization, handed_over: set[UUID]) -> bool:
-    """Whether this organization now owns its experiment policies, so the sync leaves them alone.
+def _is_handed_over(organization, handed_over: dict[UUID, bool]) -> bool:
+    """Whether this organization may own its experiment policies, so the sync leaves them alone.
+
+    Only an organization known to be on the old scope is synced. When the rollout flag cannot
+    answer, skipping costs one run of freshness, while syncing could overwrite or delete the
+    policies of an organization that is rolled out.
 
     Memoized per run: one organization holds several policies, and the answer cannot change
     while the run holds the lock.
     """
-    if organization.id in handed_over:
-        return True
-    if scope_by_owner_enabled(organization):
-        handed_over.add(organization.id)
-        return True
-    return False
+    if organization.id not in handed_over:
+        handed_over[organization.id] = scope_by_owner_state(organization) is not False
+    return handed_over[organization.id]
