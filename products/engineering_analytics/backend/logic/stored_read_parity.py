@@ -51,8 +51,11 @@ class QueryParity:
 
 def _normalized(value: Any) -> Any:
     # The two tables can type one column differently (Bool against UInt8, Float64 against Int64).
-    if isinstance(value, bool | int | float | Decimal):
-        return float(f"{float(value):.{_SIGNIFICANT_DIGITS}g}")
+    if isinstance(value, bool | int):
+        return int(value)
+    if isinstance(value, float | Decimal):
+        number = float(value)
+        return int(number) if number.is_integer() else float(f"{number:.{_SIGNIFICANT_DIGITS}g}")
     if isinstance(value, list | tuple):
         return tuple(_normalized(item) for item in value)
     return value
@@ -64,6 +67,15 @@ def _differing_rows(rows: Sequence[Sequence[Any]], other: Sequence[Sequence[Any]
     return Counter(repr(_normalized(row)) for row in rows) - Counter(repr(_normalized(row)) for row in other)
 
 
+@frozen
+class StoredReadParity:
+    """The comparisons of the reads that the stored rows answered, and the query types that could
+    have read the stored rows but read the raw tables, so went unchecked."""
+
+    queries: tuple[QueryParity, ...]
+    raw_reads: tuple[str, ...]
+
+
 class ParityCheckedGitHubSource(CuratedGitHubSource):
     """A read handle that runs each read the stored rows answer on the raw tables too. It doubles the
     cost of those reads, and it reads no cache, so only a check uses it."""
@@ -71,7 +83,25 @@ class ParityCheckedGitHubSource(CuratedGitHubSource):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._parity_lock = threading.Lock()
+        # Concurrent reads of one request run in threads, and each run asks whether its own read was answered.
+        self._answered = threading.local()
         self.queries: list[QueryParity] = []
+        self.raw_reads: list[str] = []
+
+    def run(
+        self,
+        sql: str,
+        *,
+        query_type: str,
+        placeholders: dict[str, ast.Expr] | None = None,
+        workload: Workload = Workload.DEFAULT,
+    ) -> HogQLQueryResponse:
+        self._answered.value = False
+        response = super().run(sql, query_type=query_type, placeholders=placeholders, workload=workload)
+        if not self._answered.value and self._with_raw_ci_sources(sql) != sql:
+            with self._parity_lock:
+                self.raw_reads.append(query_type)
+        return response
 
     def read_through[V](
         self, *, sql: str, keys: Sequence[int], load: Callable[[list[int]], dict[int, V]], ttl_seconds: int
@@ -86,6 +116,7 @@ class ParityCheckedGitHubSource(CuratedGitHubSource):
         query_type: str,
         placeholders: dict[str, ast.Expr] | None,
     ) -> None:
+        self._answered.value = True
         stored = response.results or []
         raw: list[Any] = []
         raw_error = None
@@ -118,7 +149,7 @@ class ParityCheckedGitHubSource(CuratedGitHubSource):
             )
 
 
-def compare_stored_reads(*, team: Team, source_id: str | None, repo: str | None, days: int) -> list[QueryParity]:
+def compare_stored_reads(*, team: Team, source_id: str | None, repo: str | None, days: int) -> StoredReadParity:
     """Run the main CI reads of one repository over the last ``days``, with every read that the stored
     rows answer checked against the raw tables."""
     curated = ParityCheckedGitHubSource.for_team(team, source_id=source_id, repo=repo)
@@ -134,4 +165,4 @@ def compare_stored_reads(*, team: Team, source_id: str | None, repo: str | None,
     pull_requests = build_pull_request_list(curated=curated, date_from=date_from)
     for pull_request in pull_requests.items[:1]:
         build_pr_cost(curated=curated, pr_number=pull_request.number, repo=curated.repository)
-    return curated.queries
+    return StoredReadParity(queries=tuple(curated.queries), raw_reads=tuple(curated.raw_reads))

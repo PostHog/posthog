@@ -177,6 +177,7 @@ class TestStoredReads(BaseTest):
     @parameterized.expand(
         [
             ("same_rows_in_another_order", [(2, 0.30000000000000004), (1, True)], [(1, 1), (2, 0.3)], True),
+            ("ids_past_float_precision", [(12345678901, 3.0)], [(12345678902, 3)], False),
             ("a_row_missing", [(1, 0.1)], [(1, 0.1), (2, 0.3)], False),
             ("the_raw_read_fails", [(1, 0.1)], ClickHouseAtCapacity(), False),
         ]
@@ -206,3 +207,18 @@ class TestStoredReads(BaseTest):
 
         assert response.results == stored_rows
         assert [(query.query_type, query.equal) for query in curated.queries] == [(_RAW_READ, equal)]
+
+    def test_a_parity_check_reports_a_read_the_stored_rows_could_not_answer(self) -> None:
+        curated = ParityCheckedGitHubSource.for_team(self.team)
+        sql = f"SELECT count() FROM {curated.run_source(stored_history=True)} AS r"
+
+        with (
+            patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_CI_PRECOMPUTE}.history_start", return_value=None),
+            patch(f"{_CURATED}.refresh_ci_precompute"),
+            patch(f"{_CURATED}.team_flag", return_value=True),
+            patch(f"{_CURATED}.execute_hogql_query", return_value=SimpleNamespace(results=[(1,)])),
+        ):
+            curated.run(sql, query_type=_RAW_READ)
+
+        assert (curated.queries, curated.raw_reads) == ([], [_RAW_READ])

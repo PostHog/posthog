@@ -33,19 +33,23 @@ class Command(BaseCommand):
         if team is None:
             raise CommandError(f"No team {options['team_id']}")
         try:
-            queries = compare_stored_reads(
+            parity = compare_stored_reads(
                 team=team, source_id=options["source_id"], repo=options["repo"], days=options["days"]
             )
         except ValueError as error:
             raise CommandError(str(error)) from error
-        if not queries:
+        for query_type in parity.raw_reads:
+            self.stdout.write(f"{query_type}: read the raw tables, so it went unchecked")
+        if not parity.queries:
             raise CommandError("No read took the stored rows. Check the flag, then run again after a refresh.")
-        for query in queries:
+        for query in parity.queries:
             self.stdout.write(f"{query.query_type}: {query.stored_rows} stored, {query.raw_rows} raw rows")
             if query.raw_error:
                 self.stdout.write(f"  the raw read failed: {query.raw_error}")
             elif not query.equal:
                 self.stdout.write(f"  {query.only_stored} rows only stored, for example {query.sample_only_stored}")
                 self.stdout.write(f"  {query.only_raw} rows only raw, for example {query.sample_only_raw}")
-        differing = sum(not query.equal for query in queries)
-        self.stdout.write(f"{differing} of {len(queries)} stored reads differ from the raw tables.")
+        differing = sum(not query.equal for query in parity.queries)
+        if differing:
+            raise CommandError(f"{differing} of {len(parity.queries)} stored reads differ from the raw tables.")
+        self.stdout.write(f"All {len(parity.queries)} stored reads match the raw tables.")
