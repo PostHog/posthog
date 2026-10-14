@@ -2,6 +2,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
+from requests import Session
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.settings import (
@@ -14,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.arcade.set
     PLAN_ERROR,
     PROVISIONING_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -126,8 +129,10 @@ def get_resource(
     return {"name": name, "endpoint": endpoint, "write_disposition": "replace", "data_map": add_context}
 
 
-def rest_config(config: ArcadeSourceConfig, resource: EndpointResource) -> RESTAPIConfig:
-    return {
+def rest_config(
+    config: ArcadeSourceConfig, resource: EndpointResource, session: Session | None = None
+) -> RESTAPIConfig:
+    rest: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "api_key": config.api_key, "name": "Authorization", "location": "header"},
@@ -137,6 +142,9 @@ def rest_config(config: ArcadeSourceConfig, resource: EndpointResource) -> RESTA
         },
         "resources": [resource],
     }
+    if session is not None:
+        rest["client"]["session"] = session
+    return rest
 
 
 def validate_credentials(config: ArcadeSourceConfig, team_id: int, schema_name: str | None) -> tuple[bool, str | None]:
@@ -175,8 +183,9 @@ def flow_rows(
     # The Insights API has no flow list, so the paginated overviewPlays report supplies the flow IDs.
     first_page = resume.page if resume else 1
     skip = resume.flow_index if resume else 0
+    session = make_tracked_session(redact_values=(config.api_key,), allow_redirects=False)
     flows = rest_api_resource(
-        rest_config(config, get_resource(config, "flow_engagement", period_start, period_end)),
+        rest_config(config, get_resource(config, "flow_engagement", period_start, period_end), session),
         team_id,
         job_id,
         None,
@@ -188,7 +197,9 @@ def flow_rows(
             if page == first_page and index < skip:
                 continue
             flow_resource = rest_api_resource(
-                rest_config(config, get_resource(config, name, period_start, period_end, flow_id=flow["flowId"])),
+                rest_config(
+                    config, get_resource(config, name, period_start, period_end, flow_id=flow["flowId"]), session
+                ),
                 team_id,
                 job_id,
                 None,
