@@ -23,6 +23,7 @@ import type { HogFunctionTemplateType, HogFunctionTemplateWithSubTemplateType, T
 
 import { CreateActionType } from '../hogFlowEditorLogic'
 import { StepCatalogEntry, buildStepCatalog } from './stepCatalog'
+import { stepPickerPreferencesLogic } from './stepPickerPreferencesLogic'
 import {
     StepPickerPickVia,
     StepPickerSurface,
@@ -32,6 +33,7 @@ import {
     groupProviders,
     searchSteps,
     stepsForView,
+    visibleViews,
 } from './stepPickerPresentation'
 
 export interface StepPickerLogicProps {
@@ -52,6 +54,8 @@ export interface stepPickerLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     templates: HogFunctionTemplateWithSubTemplateType[] // hogFunctionTemplateListLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    favoriteStepIds: string[] // stepPickerPreferencesLogic
+    recentStepIds: string[] // stepPickerPreferencesLogic
     catalog: StepCatalogEntry[]
     destinationTemplates: HogFunctionTemplateType[] | null
     integrationsFailed: boolean
@@ -90,6 +94,12 @@ export interface stepPickerLogicActions {
         payload?: any
         rawTemplates: HogFunctionTemplateType[]
     } // hogFunctionTemplateListLogic
+    recordRecentStep: (stepId: string) => {
+        stepId: string
+    } // stepPickerPreferencesLogic
+    toggleFavoriteStep: (stepId: string) => {
+        stepId: string
+    } // stepPickerPreferencesLogic
     clearSearch: () => {
         value: true
     }
@@ -114,6 +124,9 @@ export interface stepPickerLogicActions {
     }
     setView: (view: StepPickerView) => {
         view: StepPickerView
+    }
+    toggleFavorite: (entry: StepCatalogEntry) => {
+        entry: StepCatalogEntry
     }
 }
 
@@ -142,8 +155,17 @@ export interface stepPickerLogicMeta {
             arg: any
         ) => StepCatalogEntry[]
         providers: (catalog: StepCatalogEntry[]) => StepProviderGroups
-        visibleViews: (catalog: StepCatalogEntry[]) => StepPickerView[]
-        viewSteps: (view: StepPickerView, catalog: StepCatalogEntry[]) => StepCatalogEntry[]
+        visibleViews: (
+            catalog: StepCatalogEntry[],
+            favoriteStepIds: string[],
+            recentStepIds: string[]
+        ) => StepPickerView[]
+        viewSteps: (
+            view: StepPickerView,
+            catalog: StepCatalogEntry[],
+            favoriteStepIds: string[],
+            recentStepIds: string[]
+        ) => StepCatalogEntry[]
         isSearching: (search: string) => boolean
         searchResults: (catalog: StepCatalogEntry[], search: string, isSearching: boolean) => StepCatalogEntry[]
         openedProvider: (providers: StepProviderGroups, openProviderId: string | null) => StepProvider | null
@@ -170,10 +192,14 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
             ['currentTeam'],
             hogFunctionTemplateListLogic(DESTINATION_TEMPLATES_PROPS),
             ['templates'],
+            stepPickerPreferencesLogic,
+            ['favoriteStepIds', 'recentStepIds'],
         ],
         actions: [
             hogFunctionTemplateListLogic(DESTINATION_TEMPLATES_PROPS),
             ['loadHogFunctionTemplates', 'loadHogFunctionTemplatesSuccess', 'loadHogFunctionTemplatesFailure'],
+            stepPickerPreferencesLogic,
+            ['toggleFavoriteStep', 'recordRecentStep'],
         ],
     })),
     actions({
@@ -184,6 +210,7 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
         closeProvider: true,
         selectStep: (stepId: string) => ({ stepId }),
         pickStep: (entry: StepCatalogEntry, via: StepPickerPickVia) => ({ entry, via }),
+        toggleFavorite: (entry: StepCatalogEntry) => ({ entry }),
     }),
     reducers({
         search: [
@@ -280,15 +307,18 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
         ],
         providers: [(s) => [s.catalog], (catalog: StepCatalogEntry[]): StepProviderGroups => groupProviders(catalog)],
         visibleViews: [
-            (s) => [s.catalog],
-            (catalog: StepCatalogEntry[]): StepPickerView[] =>
-                (['all', 'highlights', 'ai', 'posthog', 'flow'] as StepPickerView[]).filter(
-                    (view) => view === 'all' || stepsForView(view, catalog).length > 0
-                ),
+            (s) => [s.catalog, s.favoriteStepIds, s.recentStepIds],
+            (catalog: StepCatalogEntry[], favoriteStepIds: string[], recentStepIds: string[]): StepPickerView[] =>
+                visibleViews(catalog, { favoriteStepIds, recentStepIds }),
         ],
         viewSteps: [
-            (s) => [s.view, s.catalog],
-            (view: StepPickerView, catalog: StepCatalogEntry[]): StepCatalogEntry[] => stepsForView(view, catalog),
+            (s) => [s.view, s.catalog, s.favoriteStepIds, s.recentStepIds],
+            (
+                view: StepPickerView,
+                catalog: StepCatalogEntry[],
+                favoriteStepIds: string[],
+                recentStepIds: string[]
+            ): StepCatalogEntry[] => stepsForView(view, catalog, { favoriteStepIds, recentStepIds }),
         ],
         isSearching: [(s) => [s.search], (search: string): boolean => search.trim().length > 0],
         searchResults: [
@@ -308,7 +338,7 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
                 catalog.find((entry) => entry.id === selectedStepId) ?? null,
         ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ actions, props, values }) => ({
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(SEARCH_TRACKING_DEBOUNCE_MS)
             const query = search.trim()
@@ -339,7 +369,16 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
                 from_search: values.isSearching,
                 via,
             })
+            actions.recordRecentStep(entry.id)
             props.onPick(entry.action)
+        },
+        toggleFavorite: ({ entry }) => {
+            posthog.capture('workflow step picker favorite toggled', {
+                surface: props.surface,
+                step_id: entry.id,
+                favorite: !values.favoriteStepIds.includes(entry.id),
+            })
+            actions.toggleFavoriteStep(entry.id)
         },
     })),
     afterMount(({ actions, props }) => {

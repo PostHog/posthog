@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconAI, IconDecisionTree, IconList, IconLogomark, IconSparkles } from '@posthog/icons'
+import {
+    IconAI,
+    IconClockRewind,
+    IconDecisionTree,
+    IconList,
+    IconLogomark,
+    IconSparkles,
+    IconStar,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { stepPickerLogic } from './stepPickerLogic'
@@ -10,6 +18,8 @@ const VIEW_ICONS: Record<StepPickerView, JSX.Element> = {
     all: <IconList />,
     highlights: <IconSparkles />,
     ai: <IconAI />,
+    favorites: <IconStar />,
+    recents: <IconClockRewind />,
     posthog: <IconLogomark />,
     flow: <IconDecisionTree />,
 }

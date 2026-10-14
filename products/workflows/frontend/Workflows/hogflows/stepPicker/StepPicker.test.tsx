@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -8,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { TeamType, UserType } from '~/types'
 
 import { DESTINATION_TEMPLATES } from './stepCatalogTestTemplates'
 import { StepPicker } from './StepPicker'
@@ -32,19 +35,42 @@ const captured = (event: string): Record<string, any>[] =>
 
 const stepColumn = (): HTMLElement => screen.getByLabelText('Steps')
 
-const rowTitled = (title: string): HTMLElement => {
-    const row = within(stepColumn()).getByText(title).closest('li')
-    expect(row).not.toBeNull()
-    return row as HTMLElement
+const stepTitleElement = (title: string): HTMLElement => {
+    const titleElement = Array.from(
+        stepColumn().querySelectorAll<HTMLElement>('[data-attr="workflow-step-picker-step-title"]')
+    ).find((element) => element.textContent === title)
+    expect(titleElement).toBeTruthy()
+    return titleElement as HTMLElement
 }
+
+const rowTitled = (title: string): HTMLElement => stepTitleElement(title).closest('li') as HTMLElement
 
 const visibleRowTitles = (): string[] =>
     within(stepColumn())
-        .getAllByRole('listitem')
+        .queryAllByRole('listitem')
         .map((row) => row.querySelector('[data-attr="workflow-step-picker-step-title"]')?.textContent)
         .filter((title): title is string => !!title)
 
 const breadcrumb = (): HTMLElement => screen.getByLabelText('Breadcrumb')
+
+const stepDetails = (): HTMLElement => screen.getByLabelText('Step details')
+
+const OTHER_TEAM: TeamType = { ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 4242 }
+const OTHER_USER: UserType = { ...MOCK_DEFAULT_USER, uuid: 'another-user-uuid' }
+
+const startKea = ({
+    team = MOCK_DEFAULT_TEAM,
+    user = MOCK_DEFAULT_USER,
+    flags = ALL_STEP_FLAGS,
+}: { team?: TeamType; user?: UserType; flags?: string[] } = {}): void => {
+    window.POSTHOG_APP_CONTEXT = {
+        ...window.POSTHOG_APP_CONTEXT,
+        current_user: user,
+    } as typeof window.POSTHOG_APP_CONTEXT
+    initKeaTests(true, team)
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+}
 
 describe('StepPicker', () => {
     let onPick: jest.Mock
@@ -56,12 +82,8 @@ describe('StepPicker', () => {
 
     beforeEach(() => {
         useMocks({ get: { [TEMPLATES_PATH]: { count: DESTINATION_TEMPLATES.length, results: DESTINATION_TEMPLATES } } })
-        initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(
-            ALL_STEP_FLAGS,
-            Object.fromEntries(ALL_STEP_FLAGS.map((flag) => [flag, true]))
-        )
+        localStorage.clear()
+        startKea()
         jest.clearAllMocks()
         onPick = jest.fn()
     })
@@ -142,7 +164,7 @@ describe('StepPicker', () => {
         expect(within(breadcrumb()).getByText('HubSpot')).toBeInTheDocument()
         expect(visibleRowTitles()).toEqual(['Create contact', 'Create company', 'Send event'])
 
-        fireEvent.click(within(rowTitled('Send event')).getByText('Send event'))
+        fireEvent.click(stepTitleElement('Send event'))
         fireEvent.click(within(screen.getByLabelText('Step details')).getByText('Add step'))
 
         expect(onPick).toHaveBeenCalledWith(
@@ -201,5 +223,83 @@ describe('StepPicker', () => {
         fireEvent.click(screen.getByText('Clear search'))
         expect(screen.getByPlaceholderText('Search steps')).toHaveValue('')
         expect(screen.getByText('HubSpot')).toBeInTheDocument()
+    })
+    it('keeps starred steps under Favorites until they are unstarred', async () => {
+        renderPicker()
+
+        fireEvent.click(screen.getByText('Favorites'))
+        expect(screen.getByText('No favorites yet. Star a step to keep it here.')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Highlights'))
+        fireEvent.click(await waitFor(() => stepTitleElement('Slack')))
+        fireEvent.click(within(stepDetails()).getByText('Add to favorites'))
+        fireEvent.click(stepTitleElement('Run scout'))
+        fireEvent.click(within(stepDetails()).getByText('Add to favorites'))
+
+        fireEvent.click(screen.getByText('Favorites'))
+        expect(visibleRowTitles()).toEqual(['Slack', 'Run scout'])
+
+        fireEvent.click(stepTitleElement('Slack'))
+        fireEvent.click(within(stepDetails()).getByText('Remove from favorites'))
+
+        expect(visibleRowTitles()).toEqual(['Run scout'])
+        expect(captured('workflow step picker favorite toggled')).toEqual([
+            { surface: 'tree', step_id: 'template-slack', favorite: true },
+            { surface: 'tree', step_id: 'template-posthog-run-scout', favorite: true },
+            { surface: 'tree', step_id: 'template-slack', favorite: false },
+        ])
+    })
+
+    it('lists the last five picked steps newest first under Recently used', async () => {
+        renderPicker()
+
+        fireEvent.click(screen.getByText('Recently used'))
+        expect(screen.getByText('Steps you add show up here.')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Highlights'))
+        const picks = ['Create AI task', 'Classify with AI', 'Run scout', 'Send message', 'Create task', 'Email']
+        for (const title of [...picks, 'Classify with AI']) {
+            fireEvent.click(within(await waitFor(() => rowTitled(title))).getByLabelText('Add step'))
+        }
+
+        fireEvent.click(screen.getByText('Recently used'))
+        expect(visibleRowTitles()).toEqual(['Classify with AI', 'Email', 'Create task', 'Send message', 'Run scout'])
+    })
+
+    it('keeps favorites and recents per team and user, and only shows steps available here', async () => {
+        renderPicker()
+        fireEvent.click(screen.getByText('Highlights'))
+        for (const title of ['Create AI task', 'Slack']) {
+            fireEvent.click(await waitFor(() => stepTitleElement(title)))
+            fireEvent.click(within(stepDetails()).getByText('Add to favorites'))
+            fireEvent.click(within(rowTitled(title)).getByLabelText('Add step'))
+        }
+        unmount()
+
+        const favoritesAndRecents = async (): Promise<string[][]> => {
+            renderPicker()
+            await waitFor(() => expect(screen.getByText('HubSpot')).toBeInTheDocument())
+            fireEvent.click(screen.getByText('Favorites'))
+            const favorites = visibleRowTitles()
+            fireEvent.click(screen.getByText('Recently used'))
+            const recents = visibleRowTitles()
+            unmount()
+            return [favorites, recents]
+        }
+
+        startKea()
+        expect(await favoritesAndRecents()).toEqual([
+            ['Create AI task', 'Slack'],
+            ['Slack', 'Create AI task'],
+        ])
+
+        startKea({ team: OTHER_TEAM })
+        expect(await favoritesAndRecents()).toEqual([[], []])
+
+        startKea({ user: OTHER_USER })
+        expect(await favoritesAndRecents()).toEqual([[], []])
+
+        startKea({ flags: ALL_STEP_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION) })
+        expect(await favoritesAndRecents()).toEqual([['Slack'], ['Slack']])
     })
 })

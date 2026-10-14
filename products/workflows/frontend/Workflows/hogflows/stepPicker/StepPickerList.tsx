@@ -5,12 +5,19 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { StepCatalogEntry } from './stepCatalog'
 import { StepPickerBreadcrumb } from './StepPickerBreadcrumb'
 import { stepPickerLogic } from './stepPickerLogic'
-import { providerLabelOf } from './stepPickerPresentation'
+import { StepPickerView, providerLabelOf } from './stepPickerPresentation'
 import { StepPickerProviderRow } from './StepPickerProviderRow'
 import { StepPickerStepRow } from './StepPickerStepRow'
 
 const withProvider = (entry: StepCatalogEntry): string => providerLabelOf(entry)
 const withDescription = (entry: StepCatalogEntry): string => entry.description
+
+const EMPTY_VIEW_MESSAGES: Partial<Record<StepPickerView, string>> = {
+    favorites: 'No favorites yet. Star a step to keep it here.',
+    recents: 'Steps you add show up here.',
+}
+
+const VIEWS_SUBTITLED_WITH_PROVIDER: StepPickerView[] = ['highlights', 'favorites', 'recents']
 
 export function StepPickerList(): JSX.Element {
     const {
@@ -102,7 +109,11 @@ export function StepPickerList(): JSX.Element {
                 </div>
             )
         }
-        return stepList(viewSteps, view === 'highlights' ? withProvider : withDescription)
+        const emptyViewMessage = EMPTY_VIEW_MESSAGES[view]
+        if (viewSteps.length === 0 && emptyViewMessage) {
+            return <div className="py-12 text-center text-sm text-secondary">{emptyViewMessage}</div>
+        }
+        return stepList(viewSteps, VIEWS_SUBTITLED_WITH_PROVIDER.includes(view) ? withProvider : withDescription)
     }
 
     return (

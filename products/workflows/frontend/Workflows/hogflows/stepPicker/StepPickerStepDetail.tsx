@@ -6,6 +6,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
 import { StepCatalogEntry } from './stepCatalog'
+import { StepPickerFavoriteToggle } from './StepPickerFavoriteToggle'
 import { stepPickerLogic } from './stepPickerLogic'
 import { STEP_CATEGORY_LABELS, providerLabelOf, stepTitle } from './stepPickerPresentation'
 import { StepPickerStepIcon } from './StepPickerStepIcon'
@@ -43,6 +44,7 @@ export function StepPickerStepDetail({ entry }: { entry: StepCatalogEntry }): JS
                 >
                     Add step
                 </LemonButton>
+                <StepPickerFavoriteToggle entry={entry} />
             </div>
         </div>
     )
