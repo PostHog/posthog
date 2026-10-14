@@ -8,17 +8,22 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.contracts import InsightDataChecks
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataCheckLevel
+from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.insight_data_checks import DataCheckCounts, evaluate_data_checks
 
 PASSED = InsightDataCheckLevel.PASSED
@@ -393,3 +398,90 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert self._check(query).status == "unsupported"
+
+    @parameterized.expand(
+        [
+            ("found_by_numeric_id", "id", True, {"events_checked": 540}),
+            ("found_by_short_id", "short_id", True, {"events_checked": 540}),
+            ("without_a_stored_query", "id", False, {"status": "unsupported"}),
+        ]
+    )
+    def test_checks_the_query_a_saved_insight_stores(
+        self, _name: str, reference: str, stores_a_query: bool, expected: dict[str, Any]
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query=self._query(filterTestAccounts=True) if stores_a_query else None,
+            filters={} if stores_a_query else {"insight": "LIFECYCLE", "events": [{"id": EVENT}]},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{getattr(insight, reference)}/data_checks/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert {key: response.json()[key] for key in expected} == expected
+
+    def test_does_not_check_an_insight_from_another_project(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        insight = Insight.objects.create(team=other_team, query=self._query())
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("without_the_query_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("with_the_query_scope", ["insight:read", "query:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_an_api_key_needs_the_query_scope_to_check_a_query_that_is_not_saved(
+        self, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/",
+            {"query": self._query()},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == expected, response.content
+
+    def test_a_member_without_query_access_can_only_check_a_saved_insight(self) -> None:
+        insight = Insight.objects.create(team=self.team, query=self._query())
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="query", organization_member=self.organization_membership, access_level="none"
+        )
+
+        not_saved = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/", {"query": self._query()}, format="json"
+        )
+        saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/")
+
+        assert not_saved.status_code == status.HTTP_403_FORBIDDEN, not_saved.content
+        assert saved.status_code == status.HTTP_200_OK, saved.content
+
+    @parameterized.expand(
+        [
+            ("without_a_query", None),
+            ("with_a_filter_that_is_not_valid_sql", {"properties": [{"type": "hogql", "key": "1 +"}]}),
+            (
+                "with_a_filter_on_a_field_that_does_not_exist",
+                {"properties": [{"type": "hogql", "key": "timestamp.day"}]},
+            ),
+        ]
+    )
+    def test_rejects_a_request_it_cannot_check(self, _name: str, source: dict[str, Any] | None) -> None:
+        body = {} if source is None else {"query": self._query(**source)}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/data_checks/", body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
