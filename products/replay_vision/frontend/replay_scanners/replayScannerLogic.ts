@@ -2259,8 +2259,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // one while the scanner saves the new one. Drop the card and let it rebuild.
                     actions.setExperimentContext(null)
                 }
-                // Solved dials mark a goal-flow draft; a legacy draft reaches the control arm, which never gets free-only.
+                // Solved dials mark a goal-flow draft. Free-only follows the request, because a draft whose costing failed has no dials.
                 const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
+                const freeOnlyDraft = !!payload?.freeOnly && payload.monthlyCreditBudget != null && goalFlowEnabled()
                 const base = newScanner(null, teamLogic.values.currentTeam?.name)
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context, asExperimentScanner) : base)
                 const draftQuery = goalDraft.query as RecordingsQuery | undefined
@@ -2297,7 +2298,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
                     ...(goalDraft.model ? { model: goalDraft.model } : {}),
-                    ...(payload?.freeOnly && isGoalFlowDraft
+                    ...(freeOnlyDraft
                         ? { free_only: true, credit_limit: null, credit_limit_enabled: false }
                         : goalDraft.credit_limit != null
                           ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }

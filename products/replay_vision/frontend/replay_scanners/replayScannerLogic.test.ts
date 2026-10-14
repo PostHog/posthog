@@ -232,18 +232,42 @@ describe('replayScannerLogic', () => {
         })
 
         it.each([
-            { flow: 'goal flow, free', goalFlow: true, freeOnly: true, expectFree: true, creditLimit: null },
-            { flow: 'goal flow, budget', goalFlow: true, freeOnly: false, expectFree: false, creditLimit: 4000 },
             {
-                flow: 'legacy draft asked for free',
-                goalFlow: false,
+                flow: 'goal flow, free',
+                variant: 'test',
+                solved: true,
+                freeOnly: true,
+                expectFree: true,
+                creditLimit: null,
+            },
+            {
+                flow: 'goal flow, budget',
+                variant: 'test',
+                solved: true,
+                freeOnly: false,
+                expectFree: false,
+                creditLimit: 4000,
+            },
+            {
+                flow: 'goal flow, free, costing failed',
+                variant: 'test',
+                solved: false,
+                freeOnly: true,
+                expectFree: true,
+                creditLimit: null,
+            },
+            {
+                flow: 'control arm asked for free',
+                variant: 'control',
+                solved: false,
                 freeOnly: true,
                 expectFree: false,
                 creditLimit: 4000,
             },
         ])(
             'applies the spend choice to the drafted scanner: $flow',
-            async ({ goalFlow, freeOnly, expectFree, creditLimit }) => {
+            async ({ variant, solved, freeOnly, expectFree, creditLimit }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: variant })
                 draftSpy.mockReturnValue([
                     200,
                     {
@@ -254,7 +278,7 @@ describe('replayScannerLogic', () => {
                         rationale: '',
                         query: null,
                         credit_limit: 4000,
-                        ...(goalFlow ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                        ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
                     },
                 ])
                 router.actions.push(urls.replayVisionScannerTemplate('new'))
