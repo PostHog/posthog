@@ -357,12 +357,12 @@ class Command(BaseCommand):
 
         if ref.key is None:
             return Outcome.MALFORMED, resolved
-        if ref.flag_id is None and isinstance(ref.stored_flag, dict) and ref.stored_flag.get("id") is not None:
-            # The stored id names a flag, but the scan cannot read it. A match on the key alone
-            # would accept whichever flag holds that key now.
-            return Outcome.MALFORMED, resolved
         key_resolves = flags.resolves(project_id, ref.key)
         if ref.flag_id is None:
+            if isinstance(ref.stored_flag, dict) and ref.stored_flag.get("id") is not None:
+                # The stored id names a flag, but the scan cannot read it. A match on the key alone
+                # would accept whichever flag holds that key now.
+                return Outcome.MALFORMED, resolved
             return (Outcome.ALREADY_CORRECT if key_resolves else Outcome.KEY_UNRESOLVABLE), resolved
         if (blocked := self._blocked_by(flag_id=ref.flag_id, project_id=project_id, flags=flags)) is not None:
             # A group copied from another project keeps that project's flag id beside a key that
