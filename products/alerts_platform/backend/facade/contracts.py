@@ -242,6 +242,9 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # A team's checks with the same group are due in one slot, so a source that answers them with
+    # one query can do so. None spreads the configuration by its own id.
+    schedule_group: str | None = None
 
 
 @frozen

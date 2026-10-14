@@ -1667,6 +1667,43 @@ export namespace Schemas {
       readonly email: string;
     }
 
+    export interface AccountAuditConflict {
+      /** Why this audit did not start. */
+      detail: string;
+    }
+
+    export interface AccountAuditStartRequest {
+      /** Organization that owns the target team. */
+      organization_id: string;
+      /**
+         * Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.
+         * @minimum 1
+         */
+      team_id?: number;
+      /**
+         * Why the account audit is being requested.
+         * @maxLength 500
+         */
+      reason: string;
+      /**
+         * Project ID containing the skill in this region. Audit credentials authorize reading skills from any project.
+         * @minimum 1
+         */
+      skill_project: number;
+      /**
+         * Name of the single-file skill in skill_project. Uses its latest active version.
+         * @maxLength 64
+         */
+      skill_name: string;
+    }
+
+    export interface AccountAuditStartResponse {
+      /** Native task run executing the account audit. */
+      task_run_id: string;
+      /** Resolved target team ID. */
+      team_id: number;
+    }
+
     /**
      * Metadata for one message a channel summary covered — never the message text.
      */
@@ -13801,6 +13838,11 @@ export namespace Schemas {
          */
       summary?: string | null;
       /**
+         * Short title for this experiment, for people.
+         * @nullable
+         */
+      headline?: string | null;
+      /**
          * Agent's self-assessed confidence 0–1
          * @nullable
          */
@@ -14550,6 +14592,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly summary: string | null;
+      /**
+         * Short title for this experiment, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailModelSpec;
     }
@@ -14601,6 +14648,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly reader_summary: string | null;
+      /**
+         * Short title for this run, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /**
          * Short plain-language next steps for people, at most 5. Null if not written.
          * @nullable
@@ -24653,6 +24705,11 @@ export namespace Schemas {
          * @nullable
          */
       reader_summary?: string | null;
+      /**
+         * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+         * @nullable
+         */
+      headline?: string | null;
       /**
          * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
          * @maxItems 5
@@ -54332,6 +54389,54 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type HeatmapCaptureRequestStateEnum = typeof HeatmapCaptureRequestStateEnum[keyof typeof HeatmapCaptureRequestStateEnum];
+
+
+    export const HeatmapCaptureRequestStateEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface HeatmapCaptureRequest {
+      /** Durable capture request identifier. */
+      request_id: string;
+      /** Queued, running, succeeded, failed, or cancelled.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      readonly state: HeatmapCaptureRequestStateEnum;
+      /** Deadline after which this request cannot publish an image. */
+      readonly deadline: string;
+      /**
+         * Reason this capture failed, when known.
+         * @nullable
+         */
+      readonly failure_cause: string | null;
+      /**
+         * HTTP status returned by the rendered page.
+         * @nullable
+         */
+      readonly page_status: number | null;
+      /**
+         * When this request finished.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    /**
      * * `all` - All URLs
      * * `url_allowlist` - Only listed URLs
      */
@@ -54437,6 +54542,98 @@ export namespace Schemas {
       pointer_y: number;
       pointer_relative_x: number;
       pointer_target_fixed: boolean;
+    }
+
+    export interface HeatmapScreenshotHistoryCaptureResponse {
+      /** Initial state of the durable capture request. */
+      status: string;
+      /** Request to poll for the capture outcome. */
+      request_id: string;
+      /** Time this request expires if it has not completed. */
+      deadline: string;
+      /** Requested viewport width in CSS pixels. */
+      width: number;
+    }
+
+    /**
+     * * `scheduled` - Daily capture
+     * * `manual` - Requested capture
+     */
+    export type HeatmapScreenshotHistoryTriggerEnum = typeof HeatmapScreenshotHistoryTriggerEnum[keyof typeof HeatmapScreenshotHistoryTriggerEnum];
+
+
+    export const HeatmapScreenshotHistoryTriggerEnum = {
+      Scheduled: 'scheduled',
+      Manual: 'manual',
+    } as const;
+
+    /**
+     * * `ok` - Captured
+     * * `pending` - Capture pending
+     * * `failed` - Capture failed
+     */
+    export type HeatmapScreenshotHistoryStatusEnum = typeof HeatmapScreenshotHistoryStatusEnum[keyof typeof HeatmapScreenshotHistoryStatusEnum];
+
+
+    export const HeatmapScreenshotHistoryStatusEnum = {
+      Ok: 'ok',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface HeatmapScreenshotHistoryItem {
+      readonly id: string;
+      /** Project-local calendar day of this capture. */
+      readonly captured_on: string;
+      /**
+         * Time of the last successful capture.
+         * @nullable
+         */
+      readonly captured_at: string | null;
+      /** Actual viewport width of the available image, in CSS pixels. */
+      readonly width: number;
+      /** Project timezone when this image was captured. */
+      readonly timezone: string;
+      /** Inclusive UTC start of the captured project day. */
+      readonly day_start: string;
+      /** Exclusive UTC end of the captured project day. */
+      readonly day_end: string;
+      /** Time this history item expires. */
+      readonly expires_at: string;
+      /**
+         * Successful request UUID identifying this image revision.
+         * @nullable
+         */
+      readonly revision: string | null;
+      readonly trigger: HeatmapScreenshotHistoryTriggerEnum;
+      readonly status: HeatmapScreenshotHistoryStatusEnum;
+      /** @nullable */
+      readonly failure_cause: string | null;
+      /** @nullable */
+      readonly page_status: number | null;
+      /**
+         * Authenticated, versioned URL of the available JPEG.
+         * @nullable
+         */
+      readonly content_url: string | null;
+      /**
+         * Preview URL, or null when no preview is available.
+         * @nullable
+         */
+      readonly thumbnail_url: string | null;
+      /** Latest attempt, independent of the available image. */
+      latest_request: HeatmapCaptureRequest | null;
+    }
+
+    export interface HeatmapScreenshotHistoryResponse {
+      /** Viewport width (CSS pixels) daily captures of this heatmap are rendered at. */
+      width: number;
+      /** Captures older than this many days are deleted together with their images. */
+      retention_days: number;
+      /** Whether object storage is configured on this installation. Captures are only kept when it is. */
+      storage_available: boolean;
+      /** Captures within the retention window, newest first. */
+      results: HeatmapScreenshotHistoryItem[];
     }
 
     /**
@@ -57327,7 +57524,7 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
-      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
       unit?: string | null;
     }
 
@@ -60310,6 +60507,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly summary: string | null;
+      /**
+         * Short title for this experiment, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -66641,6 +66843,26 @@ export namespace Schemas {
       error?: string | null;
     }
 
+    export interface NotebookCellVisualization {
+      /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+      display: string;
+      /**
+         * Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y series do not use when there is no date column.
+         * @nullable
+         */
+      x_axis: string | null;
+      /**
+         * Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list means the author removed every series, so the chart plots nothing.
+         * @nullable
+         */
+      y_axis: string[] | null;
+      /**
+         * Column that splits the Y series into one series per value, or null.
+         * @nullable
+         */
+      series_breakdown: string | null;
+    }
+
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
@@ -66662,6 +66884,8 @@ export namespace Schemas {
       dependents: string[];
       /** Summary of the most recent run; null when never run. */
       last_run?: NotebookCellLastRun | null;
+      /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+      visualization?: NotebookCellVisualization | null;
     }
 
     export interface NotebookCollabCursor {
@@ -73016,18 +73240,6 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
-    /**
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed
-     */
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
 
 
@@ -73423,6 +73635,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -73532,6 +73745,11 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
+      /**
+         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+         * @nullable
+         */
+      readonly inbox_merge_key: number | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -73541,6 +73759,11 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportList[];
+      /**
+         * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * @nullable
+         */
+      ranker?: string | null;
     }
 
     /**
@@ -84616,8 +84839,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 11
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 12
          */
       write_scopes?: string[];
       /**
@@ -85785,6 +86008,7 @@ export namespace Schemas {
 
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -85815,6 +86039,7 @@ export namespace Schemas {
 
     export const TaskOriginProductEnum = {
       Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -85876,6 +86101,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -94401,6 +94627,11 @@ export namespace Schemas {
          */
       summary?: string | null;
       /**
+         * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+         * @nullable
+         */
+      headline?: string | null;
+      /**
          * Agent's self-assessed confidence (0-1) that this iteration helps.
          * @minimum 0
          * @maximum 1
@@ -94458,6 +94689,71 @@ export namespace Schemas {
     export interface RecordVisitResponse {
       /** True once today's visit row exists for the user. */
       recorded: boolean;
+    }
+
+    export interface WizardScanSignal {
+      /**
+         * Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.
+         * @maxLength 32
+         */
+      source: string;
+      /**
+         * The package name, `.env` key name or script host that matched. Never a `.env` value.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Path of the file the signal came from, relative to the scanned directory.
+         * @maxLength 512
+         * @nullable
+         */
+      file?: string | null;
+    }
+
+    export interface WizardScanTool {
+      /**
+         * The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The signals that matched this tool.
+         * @maxItems 50
+         */
+      signals: WizardScanSignal[];
+    }
+
+    export interface RecordWizardScanRequest {
+      /**
+         * The wizard run that made the scan.
+         * @maxLength 255
+         */
+      session_id: string;
+      /**
+         * The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.
+         * @maxLength 50
+         */
+      program: string;
+      /**
+         * Version of the wizard that made the scan.
+         * @maxLength 32
+         */
+      wizard_version: string;
+      /**
+         * sha256 hex digest that identifies the scanned repository without naming it.
+         * @maxLength 64
+         * @pattern ^[0-9a-f]{64}$
+         */
+      workspace_fingerprint: string;
+      /** When the wizard scanned the codebase. */
+      scanned_at: string;
+      /**
+         * Every tool the scan found. An empty list is a scan that found nothing.
+         * @maxItems 300
+         */
+      tools: WizardScanTool[];
+      /** False when the scan could not read the whole workspace. Tools it did not find are then kept. */
+      complete?: boolean;
     }
 
     /**
@@ -95024,6 +95320,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -96624,6 +96921,7 @@ export namespace Schemas {
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
      * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit
      */
     export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
 
@@ -96635,6 +96933,7 @@ export namespace Schemas {
       DedupAnchor: 'dedup_anchor',
       DedupSibling: 'dedup_sibling',
       Cap: 'cap',
+      Budget: 'budget',
     } as const;
 
     export interface ReviewDroppedFinding {
@@ -96666,7 +96965,8 @@ export namespace Schemas {
        * * `dedup_comment` - Already in a PR comment
        * * `dedup_anchor` - Same spot as another finding
        * * `dedup_sibling` - Repeat of a finding
-       * * `cap` - Over the limit */
+       * * `cap` - Over the limit
+       * * `budget` - Over the pull request limit */
       disposition: ReviewDropDispositionEnum;
       /**
          * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
@@ -98231,8 +98531,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 11
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 12
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -98513,8 +98813,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 11
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 12
          */
       readonly write_scopes: readonly string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -101426,8 +101726,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 11
+         * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+         * @maxItems 12
          */
       write_scopes?: string[];
       /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -108681,6 +108981,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -110377,6 +110678,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -113923,6 +114225,55 @@ export namespace Schemas {
     }
 
     /**
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app
+     */
+    export type WizardSetupModeEnum = typeof WizardSetupModeEnum[keyof typeof WizardSetupModeEnum];
+
+
+    export const WizardSetupModeEnum = {
+      InCli: 'in-cli',
+      DeepLink: 'deep-link',
+    } as const;
+
+    /**
+     * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+     */
+    export type WizardCatalogToolSignalsPackages = {[key: string]: string[]};
+
+    export interface WizardCatalogToolSignals {
+      /** Anchored regexes matched against `.env` key names. Values are never read. */
+      env_key_patterns: string[];
+      /** Hosts matched against script URLs. A host also matches its subdomains. */
+      script_hosts: string[];
+      /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+      packages: WizardCatalogToolSignalsPackages;
+    }
+
+    export interface WizardCatalogTool {
+      /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+      kind: string;
+      /** Human-readable tool name. */
+      label: string;
+      /**
+         * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+         * @nullable
+         */
+      warehouse_source_type: string | null;
+      /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+       *
+       * * `in-cli` - In the terminal
+       * * `deep-link` - In the app */
+      wizard_setup_mode: WizardSetupModeEnum | null;
+      /** PostHog products this tool competes with. */
+      competes_with: string[];
+      /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+      superseded_by: string[];
+      /** How the wizard detects the tool in a codebase. */
+      signals: WizardCatalogToolSignals;
+    }
+
+    /**
      * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
@@ -114033,6 +114384,20 @@ export namespace Schemas {
     export interface WizardRunTaskList {
       /** Complete task list in snapshot order. */
       readonly tasks: readonly WizardRunTask[];
+    }
+
+    export interface WizardScanResult {
+      /** ID of the stored scan. */
+      id: string;
+      /** False when this session had already reported its scan, so nothing changed. */
+      created: boolean;
+    }
+
+    export interface WizardToolCatalog {
+      /** Bumped when the shape changes in a way an older wizard cannot read. */
+      schema_version: number;
+      /** Every tool the wizard can detect. */
+      tools: WizardCatalogTool[];
     }
 
     /**
@@ -115588,6 +115953,11 @@ export namespace Schemas {
          * @nullable
          */
       clause?: string | null;
+      /**
+         * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+         * @nullable
+         */
+      unit?: string | null;
     }
 
     export interface _MetricAnomalyReport {
@@ -128469,6 +128839,29 @@ export namespace Schemas {
     type?: string;
     };
 
+    export type SavedScreenshotHistoryContentRetrieveParams = {
+    /**
+     * Successful request UUID; stale revisions return 404.
+     */
+    v: string;
+    /**
+     * Full JPEG or thumbnail. Missing thumbnails return 404.
+     *
+     * * `full` - Full page
+     * * `thumbnail` - Thumbnail
+     * @minLength 1
+     */
+    variant?: SavedScreenshotHistoryContentRetrieveVariant;
+    };
+
+    export type SavedScreenshotHistoryContentRetrieveVariant = typeof SavedScreenshotHistoryContentRetrieveVariant[keyof typeof SavedScreenshotHistoryContentRetrieveVariant];
+
+
+    export const SavedScreenshotHistoryContentRetrieveVariant = {
+      Full: 'full',
+      Thumbnail: 'thumbnail',
+    } as const;
+
     export type SavedQueryColumnAnnotationsListParams = {
     /**
      * Number of results to return per page.
@@ -128682,7 +129075,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string;
     /**
@@ -129667,6 +130060,7 @@ export namespace Schemas {
      * Exclude tasks with this origin product from the results
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -129815,6 +130209,7 @@ export namespace Schemas {
 
     export const TasksListExcludeOriginProduct = {
       Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -130852,6 +131247,11 @@ export namespace Schemas {
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
+     * @minLength 1
+     */
+    created_by?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
      * @minLength 1

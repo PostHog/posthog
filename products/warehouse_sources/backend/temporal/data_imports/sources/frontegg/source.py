@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]):
+    codebase_detection = detect(
+        env=("^FRONTEGG_",),
+        npm=(
+            "@frontegg/react",
+            "@frontegg/nextjs",
+            "@frontegg/js",
+            "@frontegg/client",
+            "@frontegg/angular",
+            "@frontegg/vue",
+            "@frontegg/react-native",
+        ),
+        pypi=("frontegg",),
+        cocoapods=("FronteggSwift",),
+        maven=("com.frontegg.sdk:android",),
+        pub=("frontegg_flutter",),
+        swiftpm=("github.com/frontegg/frontegg-ios-swift", "github.com/frontegg/frontegg-ionic-capacitor"),
+    )
+
     lists_tables_without_credentials = True
     # The pin selects the users API; roles and permissions have independent endpoint versions.
     supported_versions = ("v3",)

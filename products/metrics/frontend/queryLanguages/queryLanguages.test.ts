@@ -748,7 +748,10 @@ describe('metrics query languages', () => {
                 ([, expected, kind]) =>
                     expected &&
                     kind === 'lossless' &&
-                    expected.clauses.every((clause) => clause.aggregation !== 'histogram_quantile')
+                    expected.clauses.every(
+                        (clause) =>
+                            clause.aggregation !== 'histogram_quantile' || [0.5, 0.95, 0.99].includes(clause.quantile!)
+                    )
             )
         )('switching %s to the builder and back is lossless', (text) => {
             const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
@@ -895,10 +898,10 @@ describe('metrics query languages', () => {
                 'builder',
             ],
             [
-                'a histogram quantile, which the builder can chart but not edit',
+                'a histogram quantile without a builder percentile, which the builder can chart but not edit',
                 metricsQuery({
                     language: 'promql',
-                    promql: 'histogram_quantile(0.5, sum by (le) (rate({"http.server.duration_bucket"})))',
+                    promql: 'histogram_quantile(0.9, sum by (le) (rate({"http.server.duration_bucket"})))',
                 }),
                 'builder',
             ],

@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -56,6 +57,8 @@ _MISSING_VENDOR_NUMBER = (
 
 @SourceRegistry.register
 class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStoreConnectResumeConfig]):
+    codebase_detection = detect(env=("^(APP_STORE_CONNECT|APPSTORECONNECT)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.apple.com/documentation/appstoreconnectapi"
 
