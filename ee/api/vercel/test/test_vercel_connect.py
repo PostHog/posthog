@@ -409,6 +409,26 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert [first.status_code, replay.status_code] == [302, status.HTTP_400_BAD_REQUEST]
         assert mock_client.oauth_token_exchange.call_count == 1
 
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_retry_after_failed_exchange_keeps_marketplace_next(self, mock_client_class: MagicMock) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+        mock_client.oauth_token_exchange.side_effect = [
+            OAuthTokenResponse(access_token="", token_type="", installation_id="", user_id="", error="server_error"),
+            mock_client.oauth_token_exchange.return_value,
+        ]
+        state = _state_from_install_redirect(
+            self.client.get(self.url, {"code": "code_from_marketplace", "next": "https://vercel.com/marketplace"})
+        )
+        install_return = {"code": "code_from_install", "source": "external", "state": state}
+
+        failed = self.client.get(self.url, install_return)
+        retried = self.client.get(self.url, install_return)
+
+        assert [failed.status_code, retried.status_code] == [status.HTTP_401_UNAUTHORIZED, 302]
+        session = _load_connect_session(_session_token_from_redirect(retried["Location"]))
+        assert session["next_url"] == "https://vercel.com/marketplace"
+
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectSessionInfo(VercelConnectTestBase):

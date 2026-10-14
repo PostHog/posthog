@@ -126,11 +126,12 @@ def _install_continuation_cache_key(state: str) -> str:
     return INSTALL_CONTINUATION_CACHE_PREFIX + hashlib.sha256(state.encode()).hexdigest()
 
 
-def _pop_install_continuation(state: str) -> str:
-    key = _install_continuation_cache_key(state)
-    next_url = cache.get(key, "")
-    cache.delete(key)
-    return next_url
+def _install_continuation(state: str) -> str:
+    return cache.get(_install_continuation_cache_key(state), "")
+
+
+def _forget_install_continuation(state: str) -> None:
+    cache.delete(_install_continuation_cache_key(state))
 
 
 def _drop_excess_install_state_cookies(request: Request, response: HttpResponse) -> None:
@@ -312,7 +313,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             _reject_install_return_without_state(request)
             return _redirect_through_vercel_install(request, next_url)
         _require_install_state_from_this_browser(request, state)
-        next_url = _pop_install_continuation(state) or next_url
+        next_url = _install_continuation(state) or next_url
 
         client = VercelAPIClient(bearer_token=None)
         token_response = client.oauth_token_exchange(
@@ -355,6 +356,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 
         _set_browser_nonce_cookie(request, response, browser_nonce)
         _clear_install_state_cookie(response, state)
+        _forget_install_continuation(state)
         return response
 
 
