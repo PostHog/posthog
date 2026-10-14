@@ -25,6 +25,7 @@ Known gaps and behavior that stays on the device.
 
 - **Android text wrapping** is greedy, so a headline can end on a single word. iOS and web avoid it.
 - **Hover states** only show on web.
+- **`expo-localization` is unused.** Only the Today briefing request used it, for the timezone. Removing it needs a native rebuild.
 
 ## Verification limits
 
@@ -69,7 +70,11 @@ Known gaps and behavior that stays on the device.
 
 - **`today:read` scope.** The Today page needs `today:read`. Without it in the OAuth request, the page returns 403 and the report screen always uses signal evidence.
 - **Inbox length.** The server ranks at most 500 open reports for a user, so the inbox does not list more than that.
+- **Reports the ranking hides.** The ranking leaves out reports the model expects to be dismissed as wrong, so a report that names the user can be missing from the inbox.
+- **Inbox paging needs the backend first.** The inbox pages only on a server that has the `for_you/` `offset` parameter and `next` link. An older server sends no `next`, so the inbox shows its first 20 reports and stops.
 - **Inbox paging.** Each page ranks the list again. A report that moves down while the user scrolls can be skipped until the next refresh.
+- **A change on the report screen refetches every loaded page.** Snooze, reviewers, priority and hand-off invalidate the inbox list, and the list then refetches each loaded page in turn. Each of those requests ranks the whole list again.
+- **The signal snooze store is nearly redundant.** The server drops a report snoozed until more signals from `for_you/`, so the device entry only labels the row until the list refetches. The store and its labels could go.
 - **Time snoozes do not sync** to other devices or the web, and are lost when the app's storage is cleared.
 - **Inbox rows** carry no progress label.
 - **Evidence** maps error, feedback and recording signals only. Scout findings, GitHub and analytics signals add no evidence block.
@@ -87,7 +92,7 @@ Known gaps and behavior that stays on the device.
 - **Local dev app is not first-party.** On a local stack the consent screen shows and access tokens last 1 hour.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.
 - **Project switcher lists environments as projects** when a project has more than one environment (team), because it lists teams.
-- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the inbox would always use the signals fallback. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
+- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
 
 ## Hand-off and task runs
 
