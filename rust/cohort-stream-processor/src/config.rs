@@ -2075,7 +2075,7 @@ mod tests {
         enabled().validate_startup().unwrap();
 
         type Misconfigure = fn(&mut Config);
-        let cases: [(&str, Misconfigure, &str); 9] = [
+        let cases: [(&str, Misconfigure, &str); 10] = [
             (
                 "no bucket",
                 |c| c.checkpoint_s3_bucket.clear(),
