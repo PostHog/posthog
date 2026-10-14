@@ -276,6 +276,32 @@ describe('translation validation', () => {
     )
 
     it.each([
+        [
+            'on',
+            true,
+            [
+                {
+                    language: 'fr',
+                    questionIndex: -1,
+                    field: 'backButtonText',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ],
+        ],
+        ['off', false, []],
+    ] as const)('validates the back button translation with going back %s', async (_name, allowGoBack, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { allowGoBack },
+            translations: { fr: { backButtonText: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it.each([
         ['an empty button text', 'introScreenButtonText', '', []],
         ['an unset button text', 'introScreenButtonText', undefined, []],
         [
@@ -323,6 +349,16 @@ describe('translation validation', () => {
         const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
 
         expect(payload.appearance?.introScreenButtonText).toBe(expected)
+    })
+
+    it.each([
+        ['back enabled with no button text', { allowGoBack: true }, 'Back'],
+        ['back enabled with button text', { allowGoBack: true, backButtonText: 'Go back' }, 'Go back'],
+        ['back disabled', { allowGoBack: false, backButtonText: 'Go back' }, undefined],
+    ] as const)('sends the effective back button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.backButtonText).toBe(expected)
     })
 
     it('does not validate survey root description translations', async () => {

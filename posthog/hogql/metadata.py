@@ -29,7 +29,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
-from posthog.hogql.direct_sql import get_adapter
+from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
@@ -187,7 +187,7 @@ def get_hogql_metadata(
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:
-                direct_adapter = get_adapter(source.direct_engine) if source else None
+                direct_adapter = get_adapter_for_source(source, team=team) if source else None
                 direct_dialect: HogQLDialect = (
                     direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
