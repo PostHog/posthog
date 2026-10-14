@@ -261,6 +261,31 @@ def delete_node(team_id: int, node_id: UUID) -> None:
     delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
 
 
+def deleted_saved_query_nodes() -> QuerySet[Node]:
+    return Node.objects.filter(saved_query__deleted=True)
+
+
+def delete_nodes_and_reconcile(team_id: int, nodes: QuerySet[Node]) -> None:
+    dags = sorted(DAG.objects.filter(team_id=team_id, id__in=nodes.values("dag_id")), key=lambda dag: str(dag.id))
+    with transaction.atomic():
+        for dag in dags:
+            lock_dag(team_id, dag.id)
+        delete_nodes(team_id, nodes)
+    for dag in dags:
+        maybe_reconcile_dag(dag)
+
+
+def delete_deleted_saved_query_nodes_for_teams(team_ids: Iterable[int]) -> list[int]:
+    failed_team_ids: list[int] = []
+    for team_id in team_ids:
+        try:
+            delete_nodes_and_reconcile(team_id, deleted_saved_query_nodes().filter(team_id=team_id))
+        except Exception:
+            logger.exception("Could not delete nodes of deleted saved queries", team_id=team_id)
+            failed_team_ids.append(team_id)
+    return failed_team_ids
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],
