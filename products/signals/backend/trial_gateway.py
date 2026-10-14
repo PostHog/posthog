@@ -23,6 +23,7 @@ def fetch_trial_gateway_cost(*, environment_id: int, operation_id: UUID) -> Tria
             headers={"Authorization": f"Bearer {settings.AI_GATEWAY_API_KEY}"},
             timeout=10,
             follow_redirects=False,
+            trust_env=False,
         )
         response.raise_for_status()
         data = response.json()

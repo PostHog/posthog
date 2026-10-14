@@ -249,7 +249,11 @@ While the v2 rollout is enabled, a claimed project and its environments replace 
 
 Research that returns a report to potential releases its unused report slot and ends that pass's funding decision. Delivered reports keep their consumed slots. A multi-step plan reserves all child report slots atomically; if the entire set does not fit, only the parent report is published. Paid and trial report passes both finish at publication, so later work receives a fresh funding decision.
 
+A later paid report pass can publish a report whose trial reservation was released. Publication follows the latest pass's funding and preserves the historical trial reservation without consuming another trial slot.
+
 The allowance measures token and compute cost in integer micro-USD, without the customer task fee. Admission counts settled costs and outstanding reservations. Scoped gateway tokens carry immutable grant/operation attribution and cannot emit billable trial generations. Gateway request attribution is durable before provider dispatch, so reconciliation can recover requests even when caller callbacks are lost. Missing accounting remains incomplete and retains conservative reservations. A repeated sandbox token mint needs another reservation.
+
+Generation and trial usage lookups through `AI_GATEWAY_URL` bypass environment proxies, matching internal generation requests. Sandbox usage lookups through `SANDBOX_AI_GATEWAY_URL` retain environment proxy routing.
 
 Compute uses Tasks' existing CPU, memory, and duration calculation and rate card. It does not require a separate provider-invoice measurement. Embedding-worker accounting remains outside this change. If the remaining allowance cannot cover a bounded admission, that work stops with `allowance_reserved`; an unused remainder does not complete the trial or switch that work to paid funding.
 

@@ -357,6 +357,17 @@ class TrialPolicy:
             yield
             self._finish_report_passes(report_id)
             return
+        funding = (
+            SignalTrialOperation.objects.for_team(self.team_id, canonical=True)
+            .filter(report_id=report_id, stage=SignalTrialOperation.Stage.REPORT_PASS)
+            .order_by("-admitted_at")
+            .values_list("funding", flat=True)
+            .first()
+        )
+        if funding in {SignalTrialOperation.Funding.PAID, SignalTrialOperation.Funding.EXISTING}:
+            yield
+            self._finish_report_passes(report_id)
+            return
         with self.locked_grant(reservation.grant_id) as grant:
             reservation.refresh_from_db()
             if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered:

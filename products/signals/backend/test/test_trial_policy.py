@@ -137,6 +137,54 @@ class TestTrialPolicy(BaseTest):
             self.claim()
             assert self.admit(stage=SignalTrialOperation.Stage.IMPLEMENTATION, report_id=report.id).grant_id is not None
 
+    @parameterized.expand(
+        [
+            (SignalTrialOperation.Funding.PAID, SignalReport.Status.READY),
+            (SignalTrialOperation.Funding.PAID, SignalReport.Status.PENDING_INPUT),
+            (SignalTrialOperation.Funding.EXISTING, SignalReport.Status.READY),
+            (SignalTrialOperation.Funding.EXISTING, SignalReport.Status.PENDING_INPUT),
+        ]
+    )
+    def test_nontrial_pass_can_publish_after_released_trial_pass(self, funding: str, status: str) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.IN_PROGRESS)
+        self.admit(stage=SignalTrialOperation.Stage.REPORT_PASS, report_id=report.id)
+        report.status = SignalReport.Status.POTENTIAL
+        report.save(update_fields=["status"])
+
+        report.status = status
+        with self.assertRaisesMessage(TrialRefused, "report_reservation_released"):
+            report.save(update_fields=["status"])
+
+        SignalTrialGrant.objects.for_team(self.team.id).filter(id=grant.id).update(
+            exhausted_at=timezone.now(), exhaustion_reason="cost_limit"
+        )
+        self.flag_mock.return_value = funding == SignalTrialOperation.Funding.PAID
+        operation = self.policy.admit(
+            OperationAdmission(
+                operation_key=str(uuid4()),
+                stage=SignalTrialOperation.Stage.REPORT_PASS,
+                report_id=report.id,
+                estimated_microusd=100_000,
+            ),
+            paid_authorized=True,
+        )
+        assert operation.funding == funding
+        report.status = SignalReport.Status.IN_PROGRESS
+        report.save(update_fields=["status"])
+        report.status = status
+        report.save(update_fields=["status"])
+        report.save(update_fields=["status"])
+
+        report.refresh_from_db()
+        assert report.status == status
+        assert active_report_pass(self.team, report.id) is None
+        operation.refresh_from_db()
+        assert operation.finished_at is not None
+        slot = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id)
+        assert slot.status == SignalTrialReportReservation.Status.RELEASED
+        assert slot.consumed_at is None
+
     @parameterized.expand([(4, 4), (5, 0)])
     def test_stack_layers_share_report_ceiling(self, count: int, delivered: int) -> None:
         self.claim()

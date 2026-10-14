@@ -65,6 +65,9 @@ class TestSignalSpend(BaseTest):
         self.connect = patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=self.temporal))
         self.connect.start()
         self.addCleanup(self.connect.stop)
+        self.enterContext(
+            patch("products.signals.backend.trial_llm_execution.TrialLLMExecution.prepare", return_value=None)
+        )
 
     @parameterized.expand([("generation",), ("task",)])
     def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
