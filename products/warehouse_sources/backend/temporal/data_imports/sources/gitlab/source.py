@@ -113,7 +113,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
         # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
         # classify it as retryable so it's logged as a warning rather than tracked as an
         # exception. Mirrors GitHub's equivalent case.
-        return {"GitLab API error (retryable)"}
+        #
+        # A read timeout that exhausts both the adapter's own retries and fetch_page's tenacity
+        # retry (already covers requests.ReadTimeout/ConnectionError) gets the same treatment — a
+        # slow or unresponsive GitLab instance, not something reconnecting or reconfiguring the
+        # source can fix. Temporal still retries the activity from scratch. Mirrors GitHub's
+        # equivalent classification of the same urllib3 wording.
+        return {"GitLab API error (retryable)", "Read timed out"}
 
     def get_schemas(
         self,
