@@ -4,6 +4,7 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -19,19 +20,7 @@ import { scanDrought } from '../scanDrought'
 import { limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
-
-type StatusTone = 'success' | 'warning' | 'danger' | 'muted'
-
-// Green and yellow mean the scanner is still sweeping, so their dot pulses. Tailwind's own pulse runs at 2s,
-// which reads as urgent, so this slows it to 3s; reduced-motion users get a still dot.
-const ACTIVE_PULSE = 'animate-[pulse_3s_cubic-bezier(0.4,0,0.6,1)_infinite] motion-reduce:animate-none'
-
-const TONE_DOT: Record<StatusTone, string> = {
-    success: 'bg-success',
-    warning: 'bg-warning',
-    danger: 'bg-danger',
-    muted: 'bg-muted',
-}
+import { ScannerStatusLabel } from './ScannerStatusLabel'
 
 function formatInterval(minutes: number): string {
     // The throttle factor is any integer, so only whole hours read better in hours.
@@ -41,89 +30,52 @@ function formatInterval(minutes: number): string {
     return minutes === 60 ? 'hour' : pluralize(minutes / 60, 'hour')
 }
 
-function statusCopy(
-    status: ScannerStatus,
-    resetsOn: string | null,
-    periodEndsOn: string | null
-): { label: string; tone: StatusTone; detail: React.ReactNode } {
+function statusDetail(status: ScannerStatus, resetsOn: string | null, periodEndsOn: string | null): React.ReactNode {
     switch (status.kind) {
         case 'off':
-            return {
-                label: 'Off',
-                tone: 'muted',
-                detail:
-                    status.reason === 'no_sampling'
-                        ? 'Sampling is set to 0%, so no recordings are scanned.'
-                        : "This scanner doesn't scan new recordings.",
-            }
+            return status.reason === 'no_sampling'
+                ? 'Sampling is set to 0%, so no recordings are scanned.'
+                : "This scanner doesn't scan new recordings."
         case 'limit_reached':
-            return {
-                label: 'Stopped',
-                tone: 'danger',
-                detail: stoppedByFreeCredits(status)
-                    ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
-                    : limitReachedTooltip(status),
-            }
+            return stoppedByFreeCredits(status)
+                ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
+                : limitReachedTooltip(status)
         case 'quota_exhausted':
-            return {
-                label: 'Stopped',
-                tone: 'danger',
-                detail: `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`,
-            }
+            return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
         case 'starting':
-            return {
-                label: 'Starting',
-                tone: 'warning',
-                detail: 'The first scan is running. Results usually appear within 15 minutes.',
-            }
+            return 'The first scan is running. Results usually appear within 15 minutes.'
         case 'delayed':
-            return {
-                label: 'Delayed',
-                tone: 'warning',
-                detail: (
-                    <>
-                        Last checked for new recordings <TZLabel time={status.lastCheckedAt} />. Checks resume on their
-                        own. If this lasts, contact support.
-                    </>
-                ),
-            }
+            return (
+                <>
+                    Last checked for new recordings <TZLabel time={status.lastCheckedAt} />. Checks resume on their own.
+                    If this lasts, contact support.
+                </>
+            )
         case 'no_matches':
-            return {
-                label: 'No matches',
-                tone: 'warning',
-                detail: `${
-                    status.drought.everScanned
-                        ? 'Nothing has matched since the last configuration change.'
-                        : 'Nothing has matched yet.'
-                } The filters may match no recordings${
-                    status.drought.samplingRate < 1
-                        ? `, or ${percentage(status.drought.samplingRate)} sampling skipped them`
-                        : ''
-                }.`,
-            }
+            return `${
+                status.drought.everScanned
+                    ? 'Nothing has matched since the last configuration change.'
+                    : 'Nothing has matched yet.'
+            } The filters may match no recordings${
+                status.drought.samplingRate < 1
+                    ? `, or ${percentage(status.drought.samplingRate)} sampling skipped them`
+                    : ''
+            }.`
         case 'throttled':
-            return {
-                label: 'Throttled',
-                tone: 'warning',
-                detail: (
-                    <>
-                        Its filters read a lot of data, so it checks for new recordings every{' '}
-                        {formatInterval(status.intervalMinutes)} instead of every{' '}
-                        {formatInterval(SWEEP_INTERVAL_MINUTES)}. Last checked <TZLabel time={status.lastCheckedAt} />.
-                    </>
-                ),
-            }
+            return (
+                <>
+                    Its filters read a lot of data, so it checks for new recordings every{' '}
+                    {formatInterval(status.intervalMinutes)} instead of every {formatInterval(SWEEP_INTERVAL_MINUTES)}.
+                    Last checked <TZLabel time={status.lastCheckedAt} />.
+                </>
+            )
         case 'running':
-            return {
-                label: 'Running',
-                tone: 'success',
-                detail: (
-                    <>
-                        Checks for new recordings every {formatInterval(status.intervalMinutes)}. Last checked{' '}
-                        <TZLabel time={status.lastCheckedAt} />.
-                    </>
-                ),
-            }
+            return (
+                <>
+                    Checks for new recordings every {formatInterval(status.intervalMinutes)}. Last checked{' '}
+                    <TZLabel time={status.lastCheckedAt} />.
+                </>
+            )
     }
 }
 
@@ -142,7 +94,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
         drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
     })
     const periodEndsOn = quota ? dayjs.utc(quota.period_end).format('MMMM D') : null
-    const { label, tone, detail } = statusCopy(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
+    const detail = statusDetail(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
     const pausedByFreeCredits = status.kind === 'limit_reached' && stoppedByFreeCredits(status)
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
     const spend = spendAgainstLimit(scanner, quota)
@@ -171,13 +123,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
             <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-x-8 gap-y-4 items-start">
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                        <span
-                            className={`size-2 rounded-full shrink-0 ${TONE_DOT[tone]} ${
-                                tone === 'success' || tone === 'warning' ? ACTIVE_PULSE : ''
-                            }`}
-                            aria-hidden
-                        />
-                        <span className="text-sm font-semibold">{label}</span>
+                        <ScannerStatusLabel status={status} className="text-sm font-semibold" />
                     </div>
                     <div className="text-xs text-muted pl-4">
                         {detail}
@@ -200,10 +146,20 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                         )}
                     </div>
                     {pausedByFreeCredits && (
-                        <div className="pl-4 pt-1">
+                        <div className="pl-4 pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                             <LemonSwitch
                                 checked
-                                onChange={() => turnOffFreeOnly()}
+                                onChange={() =>
+                                    LemonDialog.open({
+                                        title: 'Turn off free credits only?',
+                                        description:
+                                            scanner.credit_limit != null
+                                                ? `This scanner keeps scanning past your free credits, and its scans are billed up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
+                                                : "This scanner keeps scanning past your free credits, and its scans are billed up to your organization's spend limit.",
+                                        primaryButton: { children: 'Turn off', onClick: () => turnOffFreeOnly() },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
                                 loading={turningOffFreeOnly}
                                 disabledReason={editDisabledReason}
                                 label="Free credits only"
@@ -212,6 +168,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 data-attr="vision-scanner-status-turn-off-free-only"
                                 data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                             />
+                            <span className="text-xs text-muted">
+                                Turn it off to keep scanning now. Scans past your free credits are billed.
+                            </span>
                         </div>
                     )}
                 </div>

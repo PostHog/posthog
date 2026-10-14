@@ -20,7 +20,3 @@ export function stoppedByFreeCredits(scanner: LimitFields): boolean {
 export function limitReachedTooltip(scanner: LimitFields): string {
     return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
 }
-
-export function limitReachedLabel(scanner: LimitFields): string {
-    return stoppedByFreeCredits(scanner) ? 'Free credits used' : 'Limit reached'
-}
