@@ -67,8 +67,12 @@ runs:
                   "$@"
               }
 
-              if [[ "$FULL_SCAN" == 'true' || "$GITHUB_EVENT_NAME" != 'pull_request' ]]; then
+              full_scan() {
                 semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}"
+              }
+
+              if [[ "$FULL_SCAN" == 'true' || "$GITHUB_EVENT_NAME" != 'pull_request' ]]; then
+                full_scan
                 exit 0
               fi
 
@@ -93,6 +97,12 @@ runs:
 
               targets=()
               while IFS= read -r -d '' path; do
+                # --x-ls prints one path per line, so a name with a newline never matches it.
+                if [[ "$path" == *$'\n'* ]]; then
+                  echo "A changed file name contains a newline, so running the full scan"
+                  full_scan
+                  exit 0
+                fi
                 if [[ -n "${is_target[$path]:-}" ]]; then
                   targets+=("$path")
                 fi
@@ -104,7 +114,7 @@ runs:
               fi
               # Keeps the command line under the kernel's argument size limit.
               if (( ${#targets[@]} > 3000 )); then
-                semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}"
+                full_scan
                 exit 0
               fi
               semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}" -- "${targets[@]}"
