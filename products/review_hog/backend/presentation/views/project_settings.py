@@ -175,7 +175,9 @@ def _entry_data(entry: OverviewEntry) -> dict[str, Any]:
     if repository is not None and repository.flash_for is not None:
         exception = {
             "flash_for": repository.flash_for,
-            "people": [dict(ReviewRepositoryPersonSerializer(person).data) for person in entry.exception_people],
+            # Model rows: the response serializer renders them, and a pre-rendered row would reach the
+            # nested user serializer as a dict.
+            "people": list(entry.exception_people),
         }
     return {
         "full_name": entry.full_name,
