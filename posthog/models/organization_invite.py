@@ -51,6 +51,24 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
 
+class GuestGrantResource(models.TextChoices):
+    DASHBOARD = "dashboard", "dashboard"
+    INSIGHT = "insight", "insight"
+    NOTEBOOK = "notebook", "notebook"
+
+
+def validate_guest_grants(value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("Guest grants must be a list.")
+    for item in value:
+        if not isinstance(item, dict) or item.get("resource") not in GuestGrantResource.values:
+            raise exceptions.ValidationError("Each guest grant needs a dashboard, insight or notebook resource.")
+        if item.get("id") is not None and not isinstance(item["id"], str):
+            raise exceptions.ValidationError("A guest grant id must be a string, or null for the whole resource.")
+
+
 class InviteExpiredException(exceptions.ValidationError):
     def __init__(self, message="This invite has expired. Please ask your admin for a new one."):
         super().__init__(message, code="expired")
@@ -86,6 +104,8 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         help_text="List of team IDs and corresponding access levels to private projects.",
         validators=[validate_private_project_access],
     )
+    # What a guest invite lets the guest view, as {"resource": ..., "id": ...}. A null id grants the whole resource.
+    guest_grants = models.JSONField(default=list, null=True, blank=True, validators=[validate_guest_grants])
     is_setup_delegation = models.BooleanField(
         default=False,
         help_text=(
@@ -143,6 +163,25 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 code="existing_email_address",
             )
 
+    def _grant_guest_access(self, user: "User", membership: OrganizationMembership) -> None:
+        project_ids = [item["id"] for item in self.private_project_access or []]
+        guest_team = self.organization.teams.filter(id__in=project_ids).first()
+        if guest_team is None:
+            # Raising rolls back the whole accept, so no guest is left without a project.
+            raise exceptions.ValidationError("The project in this guest invite no longer exists.")
+        for grant in self.guest_grants or []:
+            AccessControl.objects.create(
+                team=guest_team,
+                resource=grant["resource"],
+                resource_id=grant["id"],
+                organization_member=membership,
+                access_level="viewer",
+            )
+        # `User.join` picks the current project before the project rule exists, so set it to the guest's project.
+        user.current_organization = self.organization
+        user.current_team = guest_team
+        user.save(update_fields=["current_organization", "current_team"])
+
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
@@ -198,6 +237,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     organization_member=parent_membership,
                     access_level=item["level"],
                 )
+
+            if self.level == OrganizationMembership.Level.GUEST:
+                self._grant_guest_access(user, membership)
 
             # Sibling-invite sweep: clean up any other pending invites for the same email in this
             # org so the invitee doesn't accumulate stale rows. Other DELEGATION invites have

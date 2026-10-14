@@ -18,6 +18,7 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
+from posthog.guest_access import GUEST_MODE_FEATURE
 from posthog.helpers.email_utils import (
     EmailNormalizer,
     reject_plus_addressed_email,
@@ -31,6 +32,7 @@ from posthog.models.onboarding_delegation import (
     set_delegated_state,
 )
 from posthog.models.organization import Organization
+from posthog.models.organization_invite import GuestGrantResource
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
@@ -47,6 +49,9 @@ from posthog.rate_limit import (
 from posthog.tasks.email import send_invite
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
+from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
+from products.notebooks.backend.facade.authorization import active_authorization_notebook_ids
+from products.product_analytics.backend.facade.api import active_authorization_insight_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -163,8 +168,33 @@ def validate_invite_target_email_domain(organization: Organization, email: str) 
         )
 
 
+class GuestGrantSerializer(serializers.Serializer):
+    resource = serializers.ChoiceField(
+        choices=GuestGrantResource.choices, help_text="The resource type the guest may view."
+    )
+    id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="The ID of the object the guest may view. Null lets the guest view every object of this type in the project.",
+    )
+
+
+def _objects_in_project(resource: str, ids: set[str], team_id: int) -> frozenset[str]:
+    if resource == GuestGrantResource.DASHBOARD:
+        return active_authorization_dashboard_ids(team_id, ids)
+    if resource == GuestGrantResource.INSIGHT:
+        return active_authorization_insight_ids(team_id, ids)
+    return active_authorization_notebook_ids(team_id, ids)
+
+
 class OrganizationInviteSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    guest_grants = GuestGrantSerializer(
+        many=True,
+        required=False,
+        help_text="For a guest invite, the dashboards, insights and notebooks the guest may view, in the invite's one project.",
+    )
     send_email = serializers.BooleanField(write_only=True, default=True)
     combine_pending_invites = serializers.BooleanField(write_only=True, default=False)
 
@@ -182,6 +212,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "updated_at",
             "message",
             "private_project_access",
+            "guest_grants",
             "send_email",
             "combine_pending_invites",
         ]
@@ -298,8 +329,40 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
 
         return private_project_access
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        grants = attrs.get("guest_grants") or []
+        if attrs.get("level") != OrganizationMembership.Level.GUEST:
+            if grants:
+                raise exceptions.ValidationError({"guest_grants": "Only a guest invite can have guest grants."})
+            return attrs
+        if not self.context["get_organization"]().is_feature_available(GUEST_MODE_FEATURE):
+            raise exceptions.ValidationError({"level": "Your organization's plan doesn't include guest access."})
+        inviter = OrganizationMembership.objects.filter(
+            organization_id=self.context["organization_id"], user=self.context["request"].user
+        ).first()
+        if inviter is None or inviter.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only organization admins can invite guests.")
+        projects = attrs.get("private_project_access") or []
+        if len(projects) != 1 or projects[0]["level"] != "member":
+            raise exceptions.ValidationError(
+                {"private_project_access": "A guest invite needs exactly one project, with member access."}
+            )
+        if not grants:
+            raise exceptions.ValidationError({"guest_grants": "A guest invite needs at least one grant."})
+        team_id = projects[0]["id"]
+        for resource in {grant["resource"] for grant in grants}:
+            ids = {grant["id"] for grant in grants if grant["resource"] == resource and grant["id"] is not None}
+            if ids - _objects_in_project(resource, ids, team_id):
+                raise exceptions.ValidationError({"guest_grants": "Each object must be in the guest's project."})
+        attrs["guest_grants"] = [{"resource": grant["resource"], "id": grant["id"]} for grant in grants]
+        return attrs
+
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         combine_pending_invites = validated_data.pop("combine_pending_invites", False)
+        # Combining takes the highest level of pending invites, which would turn a guest invite into a member one.
+        if validated_data.get("level") == OrganizationMembership.Level.GUEST:
+            combine_pending_invites = False
         send_email = validated_data.pop("send_email", True)
 
         # Handle invite combination if requested
