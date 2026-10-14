@@ -39,13 +39,14 @@ describe('resolve', () => {
         const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']), MOUNTED)
 
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).toMatchObject({ state: 'steady', value: 'ga-id' })
-        // `previous` is the wire name; it carries the staged (incoming) value. The mismatch is
-        // deliberate and documented on WireSecret — the boundary lags the internal rename.
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).toMatchObject({
             state: 'rotating',
             value: 'ga-live',
-            previous: 'ga-staged',
+            incoming: 'ga-staged',
         })
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('incoming')
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_SECRET']).not.toHaveProperty('previous')
+        expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).not.toHaveProperty('previous')
     })
 
     // THE containment property at this layer: the scope is the identity's key list and

@@ -106,10 +106,10 @@ class TestCredentialsServiceClient(SimpleTestCase):
                 self.secrets.get(KEY, CALLER)
 
     def test_get_with_incoming_exposes_the_staged_value_during_a_rotation(self) -> None:
-        # The wire still calls it `previous`; it carries the value a rotation has STAGED, which the
-        # service accepts but has not made live. A caller retries with it when the provider has
-        # already been rotated — not to reach an older value, which is not served at all.
-        rotating = {"state": "rotating", "value": "live", "previous": "staged", "version_id": "v1", "fetched_at": "now"}
+        # The staged value is the one a rotation has accepted but not made live. A caller retries
+        # with it when the provider has already been rotated, not to reach an older value, which
+        # is not served at all.
+        rotating = {"state": "rotating", "value": "live", "incoming": "staged", "version_id": "v1", "fetched_at": "now"}
         with patch(POST, return_value=FakeResponse(body({KEY: rotating}))):
             secret = self.secrets.get_with_incoming(KEY, CALLER)
         assert secret.current == "live"
@@ -394,7 +394,7 @@ class TestResolveLogging(SimpleTestCase):
         rotating = {
             "state": "rotating",
             "value": "live",
-            "previous": "staged",
+            "incoming": "staged",
             "version_id": "v9",
             "fetched_at": "now",
         }
@@ -446,7 +446,7 @@ class TestResolveLogging(SimpleTestCase):
         rotating = {
             "state": "rotating",
             "value": secret_value,
-            "previous": "staged-do-not-log-me",
+            "incoming": "staged-do-not-log-me",
             "version_id": "v1",
             "fetched_at": "now",
         }

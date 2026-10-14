@@ -210,6 +210,15 @@ class TestParseHtml(SimpleTestCase):
         assert "\ufffd" not in text
         assert title == "Тест"
 
+    def test_control_characters_are_stripped_from_the_metadata_title(self) -> None:
+        html = (
+            b'<html><head><title>Raw</title><script type="application/ld+json">'
+            b'{"@type": "Article", "headline": "Refund\\u0000 policy"}</script></head>'
+            b"<body><article><p>We issue full refunds within 30 days of purchase.</p></article></body></html>"
+        )
+        title, _ = parse_html(html, "https://example.com/refunds")
+        assert title == "Refund policy"
+
 
 class TestCreateUrlSource(BaseTest):
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
