@@ -10852,6 +10852,10 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
+        masked_columns?: (Array<string> | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
         row_filters?:
             | (Array<{
                   column: string;
@@ -10929,6 +10933,7 @@ export namespace Schemas {
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
+        masked_columns?: (Array<string> | null) | undefined;
         row_filters?:
             | (Array<{
                   column: string;
