@@ -132,7 +132,7 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 
 ## CI scouts for PostHog's own CI
 
-Three Signals scouts in [`scouts/`](./scouts/) each watch one component of PostHog's own CI and post what they see to their own Slack channel:
+Three Signals scouts in [`scouts/`](./scouts/) each watch one component of PostHog's own CI and post what they see to `#subscriptions-devex`:
 
 | Scout                            | Watches                                                                                        |
 | -------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -147,7 +147,7 @@ They are also outside `skills/`, so the skills build does not publish them.
 Register each one on the project that holds the engineering analytics views for `PostHog/posthog` with `scout-create`, passing the `SKILL.md` frontmatter and body.
 Create each paused (`enabled: false`), then set its config:
 
-- `output_destinations.slack`: the scout's own channel, with `thread_reports: true`. Never the alerter's channel.
+- `output_destinations.slack`: `#subscriptions-devex`, with `thread_reports: true`. That channel already carries the CI watch subscriptions, so DevEx reads every CI report in one place. Never `#alerts-devex`, which is the alerter's.
 - A schedule that matches the component: hourly on weekdays for master health, every two hours on weekdays for the merge queue, and once a weekday for cost.
 - `tags: ["ci", "devex"]`.
 

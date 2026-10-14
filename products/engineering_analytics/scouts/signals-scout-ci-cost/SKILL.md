@@ -26,6 +26,7 @@ The `Master CI Alerts` workflow (`.github/workflows/ci-alerts-devex.yml`) pages 
 The engineering analytics `duration_regression` CI signal files workflow-level p95 regressions on its own, and `flaky_check` files flaky workflows.
 Never repeat either.
 Yours is cost: dollars that moved, the job or tier that moved them, and whether the move was intended.
+A daily CI watch subscription in the same Slack channel already posts total spend, minutes per merged PR, and CI wait. Do not restate those totals; explain which workflow, job, or tier moved them.
 
 **The discriminator is cost that moved on a steady population.**
 Compare the last 7 complete days with the 7 before.
