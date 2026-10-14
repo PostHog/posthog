@@ -117,7 +117,7 @@ class CohortMembership(CohortPeople):
     and canonicalize UUID literals compared to it."""
 
     # The legacy table listed `cohort_id` before `person_id`. Keep that order, because `SELECT *`
-    # and positional column aliases such as `AS c(cohort, person)` map columns by position.
+    # returns columns in field order and saved queries can read the result by position.
     fields: dict[str, FieldOrTable] = {
         "cohort_id": COHORT_PEOPLE_FIELDS["cohort_id"],
         "person_id": UUIDDatabaseField(
