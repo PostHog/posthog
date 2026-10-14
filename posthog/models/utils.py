@@ -575,4 +575,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if isinstance(obj, models.Model):
+            # `changes_between` puts the related instance of a relation field into the change.
+            # Without this fallback each model with no branch above makes the write raise, and the
+            # deferred writer drops the row. The id identifies the instance and copies none of its
+            # fields, which can hold credentials.
+            return {"id": obj.pk}
         return json.JSONEncoder.default(self, obj)

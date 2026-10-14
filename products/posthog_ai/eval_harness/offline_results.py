@@ -375,7 +375,7 @@ class OfflineEvalPublisher:
         return EvaluationItem.from_dict({**declaration, "payload": self._item_payload(case, metadata, omitted)})
 
     def _outcome(self, case: CaseResult, metric: str) -> ScorerResult:
-        if case.error is not None:
+        if case.error is not None and case.error_kind == "task":
             return ScorerResult(status="error", error_code="task_error", error_message=case.error)
         if metric in case.scorer_results:
             return case.scorer_results[metric]

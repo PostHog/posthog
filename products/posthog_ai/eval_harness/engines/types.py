@@ -94,6 +94,7 @@ class ExperimentSpec:
     is_public: bool
     no_send_logs: bool
     metadata: dict[str, Any]
+    on_results: Callable[[ExperimentResult], Awaitable[None]] | None = None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -116,8 +117,8 @@ class CaseResult:
 
     ``scores`` maps scorer name to its per-case score; ``None`` means the scorer
     skipped this case (excluded from aggregates). ``error`` is non-``None`` when
-    the task itself raised — an infra failure the engine excludes from score
-    averages rather than scoring 0.
+    the task or a scorer raised. ``error_kind`` distinguishes task failures,
+    excluded from all score averages, from partial scorer failures.
     """
 
     input: dict[str, Any]
@@ -128,6 +129,7 @@ class CaseResult:
     error: str | None = None
     scorer_results: dict[str, ScorerResult] = field(default_factory=dict)
     trial_index: int | None = None
+    error_kind: Literal["task", "scorer"] = "task"
 
 
 @dataclass(frozen=True)

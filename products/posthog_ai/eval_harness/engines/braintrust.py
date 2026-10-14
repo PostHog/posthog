@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -11,6 +12,7 @@ from typing import Any, ClassVar
 
 from braintrust import EvalAsync, EvalCase, EvalHooks, Score
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef, _scorer_name, call_user_fn
+from braintrust.logger import Span, SpanImpl
 from braintrust.score import is_score, is_scorer
 
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
@@ -25,6 +27,8 @@ from .types import (
     ScorerResult,
     SpanKind,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -188,13 +192,28 @@ class BraintrustEngine:
     def required_env(cls) -> tuple[EnvVarSpec, ...]:
         return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
 
+    @staticmethod
+    def _persist_trial_metadata(result: ExperimentResult, trial_spans: dict[str, Span]) -> None:
+        for case in result.results:
+            if span := trial_spans.get(case.metadata.get("trial_id", "")):
+                span.log(metadata=case.metadata)
+        next(iter(trial_spans.values())).flush()
+
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
         recorder = _ScorerRecorder()
+        trial_spans: dict[str, Span] = {}
 
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
             recorder.register(hooks.metadata, hooks.trial_index)
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
-            return await spec.task(input, _BraintrustCaseHooks(hooks))
+            try:
+                return await spec.task(input, _BraintrustCaseHooks(hooks))
+            finally:
+                if not spec.no_send_logs and isinstance(hooks.span, SpanImpl):
+                    # The pinned SDK exposes only the task span. Its context token retains the trial root span.
+                    parent = hooks.span._context_token.old_value
+                    if isinstance(parent, Span) and (trial_id := hooks.metadata.get("trial_id")):
+                        trial_spans[trial_id] = parent
 
         cases = [EvalCase(input=case.input, expected=case.expected, metadata=case.metadata) for case in spec.cases]
         result = await EvalAsync(
@@ -227,7 +246,17 @@ class BraintrustEngine:
             # across runs; the metadata is what lets Braintrust filter or compare.
             metadata=spec.metadata,
         )
-        return self._translate(result, recorder)
+        translated = self._translate(result, recorder)
+        if spec.on_results is not None:
+            await spec.on_results(translated)
+            if trial_spans:
+                try:
+                    await asyncio.to_thread(self._persist_trial_metadata, translated, trial_spans)
+                except Exception:
+                    logger.warning(
+                        "Could not upload final trial metadata; completed eval results remain available", exc_info=True
+                    )
+        return translated
 
     def _translate(self, result: EvalResultWithSummary, recorder: _ScorerRecorder | None = None) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
@@ -255,9 +284,16 @@ class BraintrustEngine:
                     scores=dict(case.scores or {}),
                     expected=case.expected,
                     metadata=dict(case.metadata or {}),
-                    error=None if case.error is None else str(case.error),
                     scorer_results=recorder.results.get(id(case.metadata), {}) if recorder is not None else {},
                     trial_index=recorder.trial_indices.get(id(case.metadata)) if recorder is not None else None,
+                    error_kind="task" if case.error is not None else "scorer",
+                    error=(
+                        str(case.error)
+                        if case.error is not None
+                        else f"Scorer errors: {', '.join(case.metadata['scorer_errors'])}"
+                        if case.metadata and case.metadata.get("scorer_errors")
+                        else None
+                    ),
                 )
                 for case in result.results
             ],

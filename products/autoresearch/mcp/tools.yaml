@@ -557,9 +557,10 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations. Pass reader_summary (one or two plain sentences) and next_steps (at most 5 short items) for
-            people who read the run; keep column names, SQL and AUC numbers out of them. If you built a report notebook
-            for this run, pass its short_id as report_notebook_short_id.
+            iterations. Pass headline (a run title of at most 60 characters), reader_summary (one or two plain
+            sentences) and next_steps (at most 5 short items) for people who read the run; keep column names, SQL and
+            AUC numbers out of them. If you built a report notebook for this run, pass its short_id as
+            report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
@@ -633,7 +634,8 @@ tools:
             completion time to choose the champion. If this iteration was spawned from a pending steering suggestion,
             pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution
             and marks the suggestion 'acted_on'. Pass summary, one plain sentence for people on what the experiment
-            tried and what happened; agent_description stays your own notes.
+            tried and what happened, and headline, a title of at most 60 characters in the same plain words;
+            agent_description stays your own notes.
         feature_flag: autoresearch
         response:
             include:

@@ -98,6 +98,9 @@ def client_config(config: CrispSourceConfig, api_version: str) -> ClientConfig:
         "allowed_hosts": [],
         "allow_redirects": False,
         "request_timeout": (10, 60),
+        # Crisp sends no Retry-After with a 429, and the default five tries end before its
+        # rate limit clears. Nine tries keep one request waiting inside the retry budget.
+        "max_retries": 9,
         "retry_budget_seconds": 240,
         "retry_after_max_seconds": 120,
     }
@@ -177,8 +180,11 @@ def credential_resource(config: CrispSourceConfig, team_id: int, api_version: st
             settings = ENDPOINTS[settings.fanout.parent_name]
         endpoint = endpoint_config(settings, config.website_id)
         endpoint["paginator"] = "single_page"
+    client = client_config(config, api_version)
+    # The probe runs inside a web request, so it keeps the default retries to answer before the gateway timeout.
+    client.pop("max_retries")
     rest_config: RESTAPIConfig = {
-        "client": client_config(config, api_version),
+        "client": client,
         "resources": [{"name": "credential_probe", "endpoint": endpoint}],
     }
     return rest_api_resource(rest_config, team_id, "crisp_credential_probe", None)

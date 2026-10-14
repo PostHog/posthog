@@ -110,6 +110,22 @@ def test_prepare_preserves_score_types_and_distinguishes_missing_from_skipped(
         assert results[0]["payload"]["error_message"] == "Judge failed"
 
 
+def test_prepare_preserves_successful_scores_when_another_scorer_fails() -> None:
+    case = _case()
+    case.error = "Scorer errors: boolean_metric"
+    case.error_kind = "scorer"
+    case.scorer_results = {
+        "boolean_metric": ScorerResult(status="error", error_code="scorer_error", error_message="Judge failed")
+    }
+
+    results = [result.to_dict() for result in _prepare(_publisher(), [case]).results]
+
+    assert results[0]["status"] == "error"
+    assert results[0]["error_code"] == "scorer_error"
+    assert results[1]["status"] == "ok"
+    assert results[1]["value"] == 1.0
+
+
 def test_prepare_assigns_stable_trial_ids_and_uses_captured_revision() -> None:
     publisher = _publisher()
     cases = [_case("query-a"), _case("query-b"), _case("query-a")]
