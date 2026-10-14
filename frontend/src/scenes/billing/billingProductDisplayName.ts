@@ -4,7 +4,7 @@
  * calls it — otherwise people search billing for a product they can see in the nav and miss it.
  */
 const DISPLAY_NAME_BY_PRODUCT_TYPE: Record<string, string> = {
-    realtime_destinations: 'Data pipelines',
+    realtime_destinations: 'Destinations',
     workflows_emails: 'Workflows',
     inbox: 'Self-driving inbox',
 }
