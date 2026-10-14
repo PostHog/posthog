@@ -9,9 +9,16 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 from products.workflows.backend.facade.previous_recipients import (
+    PreviousRecipientsTimedOut,
     TooManyPreviousRecipients,
     build_previous_recipients_cohort,
 )
+
+
+class PreviousRecipientsUnavailable(exceptions.APIException):
+    status_code = 503
+    default_detail = "Checking who already got this email took too long. Try again, or send without skipping them."
+    default_code = "previous_recipients_timed_out"
 
 
 class PreviousRecipientsRequestSerializer(serializers.Serializer):
@@ -71,4 +78,6 @@ class WorkflowPreviousRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise exceptions.ValidationError(
                 f"More than {error.limit:,} people already got this email, which is too many to skip here."
             )
+        except PreviousRecipientsTimedOut:
+            raise PreviousRecipientsUnavailable()
         return Response(PreviousRecipientsSerializer(result).data)
