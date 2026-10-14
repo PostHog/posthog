@@ -9187,6 +9187,119 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * * `passed` - No data issues found
+ * * `warning` - A check found a small issue
+ * * `problem` - A check found a large issue
+ * * `no_events` - No events to check
+ * * `unsupported` - This kind of insight cannot be checked
+ */
+export type InsightDataChecksStatusEnumApi =
+    (typeof InsightDataChecksStatusEnumApi)[keyof typeof InsightDataChecksStatusEnumApi]
+
+export const InsightDataChecksStatusEnumApi = {
+    Passed: 'passed',
+    Warning: 'warning',
+    Problem: 'problem',
+    NoEvents: 'no_events',
+    Unsupported: 'unsupported',
+} as const
+
+/**
+ * * `local_development` - Local development events
+ * * `bot_traffic` - Bot and crawler traffic
+ * * `duplicate_events` - Events sent twice
+ */
+export type InsightDataCheckKeyEnumApi = (typeof InsightDataCheckKeyEnumApi)[keyof typeof InsightDataCheckKeyEnumApi]
+
+export const InsightDataCheckKeyEnumApi = {
+    LocalDevelopment: 'local_development',
+    BotTraffic: 'bot_traffic',
+    DuplicateEvents: 'duplicate_events',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `warning` - Warning
+ * * `problem` - Problem
+ * * `skipped` - Not checked
+ */
+export type InsightDataCheckLevelEnumApi =
+    (typeof InsightDataCheckLevelEnumApi)[keyof typeof InsightDataCheckLevelEnumApi]
+
+export const InsightDataCheckLevelEnumApi = {
+    Passed: 'passed',
+    Warning: 'warning',
+    Problem: 'problem',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `open_filter_settings` - Change the project's internal and test users filter
+ */
+export type InsightDataCheckActionEnumApi =
+    (typeof InsightDataCheckActionEnumApi)[keyof typeof InsightDataCheckActionEnumApi]
+
+export const InsightDataCheckActionEnumApi = {
+    OpenFilterSettings: 'open_filter_settings',
+} as const
+
+export interface InsightDataCheckApi {
+    /** Which check this is.
+     *
+     * * `local_development` - Local development events
+     * * `bot_traffic` - Bot and crawler traffic
+     * * `duplicate_events` - Events sent twice */
+    key: InsightDataCheckKeyEnumApi
+    /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run.
+     *
+     * * `passed` - Passed
+     * * `warning` - Warning
+     * * `problem` - Problem
+     * * `skipped` - Not checked */
+    level: InsightDataCheckLevelEnumApi
+    /** What the check looks for. */
+    name: string
+    /** What the check found, as a sentence to show a person. */
+    result: string
+    /**
+     * How to fix what the check found. Null when nothing needs fixing.
+     * @nullable
+     */
+    fix: string | null
+    /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+     *
+     * * `open_filter_settings` - Change the project's internal and test users filter */
+    action: InsightDataCheckActionEnumApi | null
+    /**
+     * How many of the checked events the check counted. Null where it has no count.
+     * @nullable
+     */
+    events: number | null
+    /**
+     * `events` as a share of the checked events, from 0 to 1. Null where it has no count.
+     * @nullable
+     */
+    share: number | null
+}
+
+export interface InsightDataChecksApi {
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property of the project is hidden from the caller.
+     *
+     * * `passed` - No data issues found
+     * * `warning` - A check found a small issue
+     * * `problem` - A check found a large issue
+     * * `no_events` - No events to check
+     * * `unsupported` - This kind of insight cannot be checked */
+    status: InsightDataChecksStatusEnumApi
+    /** Every check, in a fixed order, whatever its result. */
+    checks: InsightDataCheckApi[]
+    /** How many events the checks read. */
+    events_checked: number
+    /** The share of the insight's events the checks read, from 0 to 1. The checks read every event of a small insight and a sample of a large one. Below 1, `events_checked` and the `events` of each check count the sample, so divide them by this value to estimate the count across every event. */
+    sample_rate: number
+}
+
 export interface InsightBulkDeleteRequestApi {
     /**
      * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -9291,6 +9404,11 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface InsightDataChecksRequestApi {
+    /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
+    query: _InsightQuerySchemaApi
 }
 
 /**
@@ -9721,6 +9839,18 @@ export const InsightsActivityRetrieveFormat = {
     Json: 'json',
 } as const
 
+export type InsightsDataChecksRetrieveParams = {
+    format?: InsightsDataChecksRetrieveFormat
+}
+
+export type InsightsDataChecksRetrieveFormat =
+    (typeof InsightsDataChecksRetrieveFormat)[keyof typeof InsightsDataChecksRetrieveFormat]
+
+export const InsightsDataChecksRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat
     /**
@@ -9796,6 +9926,18 @@ export type InsightsCancelCreateParams = {
 export type InsightsCancelCreateFormat = (typeof InsightsCancelCreateFormat)[keyof typeof InsightsCancelCreateFormat]
 
 export const InsightsCancelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsDataChecksCreateParams = {
+    format?: InsightsDataChecksCreateFormat
+}
+
+export type InsightsDataChecksCreateFormat =
+    (typeof InsightsDataChecksCreateFormat)[keyof typeof InsightsDataChecksCreateFormat]
+
+export const InsightsDataChecksCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
