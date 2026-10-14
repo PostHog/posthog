@@ -1,20 +1,20 @@
 from collections.abc import Mapping
+from dataclasses import field
 from typing import Any, cast
 
 from pydantic import ValidationError
 
-from posthog.schema import EventsNode, FunnelsQuery, HogQLQueryModifiers, LifecycleQuery, StickinessQuery, TrendsQuery
+from posthog.schema import EventsNode, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import contains_subquery, top_level_conjuncts
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -22,25 +22,12 @@ from posthog.models.user import User
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
-from products.product_analytics.backend.hogql_queries.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
-from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_trends_query_runner import (
-    CalendarHeatmapTrendsQueryRunner,
-)
-from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (
-    SlopeGraphTrendsQueryRunner,
-)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
-_WRAPPER_KINDS = {kind.value for kind in WRAPPER_NODE_KINDS}
-_SERIES_QUERIES: dict[str, type[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery]] = {
-    "TrendsQuery": TrendsQuery,
-    "FunnelsQuery": FunnelsQuery,
-    "StickinessQuery": StickinessQuery,
-    "LifecycleQuery": LifecycleQuery,
-}
+# Exact classes only: a subclass, such as the slope graph runner, can run a query of its own in `_calculate()`.
+_CHART_RUNNERS = (TrendsQueryRunner, FunnelsQueryRunner, StickinessQueryRunner, LifecycleQueryRunner)
 # Event names and dates are in the sort key of the events table, so a filter on them reads no property of any event.
 _SORT_KEY_FIELDS = ("event", "timestamp")
-# A bound on the result of one of these functions is a bound on the timestamp it is given.
 _ORDER_KEEPING = ("toDate", "toDateTime", "toTimeZone", "assumeNotNull")
 # The side of a comparison that is the later value, so a timestamp there is bounded from below.
 _LOWER_BOUND_SIDE = {
@@ -62,7 +49,7 @@ class ChartEvents:
     sort_key_where: ast.Expr
     modifiers: HogQLQueryModifiers
     # The database the filter was read with, for the queries that run it.
-    database: Database
+    database: Database = field(repr=False, compare=False)
 
     def select(
         self, query: str, *, where: ast.Expr, sample: ast.SampleExpr | None = None, **placeholders: ast.Expr
@@ -79,30 +66,35 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
 
     None for an insight the checks do not support. A chart with several series reads the events of any of them.
     """
-    source = _supported_source(query)
-    if source is None:
+    try:
+        runner = get_query_runner_or_none(dict(query), team, user=user)
+    except ValidationError:
         return None
-    runner = get_query_runner(source, team, modifiers=source.modifiers, user=user)
+    if not isinstance(runner, _CHART_RUNNERS) or type(runner) not in _CHART_RUNNERS:
+        return None
+    # An action or a data warehouse series has no event name to check.
+    if not runner.query.series or not all(isinstance(series, EventsNode) for series in runner.query.series):
+        return None
     runner.validate()
-    chart_queries = _chart_queries(runner)
-    if chart_queries is None:
-        return None
-    # One database for the walk and the checks, because a project with many data warehouse tables is slow to build one for.
-    database = Database.create_for(team=team, user=user, modifiers=runner.modifiers, trigger="shared")
-    reads = [(read, date_range) for query, date_range in chart_queries for read in _events_reads(query, database)]
-    aliases = {cast(ast.JoinExpr, read.select_from).alias for read, _ in reads}
-    filters = [(_read_filter(read), date_range) for read, date_range in reads]
-    if len(aliases) != 1 or any(where is None for where, _ in filters):
+    database = runner.shared_database
+    filters: list[tuple[str | None, ast.Expr, QueryDateRange]] = []
+    for chart_query, date_range in _chart_queries(runner):
+        for read in _events_reads(chart_query, database):
+            read_filter = _read_filter(read)
+            if read_filter is None:
+                return None
+            filters.append((*read_filter, date_range))
+    aliases = {alias for alias, _, _ in filters}
+    if len(aliases) != 1:
         return None
     alias = aliases.pop()
-    # A "first time for user" series reads every earlier event to find the first one. The checks read the chart's range.
-    wheres = [_from_date(cast(ast.Expr, where), date_range, alias) for where, date_range in filters]
+    wheres = [_from_date(where, date_range, alias) for _, where, date_range in filters]
     return ChartEvents(
         alias=alias,
         where=_any_of(wheres),
         sort_key_where=_any_of(
             [
-                _all_of([part for part in top_level_conjuncts(where) if _sort_key_fields(part, alias) is not None])
+                _all_of([part for part in top_level_conjuncts(where) if _reads_sort_key_only(part, alias)])
                 for where in wheres
             ]
         ),
@@ -111,47 +103,23 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
     )
 
 
-def _supported_source(query: Mapping[str, Any]) -> TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery | None:
-    node: Any = query
-    while isinstance(node, Mapping) and node.get("kind") in _WRAPPER_KINDS:
-        node = node.get("source")
-    if not isinstance(node, Mapping):
-        return None
-    model = _SERIES_QUERIES.get(str(node.get("kind")))
-    if model is None:
-        return None
-    try:
-        source = model.model_validate(node)
-    except ValidationError:
-        return None
-    # An action or a data warehouse series has no event name to check.
-    if not source.series or not all(isinstance(series, EventsNode) for series in source.series):
-        return None
-    return source
-
-
-def _chart_queries(runner: QueryRunner) -> list[tuple[ast.Expr, QueryDateRange]] | None:
-    """Each query the chart runs, with the date range it reads. None for a chart that runs another query."""
-    if isinstance(runner, SlopeGraphTrendsQueryRunner | BoxPlotTrendsQueryRunner | CalendarHeatmapTrendsQueryRunner):
-        # These charts build their own query in `_calculate()`, not the one `to_queries()` returns.
-        return None
-    if isinstance(runner, TrendsQueryRunner):
-        # A compare series reads the previous period.
+def _chart_queries(
+    runner: TrendsQueryRunner | FunnelsQueryRunner | StickinessQueryRunner | LifecycleQueryRunner,
+) -> list[tuple[ast.Expr, QueryDateRange]]:
+    """Each query the chart runs, with the date range it reads."""
+    if isinstance(runner, TrendsQueryRunner | StickinessQueryRunner):
+        previous = [series.is_previous_period_series for series in runner.series]
         return [
-            (query, runner.query_previous_date_range if series.is_previous_period_series else runner.query_date_range)
-            for series, query in zip(runner.series, runner.to_queries(), strict=True)
+            (query, runner.query_previous_date_range if is_previous else runner.query_date_range)
+            for is_previous, query in zip(previous, runner.to_queries(), strict=True)
         ]
-    if isinstance(runner, StickinessQueryRunner):
-        return [(query, runner.query_date_range) for query in runner.to_queries()]
     if isinstance(runner, FunnelsQueryRunner):
         queries: list[tuple[ast.Expr, QueryDateRange]] = [(runner.to_query(), runner.query_date_range)]
         # The chart runs the previous period as a funnel of its own.
         if runner._is_compare_active():
             queries.append((runner._build_previous_funnel().get_query(), runner.query_previous_date_range))
         return queries
-    if isinstance(runner, LifecycleQueryRunner):
-        return [(runner.to_query(), runner.query_date_range)]
-    return None
+    return [(runner.to_query(), runner.query_date_range)]
 
 
 def _events_reads(
@@ -174,14 +142,18 @@ def _events_reads(
     return _events_reads(table, database, ctes)
 
 
-def _read_filter(read: ast.SelectQuery) -> ast.Expr | None:
-    """The read's filter, with each column alias of its select replaced by the expression it names."""
-    join = cast(ast.JoinExpr, read.select_from).next_join
-    join_filter = _join_filter(join) if join else None
-    if join and join_filter is None:
+def _read_filter(read: ast.SelectQuery) -> tuple[str | None, ast.Expr] | None:
+    """The read's table alias and filter, with each column alias of its select replaced by the expression it names.
+
+    None for a read the checks cannot filter the same way.
+    """
+    table = cast(ast.JoinExpr, read.select_from)
+    join_filter = _join_filter(table.next_join) if table.next_join else None
+    if table.next_join and join_filter is None:
         return None
     where = _all_of([expr for expr in (read.prewhere, read.where, join_filter) if expr is not None])
-    return _AliasInliner({expr.alias: expr.expr for expr in read.select if isinstance(expr, ast.Alias)}).visit(where)
+    aliases = {expr.alias: expr.expr for expr in read.select if isinstance(expr, ast.Alias)}
+    return table.alias, _AliasInliner(aliases).visit(where)
 
 
 def _join_filter(join: ast.JoinExpr) -> ast.Expr | None:
@@ -197,9 +169,10 @@ def _join_filter(join: ast.JoinExpr) -> ast.Expr | None:
         or constraint.op != ast.CompareOperationOp.Eq
     ):
         return None
-    event_side, joined_side = sorted((constraint.left, constraint.right), key=lambda side: _is_on(side, join.alias))
-    if not _is_on(joined_side, join.alias) or _is_on(event_side, join.alias):
+    left_on, right_on = _is_on(constraint.left, join.alias), _is_on(constraint.right, join.alias)
+    if left_on == right_on:
         return None
+    event_side, joined_side = (constraint.right, constraint.left) if left_on else (constraint.left, constraint.right)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.In,
         left=event_side,
@@ -232,12 +205,17 @@ class _AliasInliner(CloningVisitor):
 
 
 def _from_date(where: ast.Expr, date_range: QueryDateRange, alias: str | None) -> ast.Expr:
-    """`where`, with the start of the chart's date range when it reads events from any date before that."""
+    """`where`, with the start of its date range when it reads events from any date before that.
+
+    A "first time for user" series reads every earlier event to find the first one. The checks read its range only.
+    """
     for part in top_level_conjuncts(where):
-        if isinstance(part, ast.CompareOperation) and part.op in _LOWER_BOUND_SIDE:
-            side = part.left if _LOWER_BOUND_SIDE[part.op] == "left" else part.right
-            if _is_timestamp(side, alias):
-                return where
+        if (
+            isinstance(part, ast.CompareOperation)
+            and part.op in _LOWER_BOUND_SIDE
+            and _is_timestamp(getattr(part, _LOWER_BOUND_SIDE[part.op]), alias)
+        ):
+            return where
     start = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=[alias, "timestamp"] if alias else ["timestamp"]),
@@ -250,30 +228,27 @@ def _is_timestamp(expr: ast.Expr, alias: str | None) -> bool:
     """Whether `expr` is the timestamp, or a value that keeps the order of timestamps, such as its start of day."""
     if isinstance(expr, ast.Call) and expr.args and (expr.name.startswith("toStartOf") or expr.name in _ORDER_KEEPING):
         return _is_timestamp(expr.args[0], alias)
-    return isinstance(expr, ast.Field) and expr.chain in (["timestamp"], [alias or "events", "timestamp"])
+    return isinstance(expr, ast.Field) and _is_events_column(expr, alias, ("timestamp",))
 
 
-class _SortKeyReader(TraversingVisitor):
+def _is_events_column(field: ast.Field, alias: str | None, names: tuple[str, ...]) -> bool:
+    return field.chain[-1] in names and field.chain[:-1] in ([], [alias or "events"])
+
+
+class _OtherFieldFinder(TraversingVisitor):
     def __init__(self, alias: str | None):
         super().__init__()
-        self.table = [alias or "events"]
-        self.fields: set[str | int] = set()
-        self.reads_other_fields = False
+        self.alias = alias
+        self.found = False
 
     def visit_field(self, node: ast.Field) -> None:
-        self.fields.add(node.chain[-1])
-        if node.chain[-1] not in _SORT_KEY_FIELDS or node.chain[:-1] not in ([], self.table):
-            self.reads_other_fields = True
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.reads_other_fields = True
+        self.found = self.found or not _is_events_column(node, self.alias, _SORT_KEY_FIELDS)
 
 
-def _sort_key_fields(expr: ast.Expr, alias: str | None) -> set[str | int] | None:
-    """The event name and date fields `expr` reads, or None when it reads any other field."""
-    reader = _SortKeyReader(alias)
-    reader.visit(expr)
-    return None if reader.reads_other_fields else reader.fields
+def _reads_sort_key_only(expr: ast.Expr, alias: str | None) -> bool:
+    finder = _OtherFieldFinder(alias)
+    finder.visit(expr)
+    return not finder.found and not contains_subquery(expr)
 
 
 def _all_of(conditions: list[ast.Expr]) -> ast.Expr:

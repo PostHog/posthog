@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
 from products.product_analytics.backend.chart_events import chart_events
@@ -86,7 +87,10 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
         assert events is not None
 
         response = execute_hogql_query(
-            events.select("SELECT count() FROM events", where=events.where), team=self.team, modifiers=events.modifiers
+            events.select("SELECT count() FROM events", where=events.where),
+            team=self.team,
+            modifiers=events.modifiers,
+            context=HogQLContext(team_id=self.team.pk, database=events.database),
         )
 
         assert response.results[0][0] == expected
