@@ -116,14 +116,29 @@ _HTML_ATTRIBUTE_ESCAPES = ((b"&", b"&amp;"), (b"<", b"&lt;"), (b">", b"&gt;"), (
 
 
 _NETWORK_HINT_TAGS = re.compile(rb"<(link|meta)(?=[\t\n\f\r />])", re.IGNORECASE)
-_LEADING_DOCTYPE = re.compile(rb"^(?:\xef\xbb\xbf)?(?:\s|<!--.*?-->)*<!doctype[^>]*>", re.IGNORECASE | re.DOTALL)
 _DNS_PREFETCH_OFF = b'<meta http-equiv="x-dns-prefetch-control" content="off">'
+
+
+def _leading_doctype_end(content: bytes) -> int:
+    position = 3 if content.startswith(b"\xef\xbb\xbf") else 0
+    while True:
+        while position < len(content) and content[position : position + 1].isspace():
+            position += 1
+        if not content.startswith(b"<!--", position):
+            break
+        comment_end = content.find(b"-->", position + 4)
+        if comment_end == -1:
+            return 0
+        position = comment_end + 3
+    if content[position : position + 9].lower() != b"<!doctype":
+        return 0
+    doctype_end = content.find(b">", position)
+    return doctype_end + 1 if doctype_end != -1 else 0
 
 
 def _without_network_hints(content: bytes) -> bytes:
     content = _NETWORK_HINT_TAGS.sub(rb"<x-\1", content)
-    doctype = _LEADING_DOCTYPE.match(content)
-    split = doctype.end() if doctype else 0
+    split = _leading_doctype_end(content)
     return content[:split] + _DNS_PREFETCH_OFF + content[split:]
 
 
@@ -139,8 +154,6 @@ async def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> AsyncIte
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}</style>"
         f'</head><body><iframe sandbox="{"allow-scripts" if scripts else ""}" title="Artifact" srcdoc="'
     ).encode()
-    if not scripts:
-        content = _without_network_hints(content)
     for start in range(0, len(content), SHIM_CHUNK_BYTES):
         yield _escape_html_attribute(content[start : start + SHIM_CHUNK_BYTES])
     yield b'"></iframe></body></html>'
@@ -170,7 +183,8 @@ def task_artifact_preview(request: HttpRequest, token: str) -> StreamingHttpResp
         raise Http404
     scripts = claims.script_digest is not None and hashlib.sha256(content).hexdigest() == claims.script_digest
     response = streaming_response(
-        _task_html_artifact_shim(content, scripts=scripts), content_type="text/html; charset=utf-8"
+        _task_html_artifact_shim(content if scripts else _without_network_hints(content), scripts=scripts),
+        content_type="text/html; charset=utf-8",
     )
     response["Content-Disposition"] = "inline"
     response["Cache-Control"] = "no-store"

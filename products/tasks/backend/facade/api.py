@@ -4514,7 +4514,11 @@ def finalize_task_run_artifact_uploads(
             )
             hash_budget -= content_length + spent
             if may_run_scripts:
-                uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+                try:
+                    uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+                except Exception:
+                    logger.warning("task_run.artifact_script_hash_failed", extra={"task_run_id": str(run.id)})
+                    uploaded_bytes = None
                 script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
 
         entry = _build_artifact_manifest_entry(

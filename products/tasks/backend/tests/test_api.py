@@ -42,6 +42,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_US,
@@ -10419,6 +10420,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("inline_upload_over_an_open_file_replaced_after_save", "inline_upload", "stale", False),
             ("edit_of_an_open_file_replaced_after_save", "upload_edit", "stale", False),
             ("edit_over_the_hash_budget", "upload_edit_over_budget", "match", False),
+            ("new_file_whose_read_fails", "upload_new_file_read_fails", "match", False),
             ("living_copy_of_an_open_file", "living_copy", "match", True),
             ("living_copy_of_a_restricted_file", "living_copy", None, False),
             ("living_copy_of_an_open_file_replaced_after_save", "living_copy", "stale", False),
@@ -10480,8 +10482,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 format="json",
             )
             api_path = f"{runs_path}/artifacts/{saved.json()['artifacts'][-1]['id']}/preview/"
-        elif writer in ("upload_edit", "upload_edit_without_base", "upload_edit_over_budget"):
+        elif writer in (
+            "upload_edit",
+            "upload_edit_without_base",
+            "upload_edit_over_budget",
+            "upload_new_file_read_fails",
+        ):
             edit_id = uuid.uuid4().hex
+            edit_name = "other.html" if writer == "upload_new_file_read_fails" else "report.html"
+            if writer == "upload_new_file_read_fails":
+                mock_read_bytes.side_effect = ObjectStorageError("timed out")
             budget = 1 if writer == "upload_edit_over_budget" else tasks_facade.ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
             with patch.object(tasks_facade, "ARTIFACT_SCRIPT_HASH_BUDGET_BYTES", budget):
                 saved = self.client.post(
@@ -10490,9 +10500,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "artifacts": [
                             {
                                 "id": edit_id,
-                                "name": "report.html",
+                                "name": edit_name,
                                 "type": "output",
-                                "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_report.html",
+                                "storage_path": f"{run.get_artifact_s3_prefix()}/{edit_id[:8]}_{edit_name}",
                                 "content_type": "text/html",
                                 **({"base_artifact_id": base_id} if writer == "upload_edit" else {}),
                             }
