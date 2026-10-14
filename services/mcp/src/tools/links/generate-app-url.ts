@@ -25,8 +25,7 @@ const URL_CATALOG = [...SCOPE_BY_TEMPLATE.keys()].sort().join('\n')
 
 const PLACEHOLDER = /\{([^}]+)\}/g
 
-// Skills shipped before error tracking moved to /error-tracking still pass `/error_tracking...` templates.
-function resolveTemplate(template: string): string {
+function toCanonicalTemplate(template: string): string {
     return template.replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
 }
 
@@ -68,7 +67,7 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
     context: Context,
     params: Params
 ): Promise<AppUrlResult> => {
-    const template = resolveTemplate(params.url)
+    const template = toCanonicalTemplate(params.url)
     const scope = SCOPE_BY_TEMPLATE.get(template)
     if (!scope) {
         throw new Error(

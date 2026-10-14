@@ -51,7 +51,6 @@ describe('generate-app-url', () => {
         expect(result.url).toBe('https://us.posthog.com/project/354703/events/evt_1/2026-06-01T15%3A48%3A00Z')
     })
 
-    // Skills shipped before the /error-tracking rename still send the underscore templates.
     it.each([
         ['/error_tracking/{id}', { id: 'issue-1' }, '/error-tracking/issue-1'],
         ['/error-tracking/{id}', { id: 'issue-1' }, '/error-tracking/issue-1'],
