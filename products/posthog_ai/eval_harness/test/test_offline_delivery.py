@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import threading
 from collections.abc import Callable, Coroutine
 from functools import partial
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest
 import httpx
 from pydantic import SecretStr
 
+from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.offline_results import (
@@ -117,6 +119,67 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
     assert output.count("POSTHOG OFFLINE") == 2
     assert "experiment-1  https://posthog.example.com/project/123/" in output
     assert "experiment-2  https://posthog.example.com/project/123/" in output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("http_status", [200, 403])
+@pytest.mark.parametrize("shutdown", ["pause", "deadline", "interrupt"])
+async def test_finished_uploads_are_not_replayed_or_marked_interrupted_while_reporting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    http_status: int,
+    shutdown: Literal["pause", "deadline", "interrupt"],
+) -> None:
+    report_started = asyncio.Event()
+    report_finished = asyncio.Event()
+    release_report = threading.Event()
+    loop = asyncio.get_running_loop()
+    emit = reporting._emit
+    requests: list[httpx.Request] = []
+    servers: dict[str, OfflineServer] = {}
+
+    def blocked_emit(text: str) -> None:
+        loop.call_soon_threadsafe(report_started.set)
+        if not release_report.wait(timeout=5):
+            raise TimeoutError("Report was not released")
+        emit(text)
+        loop.call_soon_threadsafe(report_finished.set)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return _receipt(request, servers) if http_status == 200 else httpx.Response(http_status, json={})
+
+    monkeypatch.setattr(reporting, "_emit", blocked_emit)
+    publisher = _publisher(monkeypatch, respond)
+    path = _save_upload(tmp_path, 1)
+    saved = path.read_bytes()
+    delivery = OfflineEvalDelivery(ProgressReporter(total_suites=1))
+    assert delivery.submit(publisher, path, "experiment-1")
+    try:
+        await asyncio.wait_for(report_started.wait(), timeout=5)
+        if shutdown == "pause":
+            await asyncio.wait_for(delivery.pause(), timeout=5)
+        elif shutdown == "deadline":
+            await asyncio.wait_for(delivery.drain(timeout=0), timeout=5)
+        else:
+            await asyncio.wait_for(delivery.cancel(), timeout=5)
+    finally:
+        release_report.set()
+    await delivery.drain()
+    await asyncio.wait_for(report_finished.wait(), timeout=5)
+
+    assert len(requests) == (2 if http_status == 200 else 1)
+    assert path.read_bytes() == saved
+    output = capsys.readouterr().out
+    assert output.count("POSTHOG OFFLINE") == 1
+    assert "upload interrupted" not in output
+    assert "shutdown deadline exceeded" not in output
+    if http_status == 200:
+        assert "experiment-1  https://posthog.example.com/project/123/" in output
+    else:
+        assert "upload pending:" in output
+        assert "403" in output
 
 
 @pytest.mark.asyncio

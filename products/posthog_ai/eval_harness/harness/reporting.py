@@ -300,7 +300,7 @@ class ProgressReporter:
             self._posthog_urls.pop(experiment_name, None)
             if url is not None:
                 self._posthog_urls[experiment_name] = url
-            _emit(f"POSTHOG OFFLINE  {experiment_name}  {url or status}")
+            await asyncio.to_thread(_emit, f"POSTHOG OFFLINE  {experiment_name}  {url or status}")
 
     def print_final_summary(
         self,

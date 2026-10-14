@@ -85,7 +85,8 @@ Each case and trial becomes a separate item, with one result per configured scor
 Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain their values.
 Both `false` and numeric zero have status `ok`: this status means scoring produced a value, not that the agent passed.
 A `None` score becomes `skipped`; a task error or missing scorer result becomes `error`, with no score value.
-The judges' existing error fallback of zero remains zero, matching Braintrust's score.
+LLM judge exceptions publish an `error` outcome with code `judge_error`; the existing zero fallback remains in Braintrust and local aggregates.
+A failed scorer does not replace successful results from other scorers on the same case.
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
 Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
 Application and dataset revisions use the commit captured at run start.
@@ -140,7 +141,6 @@ result = Score(
 ```
 
 The numeric `score` still controls existing Braintrust and local aggregates; `result` describes the offline outcome. Configure this example's scorer kind as `categorical`.
-LLM judge exceptions keep the existing zero aggregate score but publish an explicit `error` outcome with code `judge_error`, distinguishing provider failures from completed assessments.
 Scorer provisioning stays separate from uploading results, so publishing requires only the ingestion scope and does not create or modify scorer definitions.
 
 ## Postgres experiment ingestion
