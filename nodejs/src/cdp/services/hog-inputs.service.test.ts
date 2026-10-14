@@ -331,6 +331,17 @@ describe('Hog Inputs', () => {
             expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
         })
 
+        it('ignores a deleted integration on a mapping this invocation does not use', async () => {
+            hogFunction.mappings = [
+                { inputs: { slack: { value: 99999999 } }, inputs_schema: [{ key: 'slack', type: 'integration' }] },
+            ]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
+            await expect(
+                hogInputsService.buildInputs(hogFunction, globals, hogFunction.mappings[0].inputs ?? {})
+            ).rejects.toThrow("The integration for input 'slack' no longer exists.")
+        })
+
         it('should not load a posthog connection', async () => {
             const connectionId = team.id + 2
             await insertIntegration(hub.postgres, team.id, {
