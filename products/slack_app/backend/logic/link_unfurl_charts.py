@@ -19,9 +19,14 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.temporal.ai.slack_app.types import SlackAppUnfurlChartsPostInput, SlackAppUnfurlChartsWorkflowInputs
+from posthog.temporal.ai.slack_app.types import (
+    SlackAppUnfurlChartsPostInput,
+    SlackAppUnfurlChartsWorkflowInputs,
+    SlackUnfurlChartRequest,
+)
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.api import user_can_view_insight
 from products.slack_app.backend.analytics import capture_slack_event
 
@@ -53,35 +58,44 @@ def chat_unfurl_kwargs(
 def _has_project_access(user: User, team: Team) -> bool:
     # The insight check alone is not enough, because it can fall back to the default access level
     # in a project that denies the user. The webhook checks project access the same way.
-    return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+    return user.is_active and UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
 
 
 @frozen
 class UnfurlChartTargets:
     team: Team
     user: User
-    insight_ids: list[int]
+    charts: list[SlackUnfurlChartRequest]
 
 
 def unfurl_chart_targets(inputs: SlackAppUnfurlChartsWorkflowInputs) -> UnfurlChartTargets:
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.get(id=inputs.user_id)
     if not _has_project_access(user, team):
-        return UnfurlChartTargets(team=team, user=user, insight_ids=[])
-    # Two links to the same insight in one message share one render.
-    insight_ids = list(dict.fromkeys(chart.insight_id for chart in inputs.charts))
-    return UnfurlChartTargets(team=team, user=user, insight_ids=insight_ids)
+        return UnfurlChartTargets(team=team, user=user, charts=[])
+    # Two links to the same chart in one message share one render.
+    unique: dict[str, SlackUnfurlChartRequest] = {}
+    for chart in inputs.charts:
+        unique.setdefault(chart.render_key, chart)
+    return UnfurlChartTargets(team=team, user=user, charts=list(unique.values()))
+
+
+def _can_view_chart(team: Team, user: User, chart: SlackUnfurlChartRequest, access: UserAccessControl) -> bool:
+    if chart.insight_id is not None:
+        return user_can_view_insight(team=team, user=user, insight_id=chart.insight_id)
+    return access.check_access_level_for_resource("query", "viewer")
 
 
 def with_chart_images(unfurls: dict[str, Any], image_urls: dict[str, str], titles: dict[str, str]) -> dict[str, Any]:
-    """The unfurls with an image block under the title of each card that has a chart."""
+    """The unfurls with an image block above the buttons of each card that has a chart."""
     result: dict[str, Any] = {}
     for url, payload in unfurls.items():
         blocks = list(payload.get("blocks") or [])
         image_url = image_urls.get(url)
         if image_url is not None:
             alt_text = (titles.get(url) or "Insight chart")[:_MAX_ALT_TEXT_CHARS]
-            blocks.insert(1, {"type": "image", "image_url": image_url, "alt_text": alt_text})
+            position = next((i for i, block in enumerate(blocks) if block.get("type") == "actions"), len(blocks))
+            blocks.insert(position, {"type": "image", "image_url": image_url, "alt_text": alt_text})
         result[url] = {**payload, "blocks": blocks}
     return result
 
@@ -99,8 +113,8 @@ def _raise_if_transient(error: SlackApiError) -> None:
         raise error
 
 
-def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_insight: dict[int, str]) -> None:
-    """Post the rendered charts. ``image_urls_by_insight`` holds a delivery url for each insight that rendered."""
+def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key: dict[str, str]) -> None:
+    """Post the rendered charts. ``image_urls_by_key`` holds a delivery url for each render key that rendered."""
     request = post.request
     integration = Integration.objects.select_related("team__organization").get(
         id=request.integration_id, team_id=request.team_id
@@ -118,21 +132,28 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_ins
         failure_reason = "no_project_access"
     else:
         # Checked again because the sharer's access can change while the chart renders.
-        allowed = {
-            insight_id: _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else url
-            for insight_id, url in image_urls_by_insight.items()
-            if user_can_view_insight(team=team, user=user, insight_id=insight_id)
-        }
-        image_urls = {chart.url: allowed[chart.insight_id] for chart in request.charts if chart.insight_id in allowed}
+        access = UserAccessControl(user, team=team)
+        allowed: dict[str, bool] = {}
+        for chart in request.charts:
+            key = chart.render_key
+            if key not in image_urls_by_key:
+                continue
+            if key not in allowed:
+                allowed[key] = _can_view_chart(team, user, chart, access)
+            if allowed[key]:
+                image_urls[chart.url] = _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_urls_by_key[key]
 
+    adhoc_urls = {chart.url for chart in request.charts if chart.query is not None}
     if image_urls:
         titles = {chart.url: chart.title for chart in request.charts}
+        # The webhook posted no card for an ad hoc link, so its card goes out only with its chart.
+        unfurls = {url: card for url, card in request.unfurls.items() if url not in adhoc_urls or url in image_urls}
         try:
             SlackIntegration(integration).client.chat_unfurl(
                 **chat_unfurl_kwargs(
                     channel=request.channel,
                     ts=request.message_ts,
-                    unfurls=with_chart_images(request.unfurls, image_urls, titles),
+                    unfurls=with_chart_images(unfurls, image_urls, titles),
                     unfurl_id=request.unfurl_id,
                     source=request.source,
                 )
@@ -152,6 +173,8 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_ins
         charts_requested=len(request.charts),
         charts_shown=len(image_urls),
         charts_failed=len(request.charts) - len(image_urls),
+        adhoc_charts_requested=len(adhoc_urls),
+        adhoc_charts_shown=len(adhoc_urls & image_urls.keys()),
         duration_ms=post.elapsed_ms,
         failure_reason=failure_reason,
     )

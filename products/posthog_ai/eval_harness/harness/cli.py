@@ -62,6 +62,7 @@ class HarnessOptions:
     """Sandbox-only flags the user passed explicitly, so a run without sandboxed
     suites can reject them instead of silently ignoring them."""
 
+    verbose: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
 
 
@@ -177,6 +178,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retries for temporary case setup failures and support-service readiness timeouts. Use 0 to disable.",
     )
     parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed logs in the console as well as the transcript."
+    )
+    parser.add_argument(
         "--fail-under",
         type=float,
         default=None,
@@ -258,4 +262,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         fail_under=args.fail_under,
         sandbox_flags_set=sandbox_flags_set,
         infrastructure_retries=args.infra_retries,
+        verbose=args.verbose,
     )

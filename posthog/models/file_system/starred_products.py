@@ -37,7 +37,7 @@ def _simple_sidebar_enabled(user: User, team: "Team") -> bool:
     )
 
 
-def _mark_setup_completed(user: User) -> None:
+def mark_starred_products_setup_completed(user: User) -> None:
     # Merge into the stored value under a short row lock, so a concurrent settings change is kept.
     # NO KEY UPDATE is the lock the UPDATE takes anyway, and it does not block inserts of child rows.
     with transaction.atomic():
@@ -53,31 +53,19 @@ def _mark_setup_completed(user: User) -> None:
         user.save(update_fields=["ui_configuration"])
 
 
-def star_custom_products(user: User, team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
-    """Star products that were just added to a user's custom products, for simple sidebar users.
+def star_products(user: User, team: "Team", product_paths: list[str]) -> int:
+    """Star products on the user's sidebar for a team, after their existing stars. Returns how many were added.
 
-    The simple sidebar shows starred products instead of custom products, so every write that adds
-    custom products calls this to keep the two in step. `had_custom_products` says whether the user
-    had any custom products, in any project, before the write:
-
-    - A user with none is brand new, so their products are starred and the setup is marked done.
-    - A user who finished the setup gets the new products starred too.
-    - A user with custom products who has not done the setup yet is left alone. The setup card
-      offers their whole list, so starring one suggestion must not complete it for them.
+    Unknown paths and products the user already starred are skipped, so a repeated call adds nothing.
     """
-    if not product_paths:
-        return
-    completed = starred_products_setup_completed(user)
-    if not completed and had_custom_products:
-        return
-    if not _simple_sidebar_enabled(user, team):
-        return
-
     products_by_path = {product.path: product for product in Products.products()}
     with transaction.atomic():
         # Concurrent writes for the same user would otherwise both miss the star and add it twice.
         lock_user_shortcuts(team.pk, user.pk)
-        user_shortcuts = FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team=team, user=user)
+        # The sidebar lists the stars of every environment in the project, so check them all.
+        user_shortcuts = FileSystemShortcut.objects.filter(
+            surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user
+        )
         starred_paths = set(
             user_shortcuts.filter(ref__isnull=True).exclude(type="folder").values_list("path", flat=True)
         )
@@ -101,6 +89,30 @@ def star_custom_products(user: User, team: "Team", product_paths: list[str], *, 
                 )
             )
         FileSystemShortcut.objects.bulk_create(to_create)
+    return len(to_create)
+
+
+def star_custom_products(user: User, team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
+    """Star products that were just added to a user's custom products, for simple sidebar users.
+
+    The simple sidebar shows starred products instead of custom products, so every write that adds
+    custom products calls this to keep the two in step. `had_custom_products` says whether the user
+    had any custom products, in any project, before the write:
+
+    - A user with none is brand new, so their products are starred and the setup is marked done.
+    - A user who finished the setup gets the new products starred too.
+    - A user with custom products who has not done the setup yet is left alone. The setup card
+      offers their whole list, so starring one suggestion must not complete it for them.
+    """
+    if not product_paths:
+        return
+    completed = starred_products_setup_completed(user)
+    if not completed and had_custom_products:
+        return
+    if not _simple_sidebar_enabled(user, team):
+        return
+
+    star_products(user, team, product_paths)
 
     if not completed:
-        _mark_setup_completed(user)
+        mark_starred_products_setup_completed(user)

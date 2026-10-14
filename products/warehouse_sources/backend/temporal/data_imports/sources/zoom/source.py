@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,69 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^ZOOM_ACCOUNT_ID$",
+            "^ZOOM_CLIENT_ID$",
+            "^ZOOM_CLIENT_SECRET$",
+            "^ZOOM_MEETING_SDK_KEY$",
+            "^ZOOM_MEETING_SDK_SECRET$",
+            "^ZOOM_VIDEO_SDK_KEY$",
+            "^ZOOM_VIDEO_SDK_SECRET$",
+            "^ZOOM_SDK_KEY$",
+            "^ZOOM_SDK_SECRET$",
+            "^ZOOM_COBROWSE_SDK_SECRET$",
+            "^ZOOM_WEBHOOK_SECRET_TOKEN$",
+            "^ZOOM_VERIFICATION_TOKEN$",
+            "^ZOOM_BOT_JID$",
+            "^ZM_CLIENT_ID$",
+            "^ZM_CLIENT_SECRET$",
+            "^ZM_REDIRECT_URL$",
+            "^ZM_RTMS_",
+        ),
+        script_hosts=(
+            "source.zoom.us",
+            "source.zoomgov.com",
+            "appssdk.zoom.us",
+            "us01ccistatic.zoom.us",
+            "us01-zcb.zoom.us",
+        ),
+        npm=(
+            "@zoom/rivet",
+            "@zoom/meetingsdk",
+            "@zoom/appssdk",
+            "@zoom/videosdk",
+            "@zoom/videosdk-ui-toolkit",
+            "@zoom/videosdk-react",
+            "@zoom/react-native-videosdk",
+            "@zoom/meetingsdk-react-native",
+            "@zoom/rtms",
+            "@zoom/cobrowsesdk",
+            "@zoom/probesdk",
+            "@zoomus/websdk",
+            "@zoomus/chatbot",
+            "@zoomus/chatbot-cli",
+            "react-native-zoom-us",
+        ),
+        pypi=("rtms", "zoomus"),
+        cocoapods=("ZoomVideoSDK", "ZoomMeetingSDK"),
+        maven=(
+            "us.zoom.meetingsdk:zoomsdk",
+            "us.zoom.uitoolkit:uitoolkit",
+            "us.zoom.videosdk:zoomvideosdk-core",
+            "us.zoom.videosdk:zoomvideosdk-annotation",
+            "us.zoom.videosdk:zoomvideosdk-videoeffects",
+            "us.zoom.videosdk:zoomvideosdk-whiteboard",
+            "us.zoom.videosdk:zoomvideosdk-broadcast-streaming",
+            "us.zoom.videosdk:ZoomVideoSDK",
+            "us.zoom.videosdk-lite:zoomvideosdk-core",
+            "us.zoom.videosdk-lite:zoomvideosdk-annotation",
+            "us.zoom.videosdk-lite:zoomvideosdk-videoeffects",
+        ),
+        pub=("flutter_zoom_videosdk",),
+        rubygems=("zoom_rb",),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.zoom.us/docs/api/"

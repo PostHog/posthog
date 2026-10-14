@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
+    codebase_detection = detect(env=("^(TV_MAZE|TVMAZE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # TVmaze exposes no version token (no /vN/ path, header, or dated release), so the
     # framework's unversioned default applies.

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuyMeACoffeeSource(ResumableSource[BuyMeACoffeeSourceConfig, BuyMeACoffeeResumeConfig]):
+    codebase_detection = detect(env=("^(BUY_ME_A_COFFEE|BUYMEACOFFEE)_",), script_hosts=("cdnjs.buymeacoffee.com",))
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 

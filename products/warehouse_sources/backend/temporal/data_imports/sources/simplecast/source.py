@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimpleCastSource(ResumableSource[SimpleCastSourceConfig, SimpleCastResumeConfig]):
+    codebase_detection = detect(env=("^(SIMPLE_CAST|SIMPLECAST)_",))
+
     api_docs_url = "https://apidocs.simplecast.com"
 
     supported_versions = SUPPORTED_VERSIONS

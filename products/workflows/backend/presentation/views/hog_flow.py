@@ -216,6 +216,7 @@ from products.workflows.backend.facade.proposals import (
     list_proposals,
     lock_proposal,
     merge_proposal_content,
+    notify_proposal_filed,
     proposal_conflicts,
     proposal_outcome,
     resolve_proposal,
@@ -5394,6 +5395,7 @@ class HogFlowViewSet(
         # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
         retry_of = get_proposal_by_source_id(hog_flow_id=instance.id, source_id=source_id) if source_id else None
         if retry_of:
+            self._notify_proposal_filed(retry_of.id)
             return Response(
                 WorkflowProposalSerializer(retry_of, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
@@ -5475,6 +5477,7 @@ class HogFlowViewSet(
         )
         proposal = created.proposal
         if not created.created:
+            self._notify_proposal_filed(proposal.id)
             return Response(
                 WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
@@ -5483,9 +5486,18 @@ class HogFlowViewSet(
             instance,
             {"proposal_id": str(proposal.id)},
         )
+        self._notify_proposal_filed(proposal.id)
         return Response(
             WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_201_CREATED
         )
+
+    def _notify_proposal_filed(self, proposal_id: uuid_mod.UUID) -> None:
+        # Retries call this too, so a failed delivery is repaired; per-proposal keys stop a second send.
+        try:
+            notify_proposal_filed(team_id=self.team_id, proposal_id=proposal_id, filed_by_user_id=self._actor_id())
+        except Exception as error:
+            # A failed notification must not fail the filing: the suggestion is already stored and listed.
+            capture_exception(error)
 
     @extend_schema(
         parameters=[
