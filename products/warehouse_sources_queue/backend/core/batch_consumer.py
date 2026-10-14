@@ -5,6 +5,7 @@ import random
 import signal
 import asyncio
 import contextlib
+import faulthandler
 from collections import defaultdict
 from collections.abc import Callable, Coroutine, Iterator
 from dataclasses import dataclass, replace
@@ -307,6 +308,10 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
+    # When set, all thread stacks are written to stderr once the heartbeat loop has not run for
+    # this many seconds. faulthandler writes them from a C thread, so the dump also works when a
+    # native call holds the GIL and every Python thread, logging included, is frozen.
+    stall_dump_after_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -1827,12 +1832,20 @@ class BatchConsumer:
         A poll cycle can run far longer than the health timeout (e.g. large final-batch
         compaction), so the main loop's per-poll health report is not enough on its own.
         """
-        while not self._shutdown.is_set():
-            self._report_health()
-            try:
-                await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
-            except TimeoutError:
-                pass
+        stall_dump_after = self._config.stall_dump_after_seconds
+        try:
+            while not self._shutdown.is_set():
+                if stall_dump_after is not None:
+                    faulthandler.dump_traceback_later(stall_dump_after)
+                self._report_health()
+                try:
+                    await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
+                except TimeoutError:
+                    pass
+        finally:
+            # The shutdown drain sends no heartbeats, so a timer left armed would dump stacks on every long drain.
+            if stall_dump_after is not None:
+                faulthandler.cancel_dump_traceback_later()
 
     async def _recovery_sweep(self, *, should_abort: Callable[[], bool] | None = None) -> None:
         grace_seconds = self._config.recovery_grace_seconds
