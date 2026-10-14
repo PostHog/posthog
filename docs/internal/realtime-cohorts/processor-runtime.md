@@ -205,6 +205,7 @@ With durable restore enabled, a restart reopens the same local store instead, an
 3. After a checkpoint restore, it lowers each owned partition's resume point to the offset the checkpoint recorded.
 4. It seeks every owned partition back to its resume point, so every event it polled and did not dispatch is fetched again.
    A failed seek is retried on the next poll, and nothing is dispatched until every seek succeeds.
+   The consumer reports no liveness while a seek fails, so a seek that keeps failing restarts the process.
 5. It spawns a worker for every owned partition.
    Each worker rebuilds its in-memory eviction queue by scanning its slice of behavioral state, so a dormant member on a partition with no traffic still leaves on time.
 

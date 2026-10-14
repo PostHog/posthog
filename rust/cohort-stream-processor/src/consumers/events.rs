@@ -1095,8 +1095,8 @@ impl CohortStreamEventsConsumer {
     ///
     /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
     /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
-    /// synchronous commit. Liveness is reported after every poll without a transport error, in every
-    /// boot phase.
+    /// synchronous commit. Liveness is reported after every poll without a transport error, except
+    /// while boot is still rewinding.
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
@@ -1176,7 +1176,7 @@ impl CohortStreamEventsConsumer {
                     };
                     if transport_error {
                         tokio::time::sleep(RECV_ERROR_BACKOFF).await;
-                    } else {
+                    } else if !matches!(phase, BootPhase::Rewinding { .. }) {
                         self.handle.report_healthy();
                     }
                 }
@@ -1208,8 +1208,8 @@ impl CohortStreamEventsConsumer {
     }
 
     /// Seek every owned partition back to its resume point, then go live. Any failure keeps boot
-    /// in `Rewinding`, so the next poll retries the seek and nothing folds from the broker offset. A
-    /// persistent failure stalls and surfaces as consumer lag and a pod that never reads ready.
+    /// in `Rewinding`, so the next poll retries the seek and nothing folds from the broker offset.
+    /// `Rewinding` reports no liveness, so a persistent failure restarts the process.
     fn rewind(&self, resume: ResumePoints, boot_started: Instant) -> BootPhase {
         let owned = self.dispatcher.owned_set();
         let seek_list = match resume.seek_list(&self.topic, &owned) {

@@ -630,7 +630,6 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
     );
     spawn_follower_after_boot(
-        catalog.clone(),
         boot_readiness.clone(),
         merge_follower,
         merge_follower_handle,
@@ -646,7 +645,6 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
     );
     spawn_follower_after_boot(
-        catalog.clone(),
         boot_readiness.clone(),
         transfer_follower,
         transfer_follower_handle,
@@ -664,12 +662,7 @@ async fn async_main(config: Config) -> Result<()> {
             config.recv_batch_timeout(),
             config.offset_commit_interval(),
         );
-        spawn_follower_after_boot(
-            catalog.clone(),
-            boot_readiness.clone(),
-            cascade_follower,
-            cascade_handle,
-        );
+        spawn_follower_after_boot(boot_readiness.clone(), cascade_follower, cascade_handle);
     }
 
     if let (Some(seed_consumer), Some(seed_handle)) = (seed_follower_consumer, seed_follower_handle)
@@ -695,13 +688,12 @@ async fn async_main(config: Config) -> Result<()> {
             config.seed_pacing_config()?,
             disk_state.clone(),
         );
-        let seed_catalog = catalog.clone();
         let seed_readiness = boot_readiness.clone();
         tokio::spawn(async move {
             tokio::select! {
                 biased;
                 _ = seed_handle.shutdown_recv() => {}
-                _ = wait_for_boot(&seed_catalog, &seed_readiness) => seed_follower.process().await,
+                _ = seed_readiness.wait_until_dispatchable() => seed_follower.process().await,
             }
         });
     }
@@ -821,15 +813,7 @@ fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPa
     (tpl.count() > 0).then_some(tpl)
 }
 
-/// A follower dispatches only once the catalog has loaded and the events consumer's boot recovery
-/// has ended, so no worker runs while boot recovery writes to the store.
-async fn wait_for_boot(catalog: &CatalogHandle, readiness: &BootReadiness) {
-    catalog.wait_until_loaded().await;
-    readiness.wait_until_live().await;
-}
-
 fn spawn_follower_after_boot<R: FollowerRoute>(
-    catalog: Arc<CatalogHandle>,
     readiness: Arc<BootReadiness>,
     follower: FollowerConsumer<R>,
     handle: Handle,
@@ -838,7 +822,7 @@ fn spawn_follower_after_boot<R: FollowerRoute>(
         tokio::select! {
             biased;
             _ = handle.shutdown_recv() => {}
-            _ = wait_for_boot(&catalog, &readiness) => follower.process().await,
+            _ = readiness.wait_until_dispatchable() => follower.process().await,
         }
     });
 }

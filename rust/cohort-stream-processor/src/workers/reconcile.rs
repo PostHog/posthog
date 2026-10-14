@@ -147,7 +147,8 @@ pub(crate) struct ReconcileQueue {
     backlog: Arc<ReconcileBacklog>,
     partition_label: Arc<str>,
     handle: StoreHandle,
-    /// Stamps each admission and judges each drain, so both read one catalog.
+    /// `enqueue` records the newest refresh this handle has begun on each job, and the drain compares
+    /// it with the refresh this handle last published.
     catalog: Arc<CatalogHandle>,
 }
 
@@ -302,7 +303,8 @@ impl ReconcileDiscardReason {
 
 #[derive(Debug)]
 enum ReconcileGuard {
-    /// Carries what the guard proved, so the drain needs no `expect`.
+    /// Carries the team filters and eligibility the guard found, so the drain does not look them up
+    /// again.
     Proceed {
         filters: Arc<TeamFilters>,
         eligibility: CohortEligibility,

@@ -793,8 +793,6 @@ async fn spawn_instance(
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
     );
-    tasks.push(tokio::spawn(merge_follower.process()));
-
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
@@ -804,8 +802,6 @@ async fn spawn_instance(
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
     );
-    tasks.push(tokio::spawn(transfer_follower.process()));
-
     let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
         cascade_consumer,
         topics.cascade.clone(),
@@ -815,7 +811,16 @@ async fn spawn_instance(
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
     );
-    tasks.push(tokio::spawn(cascade_follower.process()));
+    // The followers wait for boot recovery, as in the binary.
+    let readiness = dispatcher.readiness().clone();
+    tasks.push(tokio::spawn(async move {
+        readiness.wait_until_dispatchable().await;
+        tokio::join!(
+            merge_follower.process(),
+            transfer_follower.process(),
+            cascade_follower.process(),
+        );
+    }));
 
     let events_consumer = CohortStreamEventsConsumer::new(
         Arc::new(events_client),

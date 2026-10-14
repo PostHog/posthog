@@ -70,8 +70,10 @@ impl BootReadiness {
         let _ = self.live.set(());
     }
 
-    /// Resolve once boot recovery has ended; immediate if it already has.
-    pub async fn wait_until_live(&self) {
+    /// Resolve once the catalog has loaded and boot recovery has ended, so no worker a consumer
+    /// spawns runs while boot recovery writes to the store.
+    pub async fn wait_until_dispatchable(&self) {
+        self.catalog.wait_until_loaded().await;
         self.live.wait().await;
     }
 

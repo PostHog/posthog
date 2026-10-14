@@ -27,7 +27,8 @@ impl ResumePoints {
         }
     }
 
-    /// A restored store resumes at its manifest offset on every owned partition the manifest names.
+    /// Lowers each owned partition's resume point to its manifest offset, so a restored store never
+    /// resumes past its checkpoint.
     pub(crate) fn rewind_to(
         &mut self,
         manifest: &OffsetManifest,
