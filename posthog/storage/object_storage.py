@@ -329,12 +329,22 @@ class ObjectStorage(ObjectStorageClient):
             raise ObjectStorageError("read failed") from e
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         try:
             self.aws_client.put_object_tagging(
                 Bucket=bucket,
                 Key=key,
                 Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
             )
+        except ClientError as e:
+            # Some S3-compatible backends do not support object tagging, so this is not an error to report.
+            if e.response.get("Error", {}).get("Code") == "NotImplemented":
+                logger.warning("object_storage.tag_not_supported", bucket=bucket, file_name=key)
+                raise ObjectStorageError("tag not supported") from e
+            logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("tag failed") from e
         except Exception as e:
             logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
