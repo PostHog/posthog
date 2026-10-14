@@ -25,6 +25,32 @@ class BackfillCounts:
     updated: int
 
 
+def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
+    """The platform copy of a logs alert, which the backfill writes and every check reads again."""
+    return PlatformAlertUpsert(
+        legacy_configuration_id=alert.id,
+        team_id=alert.team_id,
+        name=alert.name,
+        enabled=alert.enabled,
+        source_kind=SourceKind.LOGS,
+        source_config={
+            **alert.filters,
+            SOURCE_CONDITION_KEY: LogsAlertCondition(
+                threshold_count=alert.threshold_count,
+                threshold_operator=alert.threshold_operator,
+                window_minutes=alert.window_minutes,
+            ).as_source_config(),
+        },
+        check_interval_minutes=alert.check_interval_minutes,
+        evaluation_periods=alert.evaluation_periods,
+        datapoints_to_alarm=alert.datapoints_to_alarm,
+        cooldown_minutes=alert.cooldown_minutes,
+        schedule_restriction=alert.schedule_restriction,
+        next_check_at=alert.next_check_at,
+        snooze_until=alert.snooze_until,
+    )
+
+
 def backfill_platform_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
     """Copies every logs alert configuration, or one team's."""
     source = LogsAlertConfiguration.objects.all()
@@ -34,30 +60,7 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None) -> Bac
     created = 0
     updated = 0
     for configuration in source.iterator():
-        was_created = upsert_configuration(
-            PlatformAlertUpsert(
-                legacy_configuration_id=configuration.id,
-                team_id=configuration.team_id,
-                name=configuration.name,
-                enabled=configuration.enabled,
-                source_kind=SourceKind.LOGS,
-                source_config={
-                    **configuration.filters,
-                    SOURCE_CONDITION_KEY: LogsAlertCondition(
-                        threshold_count=configuration.threshold_count,
-                        threshold_operator=configuration.threshold_operator,
-                        window_minutes=configuration.window_minutes,
-                    ).as_source_config(),
-                },
-                check_interval_minutes=configuration.check_interval_minutes,
-                evaluation_periods=configuration.evaluation_periods,
-                datapoints_to_alarm=configuration.datapoints_to_alarm,
-                cooldown_minutes=configuration.cooldown_minutes,
-                schedule_restriction=configuration.schedule_restriction,
-                next_check_at=configuration.next_check_at,
-                snooze_until=configuration.snooze_until,
-            )
-        )
+        was_created = upsert_configuration(platform_upsert_of(configuration))
         if was_created:
             created += 1
         else:
