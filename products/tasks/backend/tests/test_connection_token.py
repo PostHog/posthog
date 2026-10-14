@@ -170,6 +170,23 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertIs(payload.thin_tail, gated)
         self.assertEqual(payload.origin_product, "signals_scout")
 
+    @parameterized.expand(
+        [
+            ("stamped_on", {"agent_sends_callbacks": True}, True),
+            ("stamped_off", {"agent_sends_callbacks": False}, False),
+            ("not_stamped", {}, False),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_ingest_token_tells_the_agent_whether_it_sends_callbacks(
+        self, _name: str, state: dict, expected: bool
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        token = create_sandbox_event_ingest_token(_fake_run(state))
+
+        claims = jwt.decode(token, options={"verify_signature": False})
+        self.assertIs(claims["agent_sends_callbacks"], expected)
+
     @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_stream_read_token_carries_pinned_presence_gating(self, gated: bool) -> None:

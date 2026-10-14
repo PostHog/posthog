@@ -57,4 +57,5 @@ vi.mock('@/hono/metrics.js', () => ({
     observeStreamIngestEvents: vi.fn(),
     observeStreamWriteSkipped: vi.fn(),
     observeIngestClientDisconnect: vi.fn(),
+    observeIngestRequest: vi.fn(),
 }))

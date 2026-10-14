@@ -12,7 +12,12 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
-from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
+from products.tasks.backend.constants import AGENT_SENDS_CALLBACKS_STATE_KEY
+from products.tasks.backend.feature_flags import (
+    run_agent_sends_callbacks,
+    run_stream_presence_gated,
+    run_stream_thin_tail,
+)
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
@@ -287,6 +292,7 @@ def create_sandbox_event_ingest_token(
             "presence_gated": presence_gated,
             "thin_tail": thin_tail,
             "origin_product": task_run.task.origin_product,
+            AGENT_SENDS_CALLBACKS_STATE_KEY: run_agent_sends_callbacks(task_run.state),
         },
     )
 

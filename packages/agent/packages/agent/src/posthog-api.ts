@@ -10,6 +10,10 @@ import {
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
 import packageJson from "../package.json" with { type: "json" };
+import {
+  AGENT_CALLBACK_TIMEOUT_MS,
+  type AgentCallback,
+} from "./server/agent-callback-reporter";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
@@ -367,6 +371,22 @@ export class PostHogAPIClient {
       response.status,
       `Failed to get a ChatGPT token: [${response.status}] ${body.error ?? response.statusText}`,
     );
+  }
+
+  async sendAgentCallback(
+    taskId: string,
+    runId: string,
+    callback: AgentCallback,
+  ): Promise<boolean> {
+    const response = await this.apiRequest<{ dispatched?: unknown }>(
+      `/api/projects/${this.getTeamId()}/tasks/${taskId}/runs/${runId}/agent_callback/`,
+      {
+        method: "POST",
+        body: JSON.stringify(callback),
+        signal: AbortSignal.timeout(AGENT_CALLBACK_TIMEOUT_MS),
+      },
+    );
+    return response?.dispatched === true;
   }
 
   async appendTaskRunLog(

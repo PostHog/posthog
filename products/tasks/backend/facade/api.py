@@ -69,6 +69,7 @@ from products.posthog_ai.backend.task_ownership import (
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    AGENT_SENDS_CALLBACKS_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
@@ -2751,6 +2752,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
         "agent_proxy_keep_stream_open",
+        AGENT_SENDS_CALLBACKS_STATE_KEY,
         "overlap_clone_boot_enabled",
         "use_modal_network_allowlist",
         "stream_presence_gated",

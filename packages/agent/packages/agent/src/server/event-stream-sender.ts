@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { Logger } from "../utils/logger";
+import { AGENT_CALLBACKS_HEADER } from "./agent-callback-reporter";
 import {
   createNodeStreamingUpload,
   type StreamingUpload,
@@ -11,6 +12,7 @@ interface TaskRunEventStreamSenderConfig {
   // Base URL for the event-ingest POST only; falls back to apiUrl (Django path) when unset.
   eventIngestBaseUrl?: string;
   keepProxyStreamOpen?: boolean;
+  agentSendsCallbacks?: boolean;
   projectId: number;
   taskId: string;
   runId: string;
@@ -31,6 +33,7 @@ interface TaskRunEventStreamSenderConfig {
 interface EventEnvelope {
   seq: number;
   event: Record<string, unknown>;
+  id?: number;
 }
 
 interface IngestResponse {
@@ -127,6 +130,12 @@ export class TaskRunEventStreamSender {
   private transportCompleted = false;
   private droppedBeforeSequenceCount = 0;
   private bufferRevision = 0;
+  private nextEnvelopeId = 0;
+  private lastAdmittedId: number | null = null;
+  private readonly ackWaiters = new Map<
+    number,
+    (sequence: number | null) => void
+  >();
 
   constructor(private readonly config: TaskRunEventStreamSenderConfig) {
     const usingProxy = Boolean(config.eventIngestBaseUrl);
@@ -163,15 +172,18 @@ export class TaskRunEventStreamSender {
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
+    this.lastAdmittedId = null;
     const acceptedEvent = this.prepareEvent(event);
     if (!acceptedEvent) {
       return;
     }
 
     const envelope: EventEnvelope = {
+      id: ++this.nextEnvelopeId,
       seq: ++this.sequence,
       event: acceptedEvent,
     };
+    this.lastAdmittedId = envelope.id ?? null;
     this.bufferedEvents.push(envelope);
     this.scheduleFlush();
   }
@@ -189,8 +201,27 @@ export class TaskRunEventStreamSender {
       this.flushTimer = null;
     }
 
-    this.stopPromise = this.drainForStop(complete);
+    this.stopPromise = this.drainForStop(complete).finally(() => {
+      for (const resolve of this.ackWaiters.values()) {
+        resolve(null);
+      }
+      this.ackWaiters.clear();
+    });
     await this.stopPromise;
+  }
+
+  awaitAckOfLastEvent(): Promise<number | null> {
+    const id = this.lastAdmittedId;
+    if (id === null) {
+      return Promise.resolve(null);
+    }
+    const acked = new Promise<number | null>((resolve) => {
+      this.ackWaiters.set(id, resolve);
+    });
+    if (!this.stopped) {
+      void this.flush(true);
+    }
+    return acked;
   }
 
   private scheduleFlush(delayMs = this.flushDelayMs): void {
@@ -245,7 +276,7 @@ export class TaskRunEventStreamSender {
     }
   }
 
-  private async flush(): Promise<boolean> {
+  private async flush(closeUpload = false): Promise<boolean> {
     if (this.flushPromise) {
       await this.flushPromise.catch(() => undefined);
     }
@@ -262,7 +293,7 @@ export class TaskRunEventStreamSender {
       await flushPromise;
       // The ingress ahead of the agent-proxy only forwards the request body once the
       // upload closes, so close per drained batch to avoid stranding buffered events.
-      if (!this.stopped && !this.keepProxyStreamOpen) {
+      if (!this.stopped && (closeUpload || !this.keepProxyStreamOpen)) {
         await this.closeActiveStream();
       }
       return this.bufferedEvents.length < previousBufferLength;
@@ -671,9 +702,22 @@ export class TaskRunEventStreamSender {
 
   private acceptThrough(lastAcceptedSeq: number): void {
     const previousLength = this.bufferedEvents.length;
-    this.bufferedEvents = this.bufferedEvents.filter(
-      (event) => event.seq > lastAcceptedSeq,
-    );
+    const remaining: EventEnvelope[] = [];
+    for (const envelope of this.bufferedEvents) {
+      if (envelope.seq > lastAcceptedSeq) {
+        remaining.push(envelope);
+        continue;
+      }
+      const resolve =
+        envelope.id === undefined
+          ? undefined
+          : this.ackWaiters.get(envelope.id);
+      if (resolve && envelope.id !== undefined) {
+        this.ackWaiters.delete(envelope.id);
+        resolve(envelope.seq);
+      }
+    }
+    this.bufferedEvents = remaining;
     if (this.bufferedEvents.length !== previousLength) {
       this.bufferRevision += 1;
     }
@@ -683,6 +727,9 @@ export class TaskRunEventStreamSender {
     return {
       Authorization: `Bearer ${this.config.token}`,
       "Content-Type": "application/x-ndjson",
+      ...(this.config.agentSendsCallbacks
+        ? { [AGENT_CALLBACKS_HEADER]: "1" }
+        : {}),
     };
   }
 

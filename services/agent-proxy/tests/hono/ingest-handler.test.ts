@@ -364,8 +364,9 @@ function makeContext(opts: {
     method?: string
     token?: string
     body?: ReadableStream<Uint8Array> | null
+    headers?: Record<string, string>
 }): Parameters<typeof handleIngest>[0] {
-    const { runId = 'run-123', method = 'POST', token = 'test-token', body = null } = opts
+    const { runId = 'run-123', method = 'POST', token = 'test-token', body = null, headers = {} } = opts
 
     return {
         req: {
@@ -376,7 +377,7 @@ function makeContext(opts: {
                 if (lc === 'authorization') {
                     return token ? `Bearer ${token}` : undefined
                 }
-                return undefined
+                return headers[lc]
             },
             raw: new Request('http://localhost/', {
                 method: 'POST',
@@ -647,6 +648,51 @@ describe('ingest-handler', () => {
             })
             expect(String(request?.body)).not.toContain('not-for-analytics')
             expect(callback.mock.calls[1]![1]?.body).toBe(request?.body)
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('sends no callbacks for an agent that sends its own and still tracks its activity', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const events = [
+                {
+                    type: 'notification',
+                    notification: {
+                        method: 'session/update',
+                        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                    },
+                },
+                {
+                    type: 'notification',
+                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
+                },
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                {
+                    type: 'notification',
+                    notification: {
+                        method: 'session/update',
+                        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                    },
+                },
+            ]
+            const body = makeStringBody(
+                events.map((event, index) => JSON.stringify({ seq: index + 1, event }) + '\n').join('')
+            )
+
+            const response = await handleIngest(
+                makeContext({ body, headers: { 'x-posthog-agent-callbacks': '1' } }),
+                fakeRedis as unknown as Redis,
+                makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' }),
+                [] as CryptoKey[]
+            )
+
+            expect(await decodeJson(response)).toMatchObject({ accepted: 4 })
+            expect(callback).not.toHaveBeenCalled()
+            expect(await redisStream.getAgentActive()).toBe(true)
         } finally {
             callback.mockRestore()
         }
