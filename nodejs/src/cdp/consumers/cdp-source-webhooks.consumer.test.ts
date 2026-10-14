@@ -653,20 +653,26 @@ describe('SourceWebhooksConsumer', () => {
                     expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
-                it('queues the run when redis fails during the claim', async () => {
+                it('queues the run when the redis claim never answers, and releases it if queueing fails', async () => {
                     const redis = api['cdpSourceWebhooksConsumer']['redis']
                     const useClient = redis.useClient
-                    jest.spyOn(redis, 'useClient').mockImplementation((options, callback) =>
-                        options.name === 'hogflow-webhook-idempotency'
-                            ? Promise.reject(new Error('redis unavailable'))
-                            : useClient(options, callback)
-                    )
+                    let claims = 0
+                    jest.spyOn(redis, 'useClient').mockImplementation((options, callback) => {
+                        if (options.name === 'hogflow-webhook-idempotency-claim' && claims++ === 0) {
+                            void useClient(options, callback)
+                            return new Promise(() => {})
+                        }
+                        return useClient(options, callback)
+                    })
+                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
 
-                    const res = await postWithKey(hogFlow.id, 'escalation-4')
+                    const failed = await postWithKey(hogFlow.id, 'escalation-4')
+                    const retried = await postWithKey(hogFlow.id, 'escalation-4')
 
-                    expect(res.status).toEqual(201)
-                    expect(res.body.status).toEqual('queued')
-                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                    expect(failed.status).toEqual(500)
+                    expect(retried.status).toEqual(201)
+                    expect(retried.body.status).toEqual('queued')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
                 })
 
                 it('rejects a key longer than 255 characters without queueing', async () => {
