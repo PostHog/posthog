@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { z } from 'zod'
 
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -15,7 +14,7 @@ import {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { dualWrite } from '../utils/dual-store'
 import { HogConfigurationError } from '../utils/hog-error-classification'
-import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
 import { HogExecutorAsyncService } from './hog-executor-async.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
@@ -103,22 +102,7 @@ export class BatchExportHogFunctionService {
             if (!(error instanceof HogConfigurationError)) {
                 throw error
             }
-            const invocation = createInvocation({ ...globals, inputs: {} }, hogFunction)
-            invocation.id = invocationId.toString()
-            result = createInvocationResult<CyclotronJobInvocationHogFunction>(
-                invocation,
-                {},
-                {
-                    error: error.message,
-                    logs: [
-                        {
-                            level: 'error',
-                            timestamp: DateTime.now(),
-                            message: `Error building inputs: ${error.message}`,
-                        },
-                    ],
-                }
-            )
+            result = createInputsFailureResult(hogFunction, globals, error, invocationId.toString())
         }
 
         // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
