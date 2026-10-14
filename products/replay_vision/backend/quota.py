@@ -417,7 +417,9 @@ def compute_scanner_budget(
     return budgets[scanner.id]
 
 
-def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
+def _sum_enabled_scanner_estimated_credits(
+    organization_id: UUID, exclude_scanner_id: UUID | None = None, free_credits_claimed: int = 0
+) -> int:
     """Projected monthly credit spend of the org's enabled scanners' cached estimates.
 
     A capped scanner can only spend what its limit has left this period. Surfaces pro-rate this
@@ -453,12 +455,14 @@ def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanne
         else:
             total += rate
     if has_free_only and period is not None:
-        total += capped_rate(free_only_total, _free_credits_budget(organization_id, period))
+        # Free-only backfills already claim part of the pool, so the sweep rate gets only the rest.
+        free = _free_credits_budget(organization_id, period)
+        total += capped_rate(free_only_total, replace(free, credits_used=free.credits_used + free_credits_claimed))
     return round(total)
 
 
-def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
-    """Committed-but-unspent credits of the org's active backfills, priced at each backfill's frozen rate.
+def _sum_active_backfill_remaining_credits(organization_id: UUID) -> tuple[int, int]:
+    """(paid, free-only) committed-but-unspent credits of the org's active backfills, at each frozen rate.
 
     Projection only: enforcement stays the per-observation creation check, identical for live and
     backfill applies. A new backfill's confirm dialog therefore sees earlier backfills' commitments
@@ -467,11 +471,17 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
     rows = (
         ReplayScannerBackfill.objects.unscoped()
         .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
-        .values_list("total_count", "dispatched_count", "skipped_count", "credits_per_observation")
+        .values_list(
+            "total_count", "dispatched_count", "skipped_count", "credits_per_observation", "scanner__free_only"
+        )
     )
     # Skipped candidates were quoted and then scanned by the live sweep first, so the backfill no longer
     # owes their credits. Leaving them in strands phantom commitment for the rest of the run.
-    return sum(max(0, total - dispatched - skipped) * price for total, dispatched, skipped, price in rows)
+    committed = [
+        (max(0, total - dispatched - skipped) * price, free_only)
+        for total, dispatched, skipped, price, free_only in rows
+    ]
+    return sum(c for c, free_only in committed if not free_only), sum(c for c, free_only in committed if free_only)
 
 
 def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:
@@ -504,9 +514,16 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
     `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus this
     proposal" forecast. Callers never touch the underlying scanner or backfill rows.
     """
+    paid_backfills, free_only_backfills = _sum_active_backfill_remaining_credits(organization_id)
+    if free_only_backfills:
+        # A free-only backfill pauses when the free credits run out, so it commits only what is left of them.
+        free_left = _free_credits_budget(organization_id, current_period_bounds(organization_id)).remaining
+        free_only_backfills = min(free_only_backfills, free_left if free_left is not None else free_only_backfills)
     return SpendProjection(
-        scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(organization_id, exclude_scanner_id),
-        backfills_committed_credits=_sum_active_backfill_remaining_credits(organization_id),
+        scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(
+            organization_id, exclude_scanner_id, free_credits_claimed=free_only_backfills
+        ),
+        backfills_committed_credits=paid_backfills + free_only_backfills,
     )
 
 
