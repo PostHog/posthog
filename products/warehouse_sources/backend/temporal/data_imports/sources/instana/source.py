@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InstanaSource(ResumableSource[InstanaSourceConfig, InstanaResumeConfig]):
+    codebase_detection = detect(
+        env=("^INSTANA_",),
+        script_hosts=("eum.instana.io",),
+        npm=("@instana/collector", "@instana/aws-lambda", "@instana/react-native-agent"),
+        pypi=("instana",),
+        cocoapods=("InstanaAgent",),
+        go=(
+            "github.com/instana/go-sensor",
+            "github.com/instana/instana-agent-operator",
+            "github.com/instana/instana-go-client",
+            "github.com/instana/instana-otel-collector",
+            "github.com/instana/rollouts-plugin-metric-instana",
+        ),
+        maven=(
+            "com.instana:instana-java-sdk",
+            "com.instana:android-agent-runtime",
+            "com.instana:instana-java-opentracing",
+            "com.instana:instana-javaagent",
+        ),
+        pub=("instana_agent",),
+        rubygems=("instana", "mina-instana"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

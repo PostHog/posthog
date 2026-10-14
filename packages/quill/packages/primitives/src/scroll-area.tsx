@@ -182,22 +182,28 @@ if (typeof document !== 'undefined' && !document.getElementById(SCROLL_SHADOWS_S
     document.head.appendChild(styleEl)
 }
 
-function ScrollArea({
-    className,
-    children,
-    scrollShadows = true,
-    hideScrollbars = false,
-    alwaysShowScrollbars = false,
-    showScrollToButton,
-    viewportClassName,
-    ...props
-}: ScrollAreaPrimitive.Root.Props & {
-    scrollShadows?: boolean
-    hideScrollbars?: boolean
-    alwaysShowScrollbars?: boolean
-    showScrollToButton?: ShowScrollToButton
-    viewportClassName?: string
-}): React.ReactElement {
+const ScrollArea = React.forwardRef<
+    React.ComponentRef<typeof ScrollAreaPrimitive.Root>,
+    ScrollAreaPrimitive.Root.Props & {
+        scrollShadows?: boolean
+        hideScrollbars?: boolean
+        alwaysShowScrollbars?: boolean
+        showScrollToButton?: ShowScrollToButton
+        viewportClassName?: string
+    }
+>(function ScrollArea(
+    {
+        className,
+        children,
+        scrollShadows = true,
+        hideScrollbars = false,
+        alwaysShowScrollbars = false,
+        showScrollToButton,
+        viewportClassName,
+        ...props
+    },
+    ref
+) {
     const viewportRef = React.useRef<HTMLDivElement | null>(null)
     const edges = resolveEdges(showScrollToButton)
     // `typeof process` (vs `process.env.NODE_ENV` directly) avoids the
@@ -217,6 +223,7 @@ function ScrollArea({
     }
     return (
         <ScrollAreaPrimitive.Root
+            ref={ref}
             data-quill
             data-slot="scroll-area"
             // Just to keep around so we know it's a scroll area in case we merge props with another component
@@ -228,7 +235,7 @@ function ScrollArea({
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
-                className={cn("quill-scroll-area__viewport", viewportClassName)}
+                className={cn('quill-scroll-area__viewport', viewportClassName)}
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>
@@ -244,16 +251,15 @@ function ScrollArea({
             ))}
         </ScrollAreaPrimitive.Root>
     )
-}
+})
 
-function ScrollBar({
-    className,
-    orientation = 'vertical',
-    alwaysVisible = false,
-    ...props
-}: ScrollAreaPrimitive.Scrollbar.Props & { alwaysVisible?: boolean }): React.ReactElement {
+const ScrollBar = React.forwardRef<
+    React.ComponentRef<typeof ScrollAreaPrimitive.Scrollbar>,
+    ScrollAreaPrimitive.Scrollbar.Props & { alwaysVisible?: boolean }
+>(function ScrollBar({ className, orientation = 'vertical', alwaysVisible = false, ...props }, ref) {
     return (
         <ScrollAreaPrimitive.Scrollbar
+            ref={ref}
             data-slot="scroll-area-scrollbar"
             data-orientation={orientation}
             orientation={orientation}
@@ -267,6 +273,6 @@ function ScrollBar({
             <ScrollAreaPrimitive.Thumb data-slot="scroll-area-thumb" className="quill-scroll-area__thumb" />
         </ScrollAreaPrimitive.Scrollbar>
     )
-}
+})
 
 export { ScrollArea, ScrollBar }

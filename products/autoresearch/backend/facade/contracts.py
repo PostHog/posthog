@@ -72,6 +72,12 @@ class ArtifactStorageUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class TrainingTrendPoint:
+    iteration_number: int
+    best_holdout_score: float
+
+
+@dataclass(frozen=True)
 class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
@@ -81,6 +87,7 @@ class LiveTrainingRun:
     best_holdout_score: float | None
     latest_agent_description: str
     latest_summary: str | None
+    trend: list[TrainingTrendPoint]
 
 
 @dataclass(frozen=True)
@@ -101,12 +108,6 @@ class PredictionCoverage:
 class RealizedAucPoint:
     prediction_date: date
     realized_auc: float
-
-
-@dataclass(frozen=True)
-class TrainingTrendPoint:
-    iteration_number: int
-    best_holdout_score: float
 
 
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
@@ -133,6 +134,7 @@ class Pipeline:
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
+    write_person_property: bool
     status: str
     created_by: Any
     created_at: datetime
@@ -322,6 +324,7 @@ class PipelineWrite:
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+    write_person_property: bool = False
 
 
 # ── Validation and template contracts ──────────────────────────────────────
@@ -466,6 +469,7 @@ class PredictionSegmentThresholds:
     likely_lift: float
     base_rate: float | None
     base_rate_dates: int
+    base_rate_source: str
     champion_mean_p_y: float | None
     champion_base_rate: float | None
     scores_miscalibrated: bool

@@ -41,7 +41,11 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
+from products.ai_observability.backend.api.metrics import (
+    LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS,
+    LLMA_PROXY_BYOK_REQUESTS,
+    llma_track_latency,
+)
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
     SUPPORTED_MODELS_WITH_THINKING,
@@ -497,6 +501,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     # [], so caching that would persist a failure for the full TTL.
                     if models:
                         cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+                    else:
+                        LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+                        logger.info(
+                            "llma_proxy_byok_empty_model_list",
+                            provider=provider_key.provider,
+                            team_id=provider_key.team_id,
+                            provider_key_id=str(provider_key.id),
+                        )
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()

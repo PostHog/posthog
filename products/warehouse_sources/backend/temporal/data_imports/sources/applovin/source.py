@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,57 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]):
+    codebase_detection = detect(
+        env=("^(APP_LOVIN|APPLOVIN)_",),
+        npm=("react-native-applovin-max",),
+        cocoapods=(
+            "AppLovinSDK",
+            "AppLovin",
+            "AppLovin-SDK",
+            "AppLovinMediationAmazonAdapter",
+            "AppLovinMediationByteDanceAdapter",
+            "AppLovinMediationChartboostAdapter",
+            "AppLovinMediationFacebookAdapter",
+            "AppLovinMediationGoogleAdapter",
+            "AppLovinMediationHyprMXAdapter",
+            "AppLovinMediationIronSourceAdapter",
+            "AppLovinMediationMoPubAdapter",
+            "AppLovinMediationSnapAdapter",
+            "AppLovinMediationTapjoyAdapter",
+            "AppLovinMediationUnityAdsAdapter",
+            "AppLovinMediationVungleAdapter",
+        ),
+        maven=("com.applovin:applovin-sdk", "com.applovin:applovin-signal-provider-sdk"),
+        pub=("applovin_max",),
+        swiftpm=(
+            "github.com/applovin/applovin-max-swift-package",
+            "github.com/applovin/applovin-max-swift-package-amazonadmarketplace",
+            "github.com/applovin/applovin-max-swift-package-bidmachine",
+            "github.com/applovin/applovin-max-swift-package-bigoads",
+            "github.com/applovin/applovin-max-swift-package-chartboost",
+            "github.com/applovin/applovin-max-swift-package-fyber",
+            "github.com/applovin/applovin-max-swift-package-google",
+            "github.com/applovin/applovin-max-swift-package-googleadsmanager",
+            "github.com/applovin/applovin-max-swift-package-inmobi",
+            "github.com/applovin/applovin-max-swift-package-ironsource",
+            "github.com/applovin/applovin-max-swift-package-liftoff",
+            "github.com/applovin/applovin-max-swift-package-line",
+            "github.com/applovin/applovin-max-swift-package-meta",
+            "github.com/applovin/applovin-max-swift-package-mintegral",
+            "github.com/applovin/applovin-max-swift-package-mobilefuse",
+            "github.com/applovin/applovin-max-swift-package-moloco",
+            "github.com/applovin/applovin-max-swift-package-mytarget",
+            "github.com/applovin/applovin-max-swift-package-ogury",
+            "github.com/applovin/applovin-max-swift-package-pangle",
+            "github.com/applovin/applovin-max-swift-package-pubmatic",
+            "github.com/applovin/applovin-max-swift-package-smaato",
+            "github.com/applovin/applovin-max-swift-package-unityads",
+            "github.com/applovin/applovin-max-swift-package-verve",
+            "github.com/applovin/applovin-max-swift-package-yandex",
+            "github.com/applovin/applovin-max-swift-package-ysonetwork",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # The reporting endpoints under r.applovin.com carry no version token of any kind.
     api_docs_url = "https://support.applovin.com/en/max/reporting-apis/revenue-reporting-api"

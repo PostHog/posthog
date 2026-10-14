@@ -11,23 +11,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
     _base_url,
     _execute,
     _format_datetime,
-    bettermode_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.settings import (
     BETTERMODE_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.source import BettermodeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
+    BettermodeSourceConfig,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bettermode.bettermode"
 
-
-def _make_manager(resume_state: BettermodeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        BettermodeSource(),
+        BettermodeSourceConfig(region="us", client_id="client", client_secret="secret", network_id="net"),
+    )
 
 
 def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
@@ -38,31 +44,21 @@ def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock
     return resp
 
 
-def _token_response(token: str = "jwt-token") -> mock.MagicMock:
-    return _response({"data": {"limitedToken": {"accessToken": token}}})
+def _token_response() -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"limitedToken": {"accessToken": "jwt-token"}}})
 
 
-def _page(query_field: str, nodes: list[dict[str, Any]], end_cursor: str | None = None) -> mock.MagicMock:
-    return _response(
-        {
+def _page(query_field: str, nodes: list[dict[str, Any]], end_cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
             "data": {
                 query_field: {
                     "pageInfo": {"endCursor": end_cursor or "cur-end", "hasNextPage": end_cursor is not None},
                     "nodes": nodes,
                 }
             }
-        }
+        },
     )
-
-
-def _mock_sessions(mock_make_session: mock.MagicMock, data_responses: list[mock.MagicMock]) -> tuple[Any, Any]:
-    """get_rows opens two tracked sessions: one for the token exchange, one for data."""
-    token_session = mock.MagicMock()
-    token_session.post.return_value = _token_response()
-    data_session = mock.MagicMock()
-    data_session.post.side_effect = data_responses
-    mock_make_session.side_effect = [token_session, data_session]
-    return token_session, data_session
 
 
 class TestFormatDatetime:
@@ -113,86 +109,68 @@ class TestExecute:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_when_token_minted(self, mock_make_session):
-        session = mock.MagicMock()
-        session.post.return_value = _token_response()
-        mock_make_session.return_value = session
+    def test_valid_when_token_minted(self):
+        with scripted_network([_token_response()]) as network:
+            assert validate_credentials("us", "client", "secret", "net") == (True, None)
 
-        assert validate_credentials("us", "client", "secret", "net") == (True, None)
-        assert session.auth == ("client", "secret")
+        assert network.requests_log[0].headers["authorization"] == "Basic Y2xpZW50OnNlY3JldA=="
+        assert network.requests_log[0].json()["variables"] == {"networkId": "net"}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_returns_api_error_message(self, mock_make_session):
-        session = mock.MagicMock()
-        session.post.return_value = _response({"errors": [{"message": "App not found", "status": 404}], "data": None})
-        mock_make_session.return_value = session
-
-        is_valid, error = validate_credentials("us", "client", "secret", "net")
+    def test_invalid_returns_api_error_message(self):
+        with scripted_network(
+            [ScriptedResponse(json={"errors": [{"message": "App not found", "status": 404}], "data": None})]
+        ):
+            is_valid, error = validate_credentials("us", "client", "secret", "net")
         assert is_valid is False
         assert error is not None and "App not found" in error
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_on_network_failure(self, mock_make_session):
-        mock_make_session.return_value.post.side_effect = Exception("boom")
-
-        is_valid, error = validate_credentials("us", "client", "secret", "net")
+    def test_invalid_on_network_failure(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, error = validate_credentials("us", "client", "secret", "net")
         assert is_valid is False
         assert error == "Could not reach the Bettermode API"
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_via_relay_cursors(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
+    def test_paginates_via_relay_cursors(self):
+        result = _driver().run(
+            "members",
             [
+                _token_response(),
                 _page("members", [{"id": "m1"}, {"id": "m2"}], end_cursor="cur-1"),
                 _page("members", [{"id": "m3"}]),
             ],
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("us", "client", "secret", "net", "members", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["m1", "m2", "m3"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["m1", "m2", "m3"]
         # Resume state persists only while more pages remain, and only after the yield.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].after == "cur-1"
-        second_variables = data_session.post.call_args_list[1].kwargs["json"]["variables"]
+        assert result.saved_states == [BettermodeResumeConfig(after="cur-1")]
+        second_variables = result.requests[2].json()["variables"]
         assert second_variables["after"] == "cur-1"
         assert second_variables["limit"] == BETTERMODE_ENDPOINTS["members"].page_size
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_make_session):
-        _, data_session = _mock_sessions(mock_make_session, [_page("members", [])])
-
-        manager = _make_manager(BettermodeResumeConfig(after="cur-resume"))
-        list(get_rows("us", "client", "secret", "net", "members", mock.MagicMock(), manager))
-
-        variables = data_session.post.call_args.kwargs["json"]["variables"]
-        assert variables["after"] == "cur-resume"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_posts_filter_is_json_encoded_gte(self, mock_make_session):
-        _, data_session = _mock_sessions(mock_make_session, [_page("posts", [])])
-
-        list(
-            get_rows(
-                "us",
-                "client",
-                "secret",
-                "net",
-                "posts",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-                incremental_field="publishedAt",
-            )
+    def test_resumes_from_saved_cursor(self):
+        result = _driver().run(
+            "members",
+            [_token_response(), _page("members", [])],
+            resume_state=BettermodeResumeConfig(after="cur-resume"),
         )
 
-        variables = data_session.post.call_args.kwargs["json"]["variables"]
+        assert result.raised is None
+        variables = result.requests[1].json()["variables"]
+        assert variables["after"] == "cur-resume"
+
+    def test_incremental_posts_filter_is_json_encoded_gte(self):
+        result = _driver().run(
+            "posts",
+            [_token_response(), _page("posts", [])],
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            incremental_field="publishedAt",
+        )
+
+        assert result.raised is None
+        variables = result.requests[1].json()["variables"]
         # The filter value must be a JSON-encoded ISO string — the format Bettermode expects.
         assert variables["filterBy"] == [
             {"key": "publishedAt", "operator": "gte", "value": '"2024-01-02T00:00:00.000Z"'}
@@ -202,22 +180,20 @@ class TestGetRows:
 
 
 class TestRepliesFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_bookmarked_post(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
+    def test_resumes_from_bookmarked_post(self):
+        result = _driver().run(
+            "replies",
             [
+                _token_response(),
                 _page("posts", [{"id": "p1", "totalRepliesCount": 2}, {"id": "p3", "totalRepliesCount": 1}]),
                 _page("replies", [{"id": "r3"}]),
             ],
+            resume_state=BettermodeResumeConfig(after="cur-mid", post_id="p3"),
         )
 
-        manager = _make_manager(BettermodeResumeConfig(after="cur-mid", post_id="p3"))
-        list(get_rows("us", "client", "secret", "net", "replies", mock.MagicMock(), manager))
-
-        reply_calls = data_session.post.call_args_list[1:]
-        assert len(reply_calls) == 1
-        variables = reply_calls[0].kwargs["json"]["variables"]
+        assert result.raised is None
+        assert len(result.requests) == 3
+        variables = result.requests[2].json()["variables"]
         assert variables["postId"] == "p3"
         assert variables["after"] == "cur-mid"
 
@@ -226,7 +202,19 @@ class TestBettermodeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = BETTERMODE_ENDPOINTS[endpoint]
-        response = bettermode_source("us", "client", "secret", "net", endpoint, mock.MagicMock(), _make_manager())
+        if config.is_list:
+            data_response = ScriptedResponse(json={"data": {config.query_field: []}})
+        elif config.fan_out_spaces:
+            data_response = _page("spaces", [])
+        elif config.fan_out_replies or config.fan_out_post_reactions:
+            data_response = _page("posts", [])
+        else:
+            data_response = _page(config.query_field, [])
+
+        result = _driver().run(endpoint, [_token_response(), data_response])
+        assert result.raised is None
+        assert result.response is not None
+        response = result.response
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -242,30 +230,28 @@ class TestBettermodeSourceResponse:
 
 class TestListEndpoints:
     @pytest.mark.parametrize("endpoint", ["collections", "roles"])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_single_request_yields_the_whole_list(self, mock_make_session, endpoint):
+    def test_single_request_yields_the_whole_list(self, endpoint):
         query_field = BETTERMODE_ENDPOINTS[endpoint].query_field
-        _, data_session = _mock_sessions(
-            mock_make_session, [_response({"data": {query_field: [{"id": "a"}, {"id": "b"}]}})]
+        result = _driver().run(
+            endpoint,
+            [_token_response(), ScriptedResponse(json={"data": {query_field: [{"id": "a"}, {"id": "b"}]}})],
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("us", "client", "secret", "net", endpoint, mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["a", "b"]
-        assert data_session.post.call_count == 1
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert len(result.requests) == 2
         # `collections` and `roles` reject limit/after — they return the whole list.
-        assert data_session.post.call_args.kwargs["json"]["variables"] == {}
-        assert "$limit" not in data_session.post.call_args.kwargs["json"]["query"]
-        manager.save_state.assert_not_called()
+        assert result.requests[1].json()["variables"] == {}
+        assert "$limit" not in result.requests[1].json()["query"]
+        assert result.saved_states == []
 
 
 class TestSpaceFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_space_members_flattened_and_checkpointed_per_space(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
+    def test_space_members_flattened_and_checkpointed_per_space(self):
+        result = _driver().run(
+            "space_members",
             [
+                _token_response(),
                 _page("spaces", [{"id": "s1"}, {"id": "s2"}]),
                 _page(
                     "spaceMembers",
@@ -280,19 +266,17 @@ class TestSpaceFanOut:
             ],
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("us", "client", "secret", "net", "space_members", mock.MagicMock(), manager))
-
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {"spaceId": "s1", "memberId": "m1", "roleId": "r1", "roleName": "Admin", "roleType": "admin"},
             {"spaceId": "s1", "memberId": "m2", "roleId": "r2", "roleName": "Member", "roleType": "member"},
             {"spaceId": "s2", "memberId": "m3", "roleId": None, "roleName": None, "roleType": None},
         ]
-        member_calls = data_session.post.call_args_list[1:]
-        assert [call.kwargs["json"]["variables"]["spaceId"] for call in member_calls] == ["s1", "s1", "s2"]
-        assert member_calls[0].kwargs["json"]["variables"]["orderBy"] == "CREATED_AT"
+        member_requests = result.requests[2:]
+        assert [request.json()["variables"]["spaceId"] for request in member_requests] == ["s1", "s1", "s2"]
+        assert member_requests[0].json()["variables"]["orderBy"] == "CREATED_AT"
         # Mid-space page checkpoint, then a bookmark advancing to the next space.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        saved = result.saved_states
         assert [(state.after, state.space_id, state.post_id) for state in saved] == [
             ("cur-1", "s1", None),
             (None, "s2", None),
@@ -300,11 +284,11 @@ class TestSpaceFanOut:
 
 
 class TestPostReactionParticipantsFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_fans_out_over_post_reaction_pairs(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
+    def test_fans_out_over_post_reaction_pairs(self):
+        result = _driver().run(
+            "post_reaction_participants",
             [
+                _token_response(),
                 # Parent enumeration: `love` has zero count and p2 has no reactions, so the only
                 # pairs to fetch are (p1, like) and (p3, wow).
                 _page(
@@ -322,33 +306,29 @@ class TestPostReactionParticipantsFanOut:
             ],
         )
 
-        manager = _make_manager()
-        batches = list(
-            get_rows("us", "client", "secret", "net", "post_reaction_participants", mock.MagicMock(), manager)
-        )
-
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {"postId": "p1", "reaction": "like", "memberId": "m1"},
             {"postId": "p1", "reaction": "like", "memberId": "m2"},
             {"postId": "p3", "reaction": "wow", "memberId": "m3"},
         ]
-        participant_calls = data_session.post.call_args_list[1:]
+        participant_requests = result.requests[2:]
         assert [
-            (call.kwargs["json"]["variables"]["postId"], call.kwargs["json"]["variables"]["reaction"])
-            for call in participant_calls
+            (request.json()["variables"]["postId"], request.json()["variables"]["reaction"])
+            for request in participant_requests
         ] == [("p1", "like"), ("p1", "like"), ("p3", "wow")]
         # Mid-pair page checkpoint, then a bookmark advancing to the next (post, reaction) pair.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        saved = result.saved_states
         assert [(state.after, state.post_id, state.reaction) for state in saved] == [
             ("cur-1", "p1", "like"),
             (None, "p3", "wow"),
         ]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_bookmarked_pair(self, mock_make_session):
-        _, data_session = _mock_sessions(
-            mock_make_session,
+    def test_resumes_from_bookmarked_pair(self):
+        result = _driver().run(
+            "post_reaction_participants",
             [
+                _token_response(),
                 _page(
                     "posts",
                     [
@@ -358,14 +338,12 @@ class TestPostReactionParticipantsFanOut:
                 ),
                 _page("postReactionParticipants", [{"participant": {"id": "m9"}}]),
             ],
+            resume_state=BettermodeResumeConfig(after="cur-mid", post_id="p3", reaction="wow"),
         )
 
-        manager = _make_manager(BettermodeResumeConfig(after="cur-mid", post_id="p3", reaction="wow"))
-        list(get_rows("us", "client", "secret", "net", "post_reaction_participants", mock.MagicMock(), manager))
-
-        participant_calls = data_session.post.call_args_list[1:]
-        assert len(participant_calls) == 1
-        variables = participant_calls[0].kwargs["json"]["variables"]
+        assert result.raised is None
+        assert len(result.requests) == 3
+        variables = result.requests[2].json()["variables"]
         assert variables["postId"] == "p3"
         assert variables["reaction"] == "wow"
         assert variables["after"] == "cur-mid"

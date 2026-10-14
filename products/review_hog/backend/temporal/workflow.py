@@ -730,6 +730,7 @@ class ReviewPRWorkflow:
                 review_mode=inputs.review_mode,
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
+                trigger_source=inputs.trigger_source,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -812,6 +813,7 @@ class ReviewPRWorkflow:
                         urgency_threshold=urgency_threshold,
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
+                        capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_GITHUB_POST_RETRY,

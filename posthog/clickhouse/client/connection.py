@@ -535,6 +535,7 @@ def default_client(
     host=None,
     password=None,
     *,
+    user: str | None = None,
     database: str = "system",
     send_receive_timeout: int | None = None,
     connect_timeout: int | None = None,
@@ -546,7 +547,8 @@ def default_client(
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
-    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
+    user and password override CLICKHOUSE_USER and the static CLICKHOUSE_PASSWORD, for example with a
+    dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
     kwargs = {
@@ -571,6 +573,8 @@ def default_client(
             kwargs["password"] = creds.read_password()
     if host is not None:
         kwargs["host"] = host
+    if user is not None:
+        kwargs["user"] = user
     if password is not None:
         kwargs["password"] = password
     if send_receive_timeout is not None:

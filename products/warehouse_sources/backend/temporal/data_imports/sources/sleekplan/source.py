@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SleekplanSource(ResumableSource[SleekplanSourceConfig, SleekplanResumeConfig]):
+    codebase_detection = detect(env=("^SLEEKPLAN_",), script_hosts=("client.sleekplan.com",))
+
     # `get_schemas` iterates a static endpoint catalog with no I/O -- safe for public docs.
     lists_tables_without_credentials = True
     # Sleekplan has only ever published one API (`/v1`) and documents no version selector, so the

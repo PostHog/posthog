@@ -1,35 +1,30 @@
-from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
 
-import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slash import SlashSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.slash.slash import (
     SlashResumeConfig,
-    slash_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.slash.source import SlashSource
 
 
-@pytest.fixture
-def http() -> Iterator[requests_mock.Mocker]:
-    with requests_mock.Mocker() as mock:
-        yield mock
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
+def _run(endpoint: str, script: Script, legal_entity_id: str | None = None, **inputs: Any) -> DriveResult:
+    config = SlashSourceConfig(api_key="fake-key", legal_entity_id=legal_entity_id)
+    return SourceDriver(SlashSource(), config).run(endpoint, script, **inputs)
 
 
 @pytest.mark.parametrize(
@@ -45,70 +40,43 @@ def manager() -> MagicMock:
     ],
 )
 @pytest.mark.parametrize("legal_entity_id", [None, "entity-example"])
-def test_requests_and_row_identity(
-    http: requests_mock.Mocker,
-    manager: MagicMock,
-    endpoint: str,
-    path: str,
-    row: dict[str, Any],
-    legal_entity_id: str | None,
-) -> None:
-    http.get(f"https://api.slash.com/{path}", json={"items": [row], "metadata": {"count": 1}})
-    response = slash_source(
-        SlashSourceConfig(api_key="fake-key", legal_entity_id=legal_entity_id),
+def test_requests_and_row_identity(endpoint: str, path: str, row: dict[str, Any], legal_entity_id: str | None) -> None:
+    result = _run(
         endpoint,
-        1,
-        "job-example",
-        manager,
-        False,
-        "2026-01-01T00:00:00Z",
+        [ScriptedResponse(json={"items": [row], "metadata": {"count": 1}})],
+        legal_entity_id,
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
     )
-    rows = [item for page in cast(Iterable[Any], response.items()) for item in page]
     expected = {**row, "id": row["invoice"]["id"]} if endpoint == "invoices" else row
-    assert rows == [expected]
-    assert len(http.request_history) == 1
-    request = http.request_history[0]
-    assert request.headers["X-API-Key"] == "fake-key"
+    assert result.rows == [expected]
+    assert result.paths == [f"/{path}"]
+    request = result.requests[0]
+    assert request.headers["x-api-key"] == "fake-key"
     assert request.headers.get("x-legal-entity") == legal_entity_id
-    assert request.qs == {}
-    manager.save_state.assert_not_called()
+    assert request.query == {}
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("terminal", [{}, {"nextCursor": None}, {"nextCursor": ""}])
 @pytest.mark.parametrize("resumed", [False, True])
-def test_cursor_pages_and_checkpoints(
-    http: requests_mock.Mocker, manager: MagicMock, terminal: dict[str, Any], resumed: bool
-) -> None:
-    manager.can_resume.return_value = resumed
-    manager.load_state.return_value = SlashResumeConfig(cursor="saved-cursor")
-    http.get(
-        "https://api.slash.com/transaction",
-        [
-            {"json": {"items": [{"id": "first"}], "metadata": {"nextCursor": "next-cursor"}}},
-            {"json": {"items": [], "metadata": {"nextCursor": "last-cursor"}}},
-            {"json": {"items": [{"id": "last"}], "metadata": terminal}},
-        ],
-    )
-    response = slash_source(
-        SlashSourceConfig(api_key="fake-key"),
+def test_cursor_pages_and_checkpoints(terminal: dict[str, Any], resumed: bool) -> None:
+    result = _run(
         "transactions",
-        1,
-        "job-example",
-        manager,
-        True,
-        "2026-01-01T00:00:00Z",
+        [
+            ScriptedResponse(json={"items": [{"id": "first"}], "metadata": {"nextCursor": "next-cursor"}}),
+            ScriptedResponse(json={"items": [], "metadata": {"nextCursor": "last-cursor"}}),
+            ScriptedResponse(json={"items": [{"id": "last"}], "metadata": terminal}),
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        resume_state=SlashResumeConfig(cursor="saved-cursor") if resumed else None,
     )
-    iterator = iter(cast(Iterable[Any], response.items()))
-    assert next(iterator) == [{"id": "first"}]
-    assert list(iterator) == [[{"id": "last"}]]
-    assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["next-cursor", "last-cursor"]
-    assert [request.qs.get("cursor") for request in http.request_history] == [
-        ["saved-cursor"] if resumed else None,
-        ["next-cursor"],
-        ["last-cursor"],
-    ]
-    assert all(request.qs["filter:from_date"] == ["1767225600000"] for request in http.request_history)
-    assert response.sort_mode == "desc"
+    assert result.items == [[{"id": "first"}], [{"id": "last"}]]
+    assert result.saved_states == [SlashResumeConfig(cursor="next-cursor"), SlashResumeConfig(cursor="last-cursor")]
+    assert result.params("cursor") == ["saved-cursor" if resumed else None, "next-cursor", "last-cursor"]
+    assert result.params("filter:from_date") == ["1767225600000"] * 3
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
 
 
 @pytest.mark.parametrize(
@@ -116,33 +84,35 @@ def test_cursor_pages_and_checkpoints(
     [
         (True, None, {}),
         (False, "2026-01-01T00:00:00Z", {}),
-        (True, "2026-01-01T00:00:00Z", {"filter:from_date": ["1767225600000"]}),
-        (True, datetime(2026, 1, 1, tzinfo=UTC), {"filter:from_date": ["1767225600000"]}),
-        (True, datetime(2026, 1, 1), {"filter:from_date": ["1767225600000"]}),
-        (True, "2026-01-01T01:00:00+01:00", {"filter:from_date": ["1767225600000"]}),
+        (True, "2026-01-01T00:00:00Z", {"filter:from_date": ("1767225600000",)}),
+        (True, datetime(2026, 1, 1, tzinfo=UTC), {"filter:from_date": ("1767225600000",)}),
+        (True, datetime(2026, 1, 1), {"filter:from_date": ("1767225600000",)}),
+        (True, "2026-01-01T01:00:00+01:00", {"filter:from_date": ("1767225600000",)}),
     ],
 )
 def test_transaction_time_filter(
-    http: requests_mock.Mocker,
-    manager: MagicMock,
     incremental: bool,
     watermark: str | datetime | None,
-    expected: dict[str, list[str]],
+    expected: dict[str, tuple[str, ...]],
 ) -> None:
-    http.get("https://api.slash.com/transaction", json={"items": [], "metadata": {}})
-    response = slash_source(
-        SlashSourceConfig(api_key="fake-key"), "transactions", 1, "job-example", manager, incremental, watermark
+    result = _run(
+        "transactions",
+        [ScriptedResponse(json={"items": [], "metadata": {}})],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
     )
-    assert list(cast(Iterable[Any], response.items())) == []
-    assert http.request_history[0].qs == expected
+    assert result.rows == []
+    assert result.queries[0] == expected
 
 
-def test_repeated_cursor_fails(http: requests_mock.Mocker, manager: MagicMock) -> None:
-    http.get("https://api.slash.com/card", json={"items": [{"id": "example"}], "metadata": {"nextCursor": "same"}})
-    response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
-    with pytest.raises(ValueError, match="not advancing"):
-        list(cast(Iterable[Any], response.items()))
-    assert len(http.request_history) == 2
+def test_repeated_cursor_fails() -> None:
+    result = _run(
+        "cards",
+        always(ScriptedResponse(json={"items": [{"id": "example"}], "metadata": {"nextCursor": "same"}})),
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "not advancing" in str(result.raised)
+    assert len(result.requests) == 2
 
 
 @pytest.mark.parametrize(
@@ -161,41 +131,36 @@ def test_repeated_cursor_fails(http: requests_mock.Mocker, manager: MagicMock) -
         (400, None, False, "Slash rejected the request. User-scoped keys require a valid legal entity ID."),
     ],
 )
-def test_credential_probe(
-    http: requests_mock.Mocker, status: int, schema: str | None, expected: bool, message: str | None
-) -> None:
-    path = "card" if schema else "account"
-    http.get(
-        f"https://api.slash.com/{path}", status_code=status, json={"items": [], "metadata": {"nextCursor": "unused"}}
-    )
-    assert validate_credentials(SlashSourceConfig(api_key="fake-key", legal_entity_id="entity-example"), schema) == (
-        expected,
-        message,
-    )
-    assert len(http.request_history) == 1
-    assert http.request_history[0].headers["X-API-Key"] == "fake-key"
-    assert http.request_history[0].headers["x-legal-entity"] == "entity-example"
+def test_credential_probe(status: int, schema: str | None, expected: bool, message: str | None) -> None:
+    path = "/card" if schema else "/account"
+    script = [ScriptedResponse(status=status, json={"items": [], "metadata": {"nextCursor": "unused"}})]
+    with scripted_network(script) as network:
+        outcome = validate_credentials(SlashSourceConfig(api_key="fake-key", legal_entity_id="entity-example"), schema)
+    assert outcome == (expected, message)
+    assert [request.path for request in network.requests_log] == [path]
+    assert network.requests_log[0].headers["x-api-key"] == "fake-key"
+    assert network.requests_log[0].headers["x-legal-entity"] == "entity-example"
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404])
-def test_sync_error_mapping(http: requests_mock.Mocker, manager: MagicMock, status: int) -> None:
-    http.get("https://api.slash.com/card", status_code=status, json={"success": False, "rawStatus": status})
-    response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
-    with pytest.raises(HTTPError) as error:
-        list(cast(Iterable[Any], response.items()))
+def test_sync_error_mapping(status: int) -> None:
+    result = _run("cards", [ScriptedResponse(status=status, json={"success": False, "rawStatus": status})])
+    assert isinstance(result.raised, HTTPError)
     matches = [
-        message for pattern, message in SlashSource().get_non_retryable_errors().items() if pattern in str(error.value)
+        message
+        for pattern, message in SlashSource().get_non_retryable_errors().items()
+        if pattern in str(result.raised)
     ]
     assert bool(matches) == (status != 404)
-    assert len(http.request_history) == 1
+    assert len(result.requests) == 1
 
 
-def test_unknown_endpoint(manager: MagicMock) -> None:
-    with pytest.raises(UnknownResourceError):
-        slash_source(SlashSourceConfig(api_key="fake-key"), "unknown", 1, "job-example", manager, False, None)
+def test_unknown_endpoint() -> None:
+    result = _run("unknown", [])
+    assert isinstance(result.raised, UnknownResourceError)
 
 
-def test_probe_unexpected_error_propagates(http: requests_mock.Mocker) -> None:
-    http.get("https://api.slash.com/account", status_code=404, json={"success": False})
-    with pytest.raises(HTTPError):
-        validate_credentials(SlashSourceConfig(api_key="fake-key"), None)
+def test_probe_unexpected_error_propagates() -> None:
+    with scripted_network([ScriptedResponse(status=404, json={"success": False})]):
+        with pytest.raises(HTTPError):
+            validate_credentials(SlashSourceConfig(api_key="fake-key"), None)

@@ -328,12 +328,7 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         if error:
             raise exceptions.ValidationError(error)
 
-        # Traces reuse the Logs retention entitlement.
-        required_feature = required_logs_retention_feature(value)
-        if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
-            raise exceptions.PermissionDenied(
-                f"This organization does not have permission to set traces retention to {value} days."
-            )
+        _check_traces_retention_entitlement(value, organization)
 
         throttle_error = retention_update_throttle_error(
             self.instance.retention_last_updated if self.instance is not None else None
@@ -362,7 +357,24 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
             config, data=request.data, partial=True, context={"request": request, "team": team}
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            locked_config = TeamTracingConfig.objects.select_for_update().get(team=team)
+            retention = serializer.validated_data.get("retention_days")
+            if retention is not None and retention != locked_config.retention_days:
+                throttle_error = retention_update_throttle_error(locked_config.retention_last_updated)
+                if throttle_error:
+                    raise exceptions.ValidationError({"retention_days": throttle_error})
+                if locked_config.retention_days != config.retention_days:
+                    # Entitlement resets do not set retention_last_updated, so the throttle cannot see them.
+                    raise exceptions.ValidationError(
+                        {"retention_days": "Retention changed. Reload the settings and retry."}
+                    )
+                # Billing can revoke the entitlement after validation read the organization.
+                _check_traces_retention_entitlement(
+                    retention, Organization.objects.only("available_product_features").get(id=team.organization_id)
+                )
+            serializer.instance = locked_config
+            serializer.save()
         return response.Response(serializer.data)
 
     return response.Response(TeamTracingConfigSerializer(config).data)
@@ -1433,6 +1445,15 @@ def _flag_enabled_for_caller(flag: str, organization: Organization | None, user:
 def _custom_retention_flag_enabled(organization: Organization | None, user: Any, team: Team | None) -> bool:
     """Whether the caller may pick a retention period outside the base tiers."""
     return _flag_enabled_for_caller(LOGS_CUSTOM_RETENTION_FLAG, organization, user, team)
+
+
+def _check_traces_retention_entitlement(days: int, organization: Organization | None) -> None:
+    # Traces reuse the Logs retention entitlement.
+    required_feature = required_logs_retention_feature(days)
+    if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
+        raise exceptions.PermissionDenied(
+            f"This organization does not have permission to set traces retention to {days} days."
+        )
 
 
 def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:

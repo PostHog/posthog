@@ -118,15 +118,17 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
+Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` and `data-warehouse-scene-trino` target the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow                 | Feature Flag                           |
-| ------------------------ | -------------------------------------- |
-| Data Modeling            | `ducklake-data-modeling-copy-workflow` |
-| Data Imports             | `ducklake-data-imports-copy-workflow`  |
-| Data Import Registration | `data-warehouse-scene`                 |
+| Workflow                 | Feature Flag                                           |
+| ------------------------ | ------------------------------------------------------ |
+| Data Modeling            | `ducklake-data-modeling-copy-workflow`                 |
+| Data Imports             | `ducklake-data-imports-copy-workflow`                  |
+| Data Import Registration | `data-warehouse-scene` or `data-warehouse-scene-trino` |
 
-The data-import copy and registration paths target the same stable DuckLake table. An organization with `data-warehouse-scene` enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
+The data-import copy and registration paths target the same stable DuckLake table. An organization with either managed warehouse flag enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
+
+The two organization flags also select the Data ops variant. `data-warehouse-scene-trino` gives the Trino variant and wins when both are on. `data-warehouse-scene` alone gives the DuckDB variant. `data_ops_variant` in `presentation/views.py` is the single backend implementation of that rule.
 
 ## Data Ops workflow status
 
