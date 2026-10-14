@@ -3562,6 +3562,15 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
         )
 
+        if queried_resources == set():
+            return payload
+
+        if self.user_access_control is not None:
+            from posthog.authz import resource_list_cache_key  # noqa: PLC0415 -- avoid the authz/model import cycle
+
+            if filters := resource_list_cache_key(self.user_access_control, queried_resources):
+                payload["authz_resource_filters"] = filters
+
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
         ):
@@ -3574,12 +3583,6 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():
             return payload
-
-        if self.user_access_control is not None:
-            from posthog.authz import resource_list_cache_key  # noqa: PLC0415 -- avoid the authz/model import cycle
-
-            if filters := resource_list_cache_key(self.user_access_control, queried_resources):
-                payload["authz_resource_filters"] = filters
 
         restricted_objects = self._get_object_access_restrictions(queried_resources)
         allowlisted_objects = self._get_object_access_allowlist(queried_resources)

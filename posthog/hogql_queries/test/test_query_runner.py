@@ -1987,8 +1987,17 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac.save()
         return ac
 
-    def test_sdk_decision_partitions_cache_without_legacy_rule_changes(self):
-        with mock.patch("posthog.authz.api.list_resources") as list_resources:
+    @parameterized.expand([(True,), (False,)])
+    def test_sdk_decision_partitions_cache_without_legacy_rule_changes(self, access_control_available: bool) -> None:
+        if not access_control_available:
+            self.organization.available_product_features = []
+            self.organization.save()
+        with (
+            mock.patch("posthog.authz.api.list_resources") as list_resources,
+            mock.patch(
+                "posthog.hogql_queries.query_runner.queried_access_controlled_resources", return_value={"dashboard"}
+            ),
+        ):
             list_resources.return_value = ResourceIds(ids=frozenset(), complete=True, excluded=True)
             unrestricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
             list_resources.return_value = ResourceIds(ids=frozenset({"1"}), complete=True, excluded=True)
