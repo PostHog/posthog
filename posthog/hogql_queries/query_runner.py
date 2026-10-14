@@ -126,7 +126,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1888,20 +1887,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
 
-        if not isinstance(query, HogQLQuery):
-            native_requested = bool(modifiers and modifiers.useNewEventsCluster)
-            source: BaseModel | None = query
-            while isinstance(source, BaseModel):
-                source_modifiers = getattr(source, "modifiers", None)
-                if source_modifiers and source_modifiers.useNewEventsCluster:
-                    native_requested = True
-                    break
-                source = getattr(source, "source", None)
-            if native_requested:
-                raise ExposedHogQLError(
-                    "Native events cluster comparisons require a synchronous HogQLQuery SQL request."
-                )
-
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
@@ -2040,12 +2025,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        query_modifiers = query_node_modifiers(self.query)
-        if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
-            raise ExposedHogQLError(
-                "Native events cluster queries require synchronous execution; use refresh=force_blocking"
-            )
-
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
@@ -2750,6 +2729,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         last_refresh = datetime.now(UTC)
         target_age = self.cache_target_age(last_refresh=last_refresh)
 
+        # Avoid affecting cache key
+        # Add user based modifiers here, primarily for user specific feature flagging
         if query_run.user:
             self.modifiers = create_default_modifiers_for_user(query_run.user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
@@ -3112,23 +3093,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
-        # Explicit false and unset cluster choices share the existing cache namespace.
-        modifier_source: dict[str, Any] | None = query
-        while isinstance(modifier_source, dict):
-            if isinstance(modifier_source.get("modifiers"), dict):
-                modifier_source["modifiers"].pop("useNewEventsCluster", None)
-                if not modifier_source["modifiers"]:
-                    modifier_source.pop("modifiers")
-            modifier_source = modifier_source.get("source")
-
-        cache_modifiers = to_dict(self.modifiers)
-        if not cache_modifiers.get("useNewEventsCluster"):
-            cache_modifiers.pop("useNewEventsCluster", None)
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
-            "hogql_modifiers": cache_modifiers,
+            "hogql_modifiers": to_dict(self.modifiers),
             "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,

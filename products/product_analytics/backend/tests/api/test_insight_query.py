@@ -10,7 +10,6 @@ from rest_framework import status
 
 from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
@@ -468,61 +467,3 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         error_body = str(response.json())
         assert "This query can't be saved" in error_body
         assert "Traceback" not in error_body
-
-
-class TestNativeClusterSQLPilot(APIBaseTest):
-    @parameterized.expand(
-        [
-            (
-                {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "example"}],
-                    "modifiers": {"useNewEventsCluster": True},
-                },
-            ),
-            (
-                {
-                    "kind": "ActorsQuery",
-                    "source": {
-                        "kind": "InsightActorsQuery",
-                        "source": {
-                            "kind": "FunnelsQuery",
-                            "series": [{"kind": "EventsNode", "event": "example"}],
-                            "modifiers": {"useNewEventsCluster": True},
-                        },
-                    },
-                },
-            ),
-            (
-                {
-                    "kind": "FunnelCorrelationQuery",
-                    "funnelCorrelationType": "events",
-                    "source": {
-                        "kind": "FunnelsActorsQuery",
-                        "funnelStep": 1,
-                        "source": {
-                            "kind": "FunnelsQuery",
-                            "series": [{"kind": "EventsNode", "event": "example"}],
-                            "modifiers": {"useNewEventsCluster": True},
-                        },
-                    },
-                },
-            ),
-        ]
-    )
-    def test_native_opt_in_rejects_typed_queries_before_execution(self, query: dict) -> None:
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-            patch("posthog.hogql.query.sync_execute") as execute,
-            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/query/",
-                {"query": query, "refresh": "force_blocking", "async": False},
-                format="json",
-            )
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn("HogQLQuery SQL request", str(response.json()))
-        execute.assert_not_called()
-        enqueue.assert_not_called()

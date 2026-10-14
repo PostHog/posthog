@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -54,19 +54,6 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 ),
                 team=self.team,
             )
-
-    def test_raw_native_opt_in_cannot_be_enqueued_with_a_constructor_override(self) -> None:
-        runner = HogQLQueryRunner(
-            query=HogQLQuery(
-                query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True})
-            ),
-            team=self.team,
-            modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": False}),
-        )
-        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
-            with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
-                runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
-            enqueue.assert_not_called()
 
     def test_direct_warehouse_connection_cannot_claim_native_cluster_opt_in(self) -> None:
         with self.assertRaisesRegex(ExposedHogQLError, "warehouse connection"):
@@ -138,16 +125,9 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
         self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
 
-    def _run_query(self, query: dict, refresh: str = "force_blocking", async_: bool = False):
-        return self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": query, "refresh": refresh, "async": async_},
-            format="json",
-        )
-
     @parameterized.expand(
         [
-            (modifiers, eligible, native_table, native_cluster, "force_blocking", False)
+            (modifiers, eligible, native_table, native_cluster)
             for modifiers, eligible, native_table, native_cluster in (
                 ({"useNewEventsCluster": True}, True, True, True),
                 ({"useNewEventsCluster": True}, False, False, True),
@@ -157,17 +137,11 @@ class TestNewEventsClusterPilot(APIBaseTest):
             )
         ]
         + [
-            ({"useNewEventsCluster": True}, True, True, True, refresh, async_)
-            for refresh, async_ in (("force_async", False), ("force_blocking", True))
-        ]
-        + [
             (
                 {"useNewEventsCluster": True, modifier: True},
                 True,
                 True,
                 True,
-                "force_blocking",
-                False,
                 sql,
             )
             for modifier, sql in (
@@ -185,8 +159,6 @@ class TestNewEventsClusterPilot(APIBaseTest):
         eligible: bool,
         native_table: bool,
         native_cluster: bool,
-        refresh: str,
-        async_: bool,
         sql: str = "SELECT count() AS n FROM events",
     ) -> None:
         with (
@@ -198,12 +170,16 @@ class TestNewEventsClusterPilot(APIBaseTest):
             patch("posthog.hogql.query.sync_execute", return_value=([(7,)], [("n", "UInt64")])) as execute,
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
-            response = self._run_query(
-                {"kind": "HogQLQuery", "query": sql, "modifiers": modifiers},
-                refresh=refresh,
-                async_=async_,
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {
+                    "query": {"kind": "HogQLQuery", "query": sql, "modifiers": modifiers},
+                    "refresh": "force_blocking",
+                    "async": False,
+                },
+                format="json",
             )
-        rejected = native_cluster and (not eligible or refresh == "force_async" or async_)
+        rejected = native_cluster and not eligible
         self.assertEqual(response.status_code, 400 if rejected else 200, response.json())
         enqueue.assert_not_called()
         if rejected:
@@ -216,16 +192,3 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
-
-    def test_native_opt_in_rejects_non_sql_queries_before_execution(self) -> None:
-        with (
-            patch("posthog.hogql.query.sync_execute") as execute,
-            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
-        ):
-            response = self._run_query(
-                {"kind": "EventsQuery", "select": ["event"], "modifiers": {"useNewEventsCluster": True}}
-            )
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn("HogQLQuery SQL request", str(response.json()))
-        execute.assert_not_called()
-        enqueue.assert_not_called()
