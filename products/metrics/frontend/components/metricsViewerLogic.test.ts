@@ -452,7 +452,14 @@ describe('metricsViewerLogic', () => {
 
     it('runs a PromQL query through the query runner and charts its series', async () => {
         jest.mocked(performQuery).mockResolvedValue({
-            results: [{ labels: { job: 'api' }, points: [{ time: '2026-01-01T00:00:00Z', value: 1 }], clause: 'a' }],
+            results: [
+                {
+                    labels: { job: 'api' },
+                    points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
+                    clause: 'a',
+                    unit: 's',
+                },
+            ],
         })
         logic.actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(up)' })
 
@@ -468,6 +475,7 @@ describe('metricsViewerLogic', () => {
                 points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
                 metricName: null,
                 clause: 'a',
+                unit: 's',
             },
         ])
     })
