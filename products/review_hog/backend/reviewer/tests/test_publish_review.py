@@ -313,39 +313,83 @@ class TestPublishReviewGate:
             self.remove_reactions = remove_reactions
             yield
 
-    def _wire_report(self, mock_report_cls: MagicMock) -> None:
+    def _wire_report(self, mock_report_cls: MagicMock, published_head_sha: str | None = None) -> None:
         mock_report = MagicMock()
         mock_report.report_markdown = "# PostHog Review"
+        mock_report.published_head_sha = published_head_sha
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
     @parameterized.expand(
         [
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
-            ("all_off_diff", [240], 0, "full", "", None),
-            ("mixed", [1, 240], 1, "full", "", None),
-            ("all_inline", [1], 1, "full", "", ""),
+            ("all_off_diff", [240], 0, "full", None, "", "", None, False),
+            ("mixed", [1, 240], 1, "full", None, "", "", None, False),
+            ("all_inline", [1], 1, "full", None, "", "", "", False),
+            ("large_all_inline", [1], 1, "full", 3, "", "", "", False),
             # Standard has no status comment, so its review body always says which turn it is.
             (
                 "standard_all_inline",
                 [1],
                 1,
                 "flash",
+                None,
+                "",
                 "",
                 "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\n",
+                False,
             ),
-            ("standard_mixed", [1, 240], 1, "flash", "", None),
+            ("standard_mixed", [1, 240], 1, "flash", None, "", "", None, False),
+            (
+                "standard_large_all_inline",
+                [1],
+                1,
+                "flash",
+                3,
+                "",
+                "",
+                "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix. This pull request is large, so the"
+                " review ran in 3 parts with less depth than usual.\n\n",
+                True,
+            ),
+            ("standard_large_mixed", [1, 240], 1, "flash", 3, "", "", None, True),
             # The footer must survive the inline-only body, which replaces the full body on GitHub.
-            ("footer_all_inline", [1], 1, "full", "Comment `@posthog help`.", "Comment `@posthog help`.\n\n"),
+            (
+                "footer_all_inline",
+                [1],
+                1,
+                "full",
+                None,
+                "Comment `@posthog help`.",
+                "",
+                "Comment `@posthog help`.\n\n",
+                False,
+            ),
             (
                 "standard_footer_all_inline",
                 [1],
                 1,
                 "flash",
+                None,
                 "Comment `@posthog help`.",
+                "",
                 "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\nComment `@posthog help`.\n\n",
+                False,
             ),
-            ("footer_mixed", [1, 240], 1, "full", "Comment `@posthog help`.", None),
+            ("footer_mixed", [1, 240], 1, "full", None, "Comment `@posthog help`.", "", None, False),
+            (
+                "standard_findings_footer_all_inline",
+                [1],
+                1,
+                "flash",
+                None,
+                "Comment `@posthog help`.",
+                "Draft notice.",
+                "**PostHog Review · Standard · reviewed `sha`**: 1 Should fix.\n\nComment `@posthog help`.\n\n"
+                "Draft notice.\n\n",
+                False,
+            ),
+            ("findings_footer_mixed", [1, 240], 1, "full", None, "", "Draft notice.", None, False),
         ]
     )
     @patch(_POST)
@@ -357,8 +401,11 @@ class TestPublishReviewGate:
         finding_lines: list[int],
         expected_comments: int,
         review_mode: str,
+        capped_lens_parts: int | None,
         footer: str,
+        findings_footer: str,
         inline_prefix: str | None,
+        body_has_large_pr_note: bool,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
         mock_post: MagicMock,
@@ -390,37 +437,62 @@ class TestPublishReviewGate:
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode=review_mode,
+            capped_lens_parts=capped_lens_parts,
             footer=footer,
+            findings_footer=findings_footer,
         )
 
         assert outcome.posted is True
         mock_post.assert_called_once()
         assert len(mock_post.call_args.args[4]) == expected_comments
         marker = mock_post.call_args.kwargs["marker"]
-        assert mock_post.call_args.args[3].endswith(f"{footer}\n\n{marker}" if footer else marker)
+        closing = "".join(f"{part}\n\n" for part in (footer, findings_footer) if part)
+        assert mock_post.call_args.args[3].endswith(f"{closing}{marker}")
+        assert ("This pull request is large" in mock_post.call_args.args[3]) is body_has_large_pr_note
         expected_inline_body = None if inline_prefix is None else f"{inline_prefix}{marker}"
         assert mock_post.call_args.kwargs["inline_body"] == expected_inline_body
         # A 👍 from an earlier clean turn must not sit next to these findings.
         assert self.remove_reactions.call_args.args == ("o/r", 1, "+1")
         self.add_reaction.assert_not_called()
 
-    @parameterized.expand([("deep", "full", []), ("standard_reacts", "flash", [("o/r", 1, "+1")])])
+    @parameterized.expand(
+        [
+            ("deep", "full", None, None, [], None),
+            ("deep_large", "full", 3, None, [], None),
+            ("standard_reacts", "flash", None, None, [("o/r", 1, "+1")], None),
+            # An earlier turn published findings, so a clean turn must not bring the 👍 back.
+            ("standard_after_published_findings_does_not_react", "flash", None, "old", [], None),
+            (
+                "standard_large_reacts_and_posts_the_note",
+                "flash",
+                3,
+                None,
+                [("o/r", 1, "+1")],
+                "**PostHog Review · Standard · reviewed `sha`**: no findings. This pull request is large, so the"
+                " review ran in 3 parts with less depth than usual.",
+            ),
+        ]
+    )
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
     @patch(_REPORT)
-    def test_skips_when_only_consider_findings(
+    def test_only_consider_findings_post_no_findings(
         self,
         _name: str,
         review_mode: str,
+        capped_lens_parts: int | None,
+        published_head_sha: str | None,
         expected_reactions: list[tuple[str, int, str]],
+        expected_note: str | None,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
         mock_post: MagicMock,
     ) -> None:
         # Below the should_fix threshold: a run whose only valid finding is `consider` has
-        # nothing publishable, so it posts nothing (guards the off-diff fix against over-surfacing).
-        # A clean Standard turn has no status comment, so its 👍 is the only sign that it ran.
-        self._wire_report(mock_report_cls)
+        # nothing publishable, so it posts no findings (guards the off-diff fix against over-surfacing).
+        # A clean Standard turn has no status comment, so its 👍 and its large pull request note
+        # are the only signs that it ran.
+        self._wire_report(mock_report_cls, published_head_sha)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
         outcome = publish_review(
@@ -435,11 +507,22 @@ class TestPublishReviewGate:
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode=review_mode,
+            capped_lens_parts=capped_lens_parts,
+            # A clean turn posts no findings, so the note below must leave this out.
+            findings_footer="Draft notice.",
         )
 
         assert outcome.posted is False
-        mock_post.assert_not_called()
         assert [c.args for c in self.add_reaction.call_args_list] == expected_reactions
+        if expected_note is None:
+            mock_post.assert_not_called()
+            return
+        mock_post.assert_called_once()
+        body, comments = mock_post.call_args.args[3:5]
+        assert body == f"{expected_note}\n\n<!-- reviewhog:large-pr-note:rep:sha -->"
+        assert comments == []
+        # The skip check matches a note from any earlier head, so re-reviews do not repeat it.
+        assert mock_post.call_args.kwargs["marker"] == "<!-- reviewhog:large-pr-note:rep:"
 
     @parameterized.expand(
         [

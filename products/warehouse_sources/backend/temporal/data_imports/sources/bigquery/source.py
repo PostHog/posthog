@@ -131,6 +131,22 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # need a change in the customer's Google Cloud project, so retrying can't recover them.
             BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR: BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
             BIGQUERY_IMPERSONATION_PERMISSION_ERROR: BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            # The ownership check above only needs `iam.serviceAccounts.get`, so it can pass while a
+            # later gRPC call (the Storage Read API's `create_read_session`/`read_rows`) still fails
+            # to mint a token, because minting one needs `iam.serviceAccounts.getAccessToken` too.
+            # grpc's auth metadata plugin surfaces that denial as a `ServiceUnavailable` wrapping
+            # Google's raw token-endpoint JSON, e.g. "Getting metadata from plugin failed with
+            # error: ('Unable to acquire impersonated credentials', '{"error": {"code": 403,
+            # "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource ..." ...'".
+            # Same remediation as the ownership check — grant Service Account Token Creator — so reuse
+            # its message. Deterministic IAM config problem; retrying can't grant the permission.
+            # Matched on the stable permission name plus "denied", not the volatile error id or
+            # troubleshooter URL. Mirrors the same check in `classify_bigquery_validation_error`,
+            # which covers this for the connection wizard rather than an in-progress sync. Python's
+            # `repr()` of the JSON body (inside the tuple `str()`) backslash-escapes the quotes
+            # around the permission name, so match both the raw and escaped forms.
+            "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
@@ -506,7 +522,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
                 "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
                 "To use a service account, select **Choose Google Cloud service account connection**, then "
-                "**Configure new Google Cloud service account**. It shows which access to grant PostHog in Google Cloud."
+                "**Configure new Google Cloud service account**. It shows how to let PostHog use your service account.\n\n"
+                "Your service account also needs these BigQuery roles: **BigQuery Job User** and **BigQuery Read "
+                "Session User** on the project, and **BigQuery Data Editor** on the dataset you sync. If you use a "
+                "separate dataset for temporary tables, grant **BigQuery Data Editor** there instead and **BigQuery "
+                "Data Viewer** on the dataset you sync. Without these roles, the connection check can pass but the "
+                "sync fails."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(
