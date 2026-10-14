@@ -374,22 +374,20 @@ export function WorkflowsTable(): JSX.Element {
                                         {workflow.status === 'archived' ? 'Restore' : 'Archive'}
                                     </LemonButton>
                                 </AccessControlAction>
-                                {workflow.status === 'archived' && (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Workflow}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={workflow.user_access_level}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflow.user_access_level}
+                                >
+                                    <LemonButton
+                                        data-attr="workflow-delete"
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => deleteWorkflow(workflow)}
                                     >
-                                        <LemonButton
-                                            data-attr="workflow-delete"
-                                            fullWidth
-                                            status="danger"
-                                            onClick={() => deleteWorkflow(workflow)}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                )}
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
