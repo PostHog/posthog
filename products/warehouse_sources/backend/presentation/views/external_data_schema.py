@@ -61,10 +61,9 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
+    CDC_HISTORY_TABLE_MODES,
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -73,6 +72,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
+    history_column_collisions,
     purge_buffer_prefix,
     repair_is_running,
     resnapshot_stays_in_buffer,
@@ -433,24 +433,26 @@ def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
 
 def _refuse_reserved_history_columns(
     instance: ExternalDataSchema,
+    *,
     previous_mode: str | None,
+    previous_enabled_columns: list[str] | None,
+    previous_primary_keys: list[str] | None,
     new_mode: str | None,
-    enabled_columns: list[str] | None,
-    primary_key_columns: list[str] | None,
+    new_enabled_columns: list[str] | None,
+    new_primary_keys: list[str] | None,
 ) -> None:
-    """The history table stamps each row version with these columns, so a synced source column of the
-    same name would fail every load into it. Checked only when the request turns the history table on,
+    """The history table stamps each row version with `valid_from` and `valid_to`, so a synced source
+    column of the same name fails every load into it. Only a collision this request adds is refused,
     so a table that already has one can still be edited or switched back."""
-    history_modes = ("cdc_only", "both")
-    had_history = instance.sync_type == ExternalDataSchema.SyncType.CDC and previous_mode in history_modes
-    if new_mode not in history_modes or had_history:
+    if new_mode not in CDC_HISTORY_TABLE_MODES:
         return
-    synced = _source_column_names(instance)
-    # Capture drops a column left out of `enabled_columns` before the history table sees it, and
-    # always keeps the primary key, the same projection the CDC capture loop applies.
-    if enabled_columns is not None:
-        synced &= set(enabled_columns) | set(primary_key_columns or [])
-    taken = sorted({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & synced)
+    columns = _source_column_names(instance)
+    taken = history_column_collisions(columns, new_enabled_columns, new_primary_keys, instance.incremental_field)
+    if instance.sync_type == ExternalDataSchema.SyncType.CDC and previous_mode in CDC_HISTORY_TABLE_MODES:
+        existing = history_column_collisions(
+            columns, previous_enabled_columns, previous_primary_keys, instance.incremental_field
+        )
+        taken = [column for column in taken if column not in existing]
     if taken:
         raise ValidationError(
             f"A history table can't store a column named {' or '.join(taken)}, because PostHog uses that name. "
@@ -1257,13 +1259,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
-            _refuse_reserved_history_columns(
-                instance,
-                previous_cdc_table_mode,
-                payload.get("cdc_table_mode"),
-                validated_data.get("enabled_columns", instance.enabled_columns),
-                payload.get("primary_key_columns"),
-            )
             if instance.sync_type != ExternalDataSchema.SyncType.CDC:
                 _refuse_reserved_cdc_column(instance)
                 # A table joining CDC starts from a fresh snapshot, even when an earlier sync
@@ -1295,16 +1290,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if instance.sync_type == ExternalDataSchema.SyncType.CDC and "cdc_table_mode" in data:
                 cdc_table_mode = data.get("cdc_table_mode")
                 if cdc_table_mode in ("consolidated", "cdc_only", "both"):
-                    _refuse_reserved_history_columns(
-                        instance,
-                        previous_cdc_table_mode,
-                        cdc_table_mode,
-                        validated_data.get("enabled_columns", instance.enabled_columns),
-                        instance.sync_type_config.get("primary_key_columns"),
-                    )
                     payload = instance.sync_type_config
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
+
+        # Checked once the branches above settle the mode and the key, because `enabled_columns` alone
+        # can also bring a validity column into the history table.
+        if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
+            resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
+            _refuse_reserved_history_columns(
+                instance,
+                previous_mode=previous_cdc_table_mode,
+                previous_enabled_columns=instance.enabled_columns,
+                previous_primary_keys=original_sync_type_config.get("primary_key_columns"),
+                new_mode=resulting_config.get("cdc_table_mode"),
+                new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
+                new_primary_keys=resulting_config.get("primary_key_columns"),
+            )
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)

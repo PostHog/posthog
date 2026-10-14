@@ -565,9 +565,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
+    @property
+    def is_history_table(self) -> bool:
+        return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
+
+    def mark_as_history_table(self) -> None:
+        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""
-        if (self.options or {}).get(HISTORY_TABLE_OPTION) is True:
+        if self.is_history_table:
             return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
         return HIDDEN_COLUMNS
 
@@ -1215,9 +1222,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
             # Hidden rather than removed, so a saved query that names one of these still resolves.
-            for name in self.hidden_columns() & HISTORY_HIDDEN_COLUMNS:
-                if (field := fields.get(name)) is not None:
-                    fields[name] = field.model_copy(update={"hidden": True})
+            if self.is_history_table:
+                for name in HISTORY_HIDDEN_COLUMNS:
+                    if (field := fields.get(name)) is not None:
+                        fields[name] = field.model_copy(update={"hidden": True})
 
         table_def = HogQLDataWarehouseTable(
             name=self.name,

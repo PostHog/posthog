@@ -649,7 +649,7 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                table.options = {**(table.options or {}), HISTORY_TABLE_OPTION: True}
+                table.mark_as_history_table()
                 _refresh_cumulative_row_count(table, logger, companion_table_name, live_row_count)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.

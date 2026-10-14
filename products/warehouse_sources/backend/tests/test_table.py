@@ -23,10 +23,17 @@ from posthog.models import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
+    HISTORY_HIDDEN_COLUMNS,
     DataWarehouseTable,
     classify_warehouse_read_error,
     get_hogql_field_for_column,
     run_chdb_query,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
+    DELETED_AT_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -516,6 +523,11 @@ class TestSchemaInferenceMode(BaseTest):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
         assert mock_sync_execute.call_count == 5
+
+
+class TestHistoryHiddenColumns(SimpleTestCase):
+    def test_names_match_the_columns_capture_writes(self) -> None:
+        assert HISTORY_HIDDEN_COLUMNS == {CDC_OP_COLUMN, CDC_SEQ_COLUMN, CDC_TIMESTAMP_COLUMN, DELETED_AT_COLUMN}
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):
