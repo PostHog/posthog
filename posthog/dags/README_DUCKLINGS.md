@@ -58,6 +58,17 @@ Output metadata reports `superseded: true` when a newer snapshot or table reset 
 The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
 Groups snapshots require `cleanup_existing_partition_data: true`.
 
+The groups sensor defaults to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
+
+1. Deploy the job and confirm `duckling_groups_full_backfill_sensor` is stopped in Dagster. The default does not override a previously stored running state.
+2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set.
+3. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
+4. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
+5. Start `duckling_groups_full_backfill_sensor` to discover all teams with `backfill_enabled: true` in ready warehouses. The successful manual snapshot is skipped.
+
+Stop the sensor to pause new discovery. Stop queued or active runs separately if they must not finish.
+Groups query mapping is available before the first snapshot completes; queries can fail before table creation or read an empty table during the initial export.
+
 ## Partition Strategy
 
 Partitions use a composite key format: `{team_id}_{YYYY-MM-DD}`

@@ -350,7 +350,7 @@ duckling_groups_backfill_job = define_asset_job(
 )
 
 
-@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.RUNNING)
+@sensor(job=duckling_groups_backfill_job, minimum_interval_seconds=600, default_status=DefaultSensorStatus.STOPPED)
 def duckling_groups_full_backfill_sensor(context: SensorEvaluationContext) -> SensorResult:
     backfills = sorted(
         list_enabled_backfill_team_memberships("groups_full_backfill_sensor"), key=lambda row: row.team_id
