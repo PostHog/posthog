@@ -185,17 +185,9 @@ HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debu
 # which already tell a reader when a version held and whether it is a delete. The names mirror the
 # constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
 HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
-# A history table always has all three. A consolidated table has them only when the source itself
-# has both a `valid_from` and a `valid_to` column, and then it loses nothing but catalog entries,
-# because a hidden column still resolves in a query.
-_HISTORY_TABLE_MARKER_COLUMNS: frozenset[str] = frozenset({"valid_from", "valid_to", "_ph_cdc_op"})
-
-
-def hidden_columns_for(columns: Iterable[str]) -> frozenset[str]:
-    """The plumbing columns to keep out of the catalog for a table with these columns."""
-    if _HISTORY_TABLE_MARKER_COLUMNS.issubset(columns):
-        return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
-    return HIDDEN_COLUMNS
+# Set in `options` when the sync registers a table as a schema's history table. Column names cannot
+# tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
+HISTORY_TABLE_OPTION = "history_table"
 
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
@@ -573,6 +565,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
+    def hidden_columns(self) -> frozenset[str]:
+        """The plumbing columns to keep out of the catalog for this table."""
+        if (self.options or {}).get(HISTORY_TABLE_OPTION) is True:
+            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
+        return HIDDEN_COLUMNS
+
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
         """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
 
@@ -588,7 +586,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
         hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
-        hidden = hidden_columns_for(self.columns or {})
+        hidden = self.hidden_columns()
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
             if name in hidden:
@@ -1217,7 +1215,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
             # Hidden rather than removed, so a saved query that names one of these still resolves.
-            for name in hidden_columns_for(columns) & HISTORY_HIDDEN_COLUMNS:
+            for name in self.hidden_columns() & HISTORY_HIDDEN_COLUMNS:
                 if (field := fields.get(name)) is not None:
                     fields[name] = field.model_copy(update={"hidden": True})
 

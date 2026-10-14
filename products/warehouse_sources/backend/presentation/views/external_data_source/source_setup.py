@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
+    filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     is_team_allowlisted_for_internal_hosts,
@@ -1441,8 +1442,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
-            # The history table stamps each row version with these columns, so a source column of
-            # the same name would fail every load into it.
+            # The history table stamps each row version with these columns, so a synced source column
+            # of the same name would fail every load into it. A column left out of `enabled_columns`
+            # never reaches the history table.
             tables_with_validity_column = sorted(
                 {
                     schema["name"]
@@ -1452,7 +1454,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     and schema.get("cdc_table_mode") in ("cdc_only", "both")
                     and isinstance(schema.get("name"), str)
                     and {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN}
-                    & {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
+                    & {
+                        column[0]
+                        for column in filter_columns_by_enabled_columns(
+                            list(getattr(source_schemas_by_name.get(schema["name"]), "columns", [])),
+                            schema["enabled_columns"] if isinstance(schema.get("enabled_columns"), list) else None,
+                            pk_columns_by_table.get(schema["name"]),
+                        )
+                    }
                 }
             )
             if tables_with_validity_column:

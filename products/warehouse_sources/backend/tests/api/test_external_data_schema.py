@@ -4261,12 +4261,21 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
-    def test_patch_refuses_to_add_a_history_table_over_a_validity_column_name(self):
+    @parameterized.expand(
+        [
+            ("synced_column_is_refused", None, "consolidated"),
+            ("column_left_out_of_enabled_columns_is_allowed", ["id"], "both"),
+        ]
+    )
+    def test_patch_adding_a_history_table_checks_the_synced_validity_columns(
+        self, _name: str, enabled_columns: list[str] | None, expected_mode: str
+    ):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
         )
 
         self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "valid_to"}]}
+        self.schema.enabled_columns = enabled_columns
         self.schema.save()
 
         serializer = ExternalDataSchemaSerializer(
@@ -4280,11 +4289,14 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             return_value=False,
         ):
             serializer.is_valid(raise_exception=True)
-            with pytest.raises(ValidationError, match="valid_to"):
+            if enabled_columns is None:
+                with pytest.raises(ValidationError, match="valid_to"):
+                    serializer.save()
+            else:
                 serializer.save()
 
         self.schema.refresh_from_db()
-        assert self.schema.cdc_table_mode == "consolidated"
+        assert self.schema.cdc_table_mode == expected_mode
 
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (

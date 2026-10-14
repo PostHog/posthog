@@ -631,16 +631,25 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
-            ("history_table", ["valid_from", "valid_to"], {"id", "_ph_deleted", "valid_from", "valid_to"}),
+            ("history_table", {"history_table": True}, {"id", "_ph_deleted", "valid_from", "valid_to"}),
             (
-                "consolidated_table",
-                [],
-                {"id", "_ph_deleted", "_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"},
+                "consolidated_table_whose_source_has_validity_columns",
+                {},
+                {
+                    "id",
+                    "_ph_deleted",
+                    "valid_from",
+                    "valid_to",
+                    "_ph_cdc_op",
+                    "_ph_cdc_seq",
+                    "_ph_cdc_timestamp",
+                    "_ph_deleted_at",
+                },
             ),
         ]
     )
     def test_history_table_hides_capture_bookkeeping_columns(
-        self, _name: str, validity_columns: list[str], expected_visible: set[str]
+        self, _name: str, options: dict, expected_visible: set[str]
     ):
         capture_columns = ["_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted", "_ph_deleted_at"]
         table = DataWarehouseTable.objects.create(
@@ -648,9 +657,10 @@ class TestTable(BaseTest):
             url_pattern="https://bucket.s3.amazonaws.com/orders",
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             team=self.team,
+            options=options,
             columns={
                 name: {"clickhouse": "String", "hogql": "StringDatabaseField"}
-                for name in ["id", *capture_columns, *validity_columns]
+                for name in ["id", *capture_columns, "valid_from", "valid_to"]
             },
         )
 
