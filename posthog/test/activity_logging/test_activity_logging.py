@@ -39,6 +39,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
     Detail,
+    LogActivityEntry,
     Trigger,
     bulk_log_activity,
     log_activity,
@@ -456,6 +457,40 @@ class TestActivityLogModel(BaseTest):
             warning = mock_logger.warn.call_args
             self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
             self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
+    @parameterized.expand(
+        [
+            ("single_same_instance", "single", True),
+            ("single_other_instance", "single", False),
+            ("bulk_same_instance", "bulk", True),
+            ("bulk_other_instance", "bulk", False),
+        ]
+    )
+    def test_deferred_write_unsets_a_user_deleted_before_commit(
+        self, _name: str, path: str, delete_same_instance: bool
+    ) -> None:
+        user = User.objects.create_and_join(self.organization, "deleted@example.com", None)
+        entry: LogActivityEntry = {
+            "organization_id": self.organization.id,
+            "team_id": self.team.id,
+            "user": user,
+            "was_impersonated": False,
+            "item_id": "12345",
+            "scope": "PersonalAPIKey",
+            "activity": "deleted",
+            "detail": Detail(),
+        }
+
+        with self.settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                if path == "single":
+                    log_activity(**entry)
+                else:
+                    bulk_log_activity([entry])
+                (user if delete_same_instance else User.objects.get(pk=user.pk)).delete()
+
+        row = ActivityLog.objects.get(team_id=self.team.id, scope="PersonalAPIKey", item_id="12345")
+        assert (row.user_id, row.is_system) == (None, False)
 
     def test_strict_write_failure_escapes_active_transaction(self) -> None:
         with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
