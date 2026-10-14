@@ -319,6 +319,7 @@ class TestDedupeFlashFindings:
         *,
         prior_findings: list[ReviewIssueFinding] | None = None,
         changed_since: ChangedSinceReview | None = None,
+        changed_code_only: bool = False,
     ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             return await dedupe_flash_findings(
@@ -331,6 +332,7 @@ class TestDedupeFlashFindings:
                 repository="o/r",
                 lens_part_count=1,
                 changed_since=changed_since,
+                changed_code_only=changed_code_only,
             )
 
     @pytest.mark.asyncio
@@ -594,6 +596,45 @@ class TestDedupeFlashFindings:
 
         assert [kept.id for kept in selection.kept] == (["2000-1-1"] if posts else [])
         assert [drop.disposition for drop in selection.dropped] == ([] if posts else ["old_code"])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "line,priority,changed_code_only,posts",
+        [
+            pytest.param(30, IssuePriority.SHOULD_FIX, True, False, id="late_automatic_p2_on_unchanged_code"),
+            pytest.param(30, IssuePriority.SHOULD_FIX, False, True, id="whole_pr_p2_on_unchanged_code"),
+            pytest.param(11, IssuePriority.SHOULD_FIX, True, True, id="late_automatic_p2_on_the_fix"),
+            pytest.param(30, IssuePriority.MUST_FIX, True, True, id="late_automatic_p1_on_unchanged_code"),
+        ],
+    )
+    async def test_a_late_automatic_follow_up_only_comments_on_what_the_push_changed(
+        self, pr_metadata: PRMetadata, line: int, priority: IssuePriority, changed_code_only: bool, posts: bool
+    ) -> None:
+        # Each fix drew a new P2 on code it never touched, and an open finding keeps stamphog from approving,
+        # so the author's agent fixed and pushed again, round after round.
+        earlier = [_patched("a.py", ("addition", 10, ["x = 1"]))]
+        current = [_patched("a.py", ("addition", 10, ["x = 1", "y = 2"]))]
+        issue = _issue("2000-1-1", priority).model_copy(update={"file": "a.py", "lines": [LineRange(start=line)]})
+
+        selection = await self._dedupe(
+            pr_metadata,
+            [issue],
+            _flash_dedup(),
+            changed_since=ChangedSinceReview.between(earlier, current),
+            changed_code_only=changed_code_only,
+        )
+
+        assert [drop.disposition for drop in selection.dropped] == ([] if posts else ["old_code"])
+
+
+def test_a_first_review_keeps_twice_the_cap() -> None:
+    # A finding the cap cuts is not stored, so a later turn would find it again and post it on its own.
+    main = [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(1, 11)]
+
+    first = compose_flash_findings(main, [], lens_part_count=1, first_review=True)
+    follow_up = compose_flash_findings(main, [], lens_part_count=1)
+
+    assert (len(first.kept), first.cap, len(follow_up.kept)) == (8, 8, 4)
 
 
 def test_turn_stats_count_every_candidate_once_per_session() -> None:

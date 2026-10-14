@@ -748,18 +748,21 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "trigger_source,expected_budget_left",
+    "trigger_source,run_index,expected_budget_left,expected_changed_code_only",
     [
-        pytest.param("automatic", 2, id="automatic_turn_is_held_to_the_budget"),
-        pytest.param("comment", None, id="requested_review_is_not"),
-        pytest.param(None, None, id="payload_from_before_the_field"),
+        pytest.param("automatic", 1, 2, False, id="first_review"),
+        pytest.param("automatic", 2, 2, False, id="second_automatic_turn_reviews_the_whole_pr"),
+        pytest.param("automatic", 3, 2, True, id="later_automatic_turn_reviews_the_push"),
+        pytest.param("comment", 3, None, False, id="requested_review"),
+        pytest.param(None, 3, None, False, id="payload_from_before_the_field"),
     ],
 )
-async def test_only_an_automatic_standard_turn_is_held_to_the_finding_budget(
-    trigger_source: str | None, expected_budget_left: int | None
+async def test_a_standard_turn_scope_follows_its_trigger_and_run(
+    trigger_source: str | None, run_index: int, expected_budget_left: int | None, expected_changed_code_only: bool
 ) -> None:
-    # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent. A review
-    # someone asks for must surface everything the turn keeps.
+    # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent, and after
+    # the first whole-PR turns they only comment on what a push changed. A review someone asks for surfaces
+    # everything the turn keeps, across the pull request.
     dedupe = AsyncMock(return_value=FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1))
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
@@ -776,10 +779,16 @@ async def test_only_an_automatic_standard_turn_is_held_to_the_finding_budget(
         patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
     ):
         await ActivityEnvironment().run(
-            dedup_activity, SandboxStageInput(**_single_agent_stage(trigger_source=trigger_source))
+            dedup_activity,
+            SandboxStageInput(**_single_agent_stage(trigger_source=trigger_source, run_index=run_index)),
         )
 
-    assert dedupe.call_args.kwargs["budget_left"] == expected_budget_left
+    kwargs = dedupe.call_args.kwargs
+    assert (kwargs["budget_left"], kwargs["changed_code_only"], kwargs["first_review"]) == (
+        expected_budget_left,
+        expected_changed_code_only,
+        run_index == 1,
+    )
 
 
 @pytest.mark.parametrize(
