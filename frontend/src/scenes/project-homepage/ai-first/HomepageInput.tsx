@@ -2,11 +2,10 @@ import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconMicrophone, IconPin, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconPin, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -17,7 +16,6 @@ import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
 import { SUGGESTION_CARDS_HEIGHT_PX, COLORFUL_ICONS, TopicBadges } from 'scenes/max/components/TopicBadges'
-import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -43,13 +41,9 @@ import { SUGGESTIONS_LIMIT } from './homepageSuggestions'
 
 function IdleInput(): JSX.Element {
     const { query, fillInHint } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat, setFillInHint } = useActions(aiFirstHomepageLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
-    const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { setQuery, submitQuery, enterAiMode, setFillInHint } = useActions(aiFirstHomepageLogic)
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
-    const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
     // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
     const showFillInHint = !!fillInHint
 
@@ -163,18 +157,6 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
-                            {handsFreeAvailable && (
-                                <Tooltip title="Start a new chat in hands-free">
-                                    <ButtonPrimitive
-                                        iconOnly
-                                        data-attr="homepage-hands-free"
-                                        className="shrink-0"
-                                        onClick={startHandsFreeChat}
-                                    >
-                                        <IconMicrophone className="size-4" />
-                                    </ButtonPrimitive>
-                                </Tooltip>
-                            )}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {

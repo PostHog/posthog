@@ -83,8 +83,6 @@ import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
-import { handsFreeLogic } from './handsFreeLogic'
-import { summariseAssistantThread } from './handsFreeUtils'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
@@ -2058,16 +2056,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
-            // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
-            // not just when active. Otherwise a typed turn following a spoken one inherits
-            // the earlier <voice_mode> system instruction from conversation history and
-            // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
-            const mergedUiContext =
-                uiContext || voiceMode
-                    ? { ...values.compiledContext, ...uiContext, ...voiceMode }
-                    : values.compiledContext || undefined
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext
@@ -2251,11 +2242,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         completeThreadGeneration: () => {
             actions.executePendingClientToolCall()
-
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            if (handsFree?.values.isActive) {
-                handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
-            }
 
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
