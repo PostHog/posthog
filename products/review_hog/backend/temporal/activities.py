@@ -2262,12 +2262,12 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
         distinct_id=_review_event_identity(report),
         event="reviewhog_push_gate_decided",
         # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
-        # pushes in a row share one. The draft state is in the key too, because a draft skip and the
-        # review after the PR is marked ready can judge the same head.
+        # pushes in a row share one. The draft state and the reason are in the key too, because one head
+        # can get a draft or throttle skip and later a review, after the PR is marked ready or the bucket refills.
         uuid=str(
             uuid5(
                 NAMESPACE_URL,
-                f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}:{draft}",
+                f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}:{draft}:{decision.reason}",
             )
         ),
         properties={
