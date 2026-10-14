@@ -453,19 +453,16 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     // Parse groups/timestamp once up front, not once per distinct ID.
                     const baseData = buildEvaluationRequest(formData, '')
                     if (baseData.timestamp) {
+                        const projectId = String(values.currentProjectId)
                         const ids = [...new Set(distinctIds)]
                         const rows: PerDistinctIdEvaluation[] = []
                         for (let offset = 0; offset < ids.length; offset += HISTORICAL_EVALUATION_BATCH_SIZE) {
                             try {
-                                const response = await featureFlagsTestEvaluationBatchCreate(
-                                    String(values.currentProjectId),
-                                    flagId,
-                                    {
-                                        distinct_ids: ids.slice(offset, offset + HISTORICAL_EVALUATION_BATCH_SIZE),
-                                        timestamp: baseData.timestamp,
-                                        groups: baseData.groups,
-                                    }
-                                )
+                                const response = await featureFlagsTestEvaluationBatchCreate(projectId, flagId, {
+                                    distinct_ids: ids.slice(offset, offset + HISTORICAL_EVALUATION_BATCH_SIZE),
+                                    timestamp: baseData.timestamp,
+                                    groups: baseData.groups,
+                                })
                                 rows.push(
                                     ...response.results.map(({ distinct_id, result, error }) => ({
                                         distinctId: distinct_id,

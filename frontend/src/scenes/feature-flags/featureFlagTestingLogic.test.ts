@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { projectLogic } from 'scenes/projectLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -544,6 +546,8 @@ describe('featureFlagTestingLogic', () => {
         async (failSecondBatch) => {
             const ids = Array.from({ length: 2001 }, (_, i) => `user-${i}`)
             const requests: string[][] = []
+            const projectIds: string[] = []
+            const initialProjectId = String(logic.values.currentProjectId)
             let active = 0
             let peakActive = 0
             useMocks({
@@ -553,6 +557,11 @@ describe('featureFlagTestingLogic', () => {
                         active++
                         peakActive = Math.max(peakActive, active)
                         requests.push(body.distinct_ids)
+                        projectIds.push(new URL(request.url).pathname.split('/')[3])
+                        projectLogic.actions.loadCurrentProjectSuccess({
+                            ...projectLogic.values.currentProject!,
+                            id: 999,
+                        })
                         await new Promise((resolve) => setTimeout(resolve, 1))
                         active--
                         if (failSecondBatch && requests.length === 2) {
@@ -574,12 +583,13 @@ describe('featureFlagTestingLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.testAllDistinctIds({
                     flagId: 1,
-                    distinctIds: ids,
+                    distinctIds: [...ids, ids[0]],
                     formData: { distinct_id: ids[0], timestamp: '2026-01-01T00:00:00.000Z', groups: '' },
                 })
             }).toDispatchActions(['testAllDistinctIdsSuccess'])
             expect(requests.map((ids) => ids.length)).toEqual(failSecondBatch ? [1000, 1000] : [1000, 1000, 1])
             expect(peakActive).toBe(1)
+            expect(projectIds).toEqual(requests.map(() => initialProjectId))
             expect(logic.values.allEvaluations?.map((row) => row.distinctId)).toEqual(ids)
             expect(logic.values.allEvaluations?.[0].result?.result).toBe(ids[0])
             expect(logic.values.allEvaluations?.[2000].error).toBe(
