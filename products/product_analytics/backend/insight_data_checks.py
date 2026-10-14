@@ -27,13 +27,10 @@ from products.product_analytics.backend.facade.enums import (
 
 # Each check is a share of the events, so a sample this large gives the same answer as every event.
 MAX_CHECKED_EVENTS = 1_000_000
-# The sample is drawn before the chart's filters, because a count after them reads every event. When the filters
-# keep fewer of the sampled events than the minimum, one larger sample is drawn that keeps about the second number.
-MIN_SAMPLED_EVENTS = 10_000
-RESAMPLED_EVENTS = 100_000
-# The larger sample reads at most this many times the events of the first, so a filter that keeps almost no
-# events does not read every event in the range.
-MAX_RESAMPLE_GROWTH = 10
+# The first sample is sized from a count of the chart's event names and dates, which reads only the sort key. A
+# count after the chart's filters reads those filters for every event in the range, so the checks run it only when
+# the filters keep fewer than this many of the sampled events, and then size the sample from it.
+MIN_CHECKED_EVENTS = 10_000
 MAX_EXECUTION_SECONDS = 20
 
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
@@ -43,6 +40,8 @@ CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
 MIN_FINDING_EVENTS = 50
 MIN_FINDING_SHARE = 0.01
 MIN_DUPLICATE_EVENTS = 100
+# Higher than the other share floors, because `uniq` estimates the distinct events of a common user agent and a small
+# share of duplicates can be the error of that estimate.
 MIN_DUPLICATE_SHARE = 0.05
 PROBLEM_SHARE = 0.2
 
@@ -110,11 +109,6 @@ class _EventReader:
 
 
 def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) -> InsightDataChecks:
-    """Check the events an insight reads for the common ways they mislead.
-
-    Runs two ClickHouse queries: a cheap count that sets the sample, then the checks on that sample. A chart whose
-    filters keep few of its events runs the checks a second time on a larger sample.
-    """
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         events = chart_events(query, team, user)
         if events is None:
@@ -130,10 +124,10 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
             modifiers=modifiers,
             database=events.database,
         )
-        total = _count_events_in_range(events, reader)
+        total = _count_events(events, reader, where=events.sort_key_where, query_type="insight_data_checks_total")
         if total == 0:
             return _not_checked(InsightDataChecksStatus.NO_EVENTS)
-        counts = _count_events(events, reader, total=total)
+        counts = _sampled_counts(events, reader, total_before_filters=total)
     if counts.events == 0:
         return _not_checked(InsightDataChecksStatus.NO_EVENTS)
     checks = evaluate_data_checks(counts)
@@ -156,25 +150,25 @@ def _query_settings() -> HogQLGlobalSettings:
     return HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_SECONDS, timeout_overflow_mode="throw")
 
 
-def _count_events_in_range(events: ChartEvents, reader: _EventReader) -> int:
-    """Every event with the insight's event names in its date range, before any property filter."""
-    row = reader.first_row(
-        events.select(_TOTAL_QUERY, where=events.sort_key_where), query_type="insight_data_checks_total"
-    )
+def _count_events(events: ChartEvents, reader: _EventReader, *, where: ast.Expr, query_type: str) -> int:
+    row = reader.first_row(events.select(_TOTAL_QUERY, where=where), query_type=query_type)
     return int(row[0] or 0) if row else 0
 
 
-def _count_events(events: ChartEvents, reader: _EventReader, *, total: int) -> DataCheckCounts:
+def _sampled_counts(events: ChartEvents, reader: _EventReader, *, total_before_filters: int) -> DataCheckCounts:
+    counts = _query_counts(events, reader, total=total_before_filters)
+    if counts.sample_rate == 1 or counts.events >= MIN_CHECKED_EVENTS:
+        return counts
+    # Sampling picks whole distinct IDs, so a filter that keeps the events of a few people can leave none in the
+    # first sample although the chart has events.
+    total = _count_events(events, reader, where=events.where, query_type="insight_data_checks_filtered_total")
+    if total == 0:
+        return counts
+    return _query_counts(events, reader, total=total)
+
+
+def _query_counts(events: ChartEvents, reader: _EventReader, *, total: int) -> DataCheckCounts:
     sampled = min(total, MAX_CHECKED_EVENTS)
-    counts = _query_counts(events, reader, sampled=sampled, total=total)
-    if sampled < total and counts.events < MIN_SAMPLED_EVENTS:
-        sampled = min(total, sampled * MAX_RESAMPLE_GROWTH, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
-        counts = _query_counts(events, reader, sampled=sampled, total=total)
-    return counts
-
-
-def _query_counts(events: ChartEvents, reader: _EventReader, *, sampled: int, total: int) -> DataCheckCounts:
-    """The counts on a sample that holds `sampled` of the `total` events in the insight's date range."""
     counts_by_user_agent = events.select(
         _COUNTS_BY_USER_AGENT_QUERY,
         where=events.where,
@@ -245,12 +239,10 @@ def _percent(share: float) -> str:
 
 
 def _estimate(count: int, counts: DataCheckCounts) -> float:
-    """A count from the sample, scaled up to every event of the insight."""
     return count / counts.sample_rate
 
 
 def _event_count(count: int, counts: DataCheckCounts) -> str:
-    """A count of the insight's events. From a sample it is an estimate, so it is scaled up and rounded."""
     if counts.sample_rate >= 1:
         return f"{count:,}"
     estimate = round(_estimate(count, counts))
@@ -259,7 +251,6 @@ def _event_count(count: int, counts: DataCheckCounts) -> str:
 
 
 def _passed(key: InsightDataCheckKey, things: str, count: int, counts: DataCheckCounts) -> InsightDataCheck:
-    """`things` is what the check looks for, as it reads after "No": "bots or crawlers"."""
     result = f"Almost no {things} found ({_event_count(count, counts)} events)" if count else f"No {things} found"
     return _check(key, InsightDataCheckLevel.PASSED, result, events=count, share=count / counts.events)
 
@@ -308,8 +299,7 @@ def _duplicate_events_check(counts: DataCheckCounts) -> InsightDataCheck:
     key = InsightDataCheckKey.DUPLICATE_EVENTS
     duplicates = max(counts.events - counts.distinct_events, 0)
     share = duplicates / counts.events
-    if duplicates < MIN_DUPLICATE_EVENTS or share < MIN_DUPLICATE_SHARE:
-        # The count is an estimate, so a small one can be an error of the estimate and not a real event.
+    if _estimate(duplicates, counts) < MIN_DUPLICATE_EVENTS or share < MIN_DUPLICATE_SHARE:
         result = (
             "No events sent twice" if share < MIN_FINDING_SHARE else f"Few events sent twice (about {_percent(share)})"
         )

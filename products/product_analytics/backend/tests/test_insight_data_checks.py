@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
 from typing import Any
 
 import time_machine
@@ -35,7 +37,9 @@ LOCAL_HOST = "localhost:8010"
 CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
 ON_LOCAL_HOST = {"key": "$host", "value": [LOCAL_HOST], "operator": "exact", "type": "event"}
 FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "exact", "type": "event"}
+IS_PAID = {"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
+ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
 TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "event": EVENT}]
 
 
@@ -95,6 +99,12 @@ class TestEvaluateDataChecks(SimpleTestCase):
                 WARNING,
             ),
             (
+                "duplicates_under_100_sampled_events_but_over_100_in_the_insight",
+                InsightDataCheckKey.DUPLICATE_EVENTS,
+                counts(1000, duplicates=80, sample_rate=0.01),
+                WARNING,
+            ),
+            (
                 "duplicates_fifth_is_a_problem",
                 InsightDataCheckKey.DUPLICATE_EVENTS,
                 counts(1000, duplicates=250),
@@ -106,9 +116,10 @@ class TestEvaluateDataChecks(SimpleTestCase):
         self, _name: str, key: InsightDataCheckKey, check_counts: DataCheckCounts, expected: InsightDataCheckLevel
     ) -> None:
         checks = evaluate_data_checks(check_counts)
-        levels = {check.key: check.level for check in checks}
-        assert levels[key] == expected
-        assert all(level == PASSED for other, level in levels.items() if other != key)
+        assert {check.key: check.level for check in checks} == {
+            **dict.fromkeys(InsightDataCheckKey, PASSED),
+            key: expected,
+        }
 
     @parameterized.expand(
         [
@@ -120,8 +131,8 @@ class TestEvaluateDataChecks(SimpleTestCase):
         self, _name: str, sample_rate: float, expected: str
     ) -> None:
         checks = evaluate_data_checks(counts(1000000, local=66, sample_rate=sample_rate))
-        check = next(check for check in checks if check.key == InsightDataCheckKey.LOCAL_DEVELOPMENT)
-        assert check.result == expected
+        results = {check.key: check.result for check in checks}
+        assert results[InsightDataCheckKey.LOCAL_DEVELOPMENT] == expected
 
 
 @time_machine.travel(NOW, tick=False)
@@ -142,7 +153,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self._events(30, properties={"$raw_user_agent": BROWSER_USER_AGENT, "$ip": CRAWLER_IP, "$group_0": "acme"})
         self._events(30, properties={"$host": LOCAL_HOST, "$process_person_profile": False})
         for _ in range(110):
-            self._events(2, same_second=True, properties={"$current_url": "https://example.com/pricing"})
+            self._events(2, seconds_apart=0, properties={"$current_url": "https://example.com/pricing"})
         self._events(50, event="another event", properties={"$host": LOCAL_HOST})
         self._events(50, days_ago=70, properties={"$host": LOCAL_HOST})
         self._events(40, event=SENT_ON_THE_FREE_PLAN, person_properties={"plan": "free"})
@@ -155,9 +166,9 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         distinct_id: str = "real",
         event: str = EVENT,
         days_ago: int = 1,
-        same_second: bool = False,
-        properties: dict[str, Any] | None = None,
-        person_properties: dict[str, Any] | None = None,
+        seconds_apart: int = 1,
+        properties: Mapping[str, Any] = MappingProxyType({}),
+        person_properties: Mapping[str, Any] = MappingProxyType({}),
     ) -> None:
         for _ in range(count):
             _create_event(
@@ -165,20 +176,19 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
                 event=event,
                 distinct_id=distinct_id,
                 timestamp=NOW - timedelta(days=days_ago, seconds=self._second),
-                properties=properties or {},
-                person_properties=person_properties or {},
+                properties=dict(properties),
+                person_properties=dict(person_properties),
             )
-            if not same_second:
-                self._second += 1
+            self._second += seconds_apart
         self._second += 1
 
-    def _query(self, series: dict[str, Any] | list[dict[str, Any]] | None = None, **source: Any) -> dict[str, Any]:
+    def _query(self, series: list[dict[str, Any]] = ONE_STEP, **source: Any) -> dict[str, Any]:
         return {
             "kind": "InsightVizNode",
             "source": {
                 # Not a trends query: the repo's crossing scan reads one in a test as a run of web analytics code.
                 "kind": "LifecycleQuery",
-                "series": series if isinstance(series, list) else [series or {"kind": "EventsNode", "event": EVENT}],
+                "series": series,
                 "dateRange": {"date_from": "-60d"},
                 **source,
             },
@@ -204,7 +214,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             ("property_filter", {"properties": [ON_LOCAL_HOST]}, 60),
             (
                 "filter_on_the_series",
-                {"series": {"kind": "EventsNode", "event": EVENT, "properties": [ON_LOCAL_HOST]}},
+                {"series": [{"kind": "EventsNode", "event": EVENT, "properties": [ON_LOCAL_HOST]}]},
                 60,
             ),
             (
@@ -222,12 +232,14 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
                 "series_that_counts_groups",
                 {
                     "kind": "StickinessQuery",
-                    "series": {
-                        "kind": "EventsNode",
-                        "event": EVENT,
-                        "math": "unique_group",
-                        "math_group_type_index": 0,
-                    },
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": EVENT,
+                            "math": "unique_group",
+                            "math_group_type_index": 0,
+                        }
+                    ],
                 },
                 60,
             ),
@@ -247,7 +259,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             (
                 "query_modifiers",
                 {
-                    "series": {"kind": "EventsNode", "event": SENT_ON_THE_FREE_PLAN},
+                    "series": [{"kind": "EventsNode", "event": SENT_ON_THE_FREE_PLAN}],
                     "properties": [HAS_NO_PLAN_TODAY],
                     "modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"},
                 },
@@ -262,14 +274,34 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("trends_reads_the_cohort", "TrendsQuery", False, [], 60),
-            ("trends_reads_everyone_when_all_users_is_a_value", "TrendsQuery", False, ["all"], 630),
-            ("funnel_with_two_cohorts_reads_them", "FunnelsQuery", True, [], 60),
-            ("funnel_with_one_cohort_reads_everyone", "FunnelsQuery", False, [], 630),
+            ("trends_reads_the_cohort", "TrendsQuery", ONE_STEP, ["@posthog.com"], [], 60),
+            (
+                "trends_reads_everyone_when_all_users_is_a_value",
+                "TrendsQuery",
+                ONE_STEP,
+                ["@posthog.com"],
+                ["all"],
+                630,
+            ),
+            (
+                "funnel_with_two_cohorts_reads_them",
+                "FunnelsQuery",
+                TWO_STEPS,
+                ["@posthog.com", "@nobody.example"],
+                [],
+                60,
+            ),
+            ("funnel_with_one_cohort_reads_everyone", "FunnelsQuery", TWO_STEPS, ["@posthog.com"], [], 630),
         ]
     )
     def test_checks_the_people_a_cohort_breakdown_reads(
-        self, _name: str, kind: str, has_second_cohort: bool, other_values: list[str], events_checked: int
+        self,
+        _name: str,
+        kind: str,
+        series: list[dict[str, Any]],
+        cohort_domains: list[str],
+        other_values: list[str],
+        events_checked: int,
     ) -> None:
         cohorts = [
             Cohort.objects.create(
@@ -277,12 +309,12 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
                 name=domain,
                 groups=[{"properties": [{"key": "email", "value": domain, "operator": "icontains", "type": "person"}]}],
             )
-            for domain in ["@posthog.com", "@nobody.example"][: 2 if has_second_cohort else 1]
+            for domain in cohort_domains
         ]
         for cohort in cohorts:
             cohort.calculate_people_ch(pending_version=0)
         query = self._query(
-            TWO_STEPS if kind == "FunnelsQuery" else None,
+            series,
             kind=kind,
             breakdownFilter={
                 "breakdown_type": "cohort",
@@ -295,7 +327,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert checks.events_checked == events_checked
 
     def test_a_first_time_series_checks_only_the_events_in_its_date_range(self) -> None:
-        query = self._query({"kind": "EventsNode", "event": EVENT, "math": "first_time_for_user"}, kind="TrendsQuery")
+        query = self._query([{"kind": "EventsNode", "event": EVENT, "math": "first_time_for_user"}], kind="TrendsQuery")
 
         checks = self._check(query)
 
@@ -303,61 +335,43 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("that_has_no_filter", [], 10, 0.25, range(1, 400)),
-            (
-                "whose_filter_keeps_few_of_them",
-                [{"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}],
-                10,
-                1,
-                range(20, 21),
-            ),
-            (
-                "whose_filter_keeps_few_of_them_with_the_larger_sample_capped",
-                [{"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}],
-                2,
-                0.5,
-                range(1, 21),
-            ),
+            ("that_has_no_filter", [], 100, 0.25, 98),
+            ("whose_filter_keeps_fewer_events_than_the_limit", [IS_PAID], 100, 1, 20),
+            ("whose_filter_keeps_more_events_than_the_limit", [IS_PAID], 10, 0.5, 12),
         ]
     )
     def test_reads_a_sample_of_an_insight_with_more_events_than_the_limit(
         self,
         _name: str,
         properties: list[dict[str, Any]],
-        max_growth: int,
+        max_checked_events: int,
         sample_rate: float,
-        events_checked: range,
+        events_checked: int,
     ) -> None:
-        for person in range(200):
-            self._events(
-                2,
-                distinct_id=f"person-{person}",
-                event=WIDELY_SENT_EVENT,
-                properties={"plan": "paid"} if person < 10 else None,
-            )
+        for person in range(10):
+            self._events(2, distinct_id=f"person-{person}", event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
+        for person in range(10, 200):
+            self._events(2, distinct_id=f"person-{person}", event=WIDELY_SENT_EVENT)
         flush_persons_and_events()
 
         with (
-            patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", 100),
-            patch(f"{CHECKS_MODULE}.MIN_SAMPLED_EVENTS", 40),
-            patch(f"{CHECKS_MODULE}.RESAMPLED_EVENTS", 100),
-            patch(f"{CHECKS_MODULE}.MAX_RESAMPLE_GROWTH", max_growth),
+            patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", max_checked_events),
+            patch(f"{CHECKS_MODULE}.MIN_CHECKED_EVENTS", 40),
         ):
             result = self._check(
-                self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, properties=properties)
+                self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=properties)
             )
 
-        assert result.sample_rate == sample_rate
-        assert result.events_checked in events_checked
+        assert (result.sample_rate, result.events_checked) == (sample_rate, events_checked)
 
     @parameterized.expand(
         [
-            ("unknown_event", {"kind": "EventsNode", "event": "never sent"}, "no_events"),
-            ("action_series", {"kind": "ActionsNode", "id": 1}, "unsupported"),
+            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], "no_events"),
+            ("action_series", [{"kind": "ActionsNode", "id": 1}], "unsupported"),
         ]
     )
-    def test_reports_why_nothing_was_checked(self, _name: str, series: dict[str, Any], expected: str) -> None:
-        result = self._check(self._query(series=series))
+    def test_reports_why_nothing_was_checked(self, _name: str, series: list[dict[str, Any]], expected: str) -> None:
+        result = self._check(self._query(series))
 
         assert result.status == expected
         assert {check.level for check in result.checks} == {"skipped"}
@@ -375,10 +389,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self.organization.save()
         self._events(40, event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
         flush_persons_and_events()
-        query = self._query(
-            series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT},
-            properties=[{"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}],
-        )
+        query = self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=[IS_PAID])
         assert self._check(query).events_checked == 40
 
         plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)

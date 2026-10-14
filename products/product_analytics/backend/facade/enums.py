@@ -1,4 +1,4 @@
-"""Enumerations the product_analytics models use.
+"""Enumerations the product_analytics models and facade contracts use.
 
 Consumers that only need a variable type read it from here and do not need the model class. The
 model keeps it as a class attribute (``InsightVariable.Type``) so existing call sites are

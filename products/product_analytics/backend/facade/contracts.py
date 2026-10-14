@@ -60,8 +60,6 @@ class SavedInsightDefinition:
 
 @dataclass(frozen=True)
 class InsightDataCheck:
-    """One check on the events an insight reads, with what it found."""
-
     key: InsightDataCheckKey
     level: InsightDataCheckLevel
     name: str
