@@ -58,6 +58,20 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
+    it("does not carry a previous trace's load failure into a trace opened from a complete prefetch", () => {
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+        tracingDataLogic().actions.loadTraceSpansFailure('boom')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+        const spans = [makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-b', is_root_span: true })]
+        tracingDataLogic().actions.fetchSpansSuccess(spans)
+        logic.actions.openTrace('trace-b', { ts: '2024-01-01T00:00:00Z' })
+
+        expect(logic.values.selectedTraceId).toBe('trace-b')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+        expect(logic.values.selectedTraceLoadFailed).toBe(false)
+    })
+
     // Without a ts hint the lookup must not fall back to a date window, or a trace older than that
     // window never loads. With a hint, the lookup stays bounded to the hint's narrow window.
     it.each([

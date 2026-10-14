@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -190,7 +190,8 @@ export function TraceDrawer({
             }
         >
             <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
-            {traceId && !loading && loadFailed ? (
+            {/* A failed refetch only replaces the waterfall when there are no spans to fall back on. */}
+            {traceId && !loading && loadFailed && spans.length === 0 ? (
                 <TraceLoadErrorNotice onRetry={onRetry} />
             ) : traceId && !loading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
@@ -198,6 +199,16 @@ export function TraceDrawer({
                 <div className="relative min-h-32 flex gap-4 items-start">
                     {loading && <SpinnerOverlay />}
                     <div className="flex-1 min-w-0">
+                        {loadFailed && (
+                            <LemonBanner
+                                type="warning"
+                                className="mb-2"
+                                action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}
+                                data-attr="tracing-trace-load-error-banner"
+                            >
+                                Couldn't refresh this trace. Showing the spans already loaded.
+                            </LemonBanner>
+                        )}
                         <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} limit={aiEventsLimit} />
                         {/* Keyed by trace so a new trace resets selection + scroll state. */}
                         <TraceWaterfallView

@@ -117,11 +117,11 @@ export interface tracingSceneLogicValues {
     openTraceSpans: Span[] // tracingViewerLogic
     selectedSpanId: string | null // tracingViewerLogic
     selectedTraceId: string | null // tracingViewerLogic
+    selectedTraceLoadFailed: boolean // tracingViewerLogic
     selectedTraceTs: string | null // tracingViewerLogic
     sessionErrorBadgesEnabled: boolean // tracingViewerLogic
     traceIdentity: TraceIdentity // tracingViewerLogic
     traceSessionId: string | null // tracingViewerLogic
-    traceSpansLoadFailed: boolean // tracingViewerLogic
     activeSceneTab: TracingSceneTab
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
@@ -366,7 +366,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',
                 'compareFlameServiceName',
-                'traceSpansLoadFailed',
+                'selectedTraceLoadFailed',
             ],
         ],
         actions: [

@@ -26,6 +26,7 @@ export interface tracingViewerLogicValues {
     correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
     spans: Span[] // tracingDataLogic
+    traceLoadContext: { traceId: string; ts?: string | null } | null // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
     traceSpansHasMore: boolean // tracingDataLogic
     traceSpansLoadFailed: boolean // tracingDataLogic
@@ -42,6 +43,7 @@ export interface tracingViewerLogicValues {
     openTraceSpans: Span[]
     selectedSpanId: string | null
     selectedTraceId: string | null
+    selectedTraceLoadFailed: boolean
     selectedTraceTs: string | null
     traceIdentity: TraceIdentity
     traceSessionId: string | null
@@ -125,6 +127,11 @@ export interface tracingViewerLogicMeta {
             traceSpans: Span[],
             selectedTraceId: string | null
         ) => boolean
+        selectedTraceLoadFailed: (
+            traceSpansLoadFailed: boolean,
+            traceLoadContext: { traceId: string; ts?: string | null } | null,
+            selectedTraceId: string | null
+        ) => boolean
         traceIdentity: (
             openTraceSpans: Span[],
             canLoadMoreTraceSpans: boolean,
@@ -168,6 +175,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 'traceSpansLoadingMore',
                 'traceSpansHasMore',
                 'traceSpansLoadFailed',
+                'traceLoadContext',
             ],
             tracingFiltersLogic({ id }),
             ['hasDeferredFilterRefresh'],
@@ -306,6 +314,18 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 traceSpansHasMore &&
                 !!selectedTraceId &&
                 traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
+        ],
+        // tracingDataLogic's traceSpansLoadFailed is a single flag for its most recent full-trace
+        // fetch. Opening a different trace whose prefetch is already complete (see openTrace below)
+        // skips that fetch entirely, so the flag can still read true for a trace that was never
+        // asked to load. Scope it to the trace the failed request was actually for.
+        selectedTraceLoadFailed: [
+            (s) => [s.traceSpansLoadFailed, s.traceLoadContext, s.selectedTraceId],
+            (
+                traceSpansLoadFailed: boolean,
+                traceLoadContext: { traceId: string; ts?: string | null } | null,
+                selectedTraceId: string | null
+            ): boolean => traceSpansLoadFailed && traceLoadContext?.traceId === selectedTraceId,
         ],
         // The person and session the open trace belongs to.
         traceIdentity: [

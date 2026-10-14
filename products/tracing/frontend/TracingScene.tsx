@@ -103,7 +103,7 @@ function TracingSceneContents(): JSX.Element {
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
-        traceSpansLoadFailed,
+        selectedTraceLoadFailed,
         aggregation,
         aggregationLoading,
         filters,
@@ -364,7 +364,7 @@ function TracingSceneContents(): JSX.Element {
                 errorsScope={errorsScope}
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
-                loadFailed={traceSpansLoadFailed}
+                loadFailed={selectedTraceLoadFailed}
                 onRetry={
                     selectedTraceId
                         ? () => loadTraceSpans({ traceId: selectedTraceId, ts: selectedTraceTs })
