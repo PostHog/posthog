@@ -1,7 +1,6 @@
 import { type SeriesLabel, distinctSeriesLabels } from './metricsSeries'
 
 describe('distinctSeriesLabels', () => {
-    // Dropping a label that differs makes two rows look identical.
     it.each<{ name: string; labels: Record<string, string>[]; distinct: SeriesLabel[][] }>([
         {
             name: 'drops labels with the same value on every series',

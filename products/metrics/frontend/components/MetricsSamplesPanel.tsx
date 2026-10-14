@@ -171,6 +171,8 @@ function SeriesTab(): JSX.Element {
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
     const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
     const [expandedNames, setExpandedNames] = useState<string[]>([])
+    // A row can lose its distinct labels after a filter change while its name stays in expandedNames.
+    const isRowExpanded = (row: MetricsSeriesRow): boolean => row.labels.length > 0 && expandedNames.includes(row.name)
 
     return (
         <LemonTable
@@ -179,7 +181,7 @@ function SeriesTab(): JSX.Element {
             size="small"
             rowKey={(row: MetricsSeriesRow) => row.name}
             emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
-            rowClassName={(row) => (expandedNames.includes(row.name) ? '[&>td]:align-top' : null)}
+            rowClassName={(row) => (isRowExpanded(row) ? '[&>td]:align-top' : null)}
             columns={[
                 {
                     key: 'toggle',
@@ -188,7 +190,7 @@ function SeriesTab(): JSX.Element {
                         if (!row.labels.length) {
                             return null
                         }
-                        const isExpanded = expandedNames.includes(row.name)
+                        const isExpanded = isRowExpanded(row)
                         return (
                             <LemonButton
                                 noPadding
@@ -213,7 +215,7 @@ function SeriesTab(): JSX.Element {
                     key: 'series',
                     width: '100%',
                     render: (_, row) => {
-                        const isExpanded = expandedNames.includes(row.name)
+                        const isExpanded = isRowExpanded(row)
                         return (
                             <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
                                 <span
@@ -221,7 +223,6 @@ function SeriesTab(): JSX.Element {
                                     // Dynamic per-series colour can't be a Tailwind class.
                                     style={{ backgroundColor: getColorVar(row.color) }}
                                 />
-                                {/* w-0 + flex-1 fills the column without the text widening it. */}
                                 <HorizontalScroll className="w-0 flex-1">
                                     {isExpanded ? (
                                         <div className="flex flex-col gap-1">
