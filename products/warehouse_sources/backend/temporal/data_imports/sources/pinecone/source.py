@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,15 @@ if TYPE_CHECKING:
 
 @SourceRegistry.register
 class PineconeSource(ResumableSource[PineconeSourceConfig, PineconeResumeConfig]):
+    codebase_detection = detect(
+        env=("^PINECONE_",),
+        npm=("@pinecone-database/pinecone",),
+        pypi=("pinecone", "pinecone-client"),
+        cargo=("pinecone-sdk",),
+        go=("github.com/pinecone-io/go-pinecone",),
+        maven=("io.pinecone:pinecone-client", "io.pinecone:spark-pinecone_2.12", "io.pinecone:spark-pinecone_2.13"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("2026-07",)
     default_version = "2026-07"

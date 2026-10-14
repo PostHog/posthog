@@ -1,6 +1,7 @@
 import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeConfig]):
+    codebase_detection = detect(env=("^(QUALYS_VMDR|QUALYSVMDR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = QUALYS_VMDR_SUPPORTED_VERSIONS
     default_version = QUALYS_VMDR_DEFAULT_VERSION

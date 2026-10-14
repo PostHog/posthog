@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JotformSource(ResumableSource[JotformSourceConfig, JotformResumeConfig]):
+    codebase_detection = detect(
+        env=("^JOTFORM_",),
+        script_hosts=("form.jotform.com", "cdn.jotfor.ms"),
+        npm=("jotform",),
+        pypi=("jotform",),
+        composer=("jotform/jotform-api-php",),
+        go=("github.com/jotform/jotform-api-go",),
+    )
+
     api_docs_url = "https://api.jotform.com/docs/"
 
     @property
