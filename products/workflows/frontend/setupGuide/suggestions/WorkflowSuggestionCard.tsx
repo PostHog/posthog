@@ -39,9 +39,11 @@ const MAX_STEP_CHIPS = 6
 export function WorkflowSuggestionCard({
     card,
     surface,
+    primary = false,
 }: {
     card: SuggestionCard
     surface: WorkflowDataSuggestionsSurface
+    primary?: boolean
 }): JSX.Element {
     const logic = workflowDataSuggestionsLogic({ surface })
     const { buildingKey } = useValues(logic)
@@ -80,7 +82,7 @@ export function WorkflowSuggestionCard({
             </ol>
             <div className="mt-auto flex">
                 <LemonButton
-                    type="primary"
+                    type={primary ? 'primary' : 'secondary'}
                     size="small"
                     loading={building}
                     disabledReason={buildingKey && !building ? 'Another workflow is being built' : undefined}
@@ -88,7 +90,7 @@ export function WorkflowSuggestionCard({
                     // pinned: data-attr - autocapture dashboards read it
                     data-attr="workflows-data-suggestion-ai"
                 >
-                    {building ? 'Building your workflow' : 'Start with this'}
+                    {building ? 'Building your workflow' : 'Create workflow'}
                 </LemonButton>
             </div>
         </LemonCard>

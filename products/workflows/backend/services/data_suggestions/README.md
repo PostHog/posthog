@@ -14,7 +14,7 @@ page                       API (presentation/views)        Celery task          
 generate ----------------> start_data_suggestions -------> run_data_suggestions -----> cards (7 days)
 poll current every 2 s --> get_data_suggestions <-------------------------------------- cards
 
-"Start with this" -------> start_build ------------------> run_build ----------------> draft (1 hour)
+"Create workflow" --------> start_build ------------------> run_build ----------------> draft (1 hour)
 poll build every 2 s ----> start_build <-------------------------------------------- draft
 save draft through the normal hog flows create endpoint, then open the editor
 ```
