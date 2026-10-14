@@ -319,6 +319,29 @@ describe('taxonomicFilterLogic', () => {
         expect(groupsB).toBe(groupsA)
     })
 
+    it('reopens on the last chosen tab for pickers that share a remember key', () => {
+        const rememberingProps: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            taxonomicFilterLogicKey: 'rememberingFirst',
+            rememberActiveTabKey: 'test-picker',
+        }
+        const first = taxonomicFilterLogic(rememberingProps)
+        first.mount()
+        first.actions.setActiveTab(TaxonomicFilterGroupType.Elements)
+
+        const second = taxonomicFilterLogic({ ...rememberingProps, taxonomicFilterLogicKey: 'rememberingSecond' })
+        second.mount()
+        const withoutKey = taxonomicFilterLogic({ ...logic.props, taxonomicFilterLogicKey: 'rememberingNone' })
+        withoutKey.mount()
+
+        expect(second.values.activeTab).toBe(TaxonomicFilterGroupType.Elements)
+        expect(withoutKey.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+        withoutKey.unmount()
+        second.unmount()
+        first.unmount()
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
         logic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
