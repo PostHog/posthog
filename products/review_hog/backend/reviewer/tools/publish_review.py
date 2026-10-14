@@ -21,9 +21,14 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
+from products.review_hog.backend.reviewer.finding_budget import budget_note
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
+from products.review_hog.backend.reviewer.persistence import (
+    load_dropped_findings,
+    load_pr_snapshot,
+    load_valid_findings,
+)
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
 from products.review_hog.backend.reviewer.status_comment import large_pr_note, render_review_summary
 from products.review_hog.backend.reviewer.tools.github_client import (
@@ -115,6 +120,15 @@ def publish_persisted_review(
         return PublishOutcome(posted=False)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
+    over_budget = sum(
+        1
+        for dropped in load_dropped_findings(
+            team_id=team_id, report_id=report_id, run_index=run_index, head_sha=head_sha
+        )
+        if dropped.disposition == "budget"
+    )
+    if over_budget:
+        footer = f"{budget_note(over_budget)}\n\n{footer}" if footer else budget_note(over_budget)
     outcome = publish_review(
         owner=owner,
         repo=repo,

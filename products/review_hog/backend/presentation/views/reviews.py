@@ -629,6 +629,7 @@ class ReviewDropDisposition(models.TextChoices):
     DEDUP_ANCHOR = "dedup_anchor", "Same spot as another finding"
     DEDUP_SIBLING = "dedup_sibling", "Repeat of a finding"
     CAP = "cap", "Over the limit"
+    BUDGET = "budget", "Over the pull request limit"
 
 
 class ReviewDroppedFindingPriority(models.TextChoices):

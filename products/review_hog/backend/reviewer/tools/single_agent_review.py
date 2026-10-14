@@ -246,6 +246,8 @@ class FlashSelection:
     lens_part_count: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool = False
+    # How many more findings the pull request could post before this turn, None outside the finding budget.
+    budget_left: int | None = None
 
 
 def _reported_level(issue: Issue) -> int:
@@ -274,13 +276,22 @@ def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str
 
 
 def compose_flash_findings(
-    main: list[Issue], lens: list[Issue], *, lens_part_count: int, group_levels: Mapping[str, int] | None = None
+    main: list[Issue],
+    lens: list[Issue],
+    *,
+    lens_part_count: int,
+    group_levels: Mapping[str, int] | None = None,
+    budget_left: int | None = None,
 ) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
     Every must-fix (P0 or P1) finding is kept outside the cap (`flash_max_findings`), up to
     `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix
     findings leave under the cap. The rest drop with their rank.
+
+    `budget_left` is how many more findings the pull request may post (`finding_budget.py`), None when no
+    budget applies. Must-fix findings count toward it but always post. A finding that fits under the cap
+    but not under the budget drops as `budget`, the rest as `cap`.
 
     The caller persists only the kept findings. A persisted finding that never posts counts as already
     raised, so every later turn would keep it off the PR too.
@@ -290,16 +301,20 @@ def compose_flash_findings(
     must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
     must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
-    kept_ids = {issue.id for issue in [*must_fix, *others[: max(cap - len(must_fix), 0)]]}
+    under_cap = others[: max(cap - len(must_fix), 0)]
+    kept = under_cap if budget_left is None else under_cap[: max(budget_left - len(must_fix), 0)]
+    kept_ids = {issue.id for issue in [*must_fix, *kept]}
+    over_budget_ids = {issue.id for issue in under_cap} - kept_ids
     return FlashSelection(
         kept=[issue for issue in ranked if issue.id in kept_ids],
         dropped=[
-            DroppedIssue(issue=issue, disposition="cap", rank=rank)
+            DroppedIssue(issue=issue, disposition="budget" if issue.id in over_budget_ids else "cap", rank=rank)
             for rank, issue in enumerate(ranked, start=1)
             if issue.id not in kept_ids
         ],
         cap=cap,
         lens_part_count=lens_part_count,
+        budget_left=budget_left,
     )
 
 
@@ -326,6 +341,7 @@ class FlashTurnStats:
     kept: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool
+    budget_left: int | None = None
 
 
 def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
@@ -341,7 +357,7 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         per_session[session] = per_session.get(session, 0) + 1
         if issue.reported_priority in ("P0", "P1"):
             must_fix[session] = must_fix.get(session, 0) + 1
-    cut = sum(1 for drop in selection.dropped if drop.disposition == "cap")
+    cut = sum(1 for drop in selection.dropped if drop.disposition in ("cap", "budget"))
     return FlashTurnStats(
         cap=selection.cap,
         lens_part_count=selection.lens_part_count,
@@ -352,6 +368,7 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
+        budget_left=selection.budget_left,
     )
 
 
@@ -609,6 +626,7 @@ async def dedupe_flash_findings(
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
     changed_since: ChangedSinceReview | None = None,
+    budget_left: int | None = None,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
@@ -661,7 +679,9 @@ async def dedupe_flash_findings(
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
     group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
-    composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels)
+    composed = compose_flash_findings(
+        kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels, budget_left=budget_left
+    )
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
         _dropped_duplicate(removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues)

@@ -96624,6 +96624,7 @@ export namespace Schemas {
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
      * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit
      */
     export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
 
@@ -96635,6 +96636,7 @@ export namespace Schemas {
       DedupAnchor: 'dedup_anchor',
       DedupSibling: 'dedup_sibling',
       Cap: 'cap',
+      Budget: 'budget',
     } as const;
 
     export interface ReviewDroppedFinding {
@@ -96666,7 +96668,8 @@ export namespace Schemas {
        * * `dedup_comment` - Already in a PR comment
        * * `dedup_anchor` - Same spot as another finding
        * * `dedup_sibling` - Repeat of a finding
-       * * `cap` - Over the limit */
+       * * `cap` - Over the limit
+       * * `budget` - Over the pull request limit */
       disposition: ReviewDropDispositionEnum;
       /**
          * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.

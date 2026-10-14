@@ -45,6 +45,7 @@ from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -69,6 +70,7 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
+from products.review_hog.backend.reviewer.finding_budget import FindingBudget, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -1675,6 +1677,13 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _finding_budget(
+    team_id: int, report_id: str, prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+) -> FindingBudget:
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    return FindingBudget.for_turn(report, prior_findings)
+
+
 def _changed_since_last_review(
     team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
 ) -> ChangedSinceReview | None:
@@ -1768,6 +1777,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
                 input.team_id, input.report_id, input.head_sha, snapshot.pr_files
             )
+            budget = await database_sync_to_async(_finding_budget, thread_sensitive=False)(
+                input.team_id, input.report_id, prior_findings
+            )
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1780,6 +1792,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
+                budget_left=budget.left,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -2186,6 +2199,7 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_dropped": turn.dropped,
                 "flash_kept": turn.kept,
                 "flash_dedup_fallback": turn.dedup_fell_back,
+                "flash_budget_left": turn.budget_left,
             }
         )
     if sessions is not None:
@@ -2407,6 +2421,8 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "pr_draft": _pr_draft(snapshot),
+            # Split by this to measure the finding budget against pull requests that keep posting.
+            "finding_budget_arm": budget_arm(report.repository, report.pr_number),
             "duration_seconds": duration_seconds,
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,
