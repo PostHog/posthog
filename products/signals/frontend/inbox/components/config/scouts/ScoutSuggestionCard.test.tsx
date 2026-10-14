@@ -1,4 +1,6 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import posthog from 'posthog-js'
+import { mockAllIsIntersecting } from 'react-intersection-observer/test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -7,8 +9,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { mockScoutConfigs, mockScoutSuggestions, mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
+import { INBOX_EVENTS } from '../../../inboxAnalytics'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
+import { ScoutSuggestionsStrip } from './ScoutSuggestionsStrip'
+
+jest.mock('posthog-js')
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     ...jest.requireActual('lib/utils/accessControlUtils'),
@@ -25,6 +31,10 @@ describe('ScoutSuggestionCard', () => {
     let releaseSkillRead: () => void
 
     beforeEach(() => {
+        localStorage.clear()
+        jest.mocked(posthog.get_distinct_id).mockReturnValue('test-user')
+        jest.mocked(posthog.get_session_id).mockReturnValue('test-session')
+        jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
         skillReads = 0
         mockGetAccessControlDisabledReason.mockReturnValue(null)
         const skillReadPending = new Promise<void>((resolve) => {
@@ -55,7 +65,90 @@ describe('ScoutSuggestionCard', () => {
         featureFlagLogic.mount()
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
+
+    it('requires half a card to remain visible for one second in the active tab', async () => {
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
+        await waitFor(() => expect(logic.values.scoutConfigs).not.toBeNull())
+        const { unmount } = render(<ScoutSuggestionCard item={mockScoutSuggestions[1]} surface="strip" />)
+        jest.useFakeTimers()
+        jest.mocked(posthog.capture).mockClear()
+        const impressions = (): unknown[] =>
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED)
+
+        mockAllIsIntersecting(0.49)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(0)
+
+        mockAllIsIntersecting(0.5)
+        act(() => jest.advanceTimersByTime(700))
+        mockAllIsIntersecting(false)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(0)
+
+        mockAllIsIntersecting(0.5)
+        act(() => jest.advanceTimersByTime(700))
+        jest.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+        act(() => document.dispatchEvent(new Event('visibilitychange')))
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(0)
+
+        jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+        act(() => document.dispatchEvent(new Event('visibilitychange')))
+        act(() => jest.advanceTimersByTime(999))
+        expect(impressions()).toHaveLength(0)
+        act(() => jest.advanceTimersByTime(1))
+        expect(impressions()).toHaveLength(1)
+
+        mockAllIsIntersecting(false)
+        mockAllIsIntersecting(0.5)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(1)
+
+        act(() =>
+            logic.actions.loadSuggestionsSuccess(mockScoutSuggestionSet({ generated_at: '2026-09-02T00:00:00Z' }))
+        )
+        act(() => jest.advanceTimersByTime(500))
+        unmount()
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(1)
+        logic.unmount()
+    })
+
+    it('records cards after expansion and reopening, but never the collapsed strip', async () => {
+        const logic = scoutSuggestionsLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.suggestionSet).not.toBeNull())
+        await waitFor(() => expect(logic.values.scoutConfigs).not.toBeNull())
+        const suggestionCount = logic.values.suggestions.length
+        const { getByLabelText } = render(<ScoutSuggestionsStrip />)
+        jest.useFakeTimers()
+        jest.mocked(posthog.capture).mockClear()
+        const impressions = (): unknown[] =>
+            jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_VIEWED)
+
+        mockAllIsIntersecting(true)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(0)
+
+        fireEvent.click(getByLabelText('Show suggested scouts'))
+        mockAllIsIntersecting(true)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(suggestionCount)
+
+        fireEvent.click(getByLabelText('Close suggested scouts'))
+        act(() => logic.actions.showStrip())
+        mockAllIsIntersecting(true)
+        act(() => jest.advanceTimersByTime(1000))
+        expect(impressions()).toHaveLength(suggestionCount)
+        logic.unmount()
+    })
 
     // A canonical press reads the scout over the network before the form opens. Without the busy
     // guard on the body, a second press repeats that read and reopens the form after it is closed.

@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -26,8 +28,18 @@ export interface ScoutSuggestionCardProps {
  * body opens that form, so a person reads the offer before anything is written.
  */
 export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps): JSX.Element {
-    const { busySuggestionIds } = useValues(scoutSuggestionsLogic)
-    const { openCreateFromSuggestion } = useActions(scoutSuggestionsLogic)
+    const { busySuggestionIds, suggestionBatchId } = useValues(scoutSuggestionsLogic)
+    const { openCreateFromSuggestion, reportSuggestionViewed } = useActions(scoutSuggestionsLogic)
+    const { ref: impressionRef, inView } = useInView({ threshold: 0.5, fallbackInView: false })
+    const { isVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (!inView || !isVisible) {
+            return
+        }
+        const timeout = setTimeout(() => reportSuggestionViewed(item, surface), 1000)
+        return () => clearTimeout(timeout)
+    }, [inView, isVisible, item, surface, suggestionBatchId, reportSuggestionViewed])
     const isBusy = busySuggestionIds.includes(item.id)
     // A canonical pick only turns a scout on, so the editor gate stops the draft path alone. The
     // busy guard stops both, because a repeat read can put the form back after the person closes it.
@@ -53,6 +65,7 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
 
     return (
         <div
+            ref={impressionRef}
             className={cn(
                 'flex flex-col gap-2 px-3 py-2.5 @2xl:flex-row @2xl:items-start @2xl:gap-4',
                 !bodyDisabled && 'transition-colors hover:bg-surface-secondary'
