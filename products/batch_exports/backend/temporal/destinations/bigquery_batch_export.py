@@ -1037,7 +1037,7 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
-    async def load_file(self, file, format: FileFormat, table: BigQueryTable):
+    async def load_file(self, file, format: FileFormat, table: BigQueryTable, poll_interval: float = 1.0):
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
@@ -1070,7 +1070,7 @@ class BigQueryClient:
 
         while True:
             try:
-                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+                result = await self._run_load_job(file, bq_table, job_config=job_config, poll_interval=poll_interval)
             except (
                 TooManyRequests,
                 ServiceUnavailable,
@@ -1166,14 +1166,24 @@ class BigQueryClient:
             else:
                 return result
 
-    def _run_load_job(self, file, bq_table, job_config):
+    async def _run_load_job(self, file, bq_table, job_config, poll_interval: float):
         """Run a BigQuery LoadJob and return its result.
 
-        This method blocks and should only be run on an executor.
+        We poll the job ourselves and only call `LoadJob.result()` once the job is done.
+        While a job runs, `result()` polls through google-api-core's retry loop, which raises
+        an exception on every poll and keeps each one in a list. The exception tracebacks and
+        that list form a reference cycle that keeps the calling frames, and so `file`, alive
+        until the cyclic garbage collector runs. With large files, this holds gigabytes of
+        memory that the activity does not use.
         """
-        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-        result = load_job.result()
-        return result
+        load_job = await asyncio.to_thread(
+            self.sync_client.load_table_from_file, file, bq_table, job_config=job_config, rewind=True
+        )
+
+        while not await asyncio.to_thread(load_job.done):
+            await asyncio.sleep(poll_interval)
+
+        return await asyncio.to_thread(load_job.result)
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1260,6 +1270,10 @@ class BigQueryConsumer(Consumer):
             buffer_size=buffer_size,
         )
 
+        # Release the buffer's memory now: a reference to it can outlive the load (for example,
+        # through an exception traceback), and then the memory stays until the cyclic garbage
+        # collector runs.
+        self.current_buffer.close()
         self.current_buffer = io.BytesIO()
 
 

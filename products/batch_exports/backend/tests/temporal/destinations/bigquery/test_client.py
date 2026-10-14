@@ -1,9 +1,13 @@
+import gc
+import io
 import random
 import string
+import weakref
 
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
@@ -73,6 +77,54 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
             poll_interval=0.01,
         )
         assert result == mock_result
+
+
+@pytest.mark.parametrize("reloads_until_done", [1, 3])
+@pytest.mark.asyncio
+async def test_load_file_does_not_keep_file_alive_after_load(reloads_until_done: int):
+    mock_sync_client = MagicMock()
+    mock_sync_client.project = "test-project"
+
+    load_job = bigquery.LoadJob(
+        "test-job-id", None, bigquery.TableReference.from_string("test-project.dataset.table"), mock_sync_client
+    )
+    load_job._properties["status"] = {"state": "RUNNING"}
+    reloads = 0
+
+    def reload(*args, **kwargs):
+        nonlocal reloads
+        reloads += 1
+        state = "DONE" if reloads >= reloads_until_done else "RUNNING"
+        load_job._set_properties({**load_job._properties, "status": {"state": state}})
+
+    load_job.reload = reload  # type: ignore[method-assign]
+
+    def load_table_from_file(file, *args, **kwargs):
+        file.read()
+        return load_job
+
+    mock_sync_client.load_table_from_file = load_table_from_file
+
+    client = BigQueryClient(mock_sync_client)
+    table = BigQueryTable.from_arrow_schema(
+        pa.schema([pa.field("event", pa.string())]),
+        project_id="test-project",
+        dataset_id="dataset",
+        table_id="table",
+        primary_key=(),
+        version_key=(),
+    )
+    file = io.BytesIO(b"x" * 1024)
+    file_ref = weakref.ref(file)
+
+    gc.disable()
+    try:
+        await client.load_file(file, format="Parquet", table=table, poll_interval=0.01)
+        del file
+
+        assert file_ref() is None
+    finally:
+        gc.enable()
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
