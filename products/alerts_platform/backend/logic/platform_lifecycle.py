@@ -5,11 +5,11 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone as django_timezone
 
@@ -235,8 +235,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
+        # Locked in a fixed order, so a concurrent write that moves the schedule past `now` either
+        # waits for this one or makes this one re-read the row and find it no longer due.
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=by_id)
+            .filter(due_q(now))
+            .order_by("id")
         )
         if not configurations:
             return 0
@@ -288,9 +294,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
+_REVIVE_FENCE: Final = timedelta(minutes=1)
+_ADMISSION_LOCK_SQL: Final = {
+    True: "SELECT pg_advisory_xact_lock(hashtext(%s))",
+    False: "SELECT pg_advisory_xact_lock_shared(hashtext(%s))",
+}
 
 
-def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
+def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
@@ -302,6 +313,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     The recurrence is checked here rather than where the schedule advances, because an
     unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
+
+    `revive` says the source alert was just created or turned back on, which resets the copy
+    even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
     if upsert.recurrence_unit is not None:
         to_recurrence_interval(upsert.recurrence_unit)
@@ -339,9 +353,14 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         # A copy that comes back on starts clean, as a source's own enable does. The state it was
         # switched off in is stale, and a firing kept from then would end in a resolve for an
         # episode nobody was told about.
-        revived = existing is not None and not existing["enabled"] and upsert.enabled
+        revived = existing is not None and upsert.enabled and (revive or not existing["enabled"])
         if revived:
             defaults["consecutive_failures"] = 0
+            # After any check already running, so an outcome it read before the source came back
+            # on, such as a stop, finds the row no longer due and records nothing.
+            defaults["next_check_at"] = max(
+                upsert.next_check_at or django_timezone.now(), django_timezone.now() + _REVIVE_FENCE
+            )
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
         )
@@ -357,20 +376,32 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return created
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
     A team runs a source here while any of its copies of that source is enabled. A team the backfill
     left out of its sample, or one `disable_configurations` switched off, gets nothing, so a write
     in the source never widens a sample or undoes an operator's switch-off.
     """
-    running = (
-        PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-        .filter(source_kind=upsert.source_kind.value, enabled=True)
-        .exists()
-    )
-    if running:
-        upsert_configuration(upsert)
+    with transaction.atomic():
+        _hold_admission(upsert.source_kind.value, exclusive=False)
+        running = (
+            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
+            .filter(source_kind=upsert.source_kind.value, enabled=True)
+            .exists()
+        )
+        if running:
+            upsert_configuration(upsert, revive=revive)
+
+
+def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
+    """Orders admitting a copy against an operator's switch-off, so neither reads the other half done.
+
+    An admission shares the lock, so admissions never wait on each other. A switch-off takes it
+    alone, so it waits for admissions in flight and a later admission sees the copies off.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(_ADMISSION_LOCK_SQL[exclusive], [f"alerts-platform-admission:{source_kind}"])
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -398,8 +429,10 @@ def disable_configurations(source_kind: str, *, team_id: int | None = None) -> i
     Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
     read both skip a disabled row, so no new check starts after this. Checks already running finish.
     """
-    # Cross-team on purpose, for an operator stopping a whole source at once.
-    rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
-    if team_id is not None:
-        rows = rows.filter(team_id=team_id)
-    return rows.update(enabled=False)
+    with transaction.atomic():
+        _hold_admission(source_kind, exclusive=True)
+        # Cross-team on purpose, for an operator stopping a whole source at once.
+        rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
+        if team_id is not None:
+            rows = rows.filter(team_id=team_id)
+        return rows.update(enabled=False)
