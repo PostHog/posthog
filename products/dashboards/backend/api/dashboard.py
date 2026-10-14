@@ -52,9 +52,14 @@ from posthog.schema import InsightVizNode
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import (
+    check_can_add_insight_to_shared_dashboard,
+    dashboard_filter_leaves,
+    is_publicly_shared,
+)
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
@@ -169,6 +174,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.exports.backend.facade.api import dashboard_ids_with_subscriptions
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -2063,6 +2069,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
             )
+        self._check_delivered_dashboard_filters_access(
+            cast(User, self.context["request"].user), instance, self.initial_data
+        )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
@@ -2208,6 +2217,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
         "badge",
         "deleted",
     }
+
+    @staticmethod
+    def _check_delivered_dashboard_filters_access(user: User, dashboard: Dashboard, request_data: Any) -> None:
+        """Dashboard filters and tile overrides apply to every tile at render time, on the public
+        link and in a subscription delivery, so a filter the editor cannot run must not reach a
+        dashboard delivered either way. The check reads the whole request once, before any write,
+        so a rejected request changes nothing."""
+        filter_sets = [request_data.get("filters")]
+        tiles = request_data.get("tiles")
+        if isinstance(tiles, list):
+            filter_sets += [tile.get("filters_overrides") for tile in tiles if isinstance(tile, dict)]
+        # Normalized as the save normalizes them, so a filter nested in a property group is checked
+        # as the leaf that gets stored.
+        properties = [
+            leaf
+            for filters in filter_sets
+            if isinstance(filters, dict)
+            for leaf in dashboard_filter_leaves(DashboardSerializer._validated_filters(filters))
+        ]
+        if not properties:
+            return
+        if is_publicly_shared(dashboard):
+            exposure = "publicly shared"
+        elif dashboard_ids_with_subscriptions([dashboard.id]):
+            exposure = "delivered by a subscription"
+        else:
+            return
+        if table := table_blocking_property_filters(user, dashboard.team, properties):
+            raise serializers.ValidationError(
+                f"Can't save these filters: you don't have access to `{table}`, and this dashboard is {exposure}."
+            )
 
     @staticmethod
     def _extract_display_defaults(tile_data: dict, existing_layouts: dict | None = None) -> dict:

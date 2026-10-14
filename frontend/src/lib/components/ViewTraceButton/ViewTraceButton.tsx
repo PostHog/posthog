@@ -5,7 +5,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { traceUrl } from './traceUrl'
 
 export interface ViewTraceButtonProps extends Pick<LemonButtonProps, 'size' | 'type' | 'className' | 'data-attr'> {
     /** Hex trace id, as every product's query runner returns it. */

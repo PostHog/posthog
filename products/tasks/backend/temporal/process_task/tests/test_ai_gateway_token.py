@@ -97,6 +97,10 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
+    def test_account_audit_requires_the_server_stamped_internal_flag(self):
+        assert resolve_sandbox_ai_product("account_audit", None, internal=True) == "account_audit"
+        assert resolve_sandbox_ai_product("account_audit", None, internal=False) == "posthog_code"
+
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
 
@@ -287,7 +291,7 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "review_hog", "slack_app", "workflows"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "account_audit", "review_hog", "slack_app", "workflows"])
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -1418,6 +1422,30 @@ class TestPosthogAiMint:
             post.return_value = response
             mint_scoped_token(ai_product="posthog_ai", team_id=2)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600
+
+
+@pytest.mark.parametrize(
+    "origin,internal,mints",
+    [
+        ("account_audit", True, True),
+        ("account_audit", False, False),
+        ("onboarding", False, False),
+        ("onboarding", True, False),
+    ],
+)
+def test_account_audit_cost_routing_requires_server_provenance(
+    settings: Settings, origin: str, internal: bool, mints: bool
+) -> None:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit,onboarding"
+    with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
+        env = ai_gateway_env_vars(
+            team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
+        )
+    assert ("AI_GATEWAY_TOKEN" in env) is mints
+    assert mint.called is mints
+    if mints:
+        mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
 
 
 class TestPosthogCodeSandboxMint:

@@ -4,15 +4,15 @@ import * as React from 'react'
 import './switch.css'
 import { cn } from './lib/utils'
 
-function Switch({
-    className,
-    size = 'default',
-    ...props
-}: SwitchPrimitive.Root.Props & {
-    size?: 'sm' | 'default'
-}): React.ReactElement {
+const Switch = React.forwardRef<
+    React.ComponentRef<typeof SwitchPrimitive.Root>,
+    SwitchPrimitive.Root.Props & {
+        size?: 'sm' | 'default'
+    }
+>(function Switch({ className, size = 'default', ...props }, ref) {
     return (
         <SwitchPrimitive.Root
+            ref={ref}
             data-quill
             data-slot="switch"
             data-size={size}
@@ -22,6 +22,6 @@ function Switch({
             <SwitchPrimitive.Thumb data-slot="switch-thumb" className="quill-switch__thumb" />
         </SwitchPrimitive.Root>
     )
-}
+})
 
 export { Switch }

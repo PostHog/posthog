@@ -155,13 +155,21 @@ WHERE p.uuid IS NULL OR l.uuid IS NULL OR {_PERSON_ROW_DIFFERS}
 LIMIT %(limit)s
 """
 
+# These sides join a child table to persons before the full outer join.
+# MATERIALIZED stops the planner from serving the sample LIMIT through
+# index-ordered merge joins: inlined, it merges the child table with persons
+# on team_id alone and checks person_id as a join filter, so every row is
+# compared against every person of its team. The count queries reference
+# each side twice and are materialized either way. The person sides stay
+# inline because their full outer join reads both (team_id, uuid) indexes
+# in order with no intermediate join.
 _DISTINCT_ID_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM posthog_persondistinctid d
     JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id
     WHERE NOT d.is_deleted AND NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT d.team_id, d.distinct_id, p.uuid AS person_uuid, d.version
     FROM personhog_persondistinctid_tmp d
     JOIN personhog_person_tmp p ON p.team_id = d.team_id AND p.id = d.person_id
@@ -196,13 +204,14 @@ WHERE p.person_uuid IS NULL OR l.person_uuid IS NULL OR l.person_uuid <> p.perso
 LIMIT %(limit)s
 """
 
+# MATERIALIZED for the same reason as _DISTINCT_ID_SIDES.
 _HASH_KEY_SIDES = """
-WITH legacy AS (
+WITH legacy AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM posthog_featureflaghashkeyoverride h
     JOIN posthog_person p ON p.id = h.person_id AND p.team_id = h.team_id
     WHERE NOT p.is_deleted
-), personhog AS (
+), personhog AS MATERIALIZED (
     SELECT h.team_id, p.uuid AS person_uuid, h.feature_flag_key, h.hash_key
     FROM personhog_featureflaghashkeyoverride_tmp h
     JOIN personhog_person_tmp p ON p.team_id = h.team_id AND p.id = h.person_id
