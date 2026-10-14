@@ -50,6 +50,8 @@ CI_RUNS_TABLE_BASE_SQL = _TABLE_SQL.format(
     repo_name String,
     native_run_id Nullable(String),
     native_workflow_run_id Nullable(String),
+    workflow_id Nullable(Int64),
+    event Nullable(String),
     is_handoff_shell UInt8,
 """
 )

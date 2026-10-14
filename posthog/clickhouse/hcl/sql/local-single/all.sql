@@ -2085,6 +2085,8 @@ CREATE TABLE posthog.sharded_engineering_analytics_ci_runs_precomputed (
   repo_name String,
   native_run_id Nullable(String),
   native_workflow_run_id Nullable(String),
+  workflow_id Nullable(Int64),
+  event Nullable(String),
   is_handoff_shell UInt8,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
@@ -6738,6 +6740,8 @@ CREATE TABLE posthog.engineering_analytics_ci_runs_precomputed (
   repo_name String,
   native_run_id Nullable(String),
   native_workflow_run_id Nullable(String),
+  workflow_id Nullable(Int64),
+  event Nullable(String),
   is_handoff_shell UInt8,
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)

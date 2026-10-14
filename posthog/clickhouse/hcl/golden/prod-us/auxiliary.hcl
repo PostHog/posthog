@@ -304,6 +304,12 @@ database "posthog" {
     column "native_workflow_run_id" {
       type = "Nullable(String)"
     }
+    column "workflow_id" {
+      type = "Nullable(Int64)"
+    }
+    column "event" {
+      type = "Nullable(String)"
+    }
     column "is_handoff_shell" {
       type = "UInt8"
     }
@@ -3637,6 +3643,12 @@ database "posthog" {
       type = "Nullable(String)"
     }
     column "native_workflow_run_id" {
+      type = "Nullable(String)"
+    }
+    column "workflow_id" {
+      type = "Nullable(Int64)"
+    }
+    column "event" {
       type = "Nullable(String)"
     }
     column "is_handoff_shell" {
