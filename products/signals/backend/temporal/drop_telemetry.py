@@ -52,6 +52,51 @@ def summarize_drop_error(error: BaseException) -> tuple[str, str]:
     return error_type, message
 
 
+def signal_dropped_input(
+    signal: EmitSignalInputs, stage: str, error_type: str, error: str
+) -> CaptureSignalDroppedInput:
+    return CaptureSignalDroppedInput(
+        team_id=signal.team_id,
+        source_product=signal.source_product,
+        source_type=signal.source_type,
+        source_id=signal.source_id,
+        weight=signal.weight,
+        stage=stage,
+        error_type=error_type,
+        error=error,
+        # Flatten before scheduling: the raw `extra` can nest large customer-derived
+        # payloads, and the activity input is recorded verbatim in workflow history.
+        extra=_telemetry_props_from_extra(signal.extra),
+    )
+
+
+def capture_signal_dropped_event(team: Team, input: CaptureSignalDroppedInput) -> None:
+    """Capture `signal_dropped` for one signal. Callers own the drop metric and the error handling.
+    Requires `team.organization` to be loaded."""
+    posthoganalytics.capture(
+        event="signal_dropped",
+        distinct_id=str(team.uuid),
+        properties={
+            # Flattened scalars only (truncated, nested lists/dicts dropped) — `extra`
+            # nests customer-derived content that must not leak into product analytics.
+            # Core keys win on conflict, same as signal_emitted / signal_emission_started.
+            **_telemetry_props_from_extra(input.extra),
+            # Composite of stage + error_type so drops are distinguishable by `reason`
+            # alone — a transient ConnectError burst reads differently from the chronic
+            # ClickHouseAtCapacity baseline instead of collapsing to one constant.
+            "reason": f"{input.stage}:{input.error_type}",
+            "stage": input.stage,
+            "error_type": input.error_type,
+            "error": input.error,
+            "source_product": input.source_product,
+            "source_type": input.source_type,
+            "source_id": input.source_id,
+            "weight": input.weight,
+        },
+        groups=groups(team.organization, team),
+    )
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -60,28 +105,7 @@ async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> N
     metrics.increment_dropped(stage=input.stage, reason=input.error_type)
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        posthoganalytics.capture(
-            event="signal_dropped",
-            distinct_id=str(team.uuid),
-            properties={
-                # Flattened scalars only (truncated, nested lists/dicts dropped) — `extra`
-                # nests customer-derived content that must not leak into product analytics.
-                # Core keys win on conflict, same as signal_emitted / signal_emission_started.
-                **_telemetry_props_from_extra(input.extra),
-                # Composite of stage + error_type so drops are distinguishable by `reason`
-                # alone — a transient ConnectError burst reads differently from the chronic
-                # ClickHouseAtCapacity baseline instead of collapsing to one constant.
-                "reason": f"{input.stage}:{input.error_type}",
-                "stage": input.stage,
-                "error_type": input.error_type,
-                "error": input.error,
-                "source_product": input.source_product,
-                "source_type": input.source_type,
-                "source_id": input.source_id,
-                "weight": input.weight,
-            },
-            groups=groups(team.organization, team),
-        )
+        capture_signal_dropped_event(team, input)
     except Exception as e:
         # Swallow the exception, to avoid breaking the flow over a failed analytics event
         posthoganalytics.capture_exception(e)
@@ -100,19 +124,7 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
     try:
         await workflow.execute_activity(
             capture_signal_dropped_activity,
-            CaptureSignalDroppedInput(
-                team_id=signal.team_id,
-                source_product=signal.source_product,
-                source_type=signal.source_type,
-                source_id=signal.source_id,
-                weight=signal.weight,
-                stage=stage,
-                error_type=error_type,
-                error=error_message,
-                # Flatten before scheduling: the raw `extra` can nest large customer-derived
-                # payloads, and the activity input is recorded verbatim in workflow history.
-                extra=_telemetry_props_from_extra(signal.extra),
-            ),
+            signal_dropped_input(signal, stage, error_type, error_message),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

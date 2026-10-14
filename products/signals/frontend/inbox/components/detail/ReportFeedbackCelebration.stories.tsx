@@ -38,6 +38,7 @@ export const InFooter: Story = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:id/signals/reports/:reportId/feedback_state/': { sentiment: null, note: '' },
                 '/api/projects/:id/signals/reports/:reportId/artefacts': { results: [] },
                 '/api/projects/:id/signals/reports/:reportId/signals': { signals: [] },
                 '/api/projects/:id/signals/reports/available_reviewers': [],

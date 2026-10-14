@@ -12,7 +12,9 @@ import {
 
 import { MarkdownMessage } from '../../messages/MarkdownMessage'
 import type { ThreadItem } from '../../types/streamTypes'
+import { commentScreenshotNames } from '../../utils/commentContext'
 import { userMessageDisplayText } from '../../utils/userMessageDisplay'
+import { HumanMessageText } from '../HumanMessageText'
 import { ThreadAttachments } from '../ThreadAttachments'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { footerRevealClass } from './footerReveal'
@@ -89,18 +91,19 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
 export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {
     const text = userMessageDisplayText(item.text ?? '')
     const revealed = useContext(TurnRevealContext)
+    const screenshotNames = commentScreenshotNames(item.text ?? '')
     return (
         <ChatMessage align="end" data-attr="posthog-ai-human-message">
             <ChatMessageContent className="gap-1">
                 {item.attachments && (
                     <div className="self-end">
-                        <ThreadAttachments attachments={item.attachments} />
+                        <ThreadAttachments attachments={item.attachments} badgeNames={screenshotNames} />
                     </div>
                 )}
                 <ChatBubble align="end" className="rounded-lg">
                     <ChatBubbleContent>
                         <ClampedContent>
-                            <MarkdownMessage content={text || '*No text.*'} id={item.id} />
+                            <HumanMessageText text={item.text ?? ''} id={item.id} attachments={item.attachments} />
                         </ClampedContent>
                     </ChatBubbleContent>
                 </ChatBubble>
