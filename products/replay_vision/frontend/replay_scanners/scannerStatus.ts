@@ -85,20 +85,23 @@ export interface SpendAgainstLimit {
 }
 
 export function spendAgainstLimit(
-    scanner: Pick<ReplayScanner, 'credit_limit' | 'credits_used_against_limit'> & { free_only?: boolean },
+    scanner: Pick<ReplayScanner, 'credit_limit' | 'credits_used_against_limit'> & {
+        free_only?: boolean
+        limit_from_free_credits?: boolean
+    },
     quota: VisionQuotaApi | null = null
 ): SpendAgainstLimit | null {
     const usedPct = (used: number, limit: number): number =>
         limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
     const limit = scanner.credit_limit
-    if (limit == null) {
-        if (!scanner.free_only || !quota) {
-            return null
-        }
-        // A free-only scanner with no limit of its own draws on the organization's free credits.
+    // A free-only scanner draws on the organization's free credits when they leave less room than its own limit.
+    if (scanner.free_only && quota && (limit == null || scanner.limit_from_free_credits)) {
         const freeLimit = Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity)
         const used = quota.credits_used
         return { limit: freeLimit, used, usedPct: usedPct(used, freeLimit), freeCredits: true }
+    }
+    if (limit == null) {
+        return null
     }
     const used = scanner.credits_used_against_limit
     return { limit, used, usedPct: usedPct(used, limit) }

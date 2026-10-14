@@ -98,4 +98,22 @@ describe('scannerStatus', () => {
             spendAgainstLimit({ credit_limit: null, credits_used_against_limit: 0, free_only: true }, quota)
         ).toEqual(expected)
     })
+
+    test.each([
+        ['free credits bind', true, 2_400, { limit: 2_500, used: 2_400, usedPct: 96, freeCredits: true }],
+        ['own limit binds', false, 300, { limit: 500, used: 300, usedPct: 60 }],
+    ])('free-only scanner with its own limit when the %s', (_name, fromFree, usedAgainstLimit, expected) => {
+        const quota = makeQuota({ credit_limit: 10_000, credits_used: 2_400 })
+        expect(
+            spendAgainstLimit(
+                {
+                    credit_limit: 500,
+                    credits_used_against_limit: usedAgainstLimit,
+                    free_only: true,
+                    limit_from_free_credits: fromFree,
+                },
+                quota
+            )
+        ).toEqual(expected)
+    })
 })
