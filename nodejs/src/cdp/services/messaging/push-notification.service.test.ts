@@ -998,10 +998,11 @@ describe('PushNotificationService', () => {
         })
 
         describe('when APNs rejects the provider token', () => {
-            const apnsResponse = (status: number, reason?: string): any => ({
+            const apnsResponse = (status: number, reason?: string, headers?: Record<string, string>): any => ({
                 fetchError: null,
                 fetchResponse: {
                     status,
+                    headers,
                     text: () => Promise.resolve(reason ? JSON.stringify({ reason }) : ''),
                     dump: () => Promise.resolve(),
                 },
@@ -1093,6 +1094,44 @@ describe('PushNotificationService', () => {
                 ).executeSendPushNotification(otherKeyCarried)
                 expect(failed.finished).toBe(true)
                 expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+            })
+
+            it('carries the working key when another device asks for a longer Retry-After', async () => {
+                mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
+                await send()
+                // Only one error per channel reaches the reschedule, and the 429 wins it on Retry-After.
+                mockTrackedFetch.mockImplementation(({ url }: { url: string }) =>
+                    Promise.resolve(
+                        url.endsWith('/token-a')
+                            ? apnsResponse(403, 'InvalidProviderToken')
+                            : apnsResponse(429, 'TooManyRequests', { 'retry-after': '30' })
+                    )
+                )
+                const rescheduled = await service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        [deviceSubscriptionKey('com.example.app', 'token-a')]: encryptedFields.encrypt('token-a'),
+                        [deviceSubscriptionKey('com.example.app', 'token-b')]: encryptedFields.encrypt('token-b'),
+                    })
+                )
+                expect(rescheduled.finished).toBe(false)
+
+                // On a fresh pod the throttled device is gone, so only the carried evidence keeps the rejection retriable.
+                mockTrackedFetch.mockImplementation(({ url }: { url: string }) =>
+                    Promise.resolve(
+                        url.endsWith('/token-a')
+                            ? apnsResponse(403, 'InvalidProviderToken')
+                            : apnsResponse(410, 'Unregistered')
+                    )
+                )
+                const retried = await new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                ).executeSendPushNotification(rescheduled.invocation)
+
+                expect(retried.finished).toBe(false)
+                expect(retried.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
             })
 
             it('reuses a token another pod already put in place of the rejected one', async () => {
