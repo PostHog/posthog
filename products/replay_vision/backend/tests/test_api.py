@@ -4615,6 +4615,8 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
             ("empty_scanner_ids", {"scanner_ids": ""}),
             ("not_uuid", {"scanner_ids": "not-a-uuid"}),
             ("bad_scanner_type", {"scanner_type": "nonsense"}),
+            ("empty_created_by", {"created_by": ""}),
+            ("non_numeric_created_by", {"created_by": "1,alice"}),
             ("limit_too_high", {"limit": "51"}),
             ("limit_zero", {"limit": "0"}),
         ]
@@ -5561,6 +5563,19 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
         resp = self.client.get(f"{self.feed_url}?tags=checkout")
         self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["tagged-sess"])
+
+    def test_created_by_filter_keeps_only_the_named_creators_scanners(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", "pw")
+        mine = self._create_scanner(name="mine", created_by=creator)
+        theirs = self._create_scanner(name="theirs", created_by=self.user)
+        orphan = self._create_scanner(name="orphan", created_by=None)
+        self._succeeded_observation(mine, "mine-sess", 10, self._monitor_result("no"))
+        self._succeeded_observation(theirs, "theirs-sess", 5, self._monitor_result("no"))
+        self._succeeded_observation(orphan, "orphan-sess", 1, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?created_by={creator.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["mine-sess"])
 
     def test_malformed_scanner_result_ranks_by_recency_instead_of_500(self) -> None:
         scanner = self._create_scanner(name="m")
