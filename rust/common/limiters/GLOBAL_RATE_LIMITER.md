@@ -208,7 +208,8 @@ The background task uses `tokio::select!` over two sources:
 ```
 
 The channel is not read while a tick runs, so updates wait in it until the tick ends.
-Between ticks the loop takes up to `UPDATE_DRAIN_BATCH` (1,024) updates per poll, because a single `recv` stops after Tokio's per-poll budget and a CPU-starved pod would then drain slower than events arrive.
+The loop takes updates in batches of up to `UPDATE_DRAIN_BATCH` (256) per receive. Tokio's cooperative budget allows a task 128 budgeted operations per poll, and each receive is one, so one update per receive lets a CPU-starved pod drain slower than events arrive.
+Each tick first takes every update already queued. A tick that runs longer than `tick_interval` leaves the next tick ready at once, and without this drain the random `select!` could pick the tick again before the channel.
 A full channel drops the update and increments `global_rate_limiter_error_total` with `cause=channel_full`. It writes no log line.
 
 Each tick, per Redis instance:
@@ -485,6 +486,7 @@ hashes. Two things to know before that changes.
 | `global_rate_limiter_pending_sync_size` | Gauge | Keys read this tick, capped at `max_sync_keys_per_tick`. For the backlog, use `sync_deferred_size` |
 | `global_rate_limiter_sync_deferred_size` | Gauge | Keys still queued for sync after a tick took its slice |
 | `global_rate_limiter_write_deferred_size` | Gauge | `(key, epoch)` entries still batched after a tick took its slice |
+| `global_rate_limiter_update_channel_depth` | Gauge | Updates waiting in the channel when a tick starts. Near zero while the loop keeps up |
 | `global_rate_limiter_sync_skipped_total` | Counter | Syncs not queued because the key is below the floor |
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier changes, counted when a read lands |
