@@ -170,15 +170,6 @@ const workerRestartFailures = new Counter({
     help: 'Replacement attempts that failed to become ready and were themselves retried',
     registers: [register],
 })
-interface PoolProbe {
-    usableWorkers(): number
-    queueDepth(): number
-}
-// Set after the pool starts, so the gauges have to reach for it at scrape time rather than close
-// over it at construction.
-let pool: PoolProbe | null = null
-
-/** Both values change with every job, far too often to push, so they are sampled when scraped. */
 // Which sizing a pod runs, so scrub latency and CPU can be split by it while a stored-side change rolls out.
 const planInfo = new Gauge({
     name: 'ml_mirror_image_scrub_plan_info',
@@ -198,6 +189,15 @@ export function recordPlanInfo(limits: PlanLimits): void {
         .set(1)
 }
 
+interface PoolProbe {
+    usableWorkers(): number
+    queueDepth(): number
+}
+// Set after the pool starts, so the gauges have to reach for it at scrape time rather than close
+// over it at construction.
+let pool: PoolProbe | null = null
+
+/** Both values change with every job, far too often to push, so they are sampled when scraped. */
 export function trackPool(started: PoolProbe): void {
     pool = started
 }

@@ -76,7 +76,8 @@ export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
 
 /**
- * Most inferences one image may spend on faces.
+ * Most windows one image may spend on faces, per pass: an input side above 640 also runs a 640 pass,
+ * so the inference count is up to twice this.
  *
  * Tiling covers a long frame with overlapping windows, and the count grows with the aspect ratio,
  * which the frame's AREA budget does not bound: a 400000x4 source plans a 280149x2 frame and asks for

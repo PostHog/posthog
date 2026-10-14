@@ -129,6 +129,37 @@ function detectionWindows(W: number, H: number): Window[] {
     return windows
 }
 
+const windowScale = (win: Window, inputSide: number): number => Math.min(1, inputSide / Math.max(win.width, win.height))
+
+/** A window already within the smaller side reaches the model at full size on every pass. */
+export function passesForWindow(win: Window, inputSides: number[]): number[] {
+    const scales = new Set<number>()
+    return inputSides.filter((side) => {
+        const scale = windowScale(win, side)
+        if (scales.has(scale)) {
+            return false
+        }
+        scales.add(scale)
+        return true
+    })
+}
+
+type Candidate = { b: Box; s: number }
+
+/** Scores from different input sizes are not comparable, so a box from one pass never suppresses another pass's. */
+export function mergePasses(passes: Candidate[][]): Box[] {
+    return passes.flatMap((cand) => {
+        const sorted = [...cand].sort((a, b) => b.s - a.s)
+        const keep: Box[] = []
+        for (const { b } of sorted) {
+            if (!keep.some((k) => iou(k, b) > NMS_IOU)) {
+                keep.push(b)
+            }
+        }
+        return keep
+    })
+}
+
 async function detectInWindow(
     model: YunetModel,
     src: Src,
@@ -137,9 +168,9 @@ async function detectInWindow(
     win: Window,
     scoreMin: number,
     inputSide: number
-): Promise<{ b: Box; s: number }[]> {
+): Promise<Candidate[]> {
     // Padding rather than resizing to reach the stride, because resizing up enlarges real pixels (rule 1 in scale-plan.ts).
-    const scale = Math.min(1, inputSide / Math.max(win.width, win.height))
+    const scale = windowScale(win, inputSide)
     const dw = Math.max(1, Math.round(win.width * scale))
     const dh = Math.max(1, Math.round(win.height * scale))
     const cw = upToStride(dw)
@@ -161,7 +192,7 @@ async function detectInWindow(
     // padding scale past the window edge and get clamped away.
     const sx = win.width / dw
     const sy = win.height / dh
-    const cand: { b: Box; s: number }[] = []
+    const cand: Candidate[] = []
     for (const s of STRIDES) {
         const cls = out[`cls_${s}`].data as Float32Array
         const obj = out[`obj_${s}`].data as Float32Array
@@ -202,20 +233,13 @@ export async function detectFacesYunet(
     opts: FaceOpts = {}
 ): Promise<Box[]> {
     const scoreMin = opts.scoreMin ?? SCORE_MIN
-    const cand: { b: Box; s: number }[] = []
-    for (const inputSide of FACE_INPUT_SIDES) {
-        for (const win of detectionWindows(W, H)) {
-            cand.push(...(await detectInWindow(model, src, W, H, win, scoreMin, inputSide)))
+    const windows = detectionWindows(W, H)
+    const passes: Candidate[][] = FACE_INPUT_SIDES.map(() => [])
+    for (const win of windows) {
+        for (const inputSide of passesForWindow(win, FACE_INPUT_SIDES)) {
+            const pass = passes[FACE_INPUT_SIDES.indexOf(inputSide)]
+            pass.push(...(await detectInWindow(model, src, W, H, win, scoreMin, inputSide)))
         }
     }
-
-    // greedy NMS over all windows (overlap regions produce duplicates for the same face)
-    cand.sort((a, b) => b.s - a.s)
-    const keep: Box[] = []
-    for (const { b } of cand) {
-        if (!keep.some((k) => iou(k, b) > NMS_IOU)) {
-            keep.push(b)
-        }
-    }
-    return keep
+    return mergePasses(passes)
 }
