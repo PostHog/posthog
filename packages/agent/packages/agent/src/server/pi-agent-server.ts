@@ -18,7 +18,6 @@ import {
   serializeError,
   type TaskRunArtifact,
 } from "@posthog/agent-contracts";
-import { buildPosthogPropertyHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
 import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
@@ -59,9 +58,13 @@ import {
 import { PostHogAPIClient } from "../posthog-api";
 import { attachmentFilePath } from "../utils/attachments";
 import { createEventIdSource } from "../utils/event-id";
-import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  buildPiProviderRoute,
+  type PiProviderRoute,
+  piModelIdForRoute,
+} from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
@@ -91,6 +94,7 @@ interface PiCloudSession {
   runtime: PiRuntime;
   sseController: SseController | null;
   unsubscribe: () => void;
+  providerRoute: PiProviderRoute;
 }
 
 const emptySchema = z.object({});
@@ -699,30 +703,41 @@ export class PiAgentServer {
       channelMode,
       additionalInstructions,
     };
-    const attributionHeaders = buildPosthogPropertyHeaderRecord({
-      task_id: payload.task_id,
-      task_run_id: payload.run_id,
-      task_origin_product: task?.origin_product ?? null,
-      task_repositories: task?.repositories?.length
-        ? JSON.stringify(task.repositories)
-        : task?.repository
-          ? JSON.stringify([task.repository])
-          : null,
-      task_runtime_adapter: "pi",
-      task_sandbox_environment_id:
-        typeof runState?.sandbox_environment_id === "string"
-          ? runState.sandbox_environment_id
-          : null,
-      task_snapshot_kind: taskSnapshotKind,
-      task_prewarmed: taskRun ? runState?.prewarmed === true : null,
-      ai_stage:
-        typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
-      ai_agent_name:
-        typeof runState?.ai_agent_name === "string"
-          ? runState.ai_agent_name
-          : null,
-      task_execution_environment: "cloud",
-    });
+    const aiStage =
+      typeof runState?.ai_stage === "string" ? runState.ai_stage : null;
+    const providerRoute = buildPiProviderRoute(
+      this.config,
+      {
+        originProduct: task?.origin_product ?? null,
+        aiStage,
+        taskId: payload.task_id,
+        model: this.config.model,
+        properties: {
+          task_id: payload.task_id,
+          task_run_id: payload.run_id,
+          task_origin_product: task?.origin_product ?? null,
+          task_repositories: task?.repositories?.length
+            ? JSON.stringify(task.repositories)
+            : task?.repository
+              ? JSON.stringify([task.repository])
+              : null,
+          task_runtime_adapter: "pi",
+          task_sandbox_environment_id:
+            typeof runState?.sandbox_environment_id === "string"
+              ? runState.sandbox_environment_id
+              : null,
+          task_snapshot_kind: taskSnapshotKind,
+          task_prewarmed: taskRun ? runState?.prewarmed === true : null,
+          ai_stage: aiStage,
+          ai_agent_name:
+            typeof runState?.ai_agent_name === "string"
+              ? runState.ai_agent_name
+              : null,
+          task_execution_environment: "cloud",
+        },
+      },
+      this.logger,
+    );
 
     const extensions: PiRuntimeExtension[] = ["context-wiki"];
     if (channelMode) {
@@ -733,7 +748,7 @@ export class PiAgentServer {
     }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
-      model: this.config.model,
+      model: providerRoute.model,
       sessionFile: restoredSessionFile,
       enrichment: {
         apiUrl: this.config.apiUrl,
@@ -748,12 +763,9 @@ export class PiAgentServer {
       mcpToolPolicies: mcpConfiguration.policies,
       taskContext,
       providerOptions: {
-        apiKey: this.config.apiKey,
-        baseUrl: resolveLlmGatewayUrl(
-          process.env.LLM_GATEWAY_URL,
-          this.config.apiUrl,
-        ),
-        headers: attributionHeaders,
+        apiKey: providerRoute.apiKey,
+        baseUrl: providerRoute.baseUrl,
+        headers: providerRoute.headers,
       },
       extensions,
       contextWikiPath: resolveContextWikiPath(),
@@ -799,7 +811,13 @@ export class PiAgentServer {
       unsubscribeMcpPermissions();
     };
 
-    this.session = { payload, runtime, sseController: null, unsubscribe };
+    this.session = {
+      payload,
+      runtime,
+      sseController: null,
+      unsubscribe,
+      providerRoute,
+    };
     this.sessionReadyBootMs = Math.round(process.uptime() * 1000);
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
@@ -1107,13 +1125,21 @@ export class PiAgentServer {
     configId: "model" | "effort",
     value: string,
   ): Promise<Record<string, never>> {
-    const runtime = this.session?.runtime;
-    if (!runtime) {
+    const session = this.session;
+    if (!session) {
       throw new Error("No active Pi runtime");
     }
+    const runtime = session.runtime;
     const response = await runtime.sendCommand(
       configId === "model"
-        ? { type: "set_model", provider: "posthog", modelId: value }
+        ? {
+            type: "set_model",
+            provider: "posthog",
+            modelId: piModelIdForRoute(
+              value,
+              session.providerRoute.isAiGateway,
+            ),
+          }
         : { type: "set_thinking_level", level: value as PiThinkingLevel },
     );
     if (!response.success) {

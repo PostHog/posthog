@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError, connection, transaction
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -43,7 +44,12 @@ class TestPlanRollup(BaseTest):
 
     def _close(self, report: SignalReport, status: str) -> None:
         with self.captureOnCommitCallbacks(execute=True):
-            report.save(update_fields=report.transition_to(SignalReport.Status(status)))
+            report.save(
+                update_fields=report.transition_to(
+                    SignalReport.Status(status),
+                    monitoring_started_at=timezone.now() if status == SignalReport.Status.MONITORING else None,
+                )
+            )
 
     def _attach_pull_request(self, report: SignalReport, number: int, state: str) -> SignalReportPullRequest:
         pr = SignalReportPullRequest.objects.create(

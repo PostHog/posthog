@@ -2031,7 +2031,7 @@ class TestPendingChecks(APIBaseTest):
         check = self._pending()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             with self.captureOnCommitCallbacks(execute=True):
-                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING))
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()))
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.PENDING
         now = timezone.now()
@@ -2197,7 +2197,7 @@ class TestPendingChecks(APIBaseTest):
         check = self._pending()
         if monitoring:
             with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING))
+                self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()))
 
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
             assert run_due_report_checks(now=timezone.now() + MAX_CHECK_HORIZON + timedelta(minutes=1)).expired == 1

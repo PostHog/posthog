@@ -698,6 +698,9 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.reader_summary !== undefined) {
             body['reader_summary'] = params.reader_summary
         }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
+        }
         if (params.next_steps !== undefined) {
             body['next_steps'] = params.next_steps
         }
@@ -823,6 +826,9 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
         }
         if (params.summary !== undefined) {
             body['summary'] = params.summary
+        }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
         }
         if (params.agent_confidence !== undefined) {
             body['agent_confidence'] = params.agent_confidence
