@@ -88,27 +88,29 @@ def _is_shown(row: tuple[int, int] | None, version: int) -> bool:
     return max_version > version or (bool(is_deleted) and max_version >= version)
 
 
-def _person_is_shown(row: tuple[int, int] | None, version: int) -> bool:
-    # Stricter than _is_shown: the persons DB still holds this tombstone, so a newer live person row
-    # means ClickHouse is ahead of Postgres and the person is still visible. The sweep never deletes
-    # it. Distinct ids keep the looser rule, because the sweep removes the mappings of every person
-    # it deletes.
-    return row is not None and bool(row[0]) and row[1] >= version
+def _person_is_shown(row: tuple[int, int | None] | None, version: int) -> bool:
+    # A live row at or above the tombstone keeps the person visible, and the sweep never removes it.
+    # Mappings use _is_shown, because the sweep removes them with the person.
+    if row is None:
+        return False
+    tombstone_version, live_version = row
+    return tombstone_version >= version and (live_version is None or live_version < tombstone_version)
 
 
 def clickhouse_confirmed(team_id: int, tombstones: Sequence[PersonTombstone]) -> set[UUID]:
     if not tombstones:
         return set()
     persons = {
-        str(person_id): (is_deleted, max_version)
-        for person_id, is_deleted, max_version in sync_execute(
+        str(person_id): (int(tombstone_version), live_version)
+        for person_id, tombstone_version, live_version in sync_execute(
             """
-            SELECT id, argMax(is_deleted, version), max(version)
+            SELECT id, maxIf(version, is_deleted = 1), maxIfOrNull(version, is_deleted = 0)
             FROM person
             WHERE team_id = %(team_id)s AND id IN %(ids)s
             GROUP BY id
             """,
             {"team_id": team_id, "ids": [str(t.uuid) for t in tombstones]},
+            team_id=team_id,
         )
     }
     distinct_ids = [d.id for t in tombstones for d in t.distinct_ids]
@@ -170,7 +172,7 @@ def _resolve_team(team_id: int, team_rows: Sequence[QueuedPersonTombstone], *, d
             ack_person_tombstones(team_id, gone + [(uuid, stored[uuid].version) for uuid in confirmed])
         unconfirmed = [tombstone for uuid, tombstone in stored.items() if uuid not in confirmed]
         if not dry_run:
-            # A republish at the stored version cannot win against a newer live ClickHouse row.
+            # A republish at the stored version cannot win against a live row at or above it.
             raised = raise_tombstones_above_clickhouse(team_id, unconfirmed)
             raised_count += sum(new.version != old.version for old, new in zip(unconfirmed, raised))
             unconfirmed = raised

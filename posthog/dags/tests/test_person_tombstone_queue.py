@@ -92,6 +92,7 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         [
             ("newer_tombstone", 1, True, None, True),
             ("newer_live_person", 1, False, None, False),
+            ("live_person_row_tied_with_the_tombstone", 0, False, None, False),
             ("newer_live_distinct_id", 0, True, False, True),
             ("newer_deleted_distinct_id", 0, True, True, True),
         ]
