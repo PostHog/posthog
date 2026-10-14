@@ -14,7 +14,16 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.api.repositories import (
+from products.review_hog.backend.automatic_review_rules import load_people
+from products.review_hog.backend.models import (
+    AutomaticFlashFor,
+    ReviewInstallationClaim,
+    ReviewProjectSettings,
+    ReviewRepositoryPerson,
+    ReviewUserRepositoryChoice,
+)
+from products.review_hog.backend.preferences import InvalidPreference, UrgencyThreshold
+from products.review_hog.backend.presentation.views.repositories import (
     UUID_PATH_PATTERN,
     AutomaticReviewDecisionSerializer,
     EffectiveTeamStrictManagementPermission,
@@ -29,15 +38,6 @@ from products.review_hog.backend.api.repositories import (
     installation_data,
     project_ref_data,
 )
-from products.review_hog.backend.automatic_review_rules import load_people
-from products.review_hog.backend.models import (
-    AutomaticFlashFor,
-    ReviewInstallationClaim,
-    ReviewProjectSettings,
-    ReviewRepositoryPerson,
-    ReviewUserRepositoryChoice,
-)
-from products.review_hog.backend.preferences import InvalidPreference, UrgencyThreshold
 from products.review_hog.backend.repository_settings import (
     OverviewEntry,
     RepositoryOverview,
