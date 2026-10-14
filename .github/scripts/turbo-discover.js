@@ -112,6 +112,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',
+    'subscriptions',
     'tasks',
     'warehouse-sources',
 ])

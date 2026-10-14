@@ -441,6 +441,7 @@ jobs:
                       generalPurpose:
                         - 'products/notebooks/backend/**'
                         - 'products/subscriptions/backend/temporal/**'
+                        - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
                         - 'posthog/llm/**'
@@ -894,7 +895,7 @@ jobs:
                       fi
                   }
 
-                  SUBS_RESULT=$(check_affected products.subscriptions.backend.temporal)
+                  SUBS_RESULT=$(check_affected products.subscriptions.backend.facade.temporal)
                   ALERTS_RESULT=$(check_affected posthog.temporal.alerts)
                   EXPORTS_RESULT=$(check_affected posthog.temporal.exports)
                   if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
@@ -1125,7 +1126,7 @@ jobs:
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
                       BASE="HEAD^"
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/subscriptions/backend/temporal'; then
+                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/subscriptions/backend/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
