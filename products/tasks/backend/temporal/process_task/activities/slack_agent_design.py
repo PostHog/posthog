@@ -73,6 +73,9 @@ class StopSlackAgentDesignStreamInput:
     # The stream opened with the answer, which already carried the @-mention.
     mention_sent: bool = False
     actor_slack_user_id: Optional[str] = None
+    # The turn's whole answer, which `final_markdown` omits when the stream opened with it. Set only
+    # for a finished turn, because a stopped turn waits for nothing from the reader.
+    answer_markdown: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -189,6 +192,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             plan_title=input.plan_title,
             append_attachments=_append_attachments,
             mention_sent=input.mention_sent,
+            reply_suggestions_for=input.answer_markdown,
         )
         for delivery in deliveries:
             if task_run is not None:
