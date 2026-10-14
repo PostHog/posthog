@@ -35,7 +35,6 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
-import { HogFunctionDraftBanner } from './HogFunctionDraftBanner'
 import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
 import { HogFunctionTest } from './HogFunctionTest'
 
@@ -140,7 +139,6 @@ export function HogFunctionConfiguration({
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
-                {hogFunction ? <HogFunctionDraftBanner logicProps={logicProps} /> : null}
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
