@@ -78,6 +78,7 @@ export interface userLogicValues {
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
     isImpersonationUpgradeInProgress: boolean
     isProvisionedUser: boolean
+    isSwitchingOrganization: boolean
     isUserDetailsSubmitting: boolean
     isUserDetailsValid: boolean
     isUserNonTechnical: boolean
@@ -260,6 +261,9 @@ export interface userLogicActions {
         destination: string | undefined
         organizationId: string
     }
+    updateCurrentOrganizationFailure: () => {
+        value: true
+    }
     updateDataPipelineErrorThreshold: (threshold: number) => {
         threshold: number
     }
@@ -435,6 +439,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
+        updateCurrentOrganizationFailure: true,
         logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
             preserveLocation,
             nextUrl,
@@ -627,6 +632,13 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        isSwitchingOrganization: [
+            false,
+            {
+                updateCurrentOrganization: () => true,
+                updateCurrentOrganizationFailure: () => false,
+            },
+        ],
         isImpersonationUpgradeInProgress: [
             false,
             {
@@ -812,8 +824,14 @@ export const userLogic = kea<userLogicType>([
                 return
             }
             await breakpoint(10)
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
+            } catch {
+                actions.updateCurrentOrganizationFailure()
+                lemonToast.error('Could not switch organization. Try again.')
+                return
+            }
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 

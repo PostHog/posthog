@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context.survey.context import SurveyContext
@@ -83,6 +85,22 @@ class TestSurveyContext(BaseTest):
         formatted = context.format_targeting(self.survey)
 
         assert formatted == "No specific targeting configured (shows to all users)."
+
+    @parameterized.expand(
+        [
+            ("once_with_stale_iterations", "once", 3, 30, "once"),
+            ("recurring", "recurring", 3, 30, "recurring (up to 3 times, every 30 days)"),
+            ("recurring_without_iterations", "recurring", None, None, "recurring"),
+            ("always", "always", None, None, "always (every time the display conditions are met)"),
+        ]
+    )
+    def test_format_schedule(self, _name, schedule, iteration_count, iteration_frequency_days, expected):
+        self.survey.schedule = schedule
+        self.survey.iteration_count = iteration_count
+        self.survey.iteration_frequency_days = iteration_frequency_days
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
+
+        assert context.format_schedule(self.survey) == expected
 
     def test_get_status_draft(self):
         context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
