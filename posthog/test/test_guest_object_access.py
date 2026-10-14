@@ -71,6 +71,8 @@ class TestGuestObjectAccess(APIBaseTest):
 
     def _openfga_list(self, resource: Resource, *_args: object) -> ResourceIds:
         granted = {ResourceType.NOTEBOOK: str(self.granted.id), ResourceType.INSIGHT: str(self.insight.id)}
+        if resource.type not in granted:
+            raise ValueError("List resources requires a supported resource type")
         return ResourceIds(ids=frozenset({granted[resource.type]}), complete=True)
 
     def _openfga_check(self, requests: Sequence[CheckRequest], _context: Context | None) -> list[bool]:
@@ -95,6 +97,21 @@ class TestGuestObjectAccess(APIBaseTest):
         hidden = self.client.get(f"/api/projects/{self.team.id}/notebooks/{self.hidden.short_id}/")
         assert granted.status_code == status.HTTP_200_OK, granted.json()
         assert hidden.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND), hidden.json()
+
+    @parameterized.expand([("notebooks", "granted", "short_id"), ("insights", "insight", "id")])
+    def test_guest_loses_a_granted_object_once_it_is_deleted(self, path: str, attribute: str, key: str) -> None:
+        granted = getattr(self, attribute)
+        granted.deleted = True
+        granted.save()
+        listed = self.client.get(f"/api/projects/{self.team.id}/{path}/")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/{path}/{getattr(granted, key)}/")
+        assert retrieved.status_code == status.HTTP_404_NOT_FOUND, retrieved.json()
+
+    def test_guest_cannot_list_recordings(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
     def test_guest_cannot_edit_a_granted_dashboard(self) -> None:
         url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/"

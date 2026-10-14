@@ -1266,8 +1266,11 @@ class AccessControlPermission(ScopeBasePermission):
                 return False
             if pk is not None or not required_level:
                 return True
+            # A guest reaches a recording only through a notebook that embeds it, so guests list notebooks only.
+            if scope_object != "notebook":
+                return False
             return check_resource_category_access(
-                request.user, team, ResourceType(scope_object), Action.VIEW, require_category=False
+                request.user, team, ResourceType.NOTEBOOK, Action.VIEW, require_category=False
             )
 
         is_member = uac.check_access_level_for_object(team, required_level="member")
