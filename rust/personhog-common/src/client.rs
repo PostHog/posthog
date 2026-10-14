@@ -470,17 +470,23 @@ mod tests {
     }
 
     #[rstest]
-    #[case::unavailable(tonic::Code::Unavailable)]
-    #[case::unknown(tonic::Code::Unknown)]
-    #[case::cancelled(tonic::Code::Cancelled)]
+    #[case::unavailable(2, vec![tonic::Code::Unavailable])]
+    #[case::unknown(2, vec![tonic::Code::Unknown])]
+    #[case::cancelled(2, vec![tonic::Code::Cancelled])]
+    #[case::two_failures_under_three_attempts(3, vec![tonic::Code::Unavailable, tonic::Code::Cancelled])]
     #[tokio::test]
-    async fn a_transport_failure_is_retried_on_the_next_attempt(#[case] code: tonic::Code) {
+    async fn transport_failures_are_retried_up_to_the_attempt_count(
+        #[case] attempts: u32,
+        #[case] failures: Vec<tonic::Code>,
+    ) {
         let calls = Arc::new(AtomicUsize::new(0));
+        let expected_calls = failures.len() + 1;
 
-        let result = RouterClient::retried(2, "test", scripted(vec![code], calls.clone())).await;
+        let result =
+            RouterClient::retried(attempts, "test", scripted(failures, calls.clone())).await;
 
         assert_eq!(result.unwrap(), 1);
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        assert_eq!(calls.load(Ordering::Relaxed), expected_calls);
     }
 
     #[rstest]
