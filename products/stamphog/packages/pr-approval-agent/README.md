@@ -315,19 +315,27 @@ They are absent from the contract and cannot be granted from a folder file.
 `diff_shape.py` decides whether any changed file can alter production code.
 Each file gets one shape:
 
-| Shape       | How the engine decides                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------ |
-| `docs`      | The path, through the same `classify_path` the tier gate uses (`.md` files)                                  |
-| `test`      | The path, through the same test-file pattern the tier gate and size gate use                                 |
-| `comment`   | A modified `.py` file whose base and head parse to the same syntax tree with Python's `ast`                  |
-| `docstring` | A modified `.py` file whose trees match once module, class and function docstrings are removed               |
-| `logic`     | Everything else: other languages, added or renamed code files, binaries, unparseable files, unreadable blobs |
+| Shape       | How the engine decides                                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `docs`      | The path, through the same `classify_path` the tier gate uses (`.md` files)                                                        |
+| `test`      | The path, through the same test-file pattern the tier gate and size gate use                                                       |
+| `comment`   | A modified `.py` file whose base and head parse to the same syntax tree with Python's `ast`, or a modified TypeScript file (below) |
+| `docstring` | A modified `.py` file whose trees match once module, class and function docstrings are removed                                     |
+| `logic`     | Everything else: other languages, JavaScript, added or renamed code files, binaries, unparseable files, unreadable blobs           |
 
-Only Python gets parser-based comment detection, because the engine ships no TypeScript or JavaScript parser.
-Comparing syntax trees rather than patch text means a string literal written to look like a comment still counts as code.
+Python and TypeScript (`.ts`, `.tsx`, `.mts`, `.cts`) get parser-based comment detection.
+Comparing parsed code rather than patch text means a string literal written to look like a comment still counts as code.
 A comment that a tool reads is code too: a changed `# noqa`, `# nosemgrep`, `# nosec`, `# type:`, `# pragma`, linter or formatter directive, shebang, encoding cookie or PEP 723 script metadata block makes the file `logic`.
 So does moving one: changing its order, moving it between its own line and a statement, or moving it to another statement, even one that reads the same.
 A file whose mode changed, such as a script that became executable, is `logic` whatever its content.
+
+TypeScript goes through tree-sitter, which is not the TypeScript compiler, so the engine compares tokens rather than trees.
+Every token must match, and the text between two tokens must be byte-identical unless a comment sits there.
+Where a comment sits, both versions must agree on whether a line break separates the tokens.
+A block comment that holds a line break counts as one for automatic semicolon insertion: `return /*` on one line and `*/ x` on the next returns `undefined`.
+A tree with a syntax error is `logic`, because tree-sitter recovers from errors instead of failing.
+The TypeScript directives are `@ts-` comments, triple-slash references, `@jsx` pragmas, lint and formatter directives (ESLint, oxlint, Biome, Prettier, dprint), coverage directives, bundler comments, `#__PURE__`-style annotations, source map comments, test environment pragmas and `/*!` or `@license` banners.
+JavaScript stays `logic`, because a JSDoc comment there can carry types that the compiler checks.
 
 A PR has an approvable shape when every changed file is one of the first four shapes.
 With `diff_shape: {enabled: true}` in `policy.yml`, such a PR:

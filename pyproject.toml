@@ -247,6 +247,9 @@ dev = [
     # 16.6.1 and later write a retried failure to JUnit as an extra passing <testcase>, which reads as pass-on-retry.
     "pytest-rerunfailures==16.6",
     "time-machine==3.5.1",
+    # The stamphog review engine pins these in its PEP 723 script headers. Its tests run in this venv.
+    "tree-sitter==0.25.2",
+    "tree-sitter-typescript==0.23.2",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
     "ty==0.0.80",

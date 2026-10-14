@@ -1,0 +1,137 @@
+"""Whether two versions of a TypeScript file differ only in comments, judged with tree-sitter.
+
+Python's `ast` is the interpreter's own parser. tree-sitter is not the TypeScript compiler, so this
+module compares the token stream, which fixes the program, and not tree-sitter's tree:
+
+- Every token must match, and the text between two tokens must be byte-identical unless a comment
+  sits there in either version.
+- Where a comment sits, the two versions must agree on whether a line break separates the tokens.
+  A block comment that holds a line break counts as one for automatic semicolon insertion, so
+  `return /*\\n*/ x` returns `undefined`. tree-sitter parses it the same as `return /* */ x`.
+- Any text between two tokens that is neither whitespace nor a comment makes the file `logic`,
+  because the comparison never reads it.
+- tree-sitter recovers from a syntax error instead of raising, so a tree with an error node is
+  `logic`.
+
+A comment that a tool reads is code, as in Python: a compiler, linter, bundler, test runner or
+coverage directive, a triple-slash reference, or a pure annotation that changes tree shaking.
+"""
+
+import re
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Literal
+
+import tree_sitter_typescript
+from tree_sitter import Language, Node, Parser
+
+_TYPESCRIPT_PARSER = Parser(Language(tree_sitter_typescript.language_typescript()))
+_TSX_PARSER = Parser(Language(tree_sitter_typescript.language_tsx()))
+
+_LINE_TERMINATORS = (b"\n", b"\r", " ".encode(), " ".encode())
+
+_DIRECTIVE_COMMENT_RE = re.compile(
+    rb"^///\s*<|^/\*!|@ts-|@jsx|@internal|@license|@preserve|[#@]__[A-Z_]+__|"
+    rb"eslint|oxlint|biome-|prettier-ignore|dprint-ignore|istanbul|\bc8\b|\bv8\s+ignore|"
+    rb"webpack|vite-ignore|@vite-|source(?:Mapping)?URL=|@(?:vitest|jest)-environment",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Token:
+    kind: str
+    text: bytes
+    separator: bytes
+    separator_has_comment: bool
+    between_tokens: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class _DirectiveComment:
+    text: bytes
+    tokens_before: int
+    inline: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class _LexedSource:
+    tokens: tuple[_Token, ...]
+    directives: tuple[_DirectiveComment, ...]
+
+
+def _leaves(root: Node) -> Iterator[Node]:
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "comment" or node.child_count == 0:
+            yield node
+        else:
+            stack.extend(reversed(node.children))
+
+
+def _has_line_break(text: bytes) -> bool:
+    return any(terminator in text for terminator in _LINE_TERMINATORS)
+
+
+def _lex(source: bytes, *, tsx: bool) -> _LexedSource | None:
+    """The tokens and directive comments of `source`, or None when it cannot be compared safely."""
+    tree = (_TSX_PARSER if tsx else _TYPESCRIPT_PARSER).parse(source)
+    if tree.root_node.has_error:
+        return None
+    tokens: list[_Token] = []
+    directives: list[_DirectiveComment] = []
+    separator_start = 0
+    previous_end = 0
+    separator_has_comment = False
+    for leaf in [*_leaves(tree.root_node), None]:
+        start = len(source) if leaf is None else leaf.start_byte
+        if source[previous_end:start].strip():
+            return None
+        if leaf is not None and leaf.type == "comment":
+            text = source[leaf.start_byte : leaf.end_byte]
+            if _DIRECTIVE_COMMENT_RE.search(text):
+                directives.append(
+                    _DirectiveComment(
+                        text=text,
+                        tokens_before=len(tokens),
+                        inline=bool(tokens) and not _has_line_break(source[separator_start:start]),
+                    )
+                )
+            separator_has_comment = True
+            previous_end = leaf.end_byte
+            continue
+        tokens.append(
+            _Token(
+                kind="end" if leaf is None else leaf.type,
+                text=b"" if leaf is None else source[leaf.start_byte : leaf.end_byte],
+                separator=source[separator_start:start],
+                separator_has_comment=separator_has_comment,
+                between_tokens=bool(tokens) and leaf is not None,
+            )
+        )
+        if leaf is not None:
+            separator_start = previous_end = leaf.end_byte
+        separator_has_comment = False
+    return _LexedSource(tokens=tuple(tokens), directives=tuple(directives))
+
+
+def _same_program(base: _Token, head: _Token) -> bool:
+    if (base.kind, base.text) != (head.kind, head.text):
+        return False
+    if base.separator_has_comment or head.separator_has_comment:
+        return not base.between_tokens or _has_line_break(base.separator) == _has_line_break(head.separator)
+    return base.separator == head.separator
+
+
+def typescript_change_shape(base: bytes, head: bytes, *, tsx: bool) -> Literal["comment", "logic"]:
+    """`comment` when only comments changed, else `logic`."""
+    base_lexed = _lex(base, tsx=tsx)
+    head_lexed = _lex(head, tsx=tsx)
+    if base_lexed is None or head_lexed is None:
+        return "logic"
+    if base_lexed.directives != head_lexed.directives or len(base_lexed.tokens) != len(head_lexed.tokens):
+        return "logic"
+    if all(_same_program(b, h) for b, h in zip(base_lexed.tokens, head_lexed.tokens)):
+        return "comment"
+    return "logic"

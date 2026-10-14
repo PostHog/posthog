@@ -846,7 +846,8 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
     "filename, expect_final",
     [
         pytest.param("src/big.py", False, id="python-could-be-comment-only"),
-        pytest.param("src/big.ts", True, id="typescript-is-always-logic"),
+        pytest.param("src/big.ts", False, id="typescript-could-be-comment-only"),
+        pytest.param("src/big.js", True, id="javascript-is-always-logic"),
     ],
 )
 def test_pregate_leaves_a_possible_comment_only_diff_to_the_sandbox(

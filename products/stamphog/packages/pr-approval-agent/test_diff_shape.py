@@ -1,6 +1,7 @@
 import pytest
 
 from diff_shape import classify_diff_shape, could_be_approvable, python_change_shape
+from typescript_shape import typescript_change_shape
 
 _BASE = b'''"""Module doc."""
 
@@ -97,6 +98,79 @@ def test_python_change_shape_guards_tool_read_comments(base: bytes, head: bytes,
     assert python_change_shape(base, head) == expected
 
 
+_TS_BASE = b"""/** Sum the values. */
+export function total(values: number[]): number {
+    // Start from zero.
+    let result = 0
+    for (const value of values) {
+        result += value // accumulate
+    }
+    return result
+}
+"""
+
+
+@pytest.mark.parametrize(
+    "base, head, expected",
+    [
+        pytest.param(
+            _TS_BASE, _TS_BASE.replace(b"Start from zero.", b"Begin at zero."), "comment", id="comment-reworded"
+        ),
+        pytest.param(_TS_BASE, _TS_BASE.replace(b" // accumulate", b""), "comment", id="inline-comment-removed"),
+        pytest.param(
+            _TS_BASE,
+            _TS_BASE.replace(b"    let result", b"    /*\n     * Block.\n     */\n    let result"),
+            "comment",
+            id="block-comment-added-on-own-lines",
+        ),
+        pytest.param(_TS_BASE, _TS_BASE.replace(b"let result = 0", b"let result = 1"), "logic", id="code-changed"),
+        pytest.param(
+            _TS_BASE,
+            _TS_BASE.replace(b"// Start from zero.", b'"// Start from zero."'),
+            "logic",
+            id="comment-turned-string",
+        ),
+        pytest.param(
+            _TS_BASE, _TS_BASE.replace(b"(values: number[])", b"(values:  number[])"), "logic", id="layout-changed"
+        ),
+        pytest.param(
+            b"function f() {\n    return /* note */ 1\n}\n",
+            b"function f() {\n    return /*\n    note */ 1\n}\n",
+            "logic",
+            id="line-break-in-comment-inserts-semicolon",
+        ),
+        pytest.param(_TS_BASE, _TS_BASE.replace(b"// accumulate", b"// @ts-expect-error"), "logic", id="ts-directive"),
+        pytest.param(
+            _TS_BASE, _TS_BASE.replace(b"// accumulate", b"// eslint-disable-line"), "logic", id="lint-directive"
+        ),
+        pytest.param(b"const x = make()\n", b"const x = /*#__PURE__*/ make()\n", "logic", id="pure-annotation-added"),
+        pytest.param(_TS_BASE, b'/// <reference types="node" />\n' + _TS_BASE, "logic", id="triple-slash-reference"),
+        pytest.param(
+            b"// @ts-ignore\nconst a = f()\nconst b = f()\n",
+            b"const a = f()\n// @ts-ignore\nconst b = f()\n",
+            "logic",
+            id="directive-moved-to-other-code",
+        ),
+        pytest.param(
+            _TS_BASE, _TS_BASE.replace(b"return result", b"return result("), "logic", id="head-does-not-parse"
+        ),
+    ],
+)
+def test_typescript_change_shape(base: bytes, head: bytes, expected: str) -> None:
+    assert typescript_change_shape(base, head, tsx=False) == expected
+
+
+@pytest.mark.parametrize(
+    "head, expected",
+    [
+        pytest.param(b"// A note.\nconst el = <div></div>\n", "comment", id="comment-added-above-jsx"),
+        pytest.param(b"const el = <div>{/* note */}</div>\n", "logic", id="jsx-comment-container-added"),
+    ],
+)
+def test_typescript_change_shape_in_tsx(head: bytes, expected: str) -> None:
+    assert typescript_change_shape(b"const el = <div></div>\n", head, tsx=True) == expected
+
+
 def _modified(filename: str, **extra: object) -> dict:
     return {"filename": filename, "additions": 900, "deletions": 0, "status": "M", **extra}
 
@@ -116,10 +190,11 @@ def _modified(filename: str, **extra: object) -> dict:
         pytest.param([_modified("bin/insight.py")], "logic", False, id="mode-changed"),
         pytest.param(
             [_modified("posthog/api/insight.py"), _modified("frontend/src/insight.ts")],
-            "logic",
-            False,
-            id="typescript-has-no-parser",
+            "comment-only",
+            True,
+            id="python-and-typescript-comment",
         ),
+        pytest.param([_modified("frontend/src/insight.js")], "logic", False, id="javascript-has-no-parser"),
         pytest.param([_modified("posthog/api/new.py", status="A")], "logic", False, id="added-python-file"),
         pytest.param(
             [_modified("posthog/api/test/test_insight.py", status="R100")], "logic", False, id="renamed-into-tests"
@@ -133,6 +208,8 @@ def test_classify_diff_shape(files: list[dict], expected_label: str, expected_ap
     blobs = {
         "posthog/api/insight.py": (b"x = 1\n", b"x = 1  # one\n"),
         "bin/insight.py": (b"x = 1\n", b"x = 1\n"),
+        "frontend/src/insight.ts": (b"const x = 1\n", b"// one\nconst x = 1\n"),
+        "frontend/src/insight.js": (b"const x = 1\n", b"// one\nconst x = 1\n"),
     }
 
     shape = classify_diff_shape(
@@ -169,7 +246,8 @@ def test_assurance_waiver_excludes_markdown_and_unknown_modes(
     "files, expected",
     [
         pytest.param([_modified("posthog/api/insight.py"), _modified("docs/guide.md")], True, id="python-and-docs"),
-        pytest.param([_modified("frontend/src/insight.ts")], False, id="typescript"),
+        pytest.param([_modified("frontend/src/insight.tsx")], True, id="typescript"),
+        pytest.param([_modified("frontend/src/insight.js")], False, id="javascript"),
         pytest.param([_modified("posthog/api/new.py", status="A")], False, id="added-python"),
         pytest.param([], False, id="empty"),
     ],

@@ -7,6 +7,8 @@
 #     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
+#     "tree-sitter==0.25.2",
+#     "tree-sitter-typescript==0.23.2",
 # ]
 # ///
 # ruff: noqa: T201

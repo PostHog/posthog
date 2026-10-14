@@ -3,8 +3,9 @@
 A file is one of five shapes. `docs` and `test` come from the path, through the same
 `classify_path` the tier gate uses. `comment` and `docstring` come from parsing both sides of a
 modified Python file: the two syntax trees must match once docstrings are removed, so a string
-literal dressed up as a comment still counts as code. Every other file is `logic`, including
-TypeScript and JavaScript, because the engine ships no parser for them.
+literal dressed up as a comment still counts as code. A modified TypeScript file can be `comment`
+too, through tree-sitter (see typescript_shape.py). Every other file is `logic`, including
+JavaScript, where a JSDoc comment can carry types that the compiler checks.
 
 A comment can still change behavior when a tool reads it: `# noqa`, `# nosemgrep`, `# type:`,
 an encoding cookie, a PEP 723 script metadata block. Any change to such a directive, to its order,
@@ -28,6 +29,7 @@ from gates import classify_path
 FileShape = Literal["comment", "docstring", "docs", "test", "logic"]
 
 _STATUSES_WITH_PATH_SHAPE = ("A", "M", "D")
+_TYPESCRIPT_SUFFIXES = (".ts", ".mts", ".cts", ".tsx")
 
 _DIRECTIVE_COMMENT_RE = re.compile(
     r"^#!|coding[:=]|\b(?:noqa|nosemgrep|nosec|pragma|type:|ty:|pyright:|mypy:|pylint:|ruff:|fmt:|isort:)",
@@ -73,7 +75,7 @@ class DiffShape:
 
 
 def _path_shape(file: Mapping[str, object]) -> FileShape | None:
-    """The shape the path alone decides, or None for a modified Python file that needs parsing."""
+    """The shape the path alone decides, or None for a modified Python or TypeScript file that needs parsing."""
     status = str(file.get("status", "M"))[:1]
     if file.get("binary") or status not in _STATUSES_WITH_PATH_SHAPE:
         return "logic"
@@ -83,7 +85,7 @@ def _path_shape(file: Mapping[str, object]) -> FileShape | None:
         return "test"
     if kind == "docs":
         return "docs"
-    if status == "M" and path.lower().endswith(".py"):
+    if status == "M" and path.lower().endswith((".py", *_TYPESCRIPT_SUFFIXES)):
         return None
     return "logic"
 
@@ -163,6 +165,15 @@ def python_change_shape(base: bytes, head: bytes) -> FileShape:
     return "logic"
 
 
+def _parsed_change_shape(path: str, base: bytes, head: bytes) -> FileShape:
+    if path.lower().endswith(".py"):
+        return python_change_shape(base, head)
+    # The worker's pre-check imports this module without the engine's script dependencies.
+    from typescript_shape import typescript_change_shape  # noqa: PLC0415
+
+    return typescript_change_shape(base, head, tsx=path.lower().endswith(".tsx"))
+
+
 def classify_diff_shape(
     files: Iterable[Mapping[str, object]],
     *,
@@ -183,7 +194,7 @@ def classify_diff_shape(
         elif shape is None:
             base = read_base(path)
             head = read_head(path)
-            shape = "logic" if base is None or head is None else python_change_shape(base, head)
+            shape = "logic" if base is None or head is None else _parsed_change_shape(path, base, head)
         shapes.append((path, shape))
         if shape == "logic":
             break
