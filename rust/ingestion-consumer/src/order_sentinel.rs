@@ -376,6 +376,35 @@ impl Drop for SentinelBatch<'_> {
     }
 }
 
+/// The `max_offset` to pass to [`SentinelBatch::note_acked`] for one key's
+/// accepted messages, given as `(partition, offset, keyed)` in send order,
+/// while `unfinished`, as `(partition, offset)` in send order, go out again.
+/// `None` when nothing may be ACKed.
+pub fn ack_mark(
+    accepted: impl IntoIterator<Item = (i32, i64, bool)>,
+    unfinished: impl IntoIterator<Item = (i32, i64)>,
+) -> Option<i64> {
+    // An unkeyed message lives on an arbitrary partition under a synthetic
+    // key, so it does not advance the mark.
+    let mut keyed = accepted.into_iter().filter(|&(_, _, keyed)| keyed);
+    let first = keyed.next()?;
+    // The mark tracks the key's first keyed partition, like `note_sent`.
+    let partition = first.0;
+    // A resent message must stay above the mark. Send order is offset order
+    // on one partition, so the first unfinished message is the lowest.
+    let resend_from = unfinished
+        .into_iter()
+        .find(|&(unfinished_partition, _)| unfinished_partition == partition)
+        .map_or(i64::MAX, |(_, offset)| offset);
+    std::iter::once(first)
+        .chain(keyed)
+        .filter(|&(message_partition, offset, _)| {
+            message_partition == partition && offset < resend_from
+        })
+        .map(|(_, offset, _)| offset)
+        .max()
+}
+
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
 /// restart-time redelivery), forgets revoked partitions around rebalances, and
@@ -636,6 +665,26 @@ mod tests {
             .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
+    }
+
+    #[test]
+    fn a_partial_acks_mark_keeps_the_resend_of_its_unfinished_message_legal() {
+        let sentinel = KeyOrderSentinel::new();
+        sentinel.batch().note_sent(
+            "t:a",
+            &[msg_at(0, 1), msg_at(0, 2), msg_at(0, 3)],
+            SendKind::Fresh,
+        );
+        let mark = ack_mark(
+            [(0, 1, true), (0, 3, true), (1, 9, false)],
+            [(1, 8), (0, 2)],
+        );
+        assert_eq!(mark, Some(1));
+        sentinel.batch().note_acked("t:a", mark.expect("a mark"));
+        assert!(sentinel
+            .batch()
+            .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend)
+            .is_empty());
     }
 
     #[test]

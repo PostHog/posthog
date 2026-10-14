@@ -35,11 +35,9 @@ pub struct SentRun {
 }
 
 /// One run's share of a partial ack.
-pub struct RunSplit {
+pub struct PartialRun {
     pub routing_key: Arc<str>,
     pub accepted: Vec<SentMessage>,
-    /// How many of `accepted` come before the run's first unfinished message.
-    pub accepted_prefix: usize,
     pub unfinished: Vec<SerializedKafkaMessage>,
 }
 
@@ -131,27 +129,27 @@ impl InFlightRequest {
     /// The transport hands back the unfinished messages in send order. They
     /// need not be the last messages of a run, because a worker may process
     /// one key's messages in independent groups.
-    pub fn split(
+    pub fn partially_accepted(
         self,
-        accepted: u32,
+        accepted_count: u32,
         unfinished: Vec<SerializedKafkaMessage>,
-    ) -> Result<Vec<RunSplit>, String> {
-        if unfinished.is_empty() || accepted as usize + unfinished.len() != self.message_count {
+    ) -> Result<Vec<PartialRun>, String> {
+        if unfinished.is_empty() || accepted_count as usize + unfinished.len() != self.message_count
+        {
             return Err(format!(
-                "partial ack accepted {accepted} and left {} of {} messages unfinished",
+                "partial ack accepted {accepted_count} and left {} of {} messages unfinished",
                 unfinished.len(),
                 self.message_count
             ));
         }
         let mut unfinished = unfinished.into_iter().peekable();
-        let splits = self
+        let partial_runs = self
             .runs
             .into_iter()
             .map(|run| {
-                let mut split = RunSplit {
+                let mut partial_run = PartialRun {
                     routing_key: run.routing_key,
                     accepted: Vec::new(),
-                    accepted_prefix: 0,
                     unfinished: Vec::new(),
                 };
                 for sent in run.messages {
@@ -159,16 +157,11 @@ impl InFlightRequest {
                         message.partition == sent.partition && message.offset == sent.offset
                     });
                     match next {
-                        Some(message) => split.unfinished.push(message),
-                        None => {
-                            if split.unfinished.is_empty() {
-                                split.accepted_prefix += 1;
-                            }
-                            split.accepted.push(sent);
-                        }
+                        Some(message) => partial_run.unfinished.push(message),
+                        None => partial_run.accepted.push(sent),
                     }
                 }
-                split
+                partial_run
             })
             .collect();
         if let Some(message) = unfinished.next() {
@@ -177,7 +170,7 @@ impl InFlightRequest {
                 message.partition, message.offset
             ));
         }
-        Ok(splits)
+        Ok(partial_runs)
     }
 }
 
@@ -237,28 +230,26 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_splits_each_run_into_accepted_and_unfinished_in_send_order() {
-        let splits = request()
-            .split(2, vec![message("a", 0, 2), message("b", 0, 10)])
+    fn a_partial_sorts_each_run_into_accepted_and_unfinished_in_send_order() {
+        let partial_runs = request()
+            .partially_accepted(2, vec![message("a", 0, 2), message("b", 0, 10)])
             .expect("matches the request");
-        let shapes: Vec<_> = splits
+        let shapes: Vec<_> = partial_runs
             .iter()
-            .map(|split| {
+            .map(|run| {
                 (
-                    &*split.routing_key,
-                    split
-                        .accepted
+                    &*run.routing_key,
+                    run.accepted
                         .iter()
                         .map(|sent| sent.offset)
                         .collect::<Vec<i64>>(),
-                    split.accepted_prefix,
-                    offsets(&split.unfinished),
+                    offsets(&run.unfinished),
                 )
             })
             .collect();
         assert_eq!(
             shapes,
-            vec![("a", vec![1, 3], 1, vec![2]), ("b", vec![], 0, vec![10])]
+            vec![("a", vec![1, 3], vec![2]), ("b", vec![], vec![10])]
         );
     }
 
@@ -269,9 +260,11 @@ mod tests {
     #[case::out_of_send_order(2, vec![message("a", 0, 3), message("a", 0, 2)])]
     #[case::count_mismatch(1, vec![message("a", 0, 2)])]
     fn a_partial_that_does_not_match_the_request_is_an_error(
-        #[case] accepted: u32,
+        #[case] accepted_count: u32,
         #[case] unfinished: Vec<SerializedKafkaMessage>,
     ) {
-        assert!(request().split(accepted, unfinished).is_err());
+        assert!(request()
+            .partially_accepted(accepted_count, unfinished)
+            .is_err());
     }
 }
