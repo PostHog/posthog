@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG, type WorkspaceMode } from "@posthog/shared";
+import type { WorkspaceMode } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -248,12 +248,7 @@ function TaskFilterMenu() {
 }
 
 export function TasksHeader() {
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((state) => state.channelsEnabled) && bluebirdEnabled;
+  const channelsEnabled = useSidebarStore((state) => state.channelsEnabled);
   const setChannelsEnabled = useSidebarStore(
     (state) => state.setChannelsEnabled,
   );
@@ -274,35 +269,31 @@ export function TasksHeader() {
   return (
     <div className="shrink-0 px-2">
       <div className="flex min-h-7 items-center justify-between pb-0.5">
-        {bluebirdEnabled ? (
-          <fieldset
-            className="m-0 flex min-w-0 items-center gap-px rounded border-0 bg-fill-secondary p-px"
-            aria-label="Sidebar content"
+        <fieldset
+          className="m-0 flex min-w-0 items-center gap-px rounded border-0 bg-fill-secondary p-px"
+          aria-label="Sidebar content"
+        >
+          <Button
+            type="button"
+            size="xs"
+            className="px-1.5 font-normal text-gray-10 text-xs normal-case hover:text-gray-12 data-[active]:bg-accent-4 data-[active]:font-medium data-[active]:text-gray-12 data-[active]:shadow-sm"
+            aria-pressed={channelsEnabled}
+            data-active={channelsEnabled || undefined}
+            onClick={() => handleModeChange(true)}
           >
-            <Button
-              type="button"
-              size="xs"
-              className="px-1.5 font-normal text-gray-10 text-xs normal-case hover:text-gray-12 data-[active]:bg-accent-4 data-[active]:font-medium data-[active]:text-gray-12 data-[active]:shadow-sm"
-              aria-pressed={channelsEnabled}
-              data-active={channelsEnabled || undefined}
-              onClick={() => handleModeChange(true)}
-            >
-              Channels
-            </Button>
-            <Button
-              type="button"
-              size="xs"
-              className="px-1.5 font-normal text-gray-10 text-xs normal-case hover:text-gray-12 data-[active]:bg-accent-4 data-[active]:font-medium data-[active]:text-gray-12 data-[active]:shadow-sm"
-              aria-pressed={!channelsEnabled}
-              data-active={!channelsEnabled || undefined}
-              onClick={() => handleModeChange(false)}
-            >
-              List
-            </Button>
-          </fieldset>
-        ) : (
-          <span className="font-medium text-xs">List</span>
-        )}
+            Channels
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            className="px-1.5 font-normal text-gray-10 text-xs normal-case hover:text-gray-12 data-[active]:bg-accent-4 data-[active]:font-medium data-[active]:text-gray-12 data-[active]:shadow-sm"
+            aria-pressed={!channelsEnabled}
+            data-active={!channelsEnabled || undefined}
+            onClick={() => handleModeChange(false)}
+          >
+            List
+          </Button>
+        </fieldset>
         {!channelsEnabled && (
           <span className="flex items-center">
             <AddFolderButton />
