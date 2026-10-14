@@ -321,6 +321,13 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 128000,
     supports_vision: false,
   },
+  // The Go gateway's spelling of the entry above; it has no `@cf/` alias.
+  {
+    id: "zai-org/glm-5.2",
+    owned_by: "baseten",
+    context_window: 128000,
+    supports_vision: false,
+  },
   {
     id: "moonshotai/kimi-k3",
     owned_by: "modal",
