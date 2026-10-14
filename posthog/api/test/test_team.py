@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -57,6 +58,7 @@ from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
@@ -1183,18 +1185,42 @@ def team_api_test_factory():
                 "type": "validation_error",
             }
 
-        def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
+        @parameterized.expand(
+            [
+                ["integer id", int, {}],
+                ["numeric string id", str, {}],
+                ["variant", int, {"variant": "test"}],
+            ]
+        )
+        def test_can_set_and_unset_session_recording_linked_flag(
+            self, _name: str, send_id: Callable[[int], Any], variant: dict[str, str]
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
+
+            self._patch_linked_flag_config({"id": send_id(flag.id), "key": "stale-key", **variant})
+            self._assert_linked_flag_config({"id": flag.id, "key": "current-key", **variant})
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
-        def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
-            self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
-            self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        @parameterized.expand(["missing", "soft_deleted", "other_project"])
+        def test_rejects_a_linked_flag_that_cannot_gate_recording(self, case: str) -> None:
+            flag_team = Team.objects.create(organization=self.organization) if case == "other_project" else self.team
+            flag = FeatureFlag.objects.create(
+                team=flag_team, created_by=self.user, key="gate", deleted=case == "soft_deleted"
+            )
+            flag_id = flag.id
+            if case == "missing":
+                flag.delete()
 
-            self._patch_linked_flag_config(None)
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_linked_flag": {"id": flag_id, "key": "gate"}}
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == (
+                f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
+            )
             self._assert_linked_flag_config(None)
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
@@ -4448,25 +4474,6 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     )
     def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
         self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
-
-    # Object-level validate() needs self.context["view"], so a value that passes field validation
-    # can't go through is_valid() here. The static validator is the shared entry point anyway:
-    # ProjectBackwardCompatSerializer.validate_session_recording_linked_flag delegates straight to it.
-    @parameterized.expand(
-        [
-            ["none", None, None],
-            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            ["numeric string id", {"id": "123", "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
-            [
-                "variant survives normalization",
-                {"id": "123", "key": "flag-key", "variant": "test"},
-                {"id": 123, "key": "flag-key", "variant": "test"},
-            ],
-        ]
-    )
-    def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
-        assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
-        assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
 
     @parameterized.expand(
         [

@@ -139,6 +139,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+from products.feature_flags.backend.session_recording_links import flag_exists_in_project, locked_replay_gate_write
 from products.logs.backend.models import TeamLogsConfig
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
@@ -1719,35 +1720,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
-    @staticmethod
-    def validate_session_recording_linked_flag(value) -> dict | None:
-        if value is None:
-            return None
-
-        if not isinstance(value, dict):
-            raise exceptions.ValidationError("Must provide a dictionary or None.")
-        received_keys = value.keys()
-        valid_keys = [
-            {"id", "key"},
-            {"id", "key", "variant"},
-        ]
-        if received_keys not in valid_keys:
-            raise exceptions.ValidationError(
-                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
-            )
-
-        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
-        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
-        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
-        # usable row rather than a broken one. Bools and floats are excluded because
-        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
-        flag_id = value["id"]
-        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
-        try:
-            return {**value, "id": int(flag_id)}
-        except ValueError:
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
+    def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
+        project_id = self.instance.project_id if self.instance is not None else self.context.get("project_id")
+        return validate_team_session_recording_linked_flag(value, project_id=project_id)
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -2475,21 +2450,22 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        other_team_fields = [attr for attr in validated_data if attr not in LOCKED_CONVERSATIONS_COLUMNS]
-        for attr in other_team_fields:
-            setattr(instance, attr, validated_data[attr])
+        with locked_replay_gate_write(instance, validated_data):
+            other_team_fields = [attr for attr in validated_data if attr not in LOCKED_CONVERSATIONS_COLUMNS]
+            for attr in other_team_fields:
+                setattr(instance, attr, validated_data[attr])
 
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = merge_conversations_settings_locked(
-                instance, validated_data, patch_conversations_settings, other_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif other_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            instance.save(update_fields=[*other_team_fields, "updated_at"])
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = merge_conversations_settings_locked(
+                    instance, validated_data, patch_conversations_settings, other_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif other_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                instance.save(update_fields=[*other_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
@@ -3351,6 +3327,48 @@ MANAGED_CONVERSATIONS_SETTINGS = (
 )
 
 LOCKED_CONVERSATIONS_COLUMNS = ("conversations_settings", "conversations_enabled")
+
+
+def validate_team_session_recording_linked_flag(value: Any, *, project_id: int | None) -> dict | None:
+    """Shared by the team and project serializers, because both endpoints can PATCH the link.
+
+    `project_id` is None when the request creates the project, so it has no flags to link yet.
+    """
+    if value is None:
+        return None
+
+    if not isinstance(value, dict):
+        raise exceptions.ValidationError("Must provide a dictionary or None.")
+    received_keys = value.keys()
+    valid_keys = [
+        {"id", "key"},
+        {"id", "key", "variant"},
+    ]
+    if received_keys not in valid_keys:
+        raise exceptions.ValidationError(
+            "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+        )
+
+    # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+    # makes the flag-delete guard miss this row and delete a flag the team still advertises.
+    # A numeric string is normalized instead of rejected, so a client sending "123" stores a
+    # usable row rather than a broken one. Bools and floats are excluded because
+    # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
+    flag_id = value["id"]
+    if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+        raise exceptions.ValidationError("Must provide an integer 'id'.")
+    try:
+        flag_id = int(flag_id)
+    except ValueError:
+        raise exceptions.ValidationError("Must provide an integer 'id'.")
+
+    # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,
+    # deleted, or other-project flag turns replay off for the team without an error.
+    if project_id is None or not flag_exists_in_project(flag_id, project_id):
+        raise exceptions.ValidationError(
+            f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
+        )
+    return {**value, "id": flag_id}
 
 
 def merge_conversations_settings_locked(

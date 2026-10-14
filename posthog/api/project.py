@@ -60,6 +60,7 @@ from posthog.api.team import (
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
+    validate_team_session_recording_linked_flag,
     validate_team_workflows_config,
 )
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -137,6 +138,7 @@ from products.feature_flags.backend.models.evaluation_context import (
     TeamDefaultEvaluationContext,
     normalize_context_name,
 )
+from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -1101,9 +1103,10 @@ class ProjectBackwardCompatSerializer(
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
-    @staticmethod
-    def validate_session_recording_linked_flag(value) -> dict | None:
-        return TeamSerializer.validate_session_recording_linked_flag(value)
+    def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
+        return validate_team_session_recording_linked_flag(
+            value, project_id=self.instance.id if self.instance is not None else None
+        )
 
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
@@ -1378,39 +1381,43 @@ class ProjectBackwardCompatSerializer(
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        updated_team_fields = []
-        updated_project_fields = []
-        for attr, value in validated_data.items():
-            if attr in LOCKED_CONVERSATIONS_COLUMNS:
-                continue
-            if attr not in self.Meta.team_passthrough_fields:
-                # This attr is a Project field
-                setattr(instance, attr, value)
-                updated_project_fields.append(attr)
-            else:
-                # This attr is actually on the Project's passthrough Team
-                setattr(team, attr, value)
-                updated_team_fields.append(attr)
+        with locked_replay_gate_write(team, validated_data):
+            updated_team_fields = []
+            updated_project_fields = []
+            for attr, value in validated_data.items():
+                if attr in LOCKED_CONVERSATIONS_COLUMNS:
+                    continue
+                if attr not in self.Meta.team_passthrough_fields:
+                    # This attr is a Project field
+                    setattr(instance, attr, value)
+                    updated_project_fields.append(attr)
+                else:
+                    # This attr is actually on the Project's passthrough Team
+                    setattr(team, attr, value)
+                    updated_team_fields.append(attr)
 
-        if "name" in validated_data:
-            # Keep Team.name mirroring Project.name: surfaces like the organization's teams
-            # list and the app context still read the name off the Team row
-            team.name = validated_data["name"]
-            updated_team_fields.append("name")
+            if "name" in validated_data:
+                # Keep Team.name mirroring Project.name: surfaces like the organization's teams
+                # list and the app context still read the name off the Team row
+                team.name = validated_data["name"]
+                updated_team_fields.append("name")
 
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = merge_conversations_settings_locked(
+                    team, validated_data, patch_conversations_settings, updated_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif updated_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # Saved outside the replay gate lock. The tagged path in `save()` locks the Project row
+        # and then the Team row. A Project write under the Team lock would take the two locks in
+        # the opposite order, so two concurrent requests could deadlock.
         if updated_project_fields:
             instance.save(update_fields=updated_project_fields)
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = merge_conversations_settings_locked(
-                team, validated_data, patch_conversations_settings, updated_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif updated_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            team.save(update_fields=[*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
