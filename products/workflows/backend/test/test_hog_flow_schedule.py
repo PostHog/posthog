@@ -59,6 +59,36 @@ class TestHogFlowScheduleAPI(APIBaseTest):
     def _schedule_detail_url(self, workflow_id, schedule_id):
         return f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/schedules/{schedule_id}/"
 
+    @parameterized.expand([("can_view_recordings", "viewer", status.HTTP_201_CREATED), ("cannot", "none", 403)])
+    def test_scheduling_a_replay_vision_step_needs_the_callers_recording_access(
+        self, _name, recording_access, expected
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = HogFlow.objects.create(
+            team=self.team,
+            name="Scheduled scan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[
+                {
+                    "id": "vision",
+                    "name": "vision",
+                    "type": "function",
+                    "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+                }
+            ],
+        )
+
+        response = self.client.post(
+            self._schedules_url(workflow.id), {**SCHEDULE_DATA, "variables": {"session": "s1"}}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
+
     def test_create_schedule(self):
         workflow = self._create_batch_workflow()
         response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)

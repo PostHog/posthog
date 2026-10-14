@@ -600,7 +600,11 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
         except ValueError:
             # A strict save refuses the incomplete setup; a draft may keep it.
             return None
-    return workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
+    # One save or run can hold several Replay Vision steps; each distinct scanner is checked once per request.
+    cache: dict[uuid_mod.UUID | None, str | None] = request.__dict__.setdefault("_replay_vision_editor_errors", {})
+    if scanner_id not in cache:
+        cache[scanner_id] = workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
+    return cache[scanner_id]
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -6550,6 +6554,7 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
             return Response(HogFlowScheduleSerializer(schedule).data, status=201)
@@ -6587,6 +6592,8 @@ class HogFlowViewSet(
             schedule, data=request.data, partial=True, context=self.get_serializer_context()
         )
         serializer.is_valid(raise_exception=True)
+        if "variables" in serializer.validated_data:
+            self._require_replay_vision_caller_access(request, self._edit_state().actions)
         schedule = update_schedule(
             team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
         )
