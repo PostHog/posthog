@@ -57,9 +57,9 @@ def _cp_no_rows():
     "enabled_flags, failing_flags, expected",
     [
         ({"data-warehouse-scene"}, set(), True),
-        ({"data-warehouse-scene-trino"}, set(), True),
+        ({"managed-warehouse-trino-query"}, set(), True),
         (set(), set(), False),
-        ({"data-warehouse-scene"}, {"data-warehouse-scene-trino"}, True),
+        ({"data-warehouse-scene"}, {"managed-warehouse-trino-query"}, True),
     ],
 )
 async def test_registration_gate_accepts_either_managed_warehouse_flag(
