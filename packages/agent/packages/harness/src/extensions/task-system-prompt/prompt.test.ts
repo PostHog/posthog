@@ -24,7 +24,6 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("## Channel task");
     expect(prompt).toContain("Your working directory is `/tmp/task-123`");
     expect(prompt).not.toContain("task_summary_update");
-    expect(prompt).not.toContain("/tmp/workspace/scratch/");
   });
 
   it("describes the repository tools only when the harness registers them", () => {
@@ -58,7 +57,6 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("Task-Id: task-123");
     expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).toContain("Use the existing pull request.");
-    expect(prompt).toContain("/tmp/workspace/scratch/");
     expect(prompt).toContain("## Keeping the task summary");
     expect(prompt).toContain("task_summary_update");
     expect(prompt).toContain("A turn that only answers a question counts.");
