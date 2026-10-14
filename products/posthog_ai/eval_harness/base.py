@@ -318,7 +318,7 @@ class _BaseEvalRun:
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
-                    trial_id = eval_result.metadata.get("trial_id", case_name)
+                    trial_id = str(eval_result.metadata.get("trial_id") or case_name)
                     trace_id = self.agent_trace_id_lookup.get(trial_id)
                     meta = self.case_trace_meta.get(trial_id)
                     if trace_id and meta:
