@@ -1156,8 +1156,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/tiktok_ads.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tinyemail/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tmdb/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tmdb/tmdb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/todoist/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/todoist/todoist.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/together_ai/settings.py
