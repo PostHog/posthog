@@ -63,6 +63,11 @@
         },
         {
             "from": "nudge",
+            "to": "count_after_nudge",
+            "type": "continue"
+        },
+        {
+            "from": "count_after_nudge",
             "to": "wait_2d",
             "type": "continue"
         },
@@ -169,7 +174,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's current status.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -237,6 +242,29 @@
             "output_variable": null
         },
         {
+            "id": "count_after_nudge",
+            "name": "Remember the message count",
+            "description": "Records how many messages the ticket has after the nudge, so any later message stops the auto-resolve.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": [
+                {
+                    "key": "messages_after_nudge",
+                    "result_path": "message_count"
+                }
+            ]
+        },
+        {
             "id": "wait_2d",
             "name": "Wait 2 days",
             "description": "",
@@ -253,7 +281,7 @@
             "name": "Re-check ticket",
             "description": "Load the ticket again, in case the customer replied.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -271,7 +299,7 @@
         {
             "id": "still_pending_7d",
             "name": "Still pending, nothing since the nudge?",
-            "description": "Stop if the ticket changed status or anyone has posted since the nudge.",
+            "description": "Stop if the ticket changed status or anything has been posted since the nudge.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
@@ -283,7 +311,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.ticket.status = 'pending' and dateDiff('hour', toDateTime(variables.ticket.last_message_at), now()) >= 47",
+                                    "key": "variables.ticket.status = 'pending' and variables.ticket.message_count = variables.messages_after_nudge",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -333,7 +361,7 @@
             "name": "Re-check ticket",
             "description": "Load the ticket again, in case it was reopened.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",

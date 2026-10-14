@@ -178,13 +178,13 @@
         },
         {
             "id": "wait_settle",
-            "name": "Wait 10 minutes",
-            "description": "Gives your SLA workflows time to set the new deadline.",
+            "name": "Wait 15 minutes",
+            "description": "Gives your SLA workflows time to set the new deadline, including after activity this workflow skipped in the last 10 minutes.",
             "type": "delay",
             "on_error": null,
             "filters": null,
             "config": {
-                "delay_duration": "10m"
+                "delay_duration": "15m"
             },
             "output_variable": null
         },
@@ -193,7 +193,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's deadline and status, and remember the deadline.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -261,7 +261,7 @@
             "name": "Re-check ticket",
             "description": "Load the ticket again, in case it was answered or the deadline moved.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -325,7 +325,7 @@
             "name": "Check the new assignee",
             "description": "Loads the ticket again to confirm the reassignment worked.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -374,7 +374,7 @@
             "name": "Post to Slack: couldn't reassign",
             "description": "Tells your team the ticket is overdue and couldn't be reassigned.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-slack",
@@ -431,7 +431,7 @@
             "name": "Post to Slack",
             "description": "Connect Slack and pick the channel your team watches.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-slack",
@@ -486,7 +486,7 @@
         {
             "id": "mark_escalated",
             "name": "Mark the deadline as escalated",
-            "description": "Tags the ticket sla_escalated_<deadline>, so the same deadline is only handled once even if several runs wait for it. To keep tags tidy, you can remove these when tickets are resolved.",
+            "description": "Tags the ticket sla_escalated_<deadline> once the Slack post has gone out, so the same deadline is only handled once even if several runs wait for it. To keep tags tidy, you can remove these when tickets are resolved.",
             "type": "function",
             "on_error": null,
             "filters": null,

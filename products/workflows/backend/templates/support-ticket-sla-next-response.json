@@ -122,7 +122,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's current status and SLA.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -166,19 +166,19 @@
         {
             "id": "already_waiting",
             "name": "Already waiting on a reply?",
-            "description": "If the ticket already has a deadline for your team's reply, keep it, so more messages from the customer don't push it back. A follow-up deadline (tagged sla_follow_up) is replaced, since the customer is now waiting on you.",
+            "description": "If the ticket already has a deadline for your team's reply, keep it, even if it has passed, so more messages from the customer don't push it back or hide a breach. A follow-up deadline (tagged sla_follow_up) is replaced, since the customer is now waiting on you.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
             "config": {
                 "conditions": [
                     {
-                        "name": "Earlier reply deadline still running",
+                        "name": "Earlier reply deadline set",
                         "filters": {
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) > now() and not has(variables.ticket.tags, 'sla_follow_up')",
+                                    "key": "variables.ticket.sla is not null and not has(variables.ticket.tags, 'sla_follow_up')",
                                     "type": "hogql",
                                     "value": null
                                 }

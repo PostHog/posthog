@@ -84,7 +84,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's assignee and latest message.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",

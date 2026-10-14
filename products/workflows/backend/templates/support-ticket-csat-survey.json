@@ -133,7 +133,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's current status.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",

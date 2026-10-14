@@ -1,7 +1,7 @@
 {
     "id": "01a12fb6-3cfe-0000-5d45-25a5b3a944e0",
     "name": "Ticket: AI triage and investigation",
-    "description": "When a ticket comes in, an AI agent with read-only access investigates it using the customer's PostHog data, and your docs or code if you connect them. It picks a category and priority, which the workflow applies to the ticket, and saves its findings and a suggested reply as a private note for your team. It never replies to the customer.",
+    "description": "When a ticket comes in, an AI agent with read-only access investigates it using the customer's PostHog data, and your docs if you connect them. It picks a category and priority, which the workflow applies to the ticket, and saves its findings and a suggested reply as a private note for your team. It never replies to the customer.",
     "scope": "global",
     "tags": ["ai", "support", "support lifecycle", "slack"],
     "version": 1,
@@ -139,7 +139,7 @@
         {
             "id": "triage",
             "name": "Investigate and triage the ticket",
-            "description": "An AI agent investigates the ticket, picks a category and priority, and drafts a reply for your team. It has read-only access, so it can't change anything itself: the next steps apply its category and priority. Edit the category list to match your team. To let it check your docs or code, add your GitHub repository under Repository, or a docs or knowledge base connector under Connectors.",
+            "description": "An AI agent investigates the ticket, picks a category and priority, and drafts a reply for your team. It has read-only access, so it can't change anything itself: the next steps apply its category and priority. Edit the category list to match your team. To let it check your docs, add a docs or knowledge base connector under Connectors. Don't add a code repository: repository access isn't read-only, so a ticket could try to make the agent change it.",
             "type": "function",
             "on_error": "continue",
             "filters": null,
@@ -147,7 +147,7 @@
                 "template_id": "template-posthog-create-task",
                 "inputs": {
                     "prompt": {
-                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs, code repository or other connectors, check them for known issues, relevant docs pages or recent changes that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nStart your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nThen reply with:\n1. A one-line summary of the problem.\n2. Why you picked that category and priority.\n3. What you found in their data, docs or code that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nKeep your whole reply under 1,200 characters, because longer replies get cut off. Do not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
+                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen investigate:\n- Look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n- If you have access to the team's docs or other connectors, check them for known issues or relevant docs pages that explain the problem.\n\nThen classify the ticket:\n- Pick one category: `category_bug`, `category_billing`, `category_how_to`, `category_feature_request`, `category_account_access` or `category_other`.\n- Pick a priority: low, medium or high.\n\nStart your reply with this line on its own, exactly in this format, so the workflow can apply it:\nTRIAGE: <category> | <priority>\n\nThen reply with:\n1. A one-line summary of the problem.\n2. Why you picked that category and priority.\n3. What you found in their data or docs that explains the problem, with links.\n4. A suggested reply the support team can edit and send.\n\nKeep your whole reply under 1,200 characters, because longer replies get cut off. Do not change anything yourself, and never reply to the customer. Your write-up is for the support team, who decide what to send.",
                         "templating": "hog"
                     },
                     "title": {
@@ -410,7 +410,7 @@
                             },
                             {
                                 "type": "markdown",
-                                "text": "{variables.task_final_message}"
+                                "text": "{replaceAll(toString(variables.task_final_message), '<', '‹')}"
                             },
                             {
                                 "type": "actions",
@@ -429,7 +429,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket #{event.properties.ticket_number} investigated by AI\n\n{variables.task_final_message}",
+                        "value": "Ticket #{event.properties.ticket_number} investigated by AI\n\n{replaceAll(replaceAll(replaceAll(toString(variables.task_final_message), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
                         "templating": "hog"
                     }
                 }

@@ -158,7 +158,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":rotating_light: New ticket *#{event.properties.ticket_number}* from an important customer\nFrom: {event.properties.customer_email}"
+                                    "text": ":rotating_light: New ticket *#{event.properties.ticket_number}* from an important customer\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
                                 }
                             },
                             {

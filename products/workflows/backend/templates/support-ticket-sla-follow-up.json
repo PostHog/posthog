@@ -50,6 +50,12 @@
         },
         {
             "from": "is_waiting",
+            "to": "exit_node",
+            "type": "branch",
+            "index": 1
+        },
+        {
+            "from": "is_waiting",
             "to": "tier",
             "type": "continue"
         },
@@ -128,7 +134,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's current status and tags.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -145,8 +151,8 @@
         },
         {
             "id": "is_waiting",
-            "name": "Waiting on the customer or closed?",
-            "description": "Pending, on hold and resolved tickets don't need a follow-up deadline.",
+            "name": "Waiting on the customer, closed, or replied since?",
+            "description": "Pending, on hold and resolved tickets don't need a follow-up deadline. If a message has come in since this reply, its own workflow sets the deadline instead.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
@@ -159,6 +165,19 @@
                             "properties": [
                                 {
                                     "key": "variables.ticket.status in ('pending', 'on_hold', 'resolved')",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "New message since this reply",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "dateDiff('second', toDateTime(timestamp), toDateTime(variables.ticket.last_message_at)) > 5",
                                     "type": "hogql",
                                     "value": null
                                 }

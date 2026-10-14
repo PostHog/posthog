@@ -110,7 +110,7 @@
             "name": "Get ticket",
             "description": "Load the ticket's current assignee.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
@@ -174,7 +174,7 @@
             "name": "Check the new assignee",
             "description": "Loads the ticket again to confirm the reassignment worked.",
             "type": "function",
-            "on_error": null,
+            "on_error": "abort",
             "filters": null,
             "config": {
                 "template_id": "template-posthog-get-ticket",
