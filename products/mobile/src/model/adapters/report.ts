@@ -555,12 +555,16 @@ export function reportView(input: ReportViewInput): AdaptedReportView {
     const { observation, supportingMetrics } = metricViews(report, { host, projectId })
     const taskRun = taskView(reportTaskId(report, artefacts), task)
     const summary = text(report.summary)
+    const repository = text(
+        asRecord(artefacts.find((artefact) => artefact.type === 'repo_selection')?.content)?.repository
+    )
     return {
         id: report.id,
         ...(STATUSES.has(report.status) ? { status: report.status as ReportStatus } : {}),
         ...(report.priority && PRIORITIES.has(report.priority) ? { priority: report.priority as ReportPriority } : {}),
         ...(summary ? { summary } : {}),
         webUrl,
+        ...(repository ? { repository } : {}),
         canAct: canActOn(report),
         suggestedPrompts: report.suggested_prompts.filter((prompt) => text(prompt)).slice(0, MAX_PROMPTS),
         title,
