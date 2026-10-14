@@ -27,6 +27,7 @@ use super::packer::Packer;
 use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::WorkerAssigner;
+use crate::order_sentinel::ack_mark;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -369,7 +370,7 @@ impl ActiveState {
             completions(assignment_epoch, runs.iter().flat_map(|run| &run.messages));
         effects.key_acks = key_acks(
             runs.iter()
-                .map(|run| (&run.routing_key, run.messages.as_slice())),
+                .map(|run| (&run.routing_key, run.messages.as_slice(), &[][..])),
         );
         for run in runs {
             self.settle_key(&run.routing_key, Settlement::Done, now, &mut effects)?;
@@ -398,30 +399,30 @@ impl ActiveState {
         }
         let assignment_epoch = sent.class.assignment_epoch;
         let unfinished_count = unfinished.len();
-        let splits = sent.split(accepted, unfinished)?;
+        let partial_runs = sent.partially_accepted(accepted, unfinished)?;
         counter!("ingestion_consumer_request_budget_partials_total").increment(1);
         counter!("ingestion_consumer_request_budget_unfinished_messages_total")
             .increment(unfinished_count as u64);
         effects.completions = completions(
             assignment_epoch,
-            splits.iter().flat_map(|split| &split.accepted),
+            partial_runs.iter().flat_map(|run| &run.accepted),
         );
-        // The order sentinel's ACK mark stops at a run's first unfinished
-        // message, so resending that message stays legal.
-        effects.key_acks = key_acks(
-            splits
-                .iter()
-                .map(|split| (&split.routing_key, &split.accepted[..split.accepted_prefix])),
-        );
-        for split in splits {
-            let settlement = if split.unfinished.is_empty() {
+        effects.key_acks = key_acks(partial_runs.iter().map(|run| {
+            (
+                &run.routing_key,
+                run.accepted.as_slice(),
+                run.unfinished.as_slice(),
+            )
+        }));
+        for run in partial_runs {
+            let settlement = if run.unfinished.is_empty() {
                 Settlement::Done
             } else if accepted == 0 {
-                Settlement::Bounced(split.unfinished)
+                Settlement::Bounced(run.unfinished)
             } else {
-                Settlement::Unfinished(split.unfinished)
+                Settlement::Unfinished(run.unfinished)
             };
-            self.settle_key(&split.routing_key, settlement, now, &mut effects)?;
+            self.settle_key(&run.routing_key, settlement, now, &mut effects)?;
         }
         self.advance(now, workers, draining, &mut effects)?;
         Ok(effects)
@@ -639,18 +640,25 @@ fn completions<'a>(
     completions
 }
 
-fn key_acks<'a>(runs: impl IntoIterator<Item = (&'a Arc<str>, &'a [SentMessage])>) -> Vec<KeyAck> {
+fn key_acks<'a>(
+    runs: impl IntoIterator<
+        Item = (
+            &'a Arc<str>,
+            &'a [SentMessage],
+            &'a [SerializedKafkaMessage],
+        ),
+    >,
+) -> Vec<KeyAck> {
     runs.into_iter()
-        .filter_map(|(routing_key, messages)| {
-            // An unkeyed message lives on an arbitrary partition under a
-            // synthetic key, so it does not advance an ACK high-water mark.
-            let mut keyed = messages.iter().filter(|message| message.keyed);
-            let first = keyed.next()?;
-            // The order sentinel tracks a key on its first keyed partition.
-            let max_offset = keyed
-                .filter(|message| message.partition == first.partition)
-                .map(|message| message.offset)
-                .fold(first.offset, i64::max);
+        .filter_map(|(routing_key, accepted, unfinished)| {
+            let max_offset = ack_mark(
+                accepted
+                    .iter()
+                    .map(|message| (message.partition, message.offset, message.keyed)),
+                unfinished
+                    .iter()
+                    .map(|message| (message.partition, message.offset)),
+            )?;
             Some(KeyAck {
                 routing_key: Arc::clone(routing_key),
                 max_offset,
