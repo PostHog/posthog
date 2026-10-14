@@ -402,7 +402,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                modeling_api.adopt_saved_query_without_edges(view, e)
+                modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, str(e))
             if sync_frequency is not None:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
@@ -597,7 +597,9 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                    modeling_api.adopt_saved_query_without_edges(view, e, dag=dag)
+                    modeling_api.adopt_saved_query_without_edges(
+                        view.team_id, view.id, str(e), dag_id=dag.id if dag else None
+                    )
 
         self._report_view_action(
             "view updated",

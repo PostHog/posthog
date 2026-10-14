@@ -57,7 +57,8 @@ class Command(BaseCommand):
                     failed += 1
                     self.stderr.write(f"  team {team_id}: FAILED {saved_query.name}, re-run to retry: {error!r}")
                     continue
-                nodes.append(adopt_saved_query_without_edges(saved_query, error, dag=dag))
+                adopt_saved_query_without_edges(saved_query.team_id, saved_query.id, str(error), dag_id=dag.id)
+                nodes.append(Node.objects.get(saved_query=saved_query, dag=dag))
                 adopted += 1
                 self.stderr.write(f"  team {team_id}: adopted {saved_query.name} without edges: {error}")
             seeded += seed_materialized_targets(nodes, dag)

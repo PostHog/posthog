@@ -427,20 +427,21 @@ def sync_saved_query_to_dag(
     return target
 
 
-def adopt_saved_query_without_edges(
-    saved_query: "DataWarehouseSavedQuery", error: Exception, dag: DAG | None = None
-) -> Node:
+def adopt_saved_query_without_edges(team_id: int, saved_query_id: UUID, error: str, dag_id: UUID | None = None) -> None:
     """Give a saved query whose lineage did not sync a node marked sync-failed, without rebuilding its edges."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(team_id=team_id, id=saved_query_id)
+    dag = DAG.objects.get(team_id=team_id, id=dag_id) if dag_id else DAG.get_or_create_default(saved_query.team)
     with transaction.atomic():
         node, _ = Node.objects.get_or_create(
-            team_id=saved_query.team_id,
+            team_id=team_id,
             saved_query=saved_query,
-            dag=dag or DAG.get_or_create_default(saved_query.team),
+            dag=dag,
             defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
         )
-        node.mark_lineage_sync_failed(str(error))
+        node.mark_lineage_sync_failed(error)
         node.save(update_fields=["properties"])
-    return node
 
 
 def _nameless_refusal(view_name: str) -> str:
