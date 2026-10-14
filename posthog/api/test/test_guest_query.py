@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -55,6 +56,7 @@ class TestGuestQuery(APIBaseTest):
             request.resource.type in (ResourceType.PROJECT, ResourceType.ORGANIZATION)
             or (request.resource.type == ResourceType.INSIGHT and request.resource.id == str(self.insight.id))
             or (request.resource.type == ResourceType.NOTEBOOK and request.resource.id == str(self.notebook.id))
+            or (request.resource.type == ResourceType.SESSION_RECORDING and request.resource.id == "session-1")
             for request in requests
         ]
 
@@ -112,3 +114,17 @@ class TestGuestQuery(APIBaseTest):
         if not own:
             cancel = self.client.delete(f"/api/environments/{self.team.id}/query/query-1/")
             assert cancel.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("granted recording", "session-1"), ("other recording", "session-2")])
+    @patch("posthog.api.query.process_query_model", return_value={"results": []})
+    def test_guest_loads_events_only_for_a_granted_recording(self, _name: str, session_id: str, process) -> None:
+        metadata = {"start_time": datetime(2026, 1, 1, tzinfo=UTC), "end_time": datetime(2026, 1, 1, 1, tzinfo=UTC)}
+        with patch("posthog.api.services.guest_query.SessionReplayEvents.get_metadata", return_value=metadata):
+            response = self._query(query=CLIENT_QUERY, session_recording_id=session_id)
+        granted = session_id == "session-1"
+        assert response.status_code == (status.HTTP_200_OK if granted else status.HTTP_403_FORBIDDEN)
+        if granted:
+            query = process.call_args.args[1]
+            assert query.kind == "HogQLQuery"
+            assert "$session_id = {session_id}" in query.query
+            assert query.values["session_id"] == "session-1"

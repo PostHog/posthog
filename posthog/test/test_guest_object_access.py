@@ -3,15 +3,19 @@ from collections.abc import Sequence
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
-from products.authz.backend.facade.contracts import CheckRequest, Context, ResourceIds
+from products.actions.backend.models.action import Action as EventAction
+from products.authz.backend.facade.contracts import CheckRequest, Context, Resource, ResourceIds
 from products.authz.backend.facade.enums import Action, ResourceType
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestGuestObjectAccess(APIBaseTest):
@@ -26,17 +30,38 @@ class TestGuestObjectAccess(APIBaseTest):
         self.granted = Notebook.objects.create(team=self.team, title="Granted")
         self.hidden = Notebook.objects.create(team=self.team, title="Hidden")
         self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id)
+        self.cohort = Cohort.objects.create(team=self.team, name="Used")
+        self.unused_cohort = Cohort.objects.create(team=self.team, name="Unused")
+        self.action = EventAction.objects.create(team=self.team, name="Used")
+        self.unused_action = EventAction.objects.create(team=self.team, name="Unused")
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "ActionsNode", "id": self.action.id},
+                        {
+                            "kind": "EventsNode",
+                            "properties": [{"type": "cohort", "key": "id", "value": self.cohort.id}],
+                        },
+                    ],
+                },
+            },
+        )
         for target, kwargs in (
             ("products.authz.backend.logic.rollout.get_feature_flag_or_none", {"return_value": "v2"}),
             ("products.authz.backend.logic.authorization.check", {"side_effect": self._openfga_check}),
-            (
-                "products.authz.backend.logic.authorization.list_resources",
-                {"return_value": ResourceIds(ids=frozenset({str(self.granted.id)}), complete=True)},
-            ),
+            ("products.authz.backend.logic.authorization.list_resources", {"side_effect": self._openfga_list}),
         ):
             patcher = patch(target, **kwargs)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def _openfga_list(self, resource: Resource, *_args: object) -> ResourceIds:
+        granted = {ResourceType.NOTEBOOK: str(self.granted.id), ResourceType.INSIGHT: str(self.insight.id)}
+        return ResourceIds(ids=frozenset({granted[resource.type]}), complete=True)
 
     def _openfga_check(self, requests: Sequence[CheckRequest], _context: Context | None) -> list[bool]:
         granted = {(ResourceType.NOTEBOOK, str(self.granted.id)), (ResourceType.DASHBOARD, str(self.dashboard_id))}
@@ -61,3 +86,15 @@ class TestGuestObjectAccess(APIBaseTest):
         url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/"
         assert self.client.get(url).status_code == status.HTTP_200_OK
         assert self.client.patch(url, {"name": "Changed"}).status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("cohorts", "cohort"), ("actions", "action")])
+    def test_guest_reads_only_the_cohorts_and_actions_their_insights_use(self, path: str, attribute: str) -> None:
+        used, unused = getattr(self, attribute), getattr(self, f"unused_{attribute}")
+        listed = self.client.get(f"/api/projects/{self.team.id}/{path}/")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [item["id"] for item in listed.json()["results"]] == [used.id]
+        assert self.client.get(f"/api/projects/{self.team.id}/{path}/{used.id}/").status_code == status.HTTP_200_OK
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/{path}/{unused.id}/").status_code
+            == status.HTTP_404_NOT_FOUND
+        )

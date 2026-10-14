@@ -22,6 +22,9 @@ from posthog.organization_caching import get_cached_organization_membership
 
 from products.access_control.backend.facade.api import member_project_ids
 from products.authz.backend.facade import api
+from products.authz.backend.facade.contracts import Resource, Subject
+from products.authz.backend.facade.enums import Action, ResourceType
+from products.product_analytics.backend.facade.models import Insight
 
 GUEST_MODE_FEATURE = AvailableFeature.ADVANCED_PERMISSIONS
 
@@ -124,3 +127,61 @@ def is_enforced_guest(request: Request) -> bool:
 
 def guest_project_ids(organization_id: UUID, user: User) -> frozenset[int]:
     return member_project_ids(organization_id=organization_id, user_id=user.pk)
+
+
+@frozen
+class QueryReferences:
+    cohort_ids: frozenset[int]
+    action_ids: frozenset[int]
+
+
+def extract_query_references(query: Any) -> QueryReferences:
+    """Return the cohorts and actions that a query's structured filters name.
+
+    Labels come only from structured filters, so HogQL text is not parsed.
+    """
+    cohort_ids: set[int] = set()
+    action_ids: set[int] = set()
+    pending = [query]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        if node.get("type") == "cohort" and isinstance(node.get("value"), int):
+            cohort_ids.add(node["value"])
+        if node.get("kind") == "ActionsNode" and isinstance(node.get("id"), int):
+            action_ids.add(node["id"])
+        if node.get("breakdown_type") == "cohort":
+            breakdown = node.get("breakdown")
+            values = breakdown if isinstance(breakdown, list) else [breakdown]
+            cohort_ids.update(value for value in values if isinstance(value, int))
+        pending.extend(node.values())
+    return QueryReferences(cohort_ids=frozenset(cohort_ids), action_ids=frozenset(action_ids))
+
+
+def guest_referenced_ids(request: Request, user: User, team_id: int) -> QueryReferences:
+    """Return the cohorts and actions used by the insights the guest can view, once per request.
+
+    The result is not cached across requests, so a revoked grant takes effect on the next request.
+    """
+    cached = getattr(request, "_guest_references", None)
+    if isinstance(cached, QueryReferences):
+        return cached
+    listed = api.list_resources(
+        resource=Resource(type=ResourceType.INSIGHT, project_id=team_id),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
+    cohort_ids: set[int] = set()
+    action_ids: set[int] = set()
+    if listed.complete:
+        for query in Insight.objects.filter(team_id=team_id, id__in=listed.ids).values_list("query", flat=True):
+            found = extract_query_references(query)
+            cohort_ids |= found.cohort_ids
+            action_ids |= found.action_ids
+    references = QueryReferences(cohort_ids=frozenset(cohort_ids), action_ids=frozenset(action_ids))
+    request._guest_references = references
+    return references

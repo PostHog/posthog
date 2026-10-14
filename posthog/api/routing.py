@@ -29,7 +29,7 @@ from posthog.auth import (
 )
 from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
-from posthog.guest_access import guest_state_for_view
+from posthog.guest_access import guest_referenced_ids, guest_state_for_view
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -374,6 +374,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             queryset = self._filter_queryset_by_parents_lookups(queryset)
 
             queryset = self._filter_queryset_by_access_level(queryset)
+            queryset = self._filter_queryset_for_guest(queryset)
 
             return queryset
         finally:
@@ -383,6 +384,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.paginator is not None and isinstance(queryset, QuerySet):
             queryset = stable_queryset_ordering(queryset)
         return super().paginate_queryset(queryset)
+
+    def _filter_queryset_for_guest(self, queryset: QuerySet) -> QuerySet:
+        # A guest reads only the cohorts and actions that the insights they can view use. This filters retrieves
+        # too, so an unused cohort or action is a 404.
+        if self.scope_object not in ("cohort", "action") or not guest_state_for_view(self.request, self).enforced:
+            return queryset
+        references = guest_referenced_ids(self.request, cast(User, self.request.user), self.team_id)
+        return queryset.filter(id__in=references.cohort_ids if self.scope_object == "cohort" else references.action_ids)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         if self.action != "list":
