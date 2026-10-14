@@ -16,6 +16,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
@@ -93,7 +94,8 @@ class MCPEventSubscriptions:
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             limit=ast.Constant(value=5),
         )
-        result = execute_hogql_query(query=query, team=self.team, user=self.user, query_type="mcp_event_preview")
+        with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.QUERY):
+            result = execute_hogql_query(query=query, team=self.team, user=self.user, query_type="mcp_event_preview")
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
         restricted_event_properties = split_restricted_property_names(restrictions).event
         examples: list[JsonValue] = []
