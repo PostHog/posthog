@@ -139,8 +139,9 @@ REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
 # Room past both sweep budgets for one workflow-step wake that started just before the deadline: its POST
-# can time out and fall back to an internal event, and the completion events still flush after it.
-COMPLETE_OBSERVATION_REQUESTS_TIMEOUT = dt.timedelta(seconds=75)
+# can time out and fall back to an internal event, the completion events still flush after it, and the
+# stamping queries still need room inside bounded_queries, which takes 75% of this.
+COMPLETE_OBSERVATION_REQUESTS_TIMEOUT = dt.timedelta(seconds=100)
 
 # The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
 # healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.

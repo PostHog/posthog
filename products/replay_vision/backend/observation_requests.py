@@ -538,6 +538,7 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline
     """Complete the page's settled requests. Also returns the index of the first one left for the next tick."""
     progress = request_progress_many(page, now=now)
     sent: list[tuple[ReplayObservationRequest, ProduceResult]] = []
+    access_cache: _AccessCache = {}
     stopped_at: int | None = None
     for index, request in enumerate(page):
         # A wake can block on the engine, so the rest of the page waits for the next tick.
@@ -548,7 +549,7 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline
             continue
         # The wake goes first, so a wake that fails leaves the request open without announcing it twice.
         if request.source == ObservationRequestSource.WORKFLOW and request.idempotency_key:
-            if not _wake_workflow_step(request, progress[request.id], now):
+            if not _wake_workflow_step(request, progress[request.id], now, access_cache):
                 continue
         try:
             sent.append(
@@ -584,7 +585,13 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime, deadline
 _STEP_ANSWER_BUDGET = RESULT_BYTE_CAP - 512
 
 
-def step_result(request: ReplayObservationRequest, progress: RequestProgress) -> dict[str, Any]:
+# A page of completions shares one owner's access across that owner's requests.
+_AccessCache = dict[tuple[int | None, int], "UserAccessControl | None"]
+
+
+def step_result(
+    request: ReplayObservationRequest, progress: RequestProgress, access_cache: _AccessCache | None = None
+) -> dict[str, Any]:
     """The answer for the step's one session, sized to fit the step result whichever way it returns.
 
     Unlike the internal event, this stays inside the project's own workflow, so it carries the answer. The
@@ -592,7 +599,13 @@ def step_result(request: ReplayObservationRequest, progress: RequestProgress) ->
     """
     team = request.team
     session = progress.sessions[0] if progress.sessions else None
-    access = recording_viewer_access(request.created_by, team)
+    cache_key = (request.created_by_id, team.id)
+    if access_cache is not None and cache_key in access_cache:
+        access = access_cache[cache_key]
+    else:
+        access = recording_viewer_access(request.created_by, team)
+        if access_cache is not None:
+            access_cache[cache_key] = access
     if access is None or session is None:
         return _step_answer("failed", None, ["The workflow's owner can no longer view session recordings."])
     scanner = request.scanner
@@ -635,14 +648,16 @@ def _state_counts(progress: RequestProgress) -> dict[str, int]:
     }
 
 
-def _wake_workflow_step(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> bool:
+def _wake_workflow_step(
+    request: ReplayObservationRequest, progress: RequestProgress, now: datetime, access_cache: _AccessCache
+) -> bool:
     """Wake the workflow step waiting on this request. False leaves the request open for the next tick."""
     try:
         emit_workflow_step_resume(
             team_id=request.team_id,
             origin_key=request.idempotency_key or "",
             status="completed",
-            result=step_result(request, progress),
+            result=step_result(request, progress, access_cache),
             raise_on_error=True,
             # A step the worker still holds gets the wake on the next tick, not after seconds of sleeping here.
             retry_delays=(),

@@ -28,6 +28,7 @@ from products.replay_vision.backend.observation_requests import (
     MAX_SESSION_END_WAIT,
     _complete_page,
     complete_settled_requests,
+    recording_viewer_access,
     request_progress,
     start_waiting_requests,
 )
@@ -330,6 +331,20 @@ class TestCompleteSettledRequests(APIBaseTest):
             start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
             **{"reference": "job-7", "source": "project_secret_api_key", **fields},
         )
+
+    @patch("products.replay_vision.backend.observation_requests.emit_workflow_step_resume")
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_one_owners_access_is_loaded_once_per_page(self, _produce: MagicMock, resume: MagicMock) -> None:
+        for key in ("run:step:1", "run:step:2", "run:step:3"):
+            self._request({"s1": "skipped_quota"}, source="workflow", idempotency_key=key, created_by=self.user)
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.recording_viewer_access",
+            wraps=recording_viewer_access,
+        ) as load_access:
+            complete_settled_requests()
+
+        assert (resume.call_count, load_access.call_count) == (3, 1)
 
     @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
     def test_the_sweep_still_completes_requests_when_the_cache_is_down(self, _produce: MagicMock) -> None:
