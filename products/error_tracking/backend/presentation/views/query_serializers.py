@@ -104,7 +104,7 @@ class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=AssigneeType.choices, help_text="Assignee target type: user or role.")
 
 
-# django-stubs type only the class-body Choices syntax, not the functional API used here.
+# django-stubs types only the class-body Choices syntax, not the functional API used here.
 ErrorTrackingIssueOrderBy = models.TextChoices(  # type: ignore[call-overload]
     "ErrorTrackingIssueOrderBy", [(member.name, (member.value, member.value)) for member in ErrorTrackingOrderBy]
 )
