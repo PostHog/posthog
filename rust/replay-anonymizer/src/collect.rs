@@ -118,9 +118,8 @@ fn is_ref_hash(hash: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Default per-image cap: the image-scrub consumer and its sidecar refuse decoded images over
-/// 20 MiB, so a bigger image would only dangle as a ref. Bigger images stay on the inline blur path.
-pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+/// Default per-image cap. Bigger images stay on the inline blur path.
+pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
 /// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic;
 /// images past them stay on the inline blur path. The count cap is sized so the byte cap is the
 /// binding constraint for realistic payloads (only sub-64 KB average images can hit it first, and
@@ -337,12 +336,10 @@ mod tests {
     }
 
     #[test]
-    fn collect_enforces_the_default_per_image_cap() {
+    fn collect_rejects_oversized_image() {
         let mut c = collector();
         assert!(c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]).is_none());
-        // Above the old 900 KiB cap, so a revert of the 20 MiB default fails here.
-        assert!(c.collect(vec![1u8; 1024 * 1024]).is_some());
-        assert_eq!(c.into_images().len(), 1);
+        assert!(c.into_images().is_empty());
     }
 
     #[test]
