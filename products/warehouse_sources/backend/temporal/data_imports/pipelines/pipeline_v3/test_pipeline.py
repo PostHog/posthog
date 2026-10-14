@@ -1222,7 +1222,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             },
         )
 
-    def _attempt(self, schema: ExternalDataSchema, attempt: int) -> PipelineV3:
+    def _attempt(self, schema: ExternalDataSchema, attempt: int, sort_mode: str | None = "desc") -> PipelineV3:
         resource = MagicMock(
             name="events",
             primary_keys=["id"],
@@ -1234,7 +1234,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             cdc_write_mode=None,
             lanes=None,
             webhook_only=False,
-            sort_mode="desc",
+            sort_mode=sort_mode,
         )
         manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1))
         with (
@@ -1261,8 +1261,10 @@ class TestDescWatermarkAcrossResumedAttempts:
                 ),
             )
 
-    async def _extract(self, schema: ExternalDataSchema, attempt: int, *, final: bool) -> str:
-        pipeline = self._attempt(schema, attempt)
+    async def _extract(
+        self, schema: ExternalDataSchema, attempt: int, *, final: bool, sort_mode: str | None = "desc"
+    ) -> str:
+        pipeline = self._attempt(schema, attempt, sort_mode)
         run_uuid = cast(str, pipeline._run_uuid)
         # Each attempt resumes on an older page than the attempt before it read.
         newest_row = self._NEWEST - timedelta(hours=10 * (attempt - 1))
@@ -1312,6 +1314,22 @@ class TestDescWatermarkAcrossResumedAttempts:
         oldest_row = self._NEWEST - timedelta(hours=10 * (attempts - 1) + 5)
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
         assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
+
+    @pytest.mark.asyncio
+    async def test_an_unordered_resumed_attempt_keeps_the_largest_value_of_the_run(self) -> None:
+        # Attempt 2 resumes past the part of the source that held the largest value. It must start from the
+        # value attempt 1 staged, or the run promotes the smaller maximum and the next run reads old rows again.
+        schema = self._schema()
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            await self._extract(schema, 1, final=False, sort_mode=None)
+            run_uuid = await self._extract(schema, 2, final=True, sort_mode=None)
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:
