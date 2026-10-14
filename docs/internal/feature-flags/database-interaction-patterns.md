@@ -123,6 +123,7 @@ For teams in `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS`, the hash key override 
 `PERSONHOG_ROUTER_URL` must also be set.
 When it is empty, the service logs a warning at startup and every team reads from the persons DB.
 The check still uses the persons DB.
+The write uses the persons DB unless the team is also in `PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS`.
 The read that follows an override write uses strong consistency, so personhog-replica reads the primary.
 The read without a write uses eventual consistency, so personhog-replica reads a replica.
 A stored `$posthog_cookieless` override reads as no override, the same as the SQL read.
@@ -146,6 +147,7 @@ The `sql` value excludes the pool acquire, which `flags_db_connection_time` meas
 
 For teams in `PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS`, the hash key override write calls personhog `UpsertHashKeyOverrides` instead of the persons DB transaction.
 `PERSONHOG_ROUTER_URL` must also be set.
+When it is empty, the service logs a warning at startup and every team writes to the persons DB.
 feature-flags still reads the active flags with experience continuity from the non-persons DB, and sends only those flag keys.
 personhog-replica resolves the distinct IDs, keeps each real key that a person already has, and replaces a stored `$posthog_cookieless` key.
 The call stays inside `PERSONS_DB_DEADLINE_MS`.
@@ -156,7 +158,7 @@ personhog-replica retries the transaction once, and the retry writes to the surv
 The persons DB path retries the same failure in feature-flags.
 A failed personhog call is not retried in feature-flags.
 `personhog_router_client_call_duration_ms{method="UpsertHashKeyOverrides"}` measures the call from feature-flags to the router.
-The `path` label on `flags_flag_hash_key_writes_total` is `sql` or `personhog`.
+The `source` label on `flags_flag_hash_key_writes_total` is `sql` or `personhog`.
 
 ### Total connection count
 

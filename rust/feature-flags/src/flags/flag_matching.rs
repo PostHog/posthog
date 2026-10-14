@@ -933,7 +933,7 @@ impl FeatureFlagMatcher {
             }
         }
 
-        let write_path = if self.personhog_hash_key_writer.is_some() {
+        let write_source = if self.personhog_hash_key_writer.is_some() {
             "personhog"
         } else {
             "sql"
@@ -945,7 +945,7 @@ impl FeatureFlagMatcher {
                     "successful_write".to_string(),
                     writing_hash_key_override.to_string(),
                 ),
-                ("path".to_string(), write_path.to_string()),
+                ("source".to_string(), write_source.to_string()),
             ],
             1,
         );
