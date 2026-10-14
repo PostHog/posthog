@@ -21,6 +21,8 @@ from products.slack_app.backend.api import _app_mention_ignore_reason
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
+_EU_ADHOC_INSIGHT_URL = "https://eu.posthog.com/project/2/insights/new#q=%7B%22kind%22%3A%22InsightVizNode%22%7D"
+
 
 class TestLinkSharedUrlRegion(SimpleTestCase):
     @parameterized.expand(
@@ -40,6 +42,9 @@ class TestLinkSharedUrlRegion(SimpleTestCase):
                 ["https://eu.posthog.com/project/2/replay/abc", "https://us.posthog.com/i/abc"],
                 "US",
             ),
+            ("adhoc_insight_alone", [_EU_ADHOC_INSIGHT_URL], "EU"),
+            # Beside another link the handler drops an ad hoc link, so it must not route the event.
+            ("adhoc_insight_beside_a_saved_link", [_EU_ADHOC_INSIGHT_URL, "https://us.posthog.com/i/abc"], "US"),
         ]
     )
     def test_region_from_link_hosts(self, _name: str, urls: list[str], expected: str | None) -> None:
