@@ -83,6 +83,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
     "products.autoresearch",
@@ -1734,4 +1735,18 @@ expose = [
 ]
 from = [
     "products.github_commands",
+]
+
+[[modules]]
+path = "products.account_audits"
+depends_on = ["posthog", "products.notebooks", "products.signals", "products.skills", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.account_audits",
 ]
