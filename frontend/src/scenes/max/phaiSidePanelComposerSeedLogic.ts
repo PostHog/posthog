@@ -5,6 +5,7 @@ import { SidePanelTab } from '~/types'
 
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { parseCommandString } from './maxLogic'
@@ -22,7 +23,7 @@ function forwardSeed(
     dataProcessingAccepted: boolean,
     setSeed: (seed: ComposerSeed) => void
 ): void {
-    if (typeof options !== 'string' || options === REPORT_AI_PANEL) {
+    if (typeof options !== 'string' || options === REPORT_AI_PANEL || options === SCOUT_AI_PANEL) {
         return
     }
     const { autoRun, question } = parseCommandString(options)

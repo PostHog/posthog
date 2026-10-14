@@ -190,6 +190,34 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
     '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
+    '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
+    '/engineering-analytics/repos/:repoOwner/:repoName/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests': [
+        'EngineeringAnalytics',
+        'engineeringAnalyticsPullRequestList',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/workflows': [
+        'EngineeringAnalytics',
+        'engineeringAnalyticsWorkflows',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/tests': ['EngineeringAnalytics', 'engineeringAnalyticsTests'],
+    '/engineering-analytics/repos/:repoOwner/:repoName/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/repos/:repoOwner/:repoName/authors': [
+        'EngineeringAnalytics',
+        'engineeringAnalyticsAuthors',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/deploys': [
+        'EngineeringAnalytics',
+        'engineeringAnalyticsDeploys',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/teams/:ownerTeam': [
+        'EngineeringAnalyticsTeam',
+        'engineeringAnalyticsTeam',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/authors/:handle': [
+        'EngineeringAnalyticsAuthor',
+        'engineeringAnalyticsAuthor',
+    ],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
@@ -206,7 +234,6 @@ export const productRoutes: Record<string, [string, string]> = {
         'EngineeringAnalyticsWorkflowRuns',
         'engineeringAnalyticsWorkflowRuns',
     ],
-    '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
@@ -487,6 +514,7 @@ export const productRedirects: Record<
     },
     '/data-warehouse': () => urls.sources(),
     '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
+    '/data-management/sources/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -1544,15 +1572,36 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
-    engineeringAnalytics: (): string => '/engineering-analytics/overview',
-    engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
-    engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
-    engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
-    engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
-    engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
-    engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
-    engineeringAnalyticsTeam: (ownerTeam: string): string =>
-        `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
+    engineeringAnalytics: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/overview`
+            : '/engineering-analytics/overview',
+    engineeringAnalyticsPullRequestList: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/pull-requests`
+            : '/engineering-analytics/pull-requests',
+    engineeringAnalyticsWorkflows: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/workflows`
+            : '/engineering-analytics/workflows',
+    engineeringAnalyticsTests: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/tests`
+            : '/engineering-analytics/tests',
+    engineeringAnalyticsTeams: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/teams`
+            : '/engineering-analytics/teams',
+    engineeringAnalyticsAuthors: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/authors`
+            : '/engineering-analytics/authors',
+    engineeringAnalyticsDeploys: (repo?: string | null): string =>
+        repo
+            ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/deploys`
+            : '/engineering-analytics/deploys',
+    engineeringAnalyticsTeam: (ownerTeam: string, repo?: string | null): string =>
+        `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
     engineeringAnalyticsCIExplorer: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1566,8 +1615,8 @@ export const productUrls = {
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
-    engineeringAnalyticsAuthor: (handle: string): string =>
-        `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
+    engineeringAnalyticsAuthor: (handle: string, repo?: string | null): string =>
+        `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/authors/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
