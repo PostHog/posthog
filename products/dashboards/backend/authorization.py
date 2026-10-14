@@ -37,6 +37,17 @@ class LegacyDashboardAuthorization:
         dashboard = self.dashboards[dashboard_id]
         return dashboard is not None and self._check(dashboard, level)
 
+    def ids(self, level: AccessControlLevelResource, limit: int) -> frozenset[str] | None:
+        dashboards = list(Dashboard.objects.filter(team_id=self.team.id, deleted=False).prefetch_related("privileges"))
+        self.access.preload_object_access_controls(dashboards)
+        allowed: set[str] = set()
+        for dashboard in dashboards:
+            if self._check(dashboard, level):
+                allowed.add(str(dashboard.id))
+                if len(allowed) > limit:
+                    return None
+        return frozenset(allowed)
+
 
 def insight_dashboard_ids(team_id: int, insight_ids: Collection[int] | None = None) -> dict[int, tuple[int, ...]]:
     tiles = DashboardTile.objects.filter(team_id=team_id, insight__isnull=False)

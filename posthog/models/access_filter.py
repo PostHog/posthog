@@ -25,6 +25,8 @@ def filter_q(
     The creator exemption applies only when the result asks for it, the model has `creator_field`,
     and the subject is a user. A result that allows nothing still keeps the subject's own rows then.
     """
+    if not result.complete:
+        return Q(pk__in=[])
     creator: Q | None = None
     if result.creator_exempt and creator_field and subject_user_id is not None:
         creator = Q(**{creator_field: subject_user_id})

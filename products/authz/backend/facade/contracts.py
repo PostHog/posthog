@@ -146,6 +146,8 @@ class ResourceIds:
 
     def allows(self, id: str, *, created_by_user_id: int | None = None, subject_user_id: int | None = None) -> bool:
         """Whether one resource is allowed. Same rule as the QuerySet and HogQL adapters, for one object."""
+        if not self.complete:
+            return False
         if self.creator_exempt and subject_user_id is not None and created_by_user_id == subject_user_id:
             return True
         return (id in self.ids) != self.excluded

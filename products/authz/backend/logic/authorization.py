@@ -226,9 +226,8 @@ def list_resources(
     capped = ResourceIds(ids=frozenset(), complete=False)
 
     def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
-        # Rows the subject created are in the graph already (`creator`), so an exclusion never names
-        # them and a grant list always holds them. The exemption only matters to the legacy rules.
-        return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
+        # OpenFGA already includes creators after applying project membership and action-specific gates.
+        return ResourceIds(ids=ids, complete=True, excluded=excluded)
 
     revision = ready_state(org_id)
     if revision is None:
@@ -238,9 +237,7 @@ def list_resources(
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
         reader = _Reader(client, user, type_name, prefix, cap)
-        if reader.allowed(f"organization:{org_id}", "admin"):
-            result = build(frozenset(), excluded=True)
-        elif reader.allowed(category_key, relation):
+        if action in (Action.VIEW, Action.LIST, Action.QUERY) and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
                 return capped

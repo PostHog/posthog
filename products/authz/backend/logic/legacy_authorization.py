@@ -151,6 +151,10 @@ class LegacyAuthorization:
             raise ValueError("Resource limit must be positive")
         cap = limit if limit is not None else authorization.MAX_IDS
         level = dashboard_level(action)
+        if user_access_control is not None and subject is not None and subject.user_id == user_access_control.user.pk:
+            preloaded_user = user_access_control.user
+            if isinstance(preloaded_user, User) and preloaded_user.is_active:
+                self.users.setdefault(preloaded_user.id, preloaded_user)
         user = self.user(subject)
         if user is None:
             return ResourceIds(ids=frozenset(), complete=True)
@@ -160,7 +164,35 @@ class LegacyAuthorization:
             return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
 
         if not access.has_project_access:
-            return build(frozenset(), excluded=False)
+            return ResourceIds(ids=frozenset(), complete=True)
+        if resource.type == ResourceType.WAREHOUSE_TABLE:
+            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- avoid loading warehouse models at SDK import time
+                allowed_table_ids,
+                queryable_table_ids,
+            )
+
+            allowed_tables = allowed_table_ids(resource.project_id, access, required_level=level)
+            denied_tables = queryable_table_ids(resource.project_id) - allowed_tables
+            excluded = len(denied_tables) < len(allowed_tables)
+            ids = frozenset(str(id) for id in (denied_tables if excluded else allowed_tables))
+            if len(ids) > cap:
+                return ResourceIds(ids=frozenset(), complete=False)
+            return ResourceIds(ids=ids, complete=True, excluded=excluded)
+        if resource.type == ResourceType.DASHBOARD and level != "viewer":
+            dashboard_ids = self.dashboard_access(access).ids(level, cap)
+            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
+        if resource.type == ResourceType.INSIGHT and level != "viewer":
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
+                authorization_insights,
+            )
+
+            insight_ids: set[str] = set()
+            for insight in authorization_insights(resource.project_id):
+                if not insight.deleted and self.check_insight(access, action, insight):
+                    insight_ids.add(str(insight.id))
+                    if len(insight_ids) > cap:
+                        return ResourceIds(ids=frozenset(), complete=False)
+            return ResourceIds(ids=frozenset(insight_ids), complete=True)
         if access.is_organization_admin:
             return build(frozenset(), excluded=True)
         scope = cast(APIScopeObject, resource.type.value)

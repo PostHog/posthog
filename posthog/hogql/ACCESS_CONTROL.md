@@ -68,7 +68,9 @@ They're primarily used by the MCP `execute-sql` tool for retrieval.
 
 Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`).
 
-At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
+At schema build time, `_compute_system_table_access_decision()` asks the authz SDK for the rows the subject may query in each scope.
+It removes tables with no authorized rows, incomplete decisions, or restrictions that cannot be applied because the table has no access-control ID column.
+`Database._apply_system_table_access()` applies those decisions.
 
 `system.data_deletion_requests` uses the dedicated `data_deletion` resource.
 The resource defaults to no access for project members, while organization admins retain their standard highest access.
@@ -87,14 +89,15 @@ This is a `QueryError` (`posthog/hogql/errors.py`), so it's exposed to the user.
 Some resources support per-object access controls - dashboards, insights, notebooks, feature flags, experiments, surveys, error tracking issues, session recordings, etc.
 For these, denied objects are filtered out of the results.
 
-At print time the printer appends a guard that excludes the user's denied object IDs by primary key — effectively `WHERE <id> NOT IN (<denied ids>)`.
+At print time the printer translates the SDK's `ResourceIds` into an `IN` or `NOT IN` guard.
+The SDK decides whether the IDs are grants or denials and whether a creator exemption applies.
+Incomplete decisions produce a false guard, including for creators.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.
 
 When rows are filtered, the response carries a warning: "Results may exclude {resources} you don't have access to".
 
-**Edge case:** object-level access does not override a resource-level deny in HogQL.
-In the app UI you can open a specific dashboard you were granted access to even if the dashboard resource is denied for you; in HogQL the resource-level deny removes `system.dashboards` entirely, so the object grant doesn't help.
-HogQL is intentionally more restrictive here, and it's a known limitation.
+Object grants can keep a table queryable despite a resource-level denial when the printer can filter its rows by the granted IDs.
+Tables without an access-control ID column still require unrestricted access.
 
 ## 2. Warehouse tables and views
 
@@ -263,6 +266,8 @@ The cache key is derived from `get_cache_payload()`:
 - `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, and a property-enforcement version when the user has property restrictions.
   Bump that version when tightening enforcement so a cached result cannot bypass the new masking rules.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
+- It also includes `authz_resource_filters`, containing the SDK's current IDs, inclusion/exclusion mode, completeness, and any creator identity.
+  This partitions results when OpenFGA and the legacy resolver disagree.
 
 Two things keep cache hit rates high:
 
@@ -282,7 +287,7 @@ The same instance is reused across:
 
 - **Schema filtering:** passed into `Database.create_for()`, warmed by `_compute_system_table_access_decision()`, stored as `database.user_access_control`.
 - **Cache fingerprint:** `QueryRunnerWithHogQLContext.user_access_control` returns `self.database.user_access_control`, so the fingerprint and the schema strip resolve access from the same preloaded rows.
-- **Print-time row guards:** `build_access_control_guard()` reads `blocked_resource_ids_by_scope` off the same instance.
+- **Print-time row guards:** `build_access_control_guard()` passes the same preload to the SDK's legacy adapter, then translates the returned filter.
 - **API-level (viewset) access control:** `TeamAndOrgViewSetMixin.user_access_control` (`posthog/api/routing.py`) creates one instance per request, and dashboard rendering passes it down into each tile's query runner (`products/product_analytics/backend/presentation/insight.py`), so N insights share one access-control fetch.
 
 When both access-control types are active, a query run makes just one query to `AccessControl` and one to `PropertyAccessControl`.
