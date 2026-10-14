@@ -3,11 +3,11 @@ import { create } from 'zustand'
 
 import { addSessionEndTask } from '@/auth/authStore'
 import { haptic } from '@/lib/haptics'
-import type { RangeChoice, SavedRange, ViewKind } from '@/model/views'
+import type { RangeChoice, RangePresetKey, SavedRange, ViewKind } from '@/model/views'
 
 import { type RangeMethod, trackDateRangeChanged, trackDateRangeCompared } from './analytics'
 import { type FiltersOverride, rangeOverride } from './rangeOverride'
-import { isSavedRange, rangeLabel } from './rangePresets'
+import { isSavedRange, presetForValues, rangeLabel } from './rangePresets'
 import { type StepContext, type StepDirection, stepRange } from './rangeStep'
 
 /** `dashboard:{id}`, `insight:{short_id}` or `web`. */
@@ -51,6 +51,10 @@ export interface ViewRange {
     choice: RangeChoice | null
     /** The header label. Null when the saved range has no dates (each dashboard tile keeps its own). */
     label: string | null
+    /** The saved range's label, which "Reset to saved range" returns to. Null as for `label`. */
+    savedLabel: string | null
+    /** The preset the range on screen matches, chosen or saved, so the sheet can mark its chip or row. */
+    preset: RangePresetKey | null
     /** False shows "Not saved" and "Reset to saved range". */
     isSaved: boolean
     /** The `filters_override` for dashboards and insights. Null reads the saved range. */
@@ -96,6 +100,13 @@ export function useViewRange(
     return {
         choice,
         label,
+        savedLabel: rangeLabel(null, savedRange),
+        preset:
+            choice?.kind === 'preset'
+                ? choice.key
+                : choice
+                  ? null
+                  : (presetForValues(savedRange.dateFrom, savedRange.dateTo)?.key ?? null),
         isSaved: isSavedRange(choice, savedRange),
         override: rangeOverride(choice),
         compare: compareChoice ?? savedCompare,

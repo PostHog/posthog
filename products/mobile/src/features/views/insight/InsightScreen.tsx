@@ -15,11 +15,12 @@ import { OpensOnWeb } from '../OpensOnWeb'
 import { PinButton } from '../PinButton'
 import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
+import { insightCompareRow } from '../range/compareRow'
+import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
-import { ViewRangeSlot } from '../screen/ViewRangeSlot'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
@@ -131,6 +132,7 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
 
     const resolved = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
     const previous = screen.comparing ? previousRangeText(snapshot) : null
+    const rangeDetail = resolved ? `${resolved}${previous ? ` · compared with ${previous}` : ''}` : null
     const display = insightDisplay(snapshot)
     return (
         <ScrollView
@@ -173,8 +175,16 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
                     </>
                 }
                 refresh={refresh}
-                range={<ViewRangeSlot label={screen.range.label} />}
-                rangeDetail={resolved ? `${resolved}${previous ? ` · compared with ${previous}` : ''}` : null}
+                range={
+                    <ViewRangeControl
+                        range={screen.range}
+                        resolved={snapshot.resolvedRange}
+                        loading={screen.rangeLoading}
+                        detail={rangeDetail}
+                        compare={insightCompareRow(screen.range, screen.compareAvailable)}
+                    />
+                }
+                rangeDetail={rangeDetail}
             />
             <RefreshFailedBanner status={refresh.status} />
             <View style={snapshot.refreshFailed ? styles.dimmed : undefined}>

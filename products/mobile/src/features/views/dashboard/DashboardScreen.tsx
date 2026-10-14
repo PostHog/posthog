@@ -16,11 +16,12 @@ import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { PinButton } from '../PinButton'
+import { dashboardCompareRow } from '../range/compareRow'
+import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
-import { ViewRangeSlot } from '../screen/ViewRangeSlot'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
@@ -182,9 +183,19 @@ interface DashboardHeaderProps {
     dashboardRef: string
 }
 
+const NO_TILE = { itemKey: null, queryKey: null }
+
 function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderProps): ReactElement {
-    // The dashboard response has no resolved dates, so the header shows those of the first tile that follows the range.
+    // The dashboard response has no resolved dates, so the header uses those of the first tile that follows the range.
     const rangeTile = screen.tiles.find((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
+    const { snapshot } = useTileData(rangeTile ?? NO_TILE)
+    const resolved = snapshot?.resolvedRange ?? null
+    // While a new range loads, the tile has no snapshot yet, so the dates of the previous range stay in place.
+    const shownDates = useRef<string | null>(null)
+    if (snapshot) {
+        shownDates.current = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
+    }
+    const detail = rangeTile ? shownDates.current : null
     return (
         <View>
             <ViewTitle
@@ -196,18 +207,19 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
                     />
                 }
                 refresh={screen.refresh}
-                range={<ViewRangeSlot label={screen.range.label} />}
-                rangeDetail={rangeTile ? <RangeDetail tile={rangeTile} /> : null}
+                range={
+                    <ViewRangeControl
+                        range={screen.range}
+                        resolved={resolved}
+                        detail={detail}
+                        compare={dashboardCompareRow(screen.range, screen.compareSupported)}
+                    />
+                }
+                rangeDetail={detail ? <Text style={styles.rangeDetail}>{detail}</Text> : null}
             />
             <RefreshFailedBanner status={screen.refresh.status} />
         </View>
     )
-}
-
-function RangeDetail({ tile }: { tile: DashboardTileState }): ReactElement | null {
-    const { snapshot } = useTileData(tile)
-    const text = snapshot ? resolvedRangeText(snapshot.resolvedRange, snapshot.interval) : null
-    return text ? <Text style={styles.rangeDetail}>{text}</Text> : null
 }
 
 const styles = StyleSheet.create({

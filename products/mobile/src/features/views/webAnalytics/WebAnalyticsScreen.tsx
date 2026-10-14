@@ -9,11 +9,11 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { DeltaPill } from '../DeltaPill'
 import { PinButton } from '../PinButton'
+import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
 import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
-import { ViewRangeSlot } from '../screen/ViewRangeSlot'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import { ViewSkeleton } from '../screen/ViewSkeleton'
 import { ViewTitle } from '../screen/ViewTitle'
@@ -58,13 +58,23 @@ function WebAnalyticsBody({ screen, onBack }: { screen: WebAnalyticsScreenState;
     const overview = screen.overview.data
     const contentTop = topOffset(insets, VIEW_CONTENT_TOP)
     const contentStyle = [styles.content, { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 48) }]
+    const rangeDetail = overview ? resolvedRangeText(overview.resolvedRange, 'day') : null
     const title = (
         <ViewTitle
             title="Web analytics"
             accessories={<PinButton target={{ kind: 'web_analytics' }} match={{ kind: 'web_analytics', ref: null }} />}
             refresh={refresh}
-            range={<ViewRangeSlot label={screen.range.label} />}
-            rangeDetail={overview ? resolvedRangeText(overview.resolvedRange, 'day') : null}
+            range={
+                // No compare row: the overview always compares with the previous period, as the web's overview tile does.
+                <ViewRangeControl
+                    range={screen.range}
+                    resolved={overview?.resolvedRange ?? null}
+                    loading={screen.rangeLoading}
+                    detail={rangeDetail}
+                    compare={null}
+                />
+            }
+            rangeDetail={rangeDetail}
         />
     )
 

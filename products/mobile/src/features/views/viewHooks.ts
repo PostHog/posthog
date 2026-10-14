@@ -94,6 +94,27 @@ function viewState<T>(
     return ready ? { ...loadingQuery<T>(), refetch } : loadingQuery()
 }
 
+interface Held<T> {
+    value: T | undefined
+    /** True while `value` belongs to an earlier range. */
+    held: boolean
+}
+
+/**
+ * The last value a screen showed, kept while the value for a new range loads. The screen then keeps its header and
+ * range control instead of falling back to the loading skeleton. An error for the new range drops the old value.
+ */
+function useHeldWhileLoading<T>(value: T | undefined, error: ItemErrorKind | null): Held<T> {
+    const last = useRef<T | undefined>(value)
+    if (value !== undefined) {
+        last.current = value
+    }
+    if (value !== undefined || error) {
+        return { value, held: false }
+    }
+    return { value: last.current, held: last.current !== undefined }
+}
+
 /** Seconds since the oldest good value among the snapshots, or null when none has one. */
 function oldestAgeSeconds(snapshots: readonly (Freshness | undefined)[]): number | null {
     const times = snapshots.flatMap((snapshot) => (snapshot?.lastRefreshAt ? [Date.parse(snapshot.lastRefreshAt)] : []))
@@ -202,12 +223,29 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         () => tiles.flatMap((tile) => (tile.target ? [insightItem(context.item, tile.target)] : [])),
         [tiles, context.item]
     )
-    const visibility = useVisibility((item) => (item as Partial<DashboardTileState> | null)?.itemKey ?? null)
+    // Rows count as visible by tile id. A range change gives every tile a new item key while the list keeps the same
+    // rows, so the list reports no change, and keys taken from its last report would match no tile.
+    const visibility = useVisibility((item) => {
+        const tileId = (item as Partial<DashboardTileState> | null)?.view?.tileId
+        return tileId === undefined ? null : String(tileId)
+    })
+    const visibleTileIds = visibility.visibleKeys
+    const visibleKeys = useMemo(
+        () =>
+            visibleTileIds
+                ? new Set(
+                      tiles.flatMap((tile) =>
+                          tile.itemKey && visibleTileIds.has(String(tile.view.tileId)) ? [tile.itemKey] : []
+                      )
+                  )
+                : undefined,
+        [tiles, visibleTileIds]
+    )
     const refresh = useViewRefresh({
         screen: 'dashboard',
         screenKey: `dashboard:${dashboardRef}`,
         items,
-        visibleKeys: visibility.visibleKeys,
+        visibleKeys,
         container,
         bulkFloor: true,
         enabled: context.ready,
@@ -262,6 +300,8 @@ export interface InsightScreenState {
     compareAvailable: boolean
     /** True while the compare result shows. */
     comparing: boolean
+    /** True while `insight` still shows the previous range because the new one has not loaded. */
+    rangeLoading: boolean
     refresh: ViewRefresh
     /** The cache entry of the shown snapshot, so a sheet can follow it while open. */
     queryKey: QueryKey | null
@@ -342,15 +382,16 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     useViewOpenedEvent('insight', options, () => [base])
 
     const comparing = Boolean(compareSnapshot && compareBody)
-    const shown = comparing ? compareSnapshot : base
+    const shown = useHeldWhileLoading(comparing ? compareSnapshot : base, error)
     const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        insight: viewState(shown, error, context.ready, reload),
+        insight: viewState(shown.value, error, context.ready, reload),
         error,
         range,
         compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
         comparing,
+        rangeLoading: shown.held,
         refresh,
         queryKey: comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target),
         itemKey,
@@ -364,6 +405,8 @@ export interface WebAnalyticsScreenState {
     overview: QueryState<WebOverviewSnapshot>
     error: ItemErrorKind | null
     range: ViewRange
+    /** True while `overview` still shows the previous range because the new one has not loaded. */
+    rangeLoading: boolean
     refresh: ViewRefresh
 }
 
@@ -394,12 +437,14 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     const error = useItemError(items[0]?.key ?? null)
     useRecordRecentView({ kind: 'web_analytics', ref: null, name: 'Web analytics' })
     useViewOpenedEvent('web_analytics', options, () => [snapshot])
+    const shown = useHeldWhileLoading(snapshot, error)
     const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        overview: viewState(snapshot, error, context.ready, reload),
+        overview: viewState(shown.value, error, context.ready, reload),
         error,
         range,
+        rangeLoading: shown.held,
         refresh,
     }
 }
