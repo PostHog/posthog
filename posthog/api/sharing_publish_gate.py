@@ -77,15 +77,10 @@ def blocked_access_for_publisher(user: User, team: Team, config: SharingConfigur
     return blocked
 
 
-# The breakdown types that read a property the way a property filter does, so the same
-# table access check applies to them.
-_BREAKDOWN_TYPES_AS_FILTERS = frozenset({"data_warehouse", "data_warehouse_person_property", "hogql"})
-
-
 def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:
-    """The property filters of a dashboard filter set, plus its breakdowns expressed as property
-    filters, in the shape `table_blocking_property_filters` checks. A leaf without a string type
-    is skipped, since the check cannot classify it."""
+    """The property filters of a dashboard filter set, plus its breakdowns as HogQL filters, in
+    the shape `table_blocking_property_filters` checks. A leaf without a string type is skipped,
+    since the check cannot classify it."""
     if not isinstance(filters, dict):
         return []
     properties = filters.get("properties")
@@ -104,10 +99,27 @@ def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:
         if isinstance(breakdown, dict)
     ]
     pairs.append((breakdown_filter.get("breakdown_type"), breakdown_filter.get("breakdown")))
-    for breakdown_type, key in pairs:
-        if breakdown_type in _BREAKDOWN_TYPES_AS_FILTERS and isinstance(key, str):
-            leaves.append({"type": breakdown_type, "key": key, "operator": "is_set"})
+    for breakdown_type, value in pairs:
+        # A funnel breakdown is a list of values, each read like a single breakdown.
+        for key in value if isinstance(value, list) else [value]:
+            if isinstance(breakdown_type, str) and isinstance(key, str):
+                if expr := _breakdown_as_hogql(breakdown_type, key):
+                    leaves.append({"type": "hogql", "key": expr})
     return leaves
+
+
+def _breakdown_as_hogql(breakdown_type: str, key: str) -> str | None:
+    """The expression a breakdown reads, as the trends breakdown builds it, for the breakdown
+    types that can reach a warehouse table. None for the types that cannot."""
+    if breakdown_type in ("hogql", "event_metadata"):
+        return key
+    if breakdown_type == "data_warehouse":
+        chain = key.split(".")
+    elif breakdown_type == "data_warehouse_person_property":
+        chain = ["person", *key.split(".")]
+    else:
+        return None
+    return ".".join(f"`{part}`" for part in chain)
 
 
 def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:

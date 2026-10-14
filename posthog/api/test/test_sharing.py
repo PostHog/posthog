@@ -24,6 +24,7 @@ from posthog.api.sharing import (
     check_can_access_sharing_configuration,
     shared_url_as_png,
 )
+from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
@@ -2220,6 +2221,26 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @parameterized.expand(
+        [
+            (
+                "warehouse_person_chain",
+                "data_warehouse_person_property",
+                "allowed_join.denied_join.id",
+                "`person`.`allowed_join`.`denied_join`.`id`",
+            ),
+            ("warehouse_chain", "data_warehouse", "stripe.charges.amount", "`stripe`.`charges`.`amount`"),
+            ("event_metadata", "event_metadata", "(SELECT 1 FROM t)", "(SELECT 1 FROM t)"),
+            ("person_property", "person", "email", None),
+        ]
+    )
+    def test_breakdown_reads_the_chain_trends_resolves(
+        self, _name: str, breakdown_type: str, key: str, expected: str | None
+    ):
+        leaves = dashboard_filter_leaves({"breakdown_filter": {"breakdown_type": breakdown_type, "breakdown": key}})
+
+        assert leaves == ([{"type": "hogql", "key": expected}] if expected else [])
+
     @parameterized.expand([("dashboard_filters",), ("tile_overrides",)])
     @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
     def test_denied_dashboard_filters_saved_before_sharing_block_enabling(self, target: str, _flag):
@@ -2644,7 +2665,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("grouped_tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
             ("null_dashboard_filters", "shared", status.HTTP_200_OK),
             ("breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("metadata_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("list_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
             ("untyped_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("untyped_breakdown_dashboard_filters", "shared", status.HTTP_200_OK),
             ("dashboard_filters", "none", status.HTTP_200_OK),
         ]
     )
@@ -2677,6 +2701,22 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             sent_filters = {
                 "breakdown_filter": {"breakdown_type": "data_warehouse_person_property", "breakdown": "denied_join.id"}
             }
+        elif target.startswith("metadata_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "event_metadata",
+                    "breakdown": "(SELECT any(id) FROM denied_warehouse_table)",
+                }
+            }
+        elif target.startswith("list_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "hogql",
+                    "breakdown": ["distinct_id", "(SELECT count() FROM denied_warehouse_table)"],
+                }
+            }
+        elif target.startswith("untyped_breakdown"):
+            sent_filters = {"breakdown_filter": {"breakdown_type": [], "breakdown": "denied_join.id"}}
         elif target.startswith("untyped"):
             sent_filters = {"properties": [{"type": [], "key": "x", "value": "y"}]}
         payload = (
