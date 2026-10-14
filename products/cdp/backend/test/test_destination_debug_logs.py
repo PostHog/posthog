@@ -70,7 +70,7 @@ class TestDestinationDebugLogs(ClickhouseTestMixin, BaseTest):
         ]
         for i, (function, message) in enumerate(doomed):
             self._insert(function, "debug", message, BEFORE + timedelta(seconds=i))
-        for i, (function, level, message, timestamp) in enumerate(kept):
+        for i, (function, level, message, timestamp) in enumerate(kept, start=len(doomed)):
             self._insert(function, level, message, timestamp + timedelta(seconds=i))
 
         scope = DebugLogScope(before=CUTOFF, team_id=self.team.pk)

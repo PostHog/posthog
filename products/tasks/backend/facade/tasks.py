@@ -1,7 +1,7 @@
 """
 Celery-task wiring for the tasks product.
 
-Re-exports the beat-scheduled sweeps that core's scheduler registers.
+Re-exports the beat-scheduled tasks that core's scheduler registers.
 """
 
 from products.tasks.backend.task_auto_archive import sweep_inactive_tasks_task

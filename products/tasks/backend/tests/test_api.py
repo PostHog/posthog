@@ -7536,7 +7536,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "rtk_effective": True,
                 "benjamin_effective": True,
                 "usage_metrics_recorded": True,
-                "loop_terminal_bookkeeping_complete": True,
                 "analysis_target_repository": "posthog/posthog",
                 "analysis_target_custom_image_id": "img-real",
                 "analysis_target_custom_image_name": "real-image",
@@ -7632,7 +7631,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "rtk_effective": False,
                     "benjamin_effective": False,
                     "usage_metrics_recorded": False,
-                    "loop_terminal_bookkeeping_complete": False,
                     # server-stamped analysis attribution; a forged value would
                     # misattribute the captured activity event to another repository / image
                     "analysis_target_repository": "attacker/attacker",
@@ -7707,7 +7705,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["rtk_effective"] is True
         assert run.state["benjamin_effective"] is True
         assert run.state["usage_metrics_recorded"] is True
-        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
@@ -7776,7 +7773,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "rtk_effective",
                     "benjamin_effective",
                     "usage_metrics_recorded",
-                    "loop_terminal_bookkeeping_complete",
                     "analysis_target_repository",
                     "analysis_target_custom_image_id",
                     "analysis_target_custom_image_name",
@@ -7833,7 +7829,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["rtk_effective"] is True  # protected key survives removal
         assert run.state["benjamin_effective"] is True  # protected key survives removal
         assert run.state["usage_metrics_recorded"] is True  # protected key survives removal
-        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"

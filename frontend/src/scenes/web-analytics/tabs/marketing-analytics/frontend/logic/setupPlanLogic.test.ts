@@ -412,7 +412,7 @@ describe('setupPlanLogic', () => {
         expect(logic.values.sourceScanDisabledReason).toBeNull()
     })
 
-    it('retries a failed initial request during a persisted scan cooldown without forcing a scan', async () => {
+    it('retries a failed initial request with a fresh scan during a persisted cooldown', async () => {
         const urls: string[] = []
         useMocks({
             get: {
@@ -423,10 +423,13 @@ describe('setupPlanLogic', () => {
             },
         })
         logic.actions.recordSourceScan(logic.values.currentTeamId!, Date.now())
+        expect(logic.values.setupPlanFailed).toBe(false)
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toDispatchActions(['loadSetupPlanFailure'])
         expect(logic.values.sourceScanDisabledReason).toBeNull()
+        expect(logic.values.setupPlanFailed).toBe(true)
         await expectLogic(logic, () => logic.actions.rescanSources()).toDispatchActions(['loadSetupPlanSuccess'])
-        expect(new URL(urls[1]).searchParams.get('refresh')).toBe('false')
+        expect(logic.values.setupPlanFailed).toBe(false)
+        expect(new URL(urls[1]).searchParams.get('refresh')).toBe('true')
     })
 
     describe('retrying syncs', () => {

@@ -90,6 +90,7 @@ Components that need `forwardRef`:
 - `Button`, `Input`, `Chip`, `ChipClose`
 - `InputGroup`, `InputGroupInput`, `InputGroupButton`
 - `ComboboxTrigger`
+- `TooltipTrigger`, `DropdownMenuTrigger`, `PopoverTrigger`, `DialogTrigger`, `DrawerTrigger`
 - Any component passed to Base UI's `render` prop
 
 ### 6. Composition hierarchy
