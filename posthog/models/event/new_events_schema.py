@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
+# TODO: Remove the per-query rollout option after the events cluster migration is complete.
 _query_host: ContextVar[list[str | None] | None] = ContextVar("new_events_cluster_host", default=None)
 
 
@@ -27,7 +28,7 @@ def get_new_events_cluster_host() -> str | None:
 
 @contextmanager
 def new_events_cluster_host_scope() -> Iterator[None]:
-    # Child queries and parallel series share the cache lookup's host until the request ends.
+    # Pin cache lookup and execution to one host even if settings change mid-request.
     if _query_host.get() is not None:
         yield
         return
