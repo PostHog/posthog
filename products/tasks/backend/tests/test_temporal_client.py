@@ -24,6 +24,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
 )
+from products.tasks.backend.temporal.run_trace import run_trace_context
 
 
 @override_settings(DEBUG=False)
@@ -118,6 +119,16 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             )
         else:
             handle.query.assert_not_awaited()
+
+
+class TestRunTraceContext(SimpleTestCase):
+    def test_run_id_that_is_not_a_uuid_leaves_the_trace_context_alone(self) -> None:
+        propagated: dict[str, str] = {}
+
+        with run_trace_context("not-a-uuid", enabled=True):
+            propagate.inject(propagated)
+
+        self.assertEqual(propagated, {})
 
 
 @override_settings(DEBUG=False)
@@ -282,7 +293,6 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
 
         with (
-            override_settings(DEBUG=False),
             patch(connect_target, connect_mock),
             patch(
                 "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled",
