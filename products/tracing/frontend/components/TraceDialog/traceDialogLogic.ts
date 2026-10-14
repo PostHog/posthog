@@ -53,6 +53,7 @@ export interface traceDialogLogicValues {
     dialogEnabled: boolean
     flatSpans: SpanNode[]
     isOpen: boolean
+    missingParentSpanId: string | null
     openedAtUs: number | null
     selectedSpan: Span | null
     selectedSpanId: string | null
@@ -131,6 +132,7 @@ export interface traceDialogLogicMeta {
             selectedSpanId: string | null,
             summary: TraceDialogSummary
         ) => Span | null
+        missingParentSpanId: (traceSpans: TraceDialogSpans | null, selectedSpanId: string | null) => string | null
         activeInspectorTab: (
             chosenInspectorTab: SpanInspectorTab | null,
             selectedSpan: Span | null,
@@ -254,6 +256,17 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 summary.rootSpan ??
                 traceSpans?.spans[0] ??
                 null,
+        ],
+        // The tree's "<parent span missing>" row selects an id that only appears as a parent id.
+        missingParentSpanId: [
+            (s) => [s.traceSpans, s.selectedSpanId],
+            (traceSpans: TraceDialogSpans | null, selectedSpanId: string | null): string | null =>
+                selectedSpanId &&
+                traceSpans &&
+                !traceSpans.spans.some((span) => span.span_id === selectedSpanId) &&
+                traceSpans.spans.some((span) => span.parent_span_id === selectedSpanId)
+                    ? selectedSpanId
+                    : null,
         ],
         activeInspectorTab: [
             (s) => [s.chosenInspectorTab, s.selectedSpan, s.sessionErrorBadgesEnabled],
