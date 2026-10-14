@@ -21,12 +21,11 @@ export function eventValue(alert: BillingAlertConfigurationApi, event: BillingAl
 }
 
 export function wouldFire(alert: BillingAlertConfigurationApi, event: BillingAlertEventApi): boolean {
-    if (event.current_value === null || event.current_value === undefined) {
-        return false
-    }
-    const current = Number(event.current_value)
-    const minimum = Number(alert.minimum_value ?? 0)
-    if (!Number.isFinite(current) || current < minimum) {
+    if (
+        event.current_value === null ||
+        event.current_value === undefined ||
+        !Number.isFinite(Number(event.current_value))
+    ) {
         return false
     }
     const view = thresholdView(alert)
