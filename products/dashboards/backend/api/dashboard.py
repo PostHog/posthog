@@ -2230,7 +2230,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             property_filter
             for filters in filter_sets
             if isinstance(filters, dict)
-            for property_filter in DashboardSerializer._validated_filters(filters).get("properties", [])
+            for property_filter in DashboardSerializer._validated_filters(filters).get("properties") or []
         ]
         if not properties:
             return
