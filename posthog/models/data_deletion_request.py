@@ -1,5 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
@@ -404,8 +406,9 @@ class DataDeletionRequest(UUIDModel):
         default=ExecutionMode.IMMEDIATE,
         help_text="Picked by ClickHouse Team at approval time. "
         "Immediate: run a dedicated delete mutation now. "
-        "Deferred: queue event UUIDs into adhoc_events_deletion so the "
-        "scheduled deletes_job drains them. Only honored for event_removal.",
+        "Deferred: the scheduled deletes_job deletes the rows. Event removals queue event UUIDs into "
+        "adhoc_events_deletion for it, and logs removals wait in the queued status for it. "
+        "Ignored for property_removal and person_removal.",
     )
 
     # Execution tracking
@@ -580,6 +583,19 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
 
 
+class LogsRemovalCriteria(Protocol):
+    """What a logs removal deletes: the rows of one team in one time range."""
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def start_time(self) -> datetime | None: ...
+
+    @property
+    def end_time(self) -> datetime | None: ...
+
+
 @dataclass(frozen=True)
 class LogsRemovalTable:
     """One logs table that a logs_removal request deletes from.
@@ -595,12 +611,30 @@ class LogsRemovalTable:
     # starts before the range can still hold rows from inside it, so the start rounds down to it.
     bucket_minutes: int | None = None
 
-    def removal_where(self, obj) -> tuple[str, dict]:
-        start = "%(start_time)s"
+    def removal_where(self, obj: LogsRemovalCriteria, suffix: str = "") -> tuple[str, dict]:
+        # ``suffix`` keeps the parameter names of several requests apart when they share one command.
+        start = f"%(start_time{suffix})s"
         if self.bucket_minutes:
-            start = f"toStartOfInterval(toDateTime64(%(start_time)s, 6), toIntervalMinute({self.bucket_minutes}))"
-        predicate = f"team_id = %(team_id)s AND {self.time_column} >= {start} AND {self.time_column} < %(end_time)s"
-        return predicate, {"team_id": obj.team_id, "start_time": obj.start_time, "end_time": obj.end_time}
+            start = f"toStartOfInterval(toDateTime64({start}, 6), toIntervalMinute({self.bucket_minutes}))"
+        predicate = (
+            f"team_id = %(team_id{suffix})s AND {self.time_column} >= {start} "
+            f"AND {self.time_column} < %(end_time{suffix})s"
+        )
+        return predicate, {
+            f"team_id{suffix}": obj.team_id,
+            f"start_time{suffix}": obj.start_time,
+            f"end_time{suffix}": obj.end_time,
+        }
+
+    def removal_where_any(self, requests: Sequence[LogsRemovalCriteria]) -> tuple[str, dict]:
+        """Match the rows of any of ``requests``, so one mutation deletes them all."""
+        predicates: list[str] = []
+        params: dict = {}
+        for index, request in enumerate(requests):
+            predicate, request_params = self.removal_where(request, suffix=f"_{index}")
+            predicates.append(f"({predicate})")
+            params.update(request_params)
+        return " OR ".join(predicates), params
 
 
 LOGS_TABLE = LogsRemovalTable(data_table="logs34", read_table="logs_distributed", time_column="timestamp")

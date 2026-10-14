@@ -64,6 +64,7 @@ from posthog.dags.data_deletion_requests import (
     verify_property_removal,
     verify_property_removal_shard,
 )
+from posthog.dags.deletes import delete_queued_logs
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -3216,7 +3217,8 @@ def _count_logs_rows(team_id: int, at: datetime, client: Client) -> dict[str, in
 
 
 @pytest.mark.django_db
-def test_full_job_logs_removal(cluster: ClickhouseCluster) -> None:
+@pytest.mark.parametrize("execution_mode", [ExecutionMode.IMMEDIATE, ExecutionMode.DEFERRED])
+def test_full_job_logs_removal(cluster: ClickhouseCluster, execution_mode: ExecutionMode) -> None:
     hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=5)
     # The range starts inside the rollup bucket at `hour`, so that bucket holds rows from the range.
     start_time = hour + timedelta(minutes=5)
@@ -3224,10 +3226,18 @@ def test_full_job_logs_removal(cluster: ClickhouseCluster) -> None:
     in_range = hour + timedelta(minutes=30)
     before_range = hour - timedelta(hours=3)
     # The ClickHouse reset between tests leaves the logs tables alone, so each run uses fresh teams.
-    team = TEAM_ID + uuid4().int % 1_000_000 * 2
+    team = TEAM_ID + uuid4().int % 1_000_000 * 3
     other_team = team + 1
+    queued_team = team + 2
 
-    for team_id, at in [(team, in_range), (team, hour), (team, before_range), (other_team, in_range)]:
+    for team_id, at in [
+        (team, in_range),
+        (team, hour),
+        (team, before_range),
+        (other_team, in_range),
+        (queued_team, in_range),
+        (queued_team, before_range),
+    ]:
         cluster.any_host(partial(_insert_logs_rows, team_id, at)).result()
 
     request = DataDeletionRequest.objects.create(
@@ -3236,12 +3246,39 @@ def test_full_job_logs_removal(cluster: ClickhouseCluster) -> None:
         start_time=start_time,
         end_time=end_time,
         status=RequestStatus.APPROVED,
+        execution_mode=execution_mode,
     )
     result = data_deletion_request_logs_removal.execute_in_process(
         run_config={"ops": {"load_logs_removal_request": {"config": {"request_id": str(request.pk)}}}},
         resources={"cluster": cluster},
     )
     assert result.success
+
+    request.refresh_from_db()
+    if execution_mode == ExecutionMode.DEFERRED:
+        assert request.status == RequestStatus.QUEUED
+        assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
+            "logs34": 1,
+            "log_attributes3": 1,
+            "logs_pattern_buckets": 1,
+        }
+        # A second queued request with another range shares the drain's mutation with the first.
+        DataDeletionRequest.objects.create(
+            team_id=queued_team,
+            request_type=RequestType.LOGS_REMOVAL,
+            start_time=before_range - timedelta(hours=1),
+            end_time=before_range + timedelta(hours=1),
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+        delete_queued_logs(build_op_context(resources={"cluster": cluster}))
+        assert cluster.any_host(partial(_count_logs_rows, queued_team, before_range)).result() == {
+            "logs34": 0,
+            "log_attributes3": 0,
+            "logs_pattern_buckets": 0,
+        }
+    else:
+        assert request.status == RequestStatus.COMPLETED
 
     assert cluster.any_host(partial(_count_logs_rows, team, in_range)).result() == {
         "logs34": 0,
@@ -3254,14 +3291,12 @@ def test_full_job_logs_removal(cluster: ClickhouseCluster) -> None:
         "log_attributes3": 0,
         "logs_pattern_buckets": 0,
     }
-    for team_id, at in [(team, before_range), (other_team, in_range)]:
+    for team_id, at in [(team, before_range), (other_team, in_range), (queued_team, in_range)]:
         assert cluster.any_host(partial(_count_logs_rows, team_id, at)).result() == {
             "logs34": 1,
             "log_attributes3": 1,
             "logs_pattern_buckets": 1,
         }
-    request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
 
 
 @pytest.mark.django_db

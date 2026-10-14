@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "1397_uploaded_media_dimensions_and_archive"),
     ]
@@ -23,6 +22,16 @@ class Migration(migrations.Migration):
                 ],
                 help_text="property_removal: remove specific properties from matching events. event_removal: delete entire events matching the criteria. hogql_event_removal: delete events selected by a stored HogQL query. logs_removal: delete every log record for the team in the time range.",
                 max_length=40,
+            ),
+        ),
+        migrations.AlterField(
+            model_name="datadeletionrequest",
+            name="execution_mode",
+            field=models.CharField(
+                choices=[("immediate", "Immediate"), ("deferred", "Deferred")],
+                default="immediate",
+                help_text="Picked by ClickHouse Team at approval time. Immediate: run a dedicated delete mutation now. Deferred: the scheduled deletes_job deletes the rows. Event removals queue event UUIDs into adhoc_events_deletion for it, and logs removals wait in the queued status for it. Ignored for property_removal and person_removal.",
+                max_length=20,
             ),
         ),
     ]

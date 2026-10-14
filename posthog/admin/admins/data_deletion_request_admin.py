@@ -725,7 +725,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        supports_deferred = obj.request_type in (RequestType.EVENT_REMOVAL, RequestType.HOGQL_EVENT_REMOVAL)
+        supports_deferred = obj.request_type in (
+            RequestType.EVENT_REMOVAL,
+            RequestType.HOGQL_EVENT_REMOVAL,
+            RequestType.LOGS_REMOVAL,
+        )
         is_hogql_event_removal = obj.request_type == RequestType.HOGQL_EVENT_REMOVAL
         default_execution_mode = ExecutionMode.DEFERRED if supports_deferred else ExecutionMode.IMMEDIATE
 
@@ -733,13 +737,13 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             execution_mode = request.POST.get("execution_mode", default_execution_mode)
             if is_hogql_event_removal:
                 execution_mode = ExecutionMode.DEFERRED
-            elif obj.request_type in (RequestType.PERSON_REMOVAL, RequestType.LOGS_REMOVAL):
+            elif obj.request_type == RequestType.PERSON_REMOVAL:
                 execution_mode = ExecutionMode.IMMEDIATE
             if execution_mode not in ExecutionMode.values:
                 messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
             if execution_mode == ExecutionMode.DEFERRED and not supports_deferred:
-                messages.error(request, "Deferred execution is only supported for event removal requests.")
+                messages.error(request, "Deferred execution is only supported for event and logs removal requests.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
 
             updated = DataDeletionRequest.objects.filter(
