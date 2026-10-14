@@ -90,6 +90,10 @@ describe('workflowProposalsLogic', () => {
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
+                '/api/projects/:team_id/hog_flows/:id/optimization/': () => [
+                    409,
+                    { code: 'workflow_has_no_email_step', detail: 'Add an email step.' },
+                ],
                 '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/approve/': async ({ request }) => {
                     approveBodies.push((await request.json()) as Record<string, any>)
                     return [approveStatus, approveStatus === 200 ? proposal : { code: 'stale_update' }]
@@ -184,6 +188,22 @@ describe('workflowProposalsLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.turnOnDisabledReason).toBe(reason)
+    })
+
+    it('a 409 on turning suggestions on reloads the workflow so the toggles show why', async () => {
+        workflowActions = [{ id: 'mail', type: 'function_email' }]
+        await expectLogic(logic, () => {
+            workflowLogic({ id: WORKFLOW_ID }).actions.loadWorkflow()
+        }).toFinishAllListeners()
+        expect(logic.values.turnOnDisabledReason).toBeUndefined()
+
+        workflowActions = [{ id: 'hook', type: 'function' }]
+        await expectLogic(logic, () => {
+            logic.actions.setOptimizationEnabled(true)
+        }).toFinishAllListeners()
+
+        expect(logic.values.optimizationEnabled).toBe(false)
+        expect(logic.values.turnOnDisabledReason).toContain('Self-driving only works on workflows that send email')
     })
 
     it('reloads the queue when the workflow version moves', async () => {

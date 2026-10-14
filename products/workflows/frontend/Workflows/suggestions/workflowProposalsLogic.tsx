@@ -439,6 +439,13 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                             lemonToast.error(error.detail)
                             return values.optimization
                         }
+                        // A 409 means the published workflow changed since this page loaded (archived, or its
+                        // email step removed). Reloading it lets the toggles show the reason.
+                        if (error instanceof ApiError && error.status === 409 && error.detail) {
+                            lemonToast.error(error.detail)
+                            workflowLogic({ id: props.id }).actions.loadWorkflow()
+                            return values.optimization
+                        }
                         throw error
                     }
                 },
