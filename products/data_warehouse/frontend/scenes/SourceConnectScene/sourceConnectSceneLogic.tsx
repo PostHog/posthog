@@ -233,7 +233,7 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                 } catch (e: any) {
                     // The endpoint tests the credentials against a live connection, so a rejection
                     // is the common case. kea-forms swallows a thrown submit, leaving the button inert.
-                    if (!(e?.data?.message ?? e?.detail) && e?.status >= 500) {
+                    if (e?.status >= 500) {
                         posthog.captureException(e)
                     }
                     lemonToast.error(resolveConnectErrorMessage(e))

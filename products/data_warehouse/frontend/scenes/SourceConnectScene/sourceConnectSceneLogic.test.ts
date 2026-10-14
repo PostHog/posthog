@@ -146,5 +146,6 @@ describe('sourceConnectSceneLogic', () => {
 
         expect(errorToast).toHaveBeenCalledWith('Could not connect to the database. Check the host, then try again.')
         expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
+        errorToast.mockRestore()
     })
 })
