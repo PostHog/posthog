@@ -340,7 +340,11 @@ async fn prepare_store(
         searched_at,
     );
     if let Some(attempt) = local {
-        if let ControlFlow::Break(pending) = search.record(restore.local(attempt)?) {
+        let verdict = match attempt {
+            Ok(attempt) => restore.local(attempt)?,
+            Err(failure) => Verdict::Failed(failure),
+        };
+        if let ControlFlow::Break(pending) = search.record(verdict) {
             return Ok((BootStore::Restored(pending), "local"));
         }
     }
@@ -577,35 +581,53 @@ fn remove_dir_if_present(path: &Path) -> io::Result<()> {
     }
 }
 
-/// The newest complete attempt under `lineage_dir` whose manifest was captured within
-/// `max_staleness` before `now`. An older one is distrusted, because the broker has likely moved
-/// past what it would replay. An attempt cut short before its `metadata.json` is passed over for
-/// the one before.
+/// The newest attempt under `lineage_dir` whose id is within `max_staleness` before `now`. An older
+/// one is distrusted, because the broker has likely moved past what it would replay. An attempt cut
+/// short before its `metadata.json`, or written in a format this build does not read, is passed
+/// over for the one before. Any other unreadable file fails the attempt, so the boot blocks instead
+/// of creating a store without the history the attempt may hold.
 fn newest_fresh_local_checkpoint(
     lineage_dir: &Path,
     max_staleness: Duration,
     now: DateTime<Utc>,
-) -> Option<LocalAttempt> {
+) -> Option<Result<LocalAttempt, CandidateFailure>> {
     std::fs::read_dir(lineage_dir)
         .ok()?
         .flatten()
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
         .filter_map(|dir| {
-            let manifest = OffsetManifest::load_from_dir(&dir).ok()?;
-            let metadata = CheckpointMetadata::load(&dir.join(METADATA_FILENAME)).ok()?;
-            // A future-dated capture (clock skew) has no positive age and counts as fresh.
+            let id = dir.file_name()?.to_str()?.to_owned();
+            let attempted = CheckpointMetadata::parse_id(&id)?;
+            // A future-dated attempt (clock skew) has no positive age and counts as fresh.
             let fresh = now
-                .signed_duration_since(manifest.captured_at())
+                .signed_duration_since(attempted)
                 .to_std()
                 .map_or(true, |age| age <= max_staleness);
-            fresh.then_some(LocalAttempt {
-                dir,
-                manifest,
-                metadata,
-            })
+            if !fresh {
+                return None;
+            }
+            let metadata = match CheckpointMetadata::load(&dir.join(METADATA_FILENAME)) {
+                Ok(metadata) => metadata,
+                Err(MetadataError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+                    return None
+                }
+                Err(MetadataError::UnsupportedFormat { .. }) => return None,
+                Err(err) => return Some((attempted, Err(CandidateFailure::new(&id, err)))),
+            };
+            let attempt = match OffsetManifest::load_from_dir(&dir) {
+                Ok(manifest) => Ok(LocalAttempt {
+                    dir,
+                    manifest,
+                    metadata,
+                }),
+                Err(ManifestError::UnsupportedFormat { .. }) => return None,
+                Err(err) => Err(CandidateFailure::new(&id, err)),
+            };
+            Some((attempted, attempt))
         })
-        .max_by_key(|attempt| attempt.manifest.captured_at())
+        .max_by_key(|(attempted, _)| *attempted)
+        .map(|(_, attempt)| attempt)
 }
 
 #[cfg(test)]
@@ -951,7 +973,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_newest_complete_local_attempt_restores_unless_it_is_stale() {
+    async fn the_newest_fresh_local_attempt_restores_and_an_unreadable_one_fails() {
         let boot = Boot::new();
         boot.local_checkpoint();
         let newest = boot.local_checkpoint();
@@ -968,6 +990,23 @@ mod tests {
             newest_fresh_local_checkpoint(&boot.lineage_dir(), Duration::from_secs(3600), later)
                 .is_none(),
             "an attempt captured before the staleness bound is distrusted",
+        );
+
+        std::fs::write(
+            boot.lineage_dir().join(&newest.id).join(METADATA_FILENAME),
+            b"{\"version\": 2",
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                newest_fresh_local_checkpoint(
+                    &boot.lineage_dir(),
+                    Duration::from_secs(3600),
+                    Utc::now()
+                ),
+                Some(Err(_))
+            ),
+            "a newest attempt that cannot be read fails rather than giving way to an older one",
         );
     }
 }

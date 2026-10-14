@@ -1,7 +1,7 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{ensure, Context};
@@ -997,9 +997,15 @@ impl Config {
         }
         let checkpoints = Path::new(&self.checkpoint_local_dir);
         let store = Path::new(&self.store_path);
+        // `starts_with` compares path components, so a `..` could name the store or its staging
+        // directory under a spelling the checks below do not match.
+        let plain = |path: &Path| {
+            path.is_absolute() && !path.components().any(|part| part == Component::ParentDir)
+        };
         ensure!(
-            checkpoints.is_absolute() && store.is_absolute(),
-            "CHECKPOINT_LOCAL_DIR {checkpoints:?} and STORE_PATH {store:?} must be absolute paths.",
+            plain(checkpoints) && plain(store),
+            "CHECKPOINT_LOCAL_DIR {checkpoints:?} and STORE_PATH {store:?} must be absolute paths \
+             without `..`.",
         );
         ensure!(
             !checkpoints.starts_with(store) && !store.starts_with(checkpoints),
@@ -2032,7 +2038,7 @@ mod tests {
         enabled().validate_startup().unwrap();
 
         type Misconfigure = fn(&mut Config);
-        let cases: [(&str, Misconfigure, &str); 8] = [
+        let cases: [(&str, Misconfigure, &str); 9] = [
             (
                 "no bucket",
                 |c| c.checkpoint_s3_bucket.clear(),
@@ -2067,6 +2073,11 @@ mod tests {
                 "a checkpoint dir inside the restore's staging dir",
                 |c| c.checkpoint_local_dir = "/data/store.restore/checkpoints".to_string(),
                 "stages",
+            ),
+            (
+                "a checkpoint dir that reaches the staging dir through `..`",
+                |c| c.checkpoint_local_dir = "/data/../data/store.restore".to_string(),
+                "without `..`",
             ),
             (
                 "a pod name without an ordinal",

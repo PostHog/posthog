@@ -176,7 +176,7 @@ When none publishes:
 
 Unusable means an upload that never finished, a metadata or manifest format this build does not read, or a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on.
 Older candidates are no better, so a retry cannot help.
-A failed candidate is one that could restore after a fix: a download error, a stage that fails validation, a schema mismatch without the wipe flag.
+A failed candidate is one that could restore after a fix: a download error, a local attempt whose files cannot be read, a stage that fails validation, a schema mismatch without the wipe flag.
 A failed listing, a failed Kafka commit and a local file error also block.
 
 ### A blocked restore
@@ -222,7 +222,7 @@ It renames the store to the staging path first, so a deletion cut short never le
 
 With `CHECKPOINT_ENABLED`, the processor takes a whole-store RocksDB checkpoint into `CHECKPOINT_LOCAL_DIR` every `CHECKPOINT_INTERVAL_MS`, and uploads one in every few to object storage, at `CHECKPOINT_S3_UPLOAD_INTERVAL_MS`.
 The loop starts when boot ends.
-Checkpoints require durable restore, a bucket, and an absolute checkpoint directory on the store's filesystem but outside the store and its `<STORE_PATH>.restore` staging directory, and the pod fails at start without them.
+Checkpoints require durable restore, a bucket, and an absolute checkpoint directory without `..` on the store's filesystem but outside the store and its `<STORE_PATH>.restore` staging directory, and the pod fails at start without them.
 
 - **One lineage per pod.**
   A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.

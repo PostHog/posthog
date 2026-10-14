@@ -1434,7 +1434,8 @@ async fn delete_s3_prefix(config: &Config) {
 /// eviction queue rebuilt over the restored `cf_behavioral`.
 ///
 /// Asserting count-exact (not mere presence) sidesteps the documented fast-broker flake.
-#[tokio::test]
+// Multi-threaded: finishing the restore commits with `block_in_place`.
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS) AND an S3-compatible store (CHECKPOINT_S3_*); see module docs"]
 async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     let topics = RestoreTopics::unique();

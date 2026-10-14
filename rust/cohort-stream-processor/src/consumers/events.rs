@@ -1284,7 +1284,10 @@ impl CohortStreamEventsConsumer {
                 Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
                 None => Ok(()),
             };
-            match pending.finish(commit_events) {
+            // A sync commit waits until the group coordinator answers. `block_in_place` hands this
+            // worker's other tasks to another thread meanwhile, so a runtime with one worker still
+            // serves the health server.
+            match tokio::task::block_in_place(|| pending.finish(commit_events)) {
                 Ok(()) => info!(
                     topic = %self.topic,
                     partitions = sought,
