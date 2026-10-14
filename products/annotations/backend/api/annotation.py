@@ -185,6 +185,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     queryset = (
         Annotation.objects.select_related("dashboard_item").select_related("dashboard").select_related("created_by")
     )

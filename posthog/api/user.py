@@ -1030,6 +1030,7 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    guest_allowed_actions = "all"
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys
@@ -2182,7 +2183,7 @@ def redirect_to_website(request):
             app_url=app_url,
             team_id=team.id,
         )
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        return HttpResponse("Can only redirect to a permitted domain.", status=403)
 
     token = ""
 

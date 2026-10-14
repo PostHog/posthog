@@ -1813,6 +1813,7 @@ class InsightViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Insight"
     serializer_class = InsightSerializer

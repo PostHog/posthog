@@ -596,6 +596,7 @@ class OrganizationDataFreshnessSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
+    guest_allowed_actions = frozenset({"retrieve"})
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()

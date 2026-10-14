@@ -36,8 +36,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.guest_access import (
-    GUEST_ALLOWED,
-    GUEST_ANY_ACTION_SCOPES,
     GUEST_MODE_FEATURE,
     GUEST_V2_OBJECT_TYPES,
     GuestState,
@@ -1059,7 +1057,8 @@ class MCPAccessPermission(ScopeBasePermission):
 
 
 class GuestPermission(BasePermission):
-    """Deny guests every action outside GUEST_ALLOWED, and every action when the org lacks guest access.
+    """Deny guests every action a view does not opt in through `guest_allowed_actions`, and every action when the org
+    lacks guest access.
 
     Put it after the membership permissions, which load the memberships it reads.
     """
@@ -1075,11 +1074,10 @@ class GuestPermission(BasePermission):
             return False
         if not state.enforced:
             return True
-        scope_object = getattr(view, "scope_object", None)
-        action = getattr(view, "action", None)
-        if not isinstance(scope_object, str):
-            return False
-        return scope_object in GUEST_ANY_ACTION_SCOPES or action in GUEST_ALLOWED.get(scope_object, frozenset())
+        # A view opts guests in action by action. Views that share a scope object, such as every view scoped to
+        # "project", stay closed unless they opt in too.
+        allowed = getattr(view, "guest_allowed_actions", frozenset())
+        return allowed == "all" or getattr(view, "action", None) in allowed
 
 
 class AccessControlPermission(ScopeBasePermission):

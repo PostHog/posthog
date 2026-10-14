@@ -237,6 +237,7 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
+    guest_allowed_actions = frozenset({"create", "create_with_kind", "retrieve", "destroy"})
     serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]

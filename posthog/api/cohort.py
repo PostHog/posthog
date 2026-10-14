@@ -1849,6 +1849,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
 
     def _is_basic_list_request(self) -> bool:
         # `?basic=true` on the list endpoint: trimmed payload + deferred columns.

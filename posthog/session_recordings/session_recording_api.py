@@ -874,6 +874,7 @@ class SessionRecordingViewSet(
     authentication_classes = [ExportRendererAuthentication]
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
+    guest_allowed_actions = frozenset({"retrieve", "snapshots", "snapshot_file"})
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer

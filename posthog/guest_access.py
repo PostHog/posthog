@@ -5,7 +5,6 @@ rules grant them. The rules apply only in organizations on the authz v2 rollout.
 products/authz/model/core.fga for the matching OpenFGA model.
 """
 
-from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
@@ -28,25 +27,6 @@ from products.authz.backend.facade.enums import Action, ResourceType
 from products.product_analytics.backend.facade.models import Insight
 
 GUEST_MODE_FEATURE = AvailableFeature.ADVANCED_PERMISSIONS
-
-# A user view only reads and changes the request user's own account, so a guest may call all of it.
-GUEST_ANY_ACTION_SCOPES = frozenset({"user"})
-
-# A guest may call only these actions. AccessControlPermission or the view checks each object again.
-GUEST_ALLOWED: Mapping[str, frozenset[str]] = {
-    "organization": frozenset({"retrieve"}),
-    "project": frozenset({"retrieve"}),
-    "dashboard": frozenset({"list", "retrieve", "stream_tiles"}),
-    "insight": frozenset({"list", "retrieve"}),
-    "notebook": frozenset({"list", "retrieve"}),
-    "session_recording": frozenset({"retrieve", "snapshots", "snapshot_file"}),
-    "query": frozenset({"create", "create_with_kind", "retrieve", "destroy"}),
-    "event_definition": frozenset({"list", "retrieve"}),
-    "property_definition": frozenset({"list", "retrieve"}),
-    "cohort": frozenset({"list", "retrieve"}),
-    "action": frozenset({"list", "retrieve"}),
-    "annotation": frozenset({"list", "retrieve"}),
-}
 
 # Object types that only the guest model covers. Guest checks on them go to OpenFGA; members keep the legacy path.
 GUEST_V2_OBJECT_TYPES = frozenset({"notebook", "session_recording"})

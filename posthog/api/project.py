@@ -1513,6 +1513,7 @@ class ProjectViewSet(
     """
 
     scope_object: APIScopeObjectOrNotSupported = "project"
+    guest_allowed_actions = frozenset({"retrieve"})
     serializer_class = ProjectBackwardCompatSerializer
     queryset = (
         Project.objects.all()

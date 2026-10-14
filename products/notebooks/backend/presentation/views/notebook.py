@@ -722,6 +722,7 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
 )
 class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
