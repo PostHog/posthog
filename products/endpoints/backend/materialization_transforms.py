@@ -1293,9 +1293,14 @@ class MaterializedColumn:
     reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
 
 
-def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[MaterializedColumn]:
+def transform_select_for_materialized_table(
+    select_exprs: list[ast.Expr], output_names: list[str]
+) -> list[MaterializedColumn]:
     """
     Transform SELECT expressions to reference pre-computed columns in materialized table.
+
+    `output_names` are the query's resolved output column names, in SELECT order. When their
+    count does not match `select_exprs`, each column falls back to its alias or HogQL text.
 
     Returns list of MaterializedColumn with re-aggregation metadata.
 
@@ -1303,14 +1308,20 @@ def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: 
     - count() -> name "count()", is_aggregate=True, reaggregate_fn="sum"
     - count() as total -> name "total", is_aggregate=True, reaggregate_fn="sum"
     - toStartOfDay(timestamp) as date -> name "date", is_aggregate=False
+    - e.event -> name "event", is_aggregate=False
+    - properties.foo.bar -> name "foo__bar", is_aggregate=False
     """
+    names = (
+        output_names
+        if len(output_names) == len(select_exprs)
+        else [expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql() for expr in select_exprs]
+    )
     result: list[MaterializedColumn] = []
-    for expr in select_exprs:
+    for expr, name in zip(select_exprs, names):
         agg_name = _extract_aggregate_name(expr)
         is_agg = agg_name is not None
         reagg = get_reaggregation(agg_name) if agg_name else None
         reaggregate_fn = reagg.reaggregate_fn if reagg else None
-        name = expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql()
         result.append(
             MaterializedColumn(
                 expr=ast.Field(chain=[name]), is_aggregate=is_agg, name=name, reaggregate_fn=reaggregate_fn
