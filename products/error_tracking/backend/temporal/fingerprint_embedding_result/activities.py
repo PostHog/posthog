@@ -305,7 +305,12 @@ def _merge_into_candidate(
     reopened_target = (
         _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
     )
-    return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target, target_fingerprint=candidate.fingerprint)
+    return AutoMergeOutcome(
+        merged_count=1,
+        reopened_target=reopened_target,
+        target_fingerprint=candidate.fingerprint,
+        merge_decision=str(decision_properties["merge_decision"]),
+    )
 
 
 def _fetch_fingerprint_document(
@@ -503,6 +508,12 @@ def merge_similar_fingerprints(
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
+        # Only read the flag when there is something to decide.
+        config = (
+            load_auto_merge_config(team)
+            if settings.ERROR_TRACKING_AUTO_MERGE_ENABLED and closest_fingerprints
+            else DEFAULT_AUTO_MERGE_CONFIG
+        )
         merge_outcome: AutoMergeOutcome | None = None
         try:
             merge_outcome = _merge_fingerprint_into_closest_issue(
@@ -511,16 +522,13 @@ def merge_similar_fingerprints(
                 closest_fingerprints,
                 inputs.source_issue_id,
                 event_reference=_event_reference(inputs),
-                # Only read the flag when there is something to decide.
-                config=load_auto_merge_config(team)
-                if settings.ERROR_TRACKING_AUTO_MERGE_ENABLED and closest_fingerprints
-                else DEFAULT_AUTO_MERGE_CONFIG,
+                config=config,
                 judge_inputs=inputs,
             )
         finally:
             # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
             # The grouping judge runs only after the merge decision, so it cannot change it.
-            judge_properties = grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome)
+            judge_properties = grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome, config)
             _report_closest_fingerprint_metrics(
                 team, inputs, closest_fingerprints, inputs.model_name, query_duration_ms, judge_properties
             )

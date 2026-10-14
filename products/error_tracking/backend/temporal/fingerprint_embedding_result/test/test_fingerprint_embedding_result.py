@@ -699,11 +699,12 @@ class TestGroupingJudgeNeverChangesTheMerge(BaseTest):
         )
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fp-source").issue_id == self.target_issue_id
         (event,) = events
-        assert (event["live_decision"], event["live_target_fingerprint"], event["judge_outcome"]) == (
-            "merge",
-            "fp-target",
-            outcome,
-        )
+        assert (
+            event["live_decision"],
+            event["live_target_fingerprint"],
+            event["live_merge_decision"],
+            event["judge_outcome"],
+        ) == ("merge", "fp-target", "distance", outcome)
 
     def test_merge_and_event_survive_a_failure_outside_the_judge_call(self) -> None:
         with patch(f"{JUDGE_MODULE}.band_for", side_effect=RuntimeError("judge bug")):

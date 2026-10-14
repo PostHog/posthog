@@ -51,6 +51,8 @@ class AutoMergeOutcome:
     merged_count: int = 0
     reopened_target: AutoMergeReopenedTarget | None = None
     target_fingerprint: str | None = None
+    # Which rule made the merge: "distance" or "judge". None when nothing merged in this attempt.
+    merge_decision: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

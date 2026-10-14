@@ -8,6 +8,7 @@ from concurrent.futures import (
 )
 
 import structlog
+import temporalio.exceptions
 from anthropic import Anthropic
 
 from posthog.hogql import ast
@@ -19,8 +20,14 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 from posthog.models import Team
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from posthog.temporal.common.utils import close_db_connections
 
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
+    DEFAULT_AUTO_MERGE_CONFIG,
+    AutoMergeConfig,
+    _truncate,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     CLOSEST_FINGERPRINTS_WINDOW,
     AutoMergeOutcome,
@@ -42,7 +49,6 @@ from products.error_tracking.backend.temporal.grouping_judge.types import JudgeO
 logger = structlog.get_logger(__name__)
 
 AI_PRODUCT = "error_tracking_grouping_judge"
-MAX_DOCUMENT_CHARS = 6000
 # Bounds the ClickHouse text fetch and every judge call. A sampled issue's alert waits at most this long for them.
 TOTAL_BUDGET_SECONDS = 10.0
 TEXT_QUERY_MAX_EXECUTION_SECONDS = 3
@@ -85,6 +91,12 @@ class _JudgeResult:
     rejudge_same_issue: bool | None = None
 
 
+def _is_cancellation(error: BaseException) -> bool:
+    # A worker drain raises into the activity thread while it waits on the judge. It must still
+    # cancel the activity, so the judge's catch-alls let it through.
+    return temporalio.exceptions.is_cancelled_exception(error) or isinstance(error, WorkerShuttingDownError)
+
+
 def _live_decision(merge_outcome: AutoMergeOutcome | None) -> LiveDecision:
     if merge_outcome is None:
         return "error"
@@ -117,7 +129,7 @@ def _fetch_document_texts(
         ch_user=ClickHouseUser.ERROR_TRACKING,
         settings=HogQLGlobalSettings(max_execution_time=TEXT_QUERY_MAX_EXECUTION_SECONDS),
     )
-    return {row[0]: row[1][:MAX_DOCUMENT_CHARS] for row in response.results if row[1]}
+    return {row[0]: row[1] for row in response.results if row[1]}
 
 
 def _judge_once(
@@ -143,10 +155,12 @@ def _judge_in_worker(
         return _JudgeResult(outcome="timeout")
     texts = _fetch_document_texts(team, inputs, neighbour_fingerprint)
     # A workflow started before the activity input carried the text has to read it from ClickHouse.
-    new_text = inputs.content[:MAX_DOCUMENT_CHARS] if inputs.content else texts.get(inputs.fingerprint)
+    new_text = inputs.content or texts.get(inputs.fingerprint)
     neighbour_text = texts.get(neighbour_fingerprint)
     if new_text is None or neighbour_text is None:
         return _JudgeResult(outcome="no_text")
+    # Keeps the message and the throw site, which the renderer puts at the end of a long stack.
+    new_text, neighbour_text = _truncate(new_text), _truncate(neighbour_text)
 
     try:
         client = build_ai_gateway_anthropic_client(
@@ -185,7 +199,9 @@ def _judge(
         return future.result(timeout=max(deadline - time.monotonic(), 0))
     except FuturesTimeoutError:
         return _JudgeResult(outcome="timeout")
-    except Exception:
+    except Exception as error:
+        if _is_cancellation(error):
+            raise
         # Caught here rather than only at the entry point, so the row keeps its other judge properties.
         logger.exception("error_tracking.grouping_judge.failed", team_id=team.id)
         return _JudgeResult(outcome="unavailable")
@@ -196,11 +212,19 @@ def _grouping_judge_properties(
     inputs: FingerprintEmbeddingResultInputs,
     closest_fingerprints: list[SimilarFingerprintDistance],
     merge_outcome: AutoMergeOutcome | None,
+    merge_config: AutoMergeConfig,
 ) -> dict[str, object]:
     properties: dict[str, object] = {
         "live_decision": _live_decision(merge_outcome),
         "live_target_fingerprint": merge_outcome.target_fingerprint if merge_outcome is not None else None,
-        "live_algorithm": LIVE_ALGORITHM.id,
+        "live_merge_decision": merge_outcome.merge_decision if merge_outcome is not None else None,
+        # The fixed rule describes the merge only while the flag leaves every setting at its default.
+        "live_algorithm": LIVE_ALGORITHM.id if merge_config == DEFAULT_AUTO_MERGE_CONFIG else "auto_merge_config",
+        "live_auto_merge_threshold": merge_config.auto_merge_threshold,
+        "live_judge_enabled": merge_config.judge_enabled,
+        "live_judge_shadow": merge_config.judge_shadow,
+        "live_judge_cutoff": merge_config.judge_cutoff,
+        "live_judge_max_distance": merge_config.judge_max_distance,
         "decisions": {},
         "judge_band": None,
         "distance_bucket": None,
@@ -249,13 +273,16 @@ def grouping_judge_properties(
     inputs: FingerprintEmbeddingResultInputs,
     closest_fingerprints: list[SimilarFingerprintDistance],
     merge_outcome: AutoMergeOutcome | None,
+    merge_config: AutoMergeConfig = DEFAULT_AUTO_MERGE_CONFIG,
 ) -> dict[str, object]:
     """Decision and judge properties for the metrics event. `merge_outcome` is None when the merge raised.
 
-    Never raises, and returns within about `TOTAL_BUDGET_SECONDS`.
+    Raises only a Temporal cancellation or a worker shutdown, and returns within about `TOTAL_BUDGET_SECONDS`.
     """
     try:
-        return _grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome)
-    except Exception:
+        return _grouping_judge_properties(team, inputs, closest_fingerprints, merge_outcome, merge_config)
+    except Exception as error:
+        if _is_cancellation(error):
+            raise
         logger.exception("error_tracking.grouping_judge.properties_failed", team_id=team.id)
         return {"live_decision": _live_decision(merge_outcome)}

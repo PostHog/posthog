@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -12,10 +13,14 @@ from django.test import SimpleTestCase
 import httpx
 from anthropic import APIConnectionError, APIStatusError, APITimeoutError
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.clickhouse.client import sync_execute
 
-from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import DEFAULT_AUTO_MERGE_THRESHOLD
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
+    DEFAULT_AUTO_MERGE_THRESHOLD,
+    AutoMergeConfig,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeOutcome,
     FingerprintEmbeddingResultInputs,
@@ -278,7 +283,13 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         assert {key: value for key, value in properties.items() if key != "judge_duration_ms"} == {
             "live_decision": "merge",
             "live_target_fingerprint": "fp-old",
+            "live_merge_decision": None,
             "live_algorithm": "embedding_threshold_v1",
+            "live_auto_merge_threshold": 0.019,
+            "live_judge_enabled": False,
+            "live_judge_shadow": True,
+            "live_judge_cutoff": 0.9,
+            "live_judge_max_distance": 0.1,
             "decisions": {"embedding_threshold_v1": "merge"},
             "judge_band": "low",
             "distance_bucket": "0.01-0.019",
@@ -312,6 +323,38 @@ class TestGroupingJudgeProperties(SimpleTestCase):
         assert properties["judge_target_fingerprint"] == "fp-merged"
         assert "merged target" in prompt
         assert "other customer" not in prompt
+
+    def test_long_documents_keep_their_throw_site(self) -> None:
+        client = _client_returning(_tool_response(True))
+        long_stack = "TypeError: boom\n" + "  at outer_caller (app.js)\n" * 500 + "  at THROW_SITE (app.js)\n"
+
+        self._run(client, input_content=long_stack)
+
+        prompt = client.with_options.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "TypeError: boom" in prompt
+        assert "THROW_SITE" in prompt
+
+    def test_records_the_merge_config_that_made_the_decision(self) -> None:
+        merge_config = AutoMergeConfig(judge_enabled=True, judge_shadow=False)
+
+        with patch(f"{MODULE}.inline.current_judge_config", return_value=JUDGE_OFF):
+            properties = grouping_judge_properties(
+                MagicMock(id=1),
+                _inputs(),
+                [SimilarFingerprintDistance(fingerprint="fp-old", distance=0.05)],
+                AutoMergeOutcome(merged_count=1, target_fingerprint="fp-old", merge_decision="judge"),
+                merge_config,
+            )
+
+        assert properties["live_algorithm"] == "auto_merge_config"
+        assert properties["live_merge_decision"] == "judge"
+        assert (properties["live_judge_enabled"], properties["live_judge_shadow"]) == (True, False)
+
+    def test_a_cancellation_during_the_judge_cancels_the_activity(self) -> None:
+        client = _client_returning(error=CancelledError("Cancelled"))
+
+        with pytest.raises(CancelledError):
+            self._run(client)
 
     def test_skips_the_judge_when_every_worker_is_busy(self) -> None:
         client = _client_returning(_tool_response(True))
@@ -364,4 +407,4 @@ class TestFetchDocumentTexts(ClickhouseTestMixin, BaseTest):
 
         texts = _fetch_document_texts(self.team, _inputs(self.team.id), "fp-old")
 
-        assert texts == {"fp-new": "x" * 6000}
+        assert texts == {"fp-new": "x" * 7000}
