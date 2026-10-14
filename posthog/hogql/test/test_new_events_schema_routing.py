@@ -12,6 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models import Organization, Team, User
@@ -103,11 +104,18 @@ class TestNewEventsClusterRouting(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (workload, workload in (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE, Workload.NEW_EVENTS_CLUSTER))
+            (
+                workload,
+                None,
+                workload in (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE, Workload.NEW_EVENTS_CLUSTER),
+            )
             for workload in Workload
         ]
+        + [(Workload.DEFAULT, Product.ENDPOINTS, False)]
     )
-    def test_native_opt_in_accepts_only_analytics_workloads(self, workload: Workload, supported: bool) -> None:
+    def test_native_opt_in_accepts_only_analytics_workloads(
+        self, workload: Workload, product: Product | None, supported: bool
+    ) -> None:
         executor = HogQLQueryExecutor(
             query="SELECT 1",
             team=self.team,
@@ -118,6 +126,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         executor.clickhouse_sql = "SELECT 1"
         executor.clickhouse_context = HogQLContext(team_id=self.team.pk, modifiers=executor.query_modifiers)
         with (
+            tags_context(product=product),
             patch.object(executor, "_detect_warehouse_sources"),
             patch("posthog.hogql.query.sync_execute", return_value=([(1,)], [("1", "UInt8")])) as execute,
         ):
