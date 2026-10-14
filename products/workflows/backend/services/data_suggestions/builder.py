@@ -39,6 +39,7 @@ class BuildContext:
     email_templates: dict[str, EmailTemplateContent]
     sender: EmailSender | None
     slack_integration_id: int | None
+    once_per_person: bool = False
 
 
 @frozen
@@ -125,6 +126,12 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "edges": edges,
             "conversion": {"filters": [], "window_minutes": None},
             "exit_condition": "exit_only_at_end",
+            # A person who repeats a welcome or onboarding event would otherwise start the whole sequence again.
+            **(
+                {"trigger_masking": {"hash": "{person.id}", "ttl": None, "threshold": None}}
+                if context.once_per_person
+                else {}
+            ),
         },
     )
 
@@ -245,7 +252,13 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
                 return None
             return _action(step, action_id, "delay", {"delay_duration": step.duration})
         case "wait_until_time_window":
-            return _action(step, action_id, "wait_until_time_window", {"timezone": None, "day": "any", "time": "any"})
+            # A window of any day and any time is always open, so the step would not wait at all.
+            return _action(
+                step,
+                action_id,
+                "wait_until_time_window",
+                {"timezone": None, "day": "weekday", "time": ["09:00", "17:00"]},
+            )
         case "wait_until_event":
             # A wait with no event never resolves and acts as a plain delay, and enabling does not catch it.
             # An event the project does not send is a made-up name.

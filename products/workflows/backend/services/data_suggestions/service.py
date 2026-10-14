@@ -1,9 +1,11 @@
+import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -72,6 +74,7 @@ _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
 _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
+_ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
 
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
@@ -108,7 +111,8 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
 
 def needs_new_generation(*, team: Team, refresh: bool) -> bool:
     """Whether a generate call would start a run, the only case that costs model time."""
-    return (refresh or _read_cache(team) is None) and cache.get(_generation_lock_key(team)) is None
+    # A refresh always counts, because the run it joins can end before the request reaches the lock.
+    return refresh or (_read_cache(team) is None and cache.get(_generation_lock_key(team)) is None)
 
 
 def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None:
@@ -243,9 +247,13 @@ def _plan_and_build(
             email_templates={str(template.id): template for template in email_templates},
             sender=team_context.email_sender(team),
             slack_integration_id=slack_integration_id,
+            once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         ),
     )
     if built is None or not is_valid_draft(team, built.workflow):
+        return _BUILD_FAILED
+    # Saved templates are copied into every email step, and a draft larger than a request body cannot be saved.
+    if len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
         return _BUILD_FAILED
     return BuiltSuggestion(status="ready", workflow=built.workflow, uses_saved_template=built.uses_saved_template)
 

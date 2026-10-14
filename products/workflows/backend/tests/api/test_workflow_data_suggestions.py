@@ -14,7 +14,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import EventDefinition
+from posthog.models import EventDefinition, Team
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -283,6 +283,14 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert dict(suggest_ideas.call_args.kwargs["context"].events) == {"trial_started": 3, "user_registered": 3}
 
+    def test_reads_definitions_a_sibling_environment_registered_first(self, _flag) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        EventDefinition.objects.filter(team=self.team, name="trial_started").update(
+            team_id=sibling.id, project_id=self.team.project_id
+        )
+
+        assert "trial_started" in recent_event_names(self.team, exclude=set())
+
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
     def test_events_a_workflow_already_triggers_on_are_not_offered(self, suggest_ideas: MagicMock, _flag) -> None:
         HogFlow.objects.create(
@@ -320,6 +328,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("generate answered from the cache", "generate", {}, "cached", 200),
             ("generate that has to run", "generate", {}, "empty", 429),
             ("generate that joins a running run", "generate", {}, "running", 200),
+            ("refresh while a run is going", "generate", {"refresh": True}, "running", 429),
             ("refresh", "generate", {"refresh": True}, "cached", 429),
             ("refresh sent as 1", "generate", {"refresh": "1"}, "cached", 429),
             ("build", "build", {"suggestion_id": "missing"}, "cached", 429),

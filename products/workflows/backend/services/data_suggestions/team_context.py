@@ -1,6 +1,7 @@
 """What the team already has: events, workflows, integrations and saved email templates."""
 
-from django.db.models import F, Q
+from django.db.models import BigIntegerField, F, Q
+from django.db.models.functions import Coalesce
 
 from posthog.models import EventDefinition, Team
 from posthog.models.integration import Integration
@@ -20,7 +21,9 @@ _ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
 def recent_event_names(team: Team, *, exclude: set[str]) -> list[str]:
     # Filtered before the limit, so a project whose newest definitions are all `$` events still gets its own events.
     return list(
-        EventDefinition.objects.filter(team_id=team.id)
+        # Environments of a project share definitions, so one first seen in a sibling environment keeps its team_id.
+        EventDefinition.objects.annotate(scope=Coalesce("project_id", "team_id", output_field=BigIntegerField()))
+        .filter(scope=team.project_id)
         .filter(~Q(name__startswith="$") | Q(name__in=_ALLOWED_POSTHOG_EVENTS))
         .exclude(name__in=exclude)
         .order_by(F("last_seen_at").desc(nulls_last=True))
