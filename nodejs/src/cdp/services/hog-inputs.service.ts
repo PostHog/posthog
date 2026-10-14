@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -34,14 +34,17 @@ export class HogInputsService {
             ...globals,
             inputs: {},
         }
-        const inputs: HogFunctionType['inputs'] = {
+        const ownInputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
             // Plus any additional inputs
             ...additionalInputs,
+        }
+        const inputs: HogFunctionType['inputs'] = {
+            ...ownInputs,
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)
-            ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
+            ...(await this.loadIntegrationInputs(hogFunction, newGlobals, { throwIfMissingIn: ownInputs })),
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
@@ -169,7 +172,9 @@ export class HogInputsService {
 
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
-        newGlobals?: HogFunctionInvocationGlobalsWithInputs
+        newGlobals?: HogFunctionInvocationGlobalsWithInputs,
+        // Loading covers every mapping, so only the inputs this invocation uses may fail it.
+        options?: { throwIfMissingIn?: HogFunctionType['inputs'] }
     ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
         // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
         const singleInputsToLoad: Record<string, number> = {}
@@ -237,6 +242,13 @@ export class HogInputsService {
         }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
+            // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
+            const isUsed = options?.throwIfMissingIn?.[key]?.value === id
+            if (isUsed && (!integrations[id] || integrations[id].team_id !== hogFunction.team_id)) {
+                throw new HogConfigurationError(
+                    `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 
