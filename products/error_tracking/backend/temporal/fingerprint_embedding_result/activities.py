@@ -30,7 +30,6 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge
     AutoMergeConfig,
     JudgeUnavailableError,
     ask_judge,
-    fetch_fingerprint_documents,
     load_auto_merge_config,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
@@ -68,6 +67,32 @@ CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
         AND timestamp >= {min_timestamp}
         ORDER BY distance ASC
         LIMIT 10
+        """,
+}
+
+
+FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL = {
+    "text-embedding-3-large-3072": """
+        SELECT document_id, argMax(content, inserted_at) AS content
+        FROM document_embeddings_text_embedding_3_large_3072
+        WHERE document_type = 'fingerprint'
+        AND product = 'error_tracking'
+        AND rendering = {rendering}
+        AND team_id = {team_id}
+        AND document_id IN {fingerprints}
+        AND timestamp >= {min_timestamp}
+        GROUP BY document_id
+        """,
+    "text-embedding-3-small-1536": """
+        SELECT document_id, argMax(content, inserted_at) AS content
+        FROM document_embeddings_text_embedding_3_small_1536
+        WHERE document_type = 'fingerprint'
+        AND product = 'error_tracking'
+        AND rendering = {rendering}
+        AND team_id = {team_id}
+        AND document_id IN {fingerprints}
+        AND timestamp >= {min_timestamp}
+        GROUP BY document_id
         """,
 }
 
@@ -284,6 +309,52 @@ def _merge_into_candidate(
     return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
 
+def _fetch_fingerprint_documents(
+    team: Team, inputs: FingerprintEmbeddingResultInputs, fingerprints: list[str]
+) -> dict[str, str]:
+    """The text that was embedded for each fingerprint, within the nearest-neighbour search window."""
+    query = parse_select(
+        _model_specific_query(FINGERPRINT_DOCUMENTS_QUERY_BY_MODEL, inputs.model_name),
+        placeholders={
+            "rendering": ast.Constant(value=inputs.rendering),
+            "team_id": ast.Constant(value=team.id),
+            "fingerprints": ast.Constant(value=fingerprints),
+            "min_timestamp": ast.Constant(value=_parse_timestamp(inputs.timestamp) - timedelta(days=30)),
+        },
+    )
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type="ErrorTrackingAutoMergeJudgeDocuments",
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
+    )
+    return {row[0]: row[1] for row in response.results if row[1]}
+
+
+def _judge_documents(
+    team: Team, inputs: FingerprintEmbeddingResultInputs, candidate: SimilarFingerprintDistance
+) -> tuple[str, str] | str:
+    """Both documents to judge, or the reason they can't be sent."""
+    # Consent can be withdrawn between embedding and this (possibly retried) activity.
+    if not team.organization.is_ai_data_processing_approved:
+        return "ai_processing_not_approved"
+    # The source text normally arrives with the inputs; only the neighbour's is read back.
+    wanted = [candidate.fingerprint] if inputs.content else [inputs.fingerprint, candidate.fingerprint]
+    try:
+        documents = _fetch_fingerprint_documents(team, inputs, wanted)
+    except Exception as err:
+        if is_expected_activity_failure(err):
+            raise
+        capture_exception(err, additional_properties={"team_id": team.id, "fingerprint": inputs.fingerprint})
+        return "document_fetch_failed"
+    source_document = inputs.content or documents.get(inputs.fingerprint)
+    candidate_document = documents.get(candidate.fingerprint)
+    if source_document is None or candidate_document is None:
+        return "missing_document"
+    return source_document, candidate_document
+
+
 def _judge_candidate(
     team: Team,
     inputs: FingerprintEmbeddingResultInputs,
@@ -297,22 +368,12 @@ def _judge_candidate(
     score: float | None = None
     latency_ms: float | None = None
     error: str | None = None
-    # The source text normally arrives with the inputs; only the neighbour's is read back.
-    wanted = [candidate.fingerprint] if inputs.content else [inputs.fingerprint, candidate.fingerprint]
-    documents = fetch_fingerprint_documents(
-        team,
-        _model_specific_embeddings_table_name(inputs.model_name),
-        inputs.rendering,
-        wanted,
-        min_timestamp=_parse_timestamp(inputs.timestamp) - timedelta(days=30),
-    )
-    source_document = inputs.content or documents.get(inputs.fingerprint)
-    candidate_document = documents.get(candidate.fingerprint)
-    if source_document is None or candidate_document is None:
-        error = "missing_document"
+    documents = _judge_documents(team, inputs, candidate)
+    if isinstance(documents, str):
+        error = documents
     else:
         try:
-            verdict = ask_judge(team.id, source_document, candidate_document, config.judge_timeout_seconds)
+            verdict = ask_judge(team.id, *documents, config.judge_timeout_seconds)
             score, latency_ms = verdict.score, verdict.latency_ms
         except JudgeUnavailableError as err:
             error = str(err)

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.llm.system_one import (
     NoulAnswer,
@@ -19,6 +20,7 @@ from posthog.llm.system_one import (
 
 from products.error_tracking.backend.models import ErrorTrackingIssueMergeOutcome, ErrorTrackingIssueMergeResult
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
+    _fetch_fingerprint_documents,
     _merge_fingerprint_into_closest_issue,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
@@ -26,6 +28,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge
     JudgeUnavailableError,
     JudgeVerdict,
     ask_judge,
+    judge_state,
     load_auto_merge_config,
     parse_auto_merge_config,
 )
@@ -162,6 +165,8 @@ class TestMergeWithJudge:
         score: float | Exception = 0.95,
         documents: dict[str, str] | None = None,
         inputs: FingerprintEmbeddingResultInputs | None = None,
+        consent: bool = True,
+        fetch_error: Exception | None = None,
     ) -> MergeRun:
         source = MagicMock(issue_id=uuid.uuid4(), fingerprint="test-fingerprint")
         target_issue = MagicMock()
@@ -181,13 +186,15 @@ class TestMergeWithJudge:
             patch(f"{ACTIVITIES}.ph_background_capture", return_value=capture),
             patch(f"{ACTIVITIES}.groups", return_value={}),
             patch(
-                f"{ACTIVITIES}.fetch_fingerprint_documents",
+                f"{ACTIVITIES}._fetch_fingerprint_documents",
                 return_value={"candidate": "Error: b"} if documents is None else documents,
+                side_effect=fetch_error,
             ) as fetch,
+            patch(f"{ACTIVITIES}.capture_exception"),
             patch(f"{ACTIVITIES}.ask_judge", judge),
         ):
             result = _merge_fingerprint_into_closest_issue(
-                team=MagicMock(id=2, uuid=uuid.uuid4()),
+                team=MagicMock(id=2, uuid=uuid.uuid4(), organization=MagicMock(is_ai_data_processing_approved=consent)),
                 fingerprint="test-fingerprint",
                 closest_fingerprints=[SimilarFingerprintDistance(fingerprint="candidate", distance=distance)],
                 config=config,
@@ -216,8 +223,7 @@ class TestMergeWithJudge:
     def test_source_text_from_inputs_is_not_read_back(self) -> None:
         run = self._merge(0.05, JUDGE_ON)
 
-        assert run.fetch.call_args.args[1] == "document_embeddings_text_embedding_3_large_3072"
-        assert run.fetch.call_args.args[3] == ["candidate"]
+        assert run.fetch.call_args.args[2] == ["candidate"]
         assert run.judge.call_args.args[1:3] == ("Error: a", "Error: b")
 
     def test_source_text_is_fetched_when_inputs_lack_it(self) -> None:
@@ -228,7 +234,7 @@ class TestMergeWithJudge:
             documents={"test-fingerprint": "Error: stored", "candidate": "Error: b"},
         )
 
-        assert run.fetch.call_args.args[3] == ["test-fingerprint", "candidate"]
+        assert run.fetch.call_args.args[2] == ["test-fingerprint", "candidate"]
         assert run.judge.call_args.args[1] == "Error: stored"
 
     def test_judge_below_cutoff_does_not_merge(self) -> None:
@@ -277,3 +283,46 @@ class TestMergeWithJudge:
         assert run.merged_count == 0
         run.judge.assert_not_called()
         assert run.events["error_tracking_auto_merge_judged"]["judge_error"] == "missing_document"
+
+    def test_without_ai_consent_no_document_is_sent(self) -> None:
+        run = self._merge(0.05, JUDGE_ON, consent=False)
+
+        assert run.merged_count == 0
+        run.fetch.assert_not_called()
+        run.judge.assert_not_called()
+        assert run.events["error_tracking_auto_merge_judged"]["judge_error"] == "ai_processing_not_approved"
+
+    def test_document_fetch_failure_is_an_unavailable_verdict(self) -> None:
+        run = self._merge(0.05, JUDGE_ON, fetch_error=RuntimeError("clickhouse timeout"))
+
+        assert run.merged_count == 0
+        run.judge.assert_not_called()
+        assert run.events["error_tracking_auto_merge_judged"]["judge_error"] == "document_fetch_failed"
+
+    def test_cancellation_during_document_fetch_is_reraised(self) -> None:
+        with pytest.raises(CancelledError):
+            self._merge(0.05, JUDGE_ON, fetch_error=CancelledError("Cancelled"))
+
+
+class TestJudgeDocuments:
+    def test_documents_query_uses_the_model_table_and_search_window(self) -> None:
+        with (
+            patch(f"{ACTIVITIES}.parse_select") as parse_select,
+            patch(f"{ACTIVITIES}.execute_hogql_query", return_value=MagicMock(results=[("candidate", "Error: b")])),
+        ):
+            documents = _fetch_fingerprint_documents(MagicMock(id=2), _judge_inputs(), ["candidate"])
+
+        assert documents == {"candidate": "Error: b"}
+        query = parse_select.call_args.args[0]
+        assert "FROM document_embeddings_text_embedding_3_large_3072" in query
+        assert "timestamp >= {min_timestamp}" in query
+        assert parse_select.call_args.kwargs["placeholders"]["fingerprints"].value == ["candidate"]
+
+    def test_long_documents_keep_the_message_and_the_throw_site(self) -> None:
+        document = "TypeError: boom\n" + "outer frame\n" * 1000 + "throwSite in app.js line 1"
+
+        state = judge_state(document, "short")
+
+        assert "TypeError: boom" in state
+        assert "throwSite in app.js line 1" in state
+        assert "[... frames omitted ...]" in state

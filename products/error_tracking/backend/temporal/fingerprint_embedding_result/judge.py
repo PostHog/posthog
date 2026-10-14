@@ -15,16 +15,10 @@ compared against the previous one on live traffic.
 
 import time
 import dataclasses
-from datetime import datetime
 
 import structlog
 import posthoganalytics
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models import Team
@@ -167,12 +161,24 @@ explain every difference, answer SAME. Product decisions in step 2 (e.g. differe
 404 paths are one issue) override the intuition that each needs its own fix."""
 
 
+TRUNCATION_MARKER = "\n[... frames omitted ...]\n"
+
+
+def _truncate(document: str) -> str:
+    """Keep the message (start) and the throw site (end): frames run outermost first, so the end matters."""
+    if len(document) <= MAX_DOCUMENT_CHARS:
+        return document
+    head = MAX_DOCUMENT_CHARS // 4
+    tail = MAX_DOCUMENT_CHARS - head - len(TRUNCATION_MARKER)
+    return document[:head] + TRUNCATION_MARKER + document[-tail:]
+
+
 def judge_state(document: str, candidate_document: str) -> str:
     return (
         "Two error documents from the same application were assigned different grouping "
         "fingerprints. Each is an error type + message followed by a stack trace.\n\n"
-        f"<document_a>\n{document[:MAX_DOCUMENT_CHARS]}\n</document_a>\n\n"
-        f"<document_b>\n{candidate_document[:MAX_DOCUMENT_CHARS]}\n</document_b>"
+        f"<document_a>\n{_truncate(document)}\n</document_a>\n\n"
+        f"<document_b>\n{_truncate(candidate_document)}\n</document_b>"
     )
 
 
@@ -203,36 +209,3 @@ def ask_judge(team_id: int, document: str, candidate_document: str, timeout_seco
     if not isinstance(answer, NoulAnswer):
         raise JudgeUnavailableError("Judge refused or gave no answer")
     return JudgeVerdict(score=answer.probability, latency_ms=(time.monotonic() - start) * 1000)
-
-
-def fetch_fingerprint_documents(
-    team: Team, embeddings_table: str, rendering: str, fingerprints: list[str], min_timestamp: datetime
-) -> dict[str, str]:
-    """The text that was embedded for each fingerprint (latest row per fingerprint, this team only)."""
-    query = parse_select(
-        f"""
-        SELECT document_id, argMax(content, inserted_at) AS content
-        FROM {embeddings_table}
-        WHERE document_type = 'fingerprint'
-        AND product = 'error_tracking'
-        AND rendering = {{rendering}}
-        AND team_id = {{team_id}}
-        AND document_id IN {{fingerprints}}
-        AND timestamp >= {{min_timestamp}}
-        GROUP BY document_id
-        """,
-        placeholders={
-            "rendering": ast.Constant(value=rendering),
-            "team_id": ast.Constant(value=team.id),
-            "fingerprints": ast.Constant(value=fingerprints),
-            "min_timestamp": ast.Constant(value=min_timestamp),
-        },
-    )
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="ErrorTrackingAutoMergeJudgeDocuments",
-        workload=Workload.OFFLINE,
-        ch_user=ClickHouseUser.ERROR_TRACKING,
-    )
-    return {row[0]: row[1] for row in response.results if row[1]}
