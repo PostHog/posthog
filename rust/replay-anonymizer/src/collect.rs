@@ -252,8 +252,10 @@ pub fn normalize_collected_mime(mime: &str) -> &'static str {
 /// Decode the collectable payload of an image data URI, or name why it is not one: only a base64
 /// raster image the scrub can decode qualifies. MIME types are case-insensitive, so the checks run
 /// on a lowercased meta — `image/SVG+xml` must not dodge the SVG exclusion.
-/// The base64 payload of a collectable image data URI, checked from its header and length alone.
-fn collectable_payload(uri: &str, max_image_bytes: usize) -> Result<&str, &'static str> {
+pub fn collectable_data_uri_bytes(
+    uri: &str,
+    max_image_bytes: usize,
+) -> Result<Vec<u8>, &'static str> {
     let (meta, payload) = uri
         .strip_prefix("data:")
         .and_then(|rest| rest.split_once(','))
@@ -279,10 +281,9 @@ fn collectable_payload(uri: &str, max_image_bytes: usize) -> Result<&str, &'stat
     if payload.len() > max_image_bytes.div_ceil(3) * 4 {
         return Err(DROP_TOO_LARGE);
     }
-    Ok(payload)
-}
-
-fn refused_signature(bytes: &[u8]) -> Result<(), &'static str> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(payload.as_bytes())
+        .map_err(|_| DROP_NOT_RASTER)?;
     if bytes.starts_with(b"BM") {
         return Err(DROP_BMP);
     }
@@ -290,31 +291,7 @@ fn refused_signature(bytes: &[u8]) -> Result<(), &'static str> {
     if bytes.get(4..8) == Some(b"ftyp") {
         return Err(DROP_AVIF);
     }
-    Ok(())
-}
-
-pub fn collectable_data_uri_bytes(
-    uri: &str,
-    max_image_bytes: usize,
-) -> Result<Vec<u8>, &'static str> {
-    let payload = collectable_payload(uri, max_image_bytes)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(payload.as_bytes())
-        .map_err(|_| DROP_NOT_RASTER)?;
-    refused_signature(&bytes)?;
     Ok(bytes)
-}
-
-/// Whether [`collectable_data_uri_bytes`] would likely take this URI, decided from the header, the
-/// length and the first bytes, so choosing between sources does not decode a 20 MiB image twice.
-pub(crate) fn looks_collectable(uri: &str, max_image_bytes: usize) -> bool {
-    let Ok(payload) = collectable_payload(uri, max_image_bytes) else {
-        return false;
-    };
-    let head = payload.get(..16).unwrap_or(payload);
-    base64::engine::general_purpose::STANDARD
-        .decode(head.as_bytes())
-        .is_ok_and(|bytes| refused_signature(&bytes).is_ok())
 }
 
 #[cfg(test)]
@@ -322,12 +299,7 @@ mod tests {
     use super::*;
 
     fn collectable(uri: &str) -> Option<Vec<u8>> {
-        let full = collectable_data_uri_bytes(uri, MAX_IMAGE_BYTES).ok();
-        // The cheap check may only disagree on a payload that fails to decode past its first bytes.
-        if full.is_some() {
-            assert!(looks_collectable(uri, MAX_IMAGE_BYTES), "{uri}");
-        }
-        full
+        collectable_data_uri_bytes(uri, MAX_IMAGE_BYTES).ok()
     }
 
     const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
