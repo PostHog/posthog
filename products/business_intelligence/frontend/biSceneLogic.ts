@@ -124,8 +124,8 @@ export interface biSceneLogicActions {
     runAfterChange: () => {
         value: true
     } // biEditorLogic
-    setChartType: (chartType: import('~/types').ChartDisplayType) => {
-        chartType: import('~/types').ChartDisplayType
+    setChartType: (chartType: ChartDisplayType) => {
+        chartType: ChartDisplayType
     } // biEditorLogic
     cancelQuery: () => {
         value: true

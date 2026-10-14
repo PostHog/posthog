@@ -328,6 +328,52 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it.each([false, true])('updates generated scatter titles after renames with swapped axes=%s', async (swapped) => {
+        const state = {
+            ...config,
+            rows: [],
+            columns: [],
+            chartType: ChartDisplayType.ScatterPlot,
+            values: [
+                { field: eventField, aggregation: 'count' as const },
+                { field: eventField, aggregation: 'count_distinct' as const },
+            ],
+        }
+        const saved = worksheet(state)
+        if (swapped) {
+            saved.chartSettings = {
+                ...saved.chartSettings,
+                xAxis: saved.chartSettings!.yAxis![0],
+                yAxis: [saved.chartSettings!.xAxis!],
+                xAxisLabel: saved.chartSettings!.leftYAxisSettings?.label,
+                leftYAxisSettings: { label: saved.chartSettings!.xAxisLabel },
+            }
+        }
+        logic.actions.restoreWorksheet(saved)
+        editor.actions.setAutoUpdate(false)
+        editor.actions.renameField('values', 0, 'New count')
+        editor.actions.renameField('values', 1, 'New distinct count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe(swapped ? 'New distinct count' : 'New count')
+        expect(logic.values.lastRunQuery?.chartSettings?.leftYAxisSettings?.label).toBe(
+            swapped ? 'New count' : 'New distinct count'
+        )
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe(saved.chartSettings?.xAxis?.column)
+        logic.actions.setChartSettings({
+            ...logic.values.lastRunQuery!.chartSettings,
+            xAxisLabel: 'Custom X',
+            leftYAxisSettings: { label: 'Custom Y' },
+        })
+        editor.actions.renameField('values', 0, 'Later count')
+        editor.actions.renameField('values', 1, 'Later distinct count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxisLabel: 'Custom X',
+            leftYAxisSettings: { label: 'Custom Y' },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())

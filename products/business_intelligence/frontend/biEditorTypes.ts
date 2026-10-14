@@ -102,6 +102,25 @@ export interface BIQueryBuildResult {
     node: DataVisualizationNode
 }
 
+function mergeBIAxisLabel(
+    current: string | undefined,
+    previous: string | undefined,
+    generated: string | undefined
+): string | undefined {
+    return current !== previous ? (current ?? generated) : generated
+}
+
+function getBIChartColumnLabel(settings: ChartSettings | undefined, column: string): string | undefined {
+    if (settings?.xAxis?.column === column) {
+        return settings.xAxisLabel
+    }
+    const axis = settings?.yAxis?.find((axis) => axis.column === column)
+    return (
+        axis?.settings?.display?.label ??
+        (settings?.yAxis?.length === 1 ? settings.leftYAxisSettings?.label : undefined)
+    )
+}
+
 export function mergeBIChartSettings(
     current: ChartSettings | undefined,
     generated: ChartSettings | undefined,
@@ -125,8 +144,16 @@ export function mergeBIChartSettings(
             return {
                 ...current,
                 ...generated,
-                xAxis: { ...selectedX, ...current.xAxis },
-                xAxisLabel: current.xAxisLabel,
+                xAxis: {
+                    ...selectedX,
+                    ...current.xAxis,
+                    settings: mergeBIMeasureSettings(current.xAxis.settings, selectedX.settings),
+                },
+                xAxisLabel: mergeBIAxisLabel(
+                    current.xAxisLabel,
+                    getBIChartColumnLabel(previousDefaults, selectedX.column),
+                    getBIChartColumnLabel(generated, selectedX.column)
+                ),
                 yAxis: selectedY.map((axis) => ({
                     ...axis,
                     settings: mergeBIMeasureSettings(
@@ -134,7 +161,19 @@ export function mergeBIChartSettings(
                         axes.find((available) => available?.column === axis.column)?.settings
                     ),
                 })),
-                leftYAxisSettings: { ...generated.leftYAxisSettings, ...current.leftYAxisSettings },
+                leftYAxisSettings: {
+                    ...generated.leftYAxisSettings,
+                    ...current.leftYAxisSettings,
+                    label: mergeBIAxisLabel(
+                        current.leftYAxisSettings?.label,
+                        selectedY.length === 1
+                            ? getBIChartColumnLabel(previousDefaults, selectedY[0].column)
+                            : previousDefaults?.leftYAxisSettings?.label,
+                        selectedY.length === 1
+                            ? getBIChartColumnLabel(generated, selectedY[0].column)
+                            : generated.leftYAxisSettings?.label
+                    ),
+                },
             }
         }
     }
