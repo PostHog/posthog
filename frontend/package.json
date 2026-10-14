@@ -83,6 +83,7 @@
         "@posthog/icons": "catalog:",
         "@posthog/llm-normalizer": "workspace:*",
         "@posthog/products-access-control": "workspace:*",
+        "@posthog/products-account-audits": "workspace:*",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-ai-observability": "workspace:*",
         "@posthog/products-ai-training": "workspace:*",
