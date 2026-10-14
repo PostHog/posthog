@@ -1,16 +1,17 @@
 import { useValues } from 'kea'
-import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
-import { Survey, SurveyQuestionBranchingType, SurveyType } from '~/types'
+import { Survey, SurveyType } from '~/types'
 
-import { NewSurvey } from './constants'
+import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { getNextPreviewPageIndex } from './surveyPreviewNavigation'
+import { clampPreviewPageIndex, getIntroScreenPageOptions } from './utils'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -25,6 +26,7 @@ export function SurveyFormAppearance({
     handleSetSelectedPageIndex,
 }: SurveyFormAppearanceProps): JSX.Element | null {
     const { isAppearanceModalOpen } = useValues(surveysLogic)
+    const effectivePageIndex = clampPreviewPageIndex(previewPageIndex, survey)
 
     if (isAppearanceModalOpen) {
         return null
@@ -34,17 +36,21 @@ export function SurveyFormAppearance({
         <div className="flex flex-col h-full gap-2 items-start flex-1 xl:pl-8 pt-8 xl:pt-0">
             <SurveyAppearancePreview
                 survey={survey as Survey}
-                previewPageIndex={previewPageIndex}
+                previewPageIndex={effectivePageIndex}
                 onPreviewSubmit={(response) => {
-                    const nextStep = getNextSurveyStep(survey, previewPageIndex, response)
-                    if (nextStep === SurveyQuestionBranchingType.End && !survey.appearance?.displayThankYouMessage) {
-                        return
+                    const nextPageIndex = getNextPreviewPageIndex(survey, effectivePageIndex, response)
+                    if (nextPageIndex !== null) {
+                        handleSetSelectedPageIndex(nextPageIndex)
                     }
-                    handleSetSelectedPageIndex(
-                        nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
-                    )
                 }}
-                onPreviewBack={() => handleSetSelectedPageIndex(Math.max(0, previewPageIndex - 1))}
+                onPreviewBack={() =>
+                    handleSetSelectedPageIndex(
+                        Math.max(
+                            survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0,
+                            effectivePageIndex - 1
+                        )
+                    )
+                }
             />
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect
@@ -52,8 +58,9 @@ export function SurveyFormAppearance({
                     id="current-question-select"
                     fullWidth
                     truncateText={{ maxWidthClass: 'max-w-60' }}
-                    value={previewPageIndex}
+                    value={effectivePageIndex}
                     options={[
+                        ...getIntroScreenPageOptions(survey),
                         ...survey.questions.map((question, index) => ({
                             label: `${index + 1}. ${question.question ?? ''}`,
                             value: index,
