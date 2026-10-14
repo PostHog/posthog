@@ -59566,6 +59566,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `internal_users` - Internal and test users
      * * `local_development` - Local development events
      * * `bot_traffic` - Bot and crawler traffic
      * * `duplicate_events` - Events sent twice
@@ -59574,6 +59575,7 @@ export namespace Schemas {
 
 
     export const InsightDataCheckKeyEnum = {
+      InternalUsers: 'internal_users',
       LocalDevelopment: 'local_development',
       BotTraffic: 'bot_traffic',
       DuplicateEvents: 'duplicate_events',
@@ -59596,18 +59598,21 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `filter_internal_users` - Turn on the internal and test users filter for the insight
      * * `open_filter_settings` - Change the project's internal and test users filter
      */
     export type InsightDataCheckActionEnum = typeof InsightDataCheckActionEnum[keyof typeof InsightDataCheckActionEnum];
 
 
     export const InsightDataCheckActionEnum = {
+      FilterInternalUsers: 'filter_internal_users',
       OpenFilterSettings: 'open_filter_settings',
     } as const;
 
     export interface InsightDataCheck {
       /** Which check this is.
        *
+       * * `internal_users` - Internal and test users
        * * `local_development` - Local development events
        * * `bot_traffic` - Bot and crawler traffic
        * * `duplicate_events` - Events sent twice */
@@ -59628,8 +59633,9 @@ export namespace Schemas {
          * @nullable
          */
       fix: string | null;
-      /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
        *
+       * * `filter_internal_users` - Turn on the internal and test users filter for the insight
        * * `open_filter_settings` - Change the project's internal and test users filter */
       action: InsightDataCheckActionEnum | null;
       /**

@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -10,9 +11,11 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -23,13 +26,23 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.contracts import InsightDataChecks
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
-from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataCheckLevel
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckAction,
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+)
 from products.product_analytics.backend.facade.models import Insight
-from products.product_analytics.backend.insight_data_checks import DataCheckCounts, evaluate_data_checks
+from products.product_analytics.backend.insight_data_checks import (
+    DataCheckCounts,
+    InternalUserCounts,
+    evaluate_data_checks,
+    own_team_email_pattern,
+)
 
 PASSED = InsightDataCheckLevel.PASSED
 WARNING = InsightDataCheckLevel.WARNING
 PROBLEM = InsightDataCheckLevel.PROBLEM
+SKIPPED = InsightDataCheckLevel.SKIPPED
 NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
 EVENT = "signed up"
 WIDELY_SENT_EVENT = "opened app"
@@ -49,6 +62,10 @@ TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "eve
 def counts(
     events: int,
     *,
+    internal: int = 0,
+    missed_by_filter: int = 0,
+    internal_is_sample: bool = False,
+    internal_sample_events: int | None = None,
     local: int = 0,
     bots: int = 0,
     duplicates: int = 0,
@@ -59,6 +76,12 @@ def counts(
         local_events=local,
         bot_events=bots,
         distinct_events=events - duplicates,
+        internal_users=InternalUserCounts(
+            events=events if internal_sample_events is None else internal_sample_events,
+            removed_by_filter=internal,
+            missed_by_filter=missed_by_filter,
+            is_sample=internal_is_sample,
+        ),
         sample_rate=sample_rate,
     )
 
@@ -66,6 +89,22 @@ def counts(
 class TestEvaluateDataChecks(SimpleTestCase):
     @parameterized.expand(
         [
+            ("internal_fifth_is_a_problem", InsightDataCheckKey.INTERNAL_USERS, counts(1000, internal=200), PROBLEM),
+            (
+                "internal_small_share_is_a_warning",
+                InsightDataCheckKey.INTERNAL_USERS,
+                counts(1000, internal=60),
+                WARNING,
+            ),
+            ("internal_under_50_events", InsightDataCheckKey.INTERNAL_USERS, counts(1000, internal=49), PASSED),
+            ("internal_under_two_percent", InsightDataCheckKey.INTERNAL_USERS, counts(100000, internal=1900), PASSED),
+            ("internal_over_two_percent", InsightDataCheckKey.INTERNAL_USERS, counts(100000, internal=2100), WARNING),
+            (
+                "internal_sample_without_events",
+                InsightDataCheckKey.INTERNAL_USERS,
+                counts(100000, internal_sample_events=0),
+                SKIPPED,
+            ),
             (
                 "local_tiny_share_still_counts",
                 InsightDataCheckKey.LOCAL_DEVELOPMENT,
@@ -112,10 +151,99 @@ class TestEvaluateDataChecks(SimpleTestCase):
     def test_level_follows_count_and_share(
         self, _name: str, key: InsightDataCheckKey, check_counts: DataCheckCounts, expected: InsightDataCheckLevel
     ) -> None:
-        checks = evaluate_data_checks(check_counts)
+        checks = evaluate_data_checks(check_counts, filters_internal_users=False, has_internal_users_filter=True)
         levels = {check.key: check.level for check in checks}
         assert levels[key] == expected
         assert all(level == PASSED for other, level in levels.items() if other != key)
+
+    @parameterized.expand(
+        [
+            ("insight_filters_them_out", True, True, 0, 0, PASSED, None),
+            ("project_has_no_filter", False, False, 0, 0, SKIPPED, InsightDataCheckAction.OPEN_FILTER_SETTINGS),
+            (
+                "insight_applies_a_filter_the_project_lacks",
+                True,
+                False,
+                0,
+                0,
+                SKIPPED,
+                InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+            ),
+            (
+                "the_filter_would_remove_them",
+                False,
+                True,
+                300,
+                0,
+                PROBLEM,
+                InsightDataCheckAction.FILTER_INTERNAL_USERS,
+            ),
+            (
+                "the_filter_would_not_remove_enough_of_them",
+                False,
+                True,
+                300,
+                300,
+                PROBLEM,
+                InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+            ),
+            (
+                "left_by_the_filter_the_insight_applies",
+                True,
+                True,
+                0,
+                300,
+                PROBLEM,
+                InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+            ),
+            (
+                "found_without_a_project_filter",
+                False,
+                False,
+                0,
+                300,
+                PROBLEM,
+                InsightDataCheckAction.OPEN_FILTER_SETTINGS,
+            ),
+        ]
+    )
+    def test_internal_users_check_depends_on_the_filters_in_place(
+        self,
+        _name: str,
+        filters_internal_users: bool,
+        has_internal_users_filter: bool,
+        removed_by_filter: int,
+        missed_by_filter: int,
+        expected_level: InsightDataCheckLevel,
+        expected_action: InsightDataCheckAction | None,
+    ) -> None:
+        checks = evaluate_data_checks(
+            counts(1000, internal=removed_by_filter, missed_by_filter=missed_by_filter),
+            filters_internal_users=filters_internal_users,
+            has_internal_users_filter=has_internal_users_filter,
+        )
+        check = next(check for check in checks if check.key == InsightDataCheckKey.INTERNAL_USERS)
+        assert (check.level, check.action) == (expected_level, expected_action)
+
+    @parameterized.expand(
+        [
+            ("when_the_insight_does_not_apply_the_filter", False, True),
+            ("not_when_the_insight_applies_the_filter", True, False),
+        ]
+    )
+    def test_a_fix_in_the_filter_asks_to_turn_the_filter_on(
+        self, _name: str, filters_internal_users: bool, asks: bool
+    ) -> None:
+        checks = evaluate_data_checks(
+            counts(1000, local=300, bots=300),
+            filters_internal_users=filters_internal_users,
+            has_internal_users_filter=True,
+        )
+        fixes = {check.key: check.fix or "" for check in checks}
+        assert [
+            "turn that filter on" in fixes[key]
+            for key in (InsightDataCheckKey.LOCAL_DEVELOPMENT, InsightDataCheckKey.BOT_TRAFFIC)
+        ] == [asks, asks]
 
     @parameterized.expand(
         [
@@ -126,9 +254,61 @@ class TestEvaluateDataChecks(SimpleTestCase):
     def test_a_count_from_a_sample_is_scaled_up_to_the_whole_insight(
         self, _name: str, sample_rate: float, expected: str
     ) -> None:
-        checks = evaluate_data_checks(counts(1000000, local=66, sample_rate=sample_rate))
+        checks = evaluate_data_checks(
+            counts(1000000, local=66, sample_rate=sample_rate),
+            filters_internal_users=False,
+            has_internal_users_filter=True,
+        )
         check = next(check for check in checks if check.key == InsightDataCheckKey.LOCAL_DEVELOPMENT)
         assert check.result == expected
+
+    @parameterized.expand(
+        [
+            ("every_event_read", False, "30% of these events came from internal and test users"),
+            ("sample_of_people_read", True, "About 30% of these events came from internal and test users"),
+        ]
+    )
+    def test_an_internal_users_share_from_a_sample_is_stated_as_an_estimate(
+        self, _name: str, is_sample: bool, expected: str
+    ) -> None:
+        checks = evaluate_data_checks(
+            counts(1000, internal=300, internal_is_sample=is_sample),
+            filters_internal_users=False,
+            has_internal_users_filter=True,
+        )
+        assert checks[0].result == expected
+
+    def test_a_finding_states_its_share_and_carries_the_numbers(self) -> None:
+        checks = evaluate_data_checks(
+            counts(21336, internal=4661), filters_internal_users=False, has_internal_users_filter=True
+        )
+        check = checks[0]
+        assert check.result == "22% of these events came from internal and test users"
+        assert check.events == 4661
+        assert check.share is not None and round(check.share, 3) == 0.218
+
+    @parameterized.expand(
+        [
+            ("company_domain", "sam@acme.example", True),
+            ("subdomain_of_the_company_domain", "sam@eu.acme.example", True),
+            ("member_on_a_public_provider", "founder@gmail.com", True),
+            ("test_account", "test@gmail.com", True),
+            ("numbered_test_account", "qa2@shop.example", True),
+            ("test_alias", "maria+test1@shop.example", True),
+            ("longer_domain_that_starts_the_same", "sam@acme.example.br", False),
+            ("domain_that_ends_the_same", "sam@notacme.example", False),
+            ("another_person_on_the_public_provider", "afounder@gmail.com", False),
+            ("word_that_starts_with_test", "tester@shop.example", False),
+            ("word_that_contains_test", "contest@shop.example", False),
+            ("word_that_starts_with_demo", "demographics@shop.example", False),
+            ("alias_that_is_not_a_test_word", "maria+news@shop.example", False),
+        ]
+    )
+    def test_own_team_pattern_matches_the_team_and_test_accounts_only(
+        self, _name: str, email: str, expected: bool
+    ) -> None:
+        pattern = own_team_email_pattern(("acme.example",), ("founder@gmail.com",))
+        assert bool(re.search(pattern, email)) is expected
 
 
 @time_machine.travel(NOW, tick=False)
@@ -192,7 +372,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _check(self, query: dict[str, Any]) -> InsightDataChecks:
-        return run_insight_data_checks(query, team=self.team, user=self.user)
+        return run_insight_data_checks(query, team=self.team, user=self.user, can_read_members=True)
 
     def test_counts_each_problem_in_the_events_the_insight_reads(self) -> None:
         result = self._check(self._query())
@@ -200,6 +380,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert result.status == "warning"
         assert (result.events_checked, result.sample_rate) == (600, 1)
         assert {check.key: (check.level, check.events) for check in result.checks} == {
+            "internal_users": ("warning", 60),
             "local_development": ("warning", 60),
             "bot_traffic": ("warning", 60),
             "duplicate_events": ("warning", 110),
@@ -356,6 +537,157 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert result.sample_rate == sample_rate
         assert result.events_checked in events_checked
+
+    @parameterized.expand(
+        [
+            ("email_on_the_person", "colleague", {"email": "Anna@Agency.Example"}, {}),
+            ("email_as_the_distinct_id", "ben@agency.example", {}, {}),
+            (
+                "on_a_project_that_joins_persons_at_query_time",
+                "colleague",
+                {"email": "Anna@Agency.Example"},
+                {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+            ),
+        ]
+    )
+    def test_reports_team_emails_the_internal_users_filter_keeps(
+        self, _name: str, distinct_id: str, person_properties: dict[str, Any], source: dict[str, Any]
+    ) -> None:
+        self._create_user("owner@agency.example")
+        _create_person(team=self.team, distinct_ids=[distinct_id], properties=person_properties)
+        self._events(80, distinct_id=distinct_id, event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+
+        result = self._check(
+            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True, **source)
+        )
+
+        internal_users = result.checks[0]
+        assert (internal_users.level, internal_users.events, internal_users.action) == (
+            "problem",
+            80,
+            "open_filter_settings",
+        )
+        assert "@agency.example" in (internal_users.fix or "")
+
+    @parameterized.expand(
+        [
+            ("for_a_requester_who_may_see_that_member", True, "problem"),
+            ("for_a_requester_who_may_not_see_that_member", False, "passed"),
+        ]
+    )
+    def test_recognizes_a_member_by_email_only(
+        self, _name: str, members_can_see_org_members: bool, expected_level: str
+    ) -> None:
+        self._create_user("founder@gmail.com")
+        _create_person(team=self.team, distinct_ids=["founder"], properties={"email": "founder@gmail.com"})
+        self._events(80, distinct_id="founder", event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = members_can_see_org_members
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        result = self._check(
+            self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)
+        )
+
+        assert result.checks[0].level == expected_level
+
+    @parameterized.expand(
+        [
+            ("the_project_filter_cannot_be_read", [{"type": "hogql", "key": "timestamp.day"}], None),
+            ("the_cluster_is_at_capacity", None, ClickHouseAtCapacity()),
+        ]
+    )
+    def test_reports_the_other_checks_when_the_internal_users_query_fails(
+        self, _name: str, test_account_filters: list[dict[str, Any]] | None, error: Exception | None
+    ) -> None:
+        if test_account_filters is not None:
+            self.team.test_account_filters = test_account_filters
+            self.team.save()
+
+        def execute(**kwargs: Any) -> Any:
+            if error is not None and kwargs["query_type"] == "insight_data_checks_internal_users":
+                raise error
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=execute):
+            result = self._check(self._query())
+
+        assert {check.key: check.level for check in result.checks} == {
+            "internal_users": "skipped",
+            "local_development": "warning",
+            "bot_traffic": "warning",
+            "duplicate_events": "warning",
+        }
+
+    def test_the_internal_users_sample_reads_no_more_events_than_the_first_sample(self) -> None:
+        samples = []
+
+        def execute(**kwargs: Any) -> Any:
+            if kwargs["query_type"] == "insight_data_checks_internal_users":
+                ratio = kwargs["query"].select_from.sample.sample_value
+                samples.append((ratio.left.value, ratio.right.value if ratio.right else None))
+            return execute_hogql_query(**kwargs)
+
+        with (
+            patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", 100),
+            patch(f"{CHECKS_MODULE}.execute_hogql_query", side_effect=execute),
+        ):
+            self._check(self._query(properties=[ON_LOCAL_HOST]))
+
+        assert samples == [(100, 630)]
+
+    @parameterized.expand(
+        [
+            ("with_the_member_scope", ["insight:read", "query:read", "organization_member:read"], "problem"),
+            ("without_the_member_scope", ["insight:read", "query:read"], "passed"),
+        ]
+    )
+    def test_a_token_matches_member_emails_only_with_the_member_scope(
+        self, _name: str, scopes: list[str], expected_level: str
+    ) -> None:
+        self._create_user("founder@gmail.com")
+        _create_person(team=self.team, distinct_ids=["founder"], properties={"email": "founder@gmail.com"})
+        self._events(80, distinct_id="founder", event=WIDELY_SENT_EVENT)
+        self._events(120, event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/data_checks/",
+            {"query": self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, filterTestAccounts=True)},
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.json()["checks"][0]["level"] == expected_level, response.content
+
+    def test_an_insight_that_filters_internal_users_passes_that_check(self) -> None:
+        result = self._check(self._query(filterTestAccounts=True))
+
+        internal_users = result.checks[0]
+        assert (internal_users.level, internal_users.result) == (
+            "passed",
+            "Internal and test users are filtered out",
+        )
 
     @parameterized.expand(
         [
