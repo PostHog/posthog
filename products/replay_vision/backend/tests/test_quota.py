@@ -14,7 +14,7 @@ from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend import quota
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -31,8 +31,12 @@ from products.replay_vision.backend.quota import (
     compute_quota_snapshot,
     compute_scanner_budget,
     compute_scanner_budgets,
+    spend_projection,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    seed_scanner_spend,
+    snapshot_for as _snapshot_for,
+)
 
 _ORG_ID = "01234567-89ab-cdef-0123-456789abcdef"
 
@@ -499,6 +503,100 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         assert result[other_scanner.id].credits_used == 0
         assert result[other_scanner.id].credit_limit is None
 
+    @parameterized.expand(
+        [
+            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False, False),
+            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False, True),
+            # In-flight work fills the own cap, but only the free credits are full of posted spend.
+            (
+                "settled_free_credits_still_block_under_in_flight_own_cap",
+                "one_observation",
+                1_000_000,
+                "one_observation",
+                True,
+                True,
+                True,
+            ),
+        ]
+    )
+    def test_free_only_scanner_draws_on_the_orgs_free_credits(
+        self,
+        _name: str,
+        own_cap: int | str | None,
+        org_limit: int | None,
+        expected_limit: int | str,
+        expected_blocked: bool,
+        in_flight: bool,
+        expected_free_credits_copy: bool,
+    ) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        own_cap = cost if own_cap == "one_observation" else own_cap
+        expected_limit = cost if expected_limit == "one_observation" else expected_limit
+        # Another scanner's spend leaves less than one observation of free credits.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=own_cap,
+            free_only=True,
+        )
+        if in_flight:
+            ReplayObservation.objects.create(
+                scanner=free,
+                team=self.team,
+                session_id="free-in-flight",
+                status=ObservationStatus.RUNNING,
+                scanner_snapshot=_snapshot_for(free),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+            )
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", org_limit):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        assert (
+            budget.credit_limit,
+            budget.blocked,
+            budget.blocked_by_settled_spend,
+            budget.settled_block_from_free_credits,
+        ) == (expected_limit, expected_blocked, True, expected_free_credits_copy)
+
+    def test_free_only_scanner_keeps_the_tighter_headroom_when_its_own_cap_is_settled_full(self) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=2 * cost - 1,
+            free_only=True,
+        )
+        # The own cap has posted spend that leaves less than one observation, but some room.
+        seed_scanner_spend(free, cost)
+        # The free credits have room for one more posted observation, but in-flight work takes it.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 2 * cost)
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="other-in-flight",
+            status=ObservationStatus.RUNNING,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+        )
+        reserved = observation_credits_for_model(self.scanner.model)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        # The own cap is what posted spend fills, so the notification must not blame the free credits.
+        assert (budget.remaining, budget.blocked_by_settled_spend, budget.settled_block_from_free_credits) == (
+            max(0, cost - reserved),
+            True,
+            False,
+        )
+
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
     @parameterized.expand(
@@ -671,6 +769,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         estimate: int | None = None,
         model: ScannerModel = ScannerModel.GEMINI_3_8_FLASH,
         credit_limit: int | None = None,
+        free_only: bool = False,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=team,
@@ -680,6 +779,7 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
             model=model,
             enabled=enabled,
             credit_limit=credit_limit,
+            free_only=free_only,
         )
         if estimate is not None:
             ReplayScanner.objects.filter(pk=scanner.pk).update(
@@ -706,6 +806,33 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         # 15 of 30 days left: the 200 headroom pro-rated back to a 30-day rate is 400.
         assert snapshot.projected_monthly_credits == 400 + 150
+
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_only_scanners_share_the_orgs_free_credits_left(self) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-a", estimate=100, free_only=True)  # 1500 uncapped
+        self._make_scanner(team=self.team, name="free-b", estimate=100, free_only=True)  # 1500 uncapped
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        # 15 of 30 days left: the 500 free credits left, pro-rated back to a 30-day rate, cover both scanners.
+        assert snapshot.projected_monthly_credits == 1000
+
+    @parameterized.expand(
+        [
+            ("room_left_after_the_other", 20, 1000 - 300),
+            ("other_uses_it_all", 100, 0),
+        ]
+    )
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_headroom_is_what_other_free_only_scanners_leave(
+        self, _name: str, other_estimate: int, expected_left: int
+    ) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-other", estimate=other_estimate, free_only=True)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            projection = spend_projection(self.organization.id, include_free_headroom=True)
+        # The 500 free credits left over 15 days are a 1000-credit monthly rate, shared with the other scanner.
+        assert projection.free_only_monthly_credits_left == expected_left
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")
