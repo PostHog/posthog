@@ -74,10 +74,14 @@ class _OneShotEvalRun(_BaseEvalRun):
                 timeout=self.ctx.per_case_timeout_seconds,
             )
         output.setdefault("prompt", case.prompt)
-        await self._write_local_logs(case, output, duration=time.monotonic() - started)
+        await self._write_local_logs(
+            case, output, duration=time.monotonic() - started, trial_id=hooks.metadata.get("trial_id")
+        )
         return output
 
-    async def _write_local_logs(self, case: BaseEvalCase, output: dict[str, Any], duration: float) -> None:
+    async def _write_local_logs(
+        self, case: BaseEvalCase, output: dict[str, Any], duration: float, trial_id: str | None = None
+    ) -> None:
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
@@ -87,6 +91,7 @@ class _OneShotEvalRun(_BaseEvalRun):
                 prompt=case.prompt,
                 duration=duration,
                 last_message=str(output.get("last_message", "")),
+                trial_id=trial_id,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", case.name)

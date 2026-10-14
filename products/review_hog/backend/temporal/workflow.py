@@ -730,6 +730,7 @@ class ReviewPRWorkflow:
                 review_mode=inputs.review_mode,
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
+                trigger_source=inputs.trigger_source,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
