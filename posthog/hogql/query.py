@@ -73,7 +73,7 @@ from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_q
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.models.event.new_events_schema import new_events_cluster_host_scope
+from posthog.models.event.new_events_schema import new_events_cluster_host_scope, use_new_events_cluster
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -933,8 +933,6 @@ class HogQLQueryExecutor:
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
-            from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
-
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
                 if get_query_tags().product == Product.ENDPOINTS or workload not in (
                     Workload.DEFAULT,
