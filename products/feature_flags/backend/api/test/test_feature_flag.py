@@ -14370,7 +14370,7 @@ class TestFeatureFlagHistoricalBatch(APIBaseTest):
         with mute_selected_signals():
             create_person(team=self.team, distinct_ids=["alpha"])
         mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
-        token, _ = _make_feature_flag_psak(self.team, scopes=scopes)
+        token = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
         response = self.client.post(
             f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",

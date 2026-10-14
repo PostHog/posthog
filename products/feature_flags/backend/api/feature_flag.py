@@ -3416,6 +3416,7 @@ class FeatureFlagHistoricalBatchResponseSerializer(serializers.Serializer):
 
 @frozen
 class PreparedFlagTestEvaluation:
+    team_token: str
     distinct_ids: list[str]
     timestamp: datetime | None
     person_properties: dict[str, Any]
@@ -5639,8 +5640,6 @@ class FeatureFlagViewSet(
 
         deadline = time.monotonic() + HISTORICAL_BATCH_EVALUATION_BUDGET_SECONDS
         groups = request.validated_data["groups"]
-        # Load the project on the request thread before the workers access its token.
-        _ = self.team
 
         def evaluate(distinct_id: str) -> dict[str, Any]:
             if time.monotonic() >= deadline:
@@ -5669,7 +5668,7 @@ class FeatureFlagViewSet(
         person_id: str | None,
         timestamp: datetime | None,
         *,
-        batch_distinct_ids: list[str] | None = None,
+        batch_distinct_ids: Sequence[str] | None = None,
     ) -> PreparedFlagTestEvaluation | Response:
         # The identifier we were asked to resolve. Logged on every failure path below so a
         # personhog RPC outage, a genuinely missing person, and bad input can be told apart
@@ -5807,6 +5806,7 @@ class FeatureFlagViewSet(
                 )
 
         return PreparedFlagTestEvaluation(
+            team_token=self.team.api_token,
             distinct_ids=distinct_ids,
             timestamp=timestamp,
             person_properties=person_properties,
@@ -5841,7 +5841,7 @@ class FeatureFlagViewSet(
         # Evaluate the flag
         try:
             # Get team API token for Rust service
-            team_token = self.team.api_token
+            team_token = prepared.team_token
 
             # If we reconstructed a historical version, ship the reconstructed
             # field set as the override payload. Building straight from
