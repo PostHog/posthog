@@ -24,6 +24,8 @@ import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
@@ -244,7 +246,7 @@ def wizard_gateway_policy(
     the same person properties as the limit override, so it can be targeted."""
     properties = _targeting_properties(email=email, organization_id=organization_id, team_id=team_id)
     prompt_raw = _policy_payload(
-        lambda: posthoganalytics.get_remote_config_payload(WIZARD_SYSTEM_PROMPT_FLAG),
+        lambda: _read_remote_config_payload(WIZARD_SYSTEM_PROMPT_FLAG),
         source="system prompt",
         field="system_prompt",
     )
@@ -293,6 +295,37 @@ def _policy_payload(read: Callable[[], object], *, source: str, field: str) -> d
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field).inc()
         return None
     return raw
+
+
+# The read runs on the mint request, so it makes one attempt in about 2 seconds and then
+# mints unpinned. The SDK's get_remote_config_payload retries, and sleeps for a 429 or 503
+# Retry-After outside its timeout, which can hold a worker for minutes.
+_PROMPT_READ_TIMEOUT_SECONDS = (1.0, 1.0)
+_PROMPT_READ_SESSION = requests.Session()
+for _scheme in ("https://", "http://"):
+    _PROMPT_READ_SESSION.mount(_scheme, HTTPAdapter(max_retries=Retry(total=0, raise_on_status=False)))
+
+
+def _read_remote_config_payload(key: str) -> object:
+    """What the SDK's get_remote_config_payload returns, from one bounded request with
+    the SDK's host and keys. None when the SDK is off or holds no personal API key."""
+    client = posthoganalytics.setup()
+    if client.disabled or not client.personal_api_key:
+        return None
+    try:
+        response = _PROMPT_READ_SESSION.get(
+            f"{client.host.rstrip('/')}/api/projects/@current/feature_flags/{key}/remote_config",
+            params={"token": client.api_key},
+            headers={"Authorization": f"Bearer {client.personal_api_key}"},
+            timeout=_PROMPT_READ_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as e:
+        # The exception text holds the request URL, so only the type goes to the log.
+        raise RuntimeError(f"remote_config request failed: {type(e).__name__}") from e
+    if response.status_code != 200:
+        raise RuntimeError(f"remote_config answered HTTP {response.status_code}")
+    # The endpoint answers an empty body for a cleared payload.
+    return response.json() if response.content else None
 
 
 def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:

@@ -272,7 +272,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
         remote_config_patch = patch(
-            "posthog.llm.wizard_gateway_token.posthoganalytics.get_remote_config_payload", side_effect=read_payload
+            "posthog.llm.wizard_gateway_token._read_remote_config_payload", side_effect=read_payload
         )
         self.mock_remote_config = remote_config_patch.start()
         self.addCleanup(remote_config_patch.stop)

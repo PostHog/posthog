@@ -1,7 +1,10 @@
 import json
+import threading
+import http.server
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -522,7 +525,7 @@ class TestWizardGatewayPolicy:
 
         with (
             patch(
-                "posthog.llm.wizard_gateway_token.posthoganalytics.get_remote_config_payload",
+                "posthog.llm.wizard_gateway_token._read_remote_config_payload",
                 side_effect=reader({WIZARD_SYSTEM_PROMPT_FLAG: prompt}),
             ) as remote_config,
             patch(
@@ -584,6 +587,53 @@ class TestWizardGatewayPolicy:
         logged = [call.args[0] for call in log.warning.call_args_list]
         expected = f"wizard_gateway_token: {message} " + ("returned no payload" if missing is None else "unavailable")
         assert logged == [expected]
+
+    @pytest.mark.parametrize("status", [429, 503])
+    def test_a_throttled_prompt_read_mints_unpinned_after_one_attempt(self, status):
+        hits = []
+
+        class Throttled(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                hits.append(self.path)
+                self.send_response(status)
+                self.send_header("Retry-After", "1")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Throttled)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        sdk = SimpleNamespace(
+            disabled=False,
+            personal_api_key="phx_test",
+            api_key="phc_test",
+            host=f"http://127.0.0.1:{server.server_port}",
+        )
+        try:
+            with (
+                patch("posthog.llm.wizard_gateway_token.posthoganalytics.setup", return_value=sdk),
+                patch(
+                    "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+                    return_value=ALLOWLIST_PAYLOAD,
+                ),
+                patch("posthog.llm.wizard_gateway_token.logger") as log,
+            ):
+                policy = _policy()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert policy.prompt is None
+        assert policy.programs == ("integration", "audit")
+        # A retry that honored Retry-After would sleep on the mint worker and hit again.
+        assert len(hits) == 1
+        assert hits[0].startswith(f"/api/projects/@current/feature_flags/{WIZARD_SYSTEM_PROMPT_FLAG}/remote_config?")
+        assert [call.args[0] for call in log.warning.call_args_list] == [
+            "wizard_gateway_token: system prompt flag unavailable"
+        ]
 
     def test_models_that_spell_one_model_do_not_count_twice_against_the_gateways_cap(self):
         names = [f"m{i}" for i in range(31)]

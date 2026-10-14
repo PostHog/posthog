@@ -36,8 +36,10 @@ read once per mint request after authentication.
 
 - `wizard-ai-gateway-system-prompt` must be a remote-config flag with an encrypted payload.
   `/flags` returns an unencrypted payload to anyone with the public project token, so an unencrypted prompt is public.
-  `/flags` drops an encrypted flag, so Django reads this one with the SDK's `get_remote_config_payload`, which calls the
-  `remote_config` endpoint with Django's `POSTHOG_PERSONAL_API_KEY`.
+  `/flags` drops an encrypted flag, so Django reads this one from the `remote_config` endpoint with the SDK's host and
+  Django's `POSTHOG_PERSONAL_API_KEY`, the request the SDK's `get_remote_config_payload` makes.
+  The read makes one attempt with a 1 second connect and a 1 second read timeout, and no retry.
+  A timeout, a 429 or a 503 mints unpinned at once, because the SDK's own retries sleep for `Retry-After` on the mint worker.
   That endpoint decrypts only for a personal API key with `feature_flag:read` on the project.
   A project secret key gets the redacted marker back, and the mint treats it as out of contract.
   The payload is `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's own label and that nothing reads.
