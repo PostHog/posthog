@@ -23,6 +23,7 @@ from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
 from posthog.models import User
+from posthog.permissions import GuestPermission
 
 from ee.support_sidebar_max.prompt import get_system_prompt
 
@@ -47,7 +48,7 @@ class MaxChatViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     CONVERSATION_TIMEOUT = 3600  # one hour
     MAX_BACKOFF = 40  # Maximum backoff in seconds to prevent gateway timeouts

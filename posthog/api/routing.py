@@ -38,6 +38,7 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     APIScopePermission,
+    GuestPermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
     TeamMemberAccessPermission,
@@ -266,6 +267,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # permission chain cannot remove them.
             return [
                 *dangerously_defined,
+                GuestPermission(),
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
@@ -296,6 +298,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # After the membership permission, so non-members get the generic denial and the
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
+        # After the membership permission, which loads the memberships GuestPermission reads.
+        permission_classes.append(GuestPermission)
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)

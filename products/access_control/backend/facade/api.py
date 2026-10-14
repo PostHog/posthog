@@ -301,6 +301,21 @@ def object_ids_restricted_from_any_member(
     return {resource_id for resource_id in restricted if resource_id}
 
 
+def member_project_ids(*, organization_id: UUID, user_id: int) -> frozenset[int]:
+    """Return the ids of the organization's projects where a member rule admits the user."""
+    return frozenset(
+        int(resource_id)
+        for resource_id in AccessControl.objects.filter(
+            team__organization_id=organization_id,
+            resource="project",
+            organization_member__user_id=user_id,
+            organization_member__organization_id=organization_id,
+            access_level__in=("member", "admin"),
+        ).values_list("resource_id", flat=True)
+        if resource_id is not None and resource_id.isdecimal()
+    )
+
+
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
     """Whether the role is a role of that organization.
 

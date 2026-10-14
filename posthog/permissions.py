@@ -35,6 +35,7 @@ from posthog.authz import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.guest_access import GUEST_ALLOWED, GUEST_ANY_ACTION_SCOPES, GUEST_MODE_FEATURE, guest_state_for_view
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -1048,6 +1049,30 @@ class MCPAccessPermission(ScopeBasePermission):
         return True
 
 
+class GuestPermission(BasePermission):
+    """Deny guests every action outside GUEST_ALLOWED, and every action when the org lacks guest access.
+
+    Put it after the membership permissions, which load the memberships it reads.
+    """
+
+    message = "Guests can only view the dashboards, insights and notebooks shared with them."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        state = guest_state_for_view(request, view)
+        if not state.is_guest:
+            return True
+        if state.organization is None or not state.organization.is_feature_available(GUEST_MODE_FEATURE):
+            self.message = "Your organization's plan doesn't include guest access."
+            return False
+        if not state.enforced:
+            return True
+        scope_object = getattr(view, "scope_object", None)
+        action = getattr(view, "action", None)
+        if not isinstance(scope_object, str):
+            return False
+        return scope_object in GUEST_ANY_ACTION_SCOPES or action in GUEST_ALLOWED.get(scope_object, frozenset())
+
+
 class AccessControlPermission(ScopeBasePermission):
     """
     Unified permissions access - controls access to any object based on the user's access controls
@@ -1220,7 +1245,7 @@ class AccessControlPermission(ScopeBasePermission):
         is_member = uac.check_access_level_for_object(team, required_level="member")
 
         if not is_member:
-            self.message = f"You don't have access to the project."
+            self.message = "You don't have access to the project."
             return False
 
         # If the API doesn't have a scope object or a required level for accessing then we can simply allow access

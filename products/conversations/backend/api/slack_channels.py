@@ -10,6 +10,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
+from posthog.permissions import GuestPermission
+
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
@@ -22,7 +24,7 @@ logger = structlog.get_logger(__name__)
 class SlackChannelsView(APIView):
     """Fetch Slack channels using the support bot token from env settings."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.current_team  # type: ignore[union-attr]

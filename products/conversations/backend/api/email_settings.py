@@ -28,6 +28,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import GuestPermission
 from posthog.rate_limit import EmailForwardingChallengeThrottle, EmailSendTestThrottle, EmailVerifyDomainThrottle
 
 from products.conversations.backend.mailgun import (
@@ -506,7 +507,7 @@ class EmailSendTestResponseSerializer(EmailChannelOperationResponseSerializer):
 class EmailStatusView(APIView):
     """Return connected email channels for the current team."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     @extend_schema(
         tags=["conversations"],
@@ -536,7 +537,7 @@ class EmailStatusView(APIView):
 
 
 class EmailConnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     @extend_schema(
         tags=["conversations"],
@@ -797,7 +798,7 @@ class EmailVerifyDomainView(APIView):
 class EmailSendTestView(APIView):
     """Send a test email to verify the outbound pipeline works."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
     throttle_classes = [EmailSendTestThrottle]
 
     @extend_schema(
@@ -954,7 +955,7 @@ class EmailSetTrustedRelayView(APIView):
 
 
 class EmailVerifyForwardingView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
     throttle_classes = [EmailForwardingChallengeThrottle]
 
     @validated_request(
@@ -1051,7 +1052,7 @@ class EmailVerifyForwardingView(APIView):
 
 
 class EmailConfirmForwardingView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     @validated_request(
         tags=["conversations"],
@@ -1082,7 +1083,7 @@ class EmailConfirmForwardingView(APIView):
 
 
 class EmailDisconnectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     @extend_schema(
         tags=["conversations"],

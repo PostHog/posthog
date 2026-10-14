@@ -125,7 +125,12 @@ from posthog.models.user import (
     preserve_starred_products_setup,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import (
+    APIScopePermission,
+    GuestPermission,
+    TimeSensitiveActionPermission,
+    UserNoOrgMembershipDeletePermission,
+)
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
     ToolbarOAuthRefreshThrottle,
@@ -1039,6 +1044,7 @@ class UserViewSet(
     ]
     permission_classes = [
         IsAuthenticated,
+        GuestPermission,
         APIScopePermission,
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,

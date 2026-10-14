@@ -16,7 +16,7 @@ from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
-from posthog.permissions import TimeSensitiveActionPermission
+from posthog.permissions import GuestPermission, TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
@@ -279,7 +279,12 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
-    permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        GuestPermission,
+        TimeSensitiveActionPermission,
+        PersonalApiKeySelfAccessPermission,
+    ]
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
     queryset = PersonalAPIKey.objects.none()
 
