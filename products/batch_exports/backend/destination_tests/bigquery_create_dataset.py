@@ -165,10 +165,15 @@ class BigQueryProjectPermissionsTestStep(DestinationTestStep):
         try:
             with google.auth.transport.requests.AuthorizedSession(credentials) as session:
                 response = session.post(url, json={"permissions": required}, timeout=IAM_CHECK_TIMEOUT_SECONDS)
-        except (requests.exceptions.RequestException, google.auth.exceptions.GoogleAuthError):
+        except google.auth.exceptions.GoogleAuthError:
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message=f"Could not check permissions on project '{self.project_id}' because the request failed.",
+                message=f"Could not check permissions on project '{self.project_id}' because authentication failed. Review the service account credentials and try again.",
+            )
+        except requests.exceptions.RequestException:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Could not check permissions on project '{self.project_id}' because the request to Google Cloud failed. This is usually temporary, so try again.",
             )
 
         if response.status_code != 200:
@@ -177,9 +182,13 @@ class BigQueryProjectPermissionsTestStep(DestinationTestStep):
                     status=Status.SKIPPED,
                     message=f"Could not check permissions because the Cloud Resource Manager API is disabled in project '{self.project_id}'. Enable the API to run this check.",
                 )
+            if response.status_code == 429 or response.status_code >= 500:
+                advice = "This is usually temporary, so try again."
+            else:
+                advice = "Review the service account credentials and its access to the project, then try again."
             return DestinationTestStepResult(
                 status=Status.FAILED,
-                message=f"Could not check permissions on project '{self.project_id}' (HTTP {response.status_code}).",
+                message=f"Could not check permissions on project '{self.project_id}' (HTTP {response.status_code}). {advice}",
             )
 
         granted = set(response.json().get("permissions", []))

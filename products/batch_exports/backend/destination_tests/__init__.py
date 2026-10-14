@@ -7,6 +7,9 @@ def get_destination_test(
 ) -> DestinationTest:
     """Resolve a destination to its corresponding `DestinationTest` implementation.
 
+    `destination` is a batch export destination type, or the key of a destination test variant
+    that is not a batch export destination (`BigQueryCreateDataset`).
+
     Per-branch deferred imports: each destination test module pulls a heavy vendor SDK
     (databricks, google-cloud-bigquery, snowflake, etc.). Importing them lazily keeps the
     SDKs off the API import path — only the requested destination's SDK loads.
