@@ -1096,6 +1096,17 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
     )
 
 
+def _schedule_user_repo_cache_refresh(user_integration_id: int) -> None:
+    # noqa reason: the task module imports this module, so a module-level import here would be circular.
+    from products.slack_app.backend.tasks import refresh_user_github_repository_cache  # noqa: PLC0415
+
+    try:
+        refresh_user_github_repository_cache.delay(user_integration_id=user_integration_id)
+    except Exception:
+        # The stale snapshot still answers this mention, and the next mention schedules the refresh again.
+        logger.warning("github_repo_cache_refresh_dispatch_failed", user_integration_id=user_integration_id)
+
+
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
     """Repo names available to the mentioner, from their personal GitHub install. Cached per user."""
     if user_id is None:
@@ -1117,7 +1128,13 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
 
     for record in user_records:
         github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
-        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
+        # A live listing of a large install takes seconds, and a person waits on this in Slack.
+        # Only an install with no snapshot at all lists inline; a stale snapshot is served as is
+        # and refreshed in the background for the next mention.
+        has_snapshot = record.repository_cache_updated_at is not None
+        if has_snapshot and github.repository_cache_is_stale():
+            _schedule_user_repo_cache_refresh(record.id)
+        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_snapshot)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:

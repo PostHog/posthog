@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -116,6 +117,43 @@ class TestGetFullRepoNames:
 
         assert len(result) == 5
         assert any("github_repo_list_capped" in r.message for r in caplog.records)
+
+    @parameterized.expand(
+        [
+            ("no_snapshot_lists_inline", False, False, True, False),
+            ("fresh_snapshot", True, False, False, False),
+            ("stale_snapshot_served_and_refreshed_later", True, True, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api._schedule_user_repo_cache_refresh")
+    def test_stale_snapshot_does_not_block_on_github(
+        self,
+        _name,
+        has_snapshot,
+        is_stale,
+        expected_allow_refresh,
+        expected_scheduled,
+        mock_schedule,
+        mock_github_class,
+    ):
+        record = _create_user_github_integration(self.user)
+        if has_snapshot:
+            record.repository_cache_updated_at = timezone.now()
+            record.save(update_fields=["repository_cache_updated_at"])
+
+        mock_github = MagicMock()
+        mock_github.repository_cache_is_stale.return_value = is_stale
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "posthog")]
+        mock_github_class.return_value = mock_github
+
+        result = _get_full_repo_names(self.slack_integration, user_id=self.user.id)
+
+        assert result == ["posthog/posthog"]
+        assert mock_github.list_all_cached_repositories.call_args.kwargs["allow_refresh"] is expected_allow_refresh
+        if expected_scheduled:
+            mock_schedule.assert_called_once_with(record.id)
+        else:
+            mock_schedule.assert_not_called()
 
     def test_results_are_sorted(self, mock_github_class):
         _create_user_github_integration(self.user)
