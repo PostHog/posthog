@@ -841,6 +841,10 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
+            # The setup is never templated. Compiled code from the client could name a different scanner than the
+            # value the access checks read, so only the value reaches the engine.
+            attrs.pop("bytecode", None)
+            attrs.pop("transpiled", None)
         elif item_type == "task_skills":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of skill names."})
