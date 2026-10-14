@@ -251,15 +251,16 @@ def queued_bounds(conn) -> dict[str, int | None]:
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("newer_row_in_clickhouse", [True, False])
+@pytest.mark.parametrize(
+    "newer_row_in_clickhouse,pending_publish,rebounded",
+    [(True, False, False), (False, False, True), (False, True, False)],
+    ids=["newer_clickhouse_row", "never_published", "publish_pending"],
+)
 def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_queued(
-    cluster: ClickhouseCluster, persons_database, newer_row_in_clickhouse: bool
+    cluster: ClickhouseCluster, persons_database, newer_row_in_clickhouse: bool, pending_publish: bool, rebounded: bool
 ):
-    # A person tombstoned again after the sweep stays in Postgres. When ClickHouse has the newer
-    # tombstone, the next sweep queues the person again, so its row goes. When ClickHouse never saw
-    # it (ingestion's create-undo publishes nothing), nothing would queue the person again, so the
-    # row stays with the bound raised and the next run deletes the person.
-    # A row without a bound is never sent, because nothing says which versions the sweep removed.
+    # A re-tombstoned person stays; with no newer ClickHouse row and no pending publish, its bound rises and the
+    # next run deletes it. A row without a bound is never sent.
     fake = get_active_fake()
     at_bound = seed_tombstoned(fake, TEAM_A, 1, version=3)
     above = seed_tombstoned(fake, TEAM_A, 2, version=4)
@@ -268,24 +269,26 @@ def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_
     queue(persons_database, [(TEAM_A, unversioned, SWEEP_1)], max_version=None)
     if newer_row_in_clickhouse:
         create_person_in_ch(uuid=above, team_id=TEAM_A, version=4, is_deleted=True)
+    if pending_publish:
+        fake.tombstone_queue[(TEAM_A, above)] = 4
 
     result = run_job(cluster)
 
     assert not present(fake, TEAM_A, at_bound)
     assert present(fake, TEAM_A, above) and present(fake, TEAM_A, unversioned)
-    expected_queue = {unversioned: None} if newer_row_in_clickhouse else {unversioned: None, above: 4}
+    expected_queue = {unversioned: None, above: 4} if rebounded else {unversioned: None}
     assert queued_bounds(persons_database) == expected_queue
     bounds = [(person.person_uuid, person.max_version) for r in delete_requests(fake) for person in r.bounded_persons]
     assert sorted(bounds) == sorted([(at_bound, 3), (above, 3)])
     totals = totals_of(result)
     assert (totals.persons_deleted, totals.persons_skipped_version, totals.persons_not_found) == (1, 1, 0)
     assert (totals.rows_unversioned, totals.queue_rows_deleted, totals.rows_rebounded) == (
-        (1, 2, 0) if newer_row_in_clickhouse else (1, 1, 1)
+        (1, 1, 1) if rebounded else (1, 2, 0)
     )
 
     run_job(cluster)
 
-    assert present(fake, TEAM_A, above) == newer_row_in_clickhouse
+    assert present(fake, TEAM_A, above) != rebounded
     assert queued_bounds(persons_database) == {unversioned: None}
 
 

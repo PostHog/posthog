@@ -61,7 +61,7 @@ from posthog.dags.clickhouse_cleanup import (
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
-from posthog.models.person.util import get_person_tombstones
+from posthog.models.person.util import get_person_tombstones, list_person_tombstone_queue
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
 from posthog.personhog_client.proto import (
     DeleteTombstonedPersonsRequest,
@@ -113,6 +113,7 @@ RETRY_BACKOFF_CAP_SECONDS = 60.0
 PG_RETRY_BACKOFF_SECONDS = 1.0
 LOG_EVERY_PAGES = 10
 BLOCKED_SAMPLE_SIZE = 50
+PUBLISH_QUEUE_PAGE_SIZE = 1000
 
 # Codes that say the request itself is wrong or unserved; another attempt returns the same answer.
 FATAL_RPC_CODES = frozenset(
@@ -506,8 +507,21 @@ def _clickhouse_person_versions(team_id: int, person_uuids: Sequence[str]) -> di
     rows = sync_execute(
         "SELECT id, max(version) FROM person WHERE team_id = %(team_id)s AND id IN %(ids)s GROUP BY id",
         {"team_id": team_id, "ids": list(person_uuids)},
+        team_id=team_id,
     )
     return {str(person_id): int(version) for person_id, version in rows}
+
+
+def _queued_for_publish(team_id: int, person_uuids: Sequence[str]) -> set[str]:
+    wanted = set(person_uuids)
+    found: set[str] = set()
+    after = None
+    while page := list_person_tombstone_queue(after, PUBLISH_QUEUE_PAGE_SIZE, team_id=team_id):
+        found.update(str(row.person_uuid) for row in page if str(row.person_uuid) in wanted)
+        if len(page) < PUBLISH_QUEUE_PAGE_SIZE:
+            break
+        after = (team_id, page[-1].person_uuid)
+    return found
 
 
 def _queue_rows_estimate(cursor: psycopg2.extensions.cursor) -> int:
@@ -799,13 +813,8 @@ class _Drain:
         blocked = sorted(response.blocked_person_uuids)
         unresolved = set(blocked) | set(response.pending_person_uuids)
         resolved = [uuid for uuid in sent if uuid not in unresolved]
-        # Skipped-live rows go too: the queue row is stale, and the sweep queues the person again
-        # if it is ever tombstoned again. So do rows skipped above their version bound when the
-        # newer tombstone has its own ClickHouse rows: the sweep that removes them queues the person
-        # again with a higher bound. A newer tombstone with no ClickHouse rows keeps its row with
-        # the bound raised, because no sweep would ever queue that person again. If that check fails,
-        # every resolved row stays and the next run sends it again; a deleted person then reads as
-        # not found.
+        # Resolved rows go, except a person tombstoned again with no newer ClickHouse row: no sweep requeues it,
+        # so its bound rises instead. A failed check keeps every resolved row for the next run.
         rebound = self.unpublished_bounds(chunk, resolved) if response.skipped_version_count else {}
         self.totals.persons_deleted += response.deleted_count
         self.totals.persons_skipped_live += response.skipped_live_count
@@ -827,16 +836,16 @@ class _Drain:
             self.stamp_blocked(chunk, blocked)
 
     def unpublished_bounds(self, chunk: Chunk, resolved: Sequence[str]) -> dict[str, int] | None:
-        """New version bounds for persons skipped above their bound whose newer tombstone ClickHouse never saw.
+        """New bounds for persons tombstoned again above their bound with no newer ClickHouse row and no pending publish.
 
-        Ingestion's create-undo tombstones a person again without publishing it. The sweep already removed the
-        person's ClickHouse rows up to the old bound, so with no newer row the person can be drained at its
-        current version. A check that fails returns None.
+        Ingestion's create-undo tombstones a person again without publishing it. A tombstone still on the publish
+        queue may reach ClickHouse later, so it keeps the old behavior.
         """
         try:
             stored = get_person_tombstones(chunk.team_id, [UUID(uuid) for uuid in resolved])
             above = {str(t.uuid): t.version for t in stored if t.version > chunk.max_versions[str(t.uuid)]}
             in_clickhouse = _clickhouse_person_versions(chunk.team_id, list(above)) if above else {}
+            pending_publish = _queued_for_publish(chunk.team_id, list(above)) if above else set()
         except Exception:
             self.context.log.warning(
                 "checking %d resolved persons for an unpublished newer tombstone failed; their queue rows stay",
@@ -845,7 +854,9 @@ class _Drain:
             )
             return None
         return {
-            uuid: version for uuid, version in above.items() if in_clickhouse.get(uuid, -1) <= chunk.max_versions[uuid]
+            uuid: version
+            for uuid, version in above.items()
+            if in_clickhouse.get(uuid, -1) <= chunk.max_versions[uuid] and uuid not in pending_publish
         }
 
     def stamp_blocked(self, chunk: Chunk, uuids: Sequence[str]) -> None:
@@ -881,6 +892,12 @@ class _Drain:
         )
         _emit(
             self.metrics,
+            "person_pg_cleanup_drain_queue_rows_kept_unchecked",
+            {},
+            after.rows_kept_unchecked - before.rows_kept_unchecked,
+        )
+        _emit(
+            self.metrics,
             "person_pg_cleanup_drain_queue_rows_deleted",
             {},
             after.queue_rows_deleted - before.queue_rows_deleted,
@@ -909,6 +926,7 @@ class _Drain:
             rows_deleted=self.totals.rows_deleted,
             queue_rows_deleted=self.totals.queue_rows_deleted,
             rows_rebounded=self.totals.rows_rebounded,
+            rows_kept_unchecked=self.totals.rows_kept_unchecked,
             rpc_calls=self.totals.rpc_calls,
             pg_reconnects=self.totals.pg_reconnects,
             pg_queue_conflict_retries=self.totals.pg_queue_conflict_retries,
