@@ -251,6 +251,41 @@ describe('observationsDockLogic', () => {
         await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
     })
 
+    it('cancels the running summary row and releases the button', async () => {
+        const cancelled: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/observations/:id/cancel/': (req) => {
+                    cancelled.push(req.params.id as string)
+                    observationResults = [{ ...observationResults[0], status: 'cancelled' } as ReplayObservationApi]
+                    return [204]
+                },
+            },
+        })
+        observationResults = [
+            {
+                id: 'obs-run',
+                scanner_id: 'scanner-x',
+                session_id: 'sess-1',
+                status: 'running',
+                scanner_snapshot: { scanner_type: 'summarizer' },
+            } as ReplayObservationApi,
+        ]
+        logic.actions.loadObservations()
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        expect(logic.values.inFlightSummary?.id).toBe('obs-run')
+
+        logic.actions.cancelObservation('obs-run')
+        await expectLogic(logic).toDispatchActions(['cancelObservationSuccess', 'loadObservationsSuccess'])
+
+        expect(cancelled).toEqual(['obs-run'])
+        await expectLogic(logic).toMatchValues({
+            inFlightSummary: null,
+            summarizePending: false,
+            cancellingObservationIds: [],
+        })
+    })
+
     it('does not treat a running monitor scan as a summary in flight', async () => {
         // The summarize button only owns summaries. A monitor scan the sidebar started is in flight
         // too, but claiming it here would leave the button pending over a run it never triggered.

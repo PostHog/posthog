@@ -262,6 +262,9 @@ export function observationRetryOffer(
         const kind = errorReason ? (parseFailureReason(errorReason)?.kind ?? null) : null
         return { show: true, ...failureRetryGuidance(kind) }
     }
+    if (status === 'cancelled') {
+        return { show: true, worthwhile: true, hint: null }
+    }
     if (status === 'ineligible' && errorReason) {
         const parsed = parseIneligibleReason(errorReason)
         const info = parsed ? INELIGIBLE_KINDS[parsed.kind] : null

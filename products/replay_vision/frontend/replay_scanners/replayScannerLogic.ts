@@ -57,6 +57,7 @@ import type {
     TagSuggestionApi,
 } from '../generated/api.schemas'
 import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
+import { requestObservationCancel } from '../logics/observationCancel'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
@@ -495,6 +496,7 @@ export interface replayScannerLogicValues {
     } | null
     affectedCohortLoading: boolean
     availableTags: string[]
+    cancellingObservationIds: string[]
     chartDateFrom: string | null
     chartDateTo: string | null
     copyingAllObservations: boolean
@@ -576,6 +578,15 @@ export interface replayScannerLogicActions {
     }
     appendClassifierTags: (tags: string[]) => {
         tags: string[]
+    }
+    cancelObservation: (observationId: string) => {
+        observationId: string
+    }
+    cancelObservationFailure: (observationId: string) => {
+        observationId: string
+    }
+    cancelObservationSuccess: (observationId: string) => {
+        observationId: string
     }
     clearClassifierTags: () => {
         value: true
@@ -1106,6 +1117,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         retryObservation: (observationId: string) => ({ observationId }),
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
+        cancelObservation: (observationId: string) => ({ observationId }),
+        cancelObservationSuccess: (observationId: string) => ({ observationId }),
+        cancelObservationFailure: (observationId: string) => ({ observationId }),
         refreshObservations: true,
         copyAllObservations: true,
         copyAllObservationsFinished: true,
@@ -1474,6 +1488,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
                 // The replacement row is inserted by the workflow moments after the retry 202 lands.
                 retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+            },
+        ],
+        cancellingObservationIds: [
+            [] as string[],
+            {
+                cancelObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                cancelObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                cancelObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
             },
         ],
         retryingObservationIds: [
@@ -2628,6 +2655,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 actions.retryObservationSuccess(observationId)
+                reloadObservationsAndStats()
+            },
+
+            cancelObservation: async ({ observationId }) => {
+                if (props.id === 'new' || !(await requestObservationCancel(observationId))) {
+                    actions.cancelObservationFailure(observationId)
+                    return
+                }
+                actions.cancelObservationSuccess(observationId)
                 reloadObservationsAndStats()
             },
 

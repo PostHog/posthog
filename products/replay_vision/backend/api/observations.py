@@ -77,7 +77,12 @@ from products.replay_vision.backend.scanner_access import (
     readable_observation_scanner_ids,
     scanner_for_reading_observations,
 )
-from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.scanning import (
+    RETRYABLE_STATUSES,
+    RetryOutcome,
+    cancel_observation,
+    retry_observation,
+)
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
@@ -248,7 +253,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
         read_only=True,
-        help_text="Observation status (pending, running, succeeded, failed, ineligible).",
+        help_text="Observation status (pending, running, succeeded, failed, ineligible, cancelled).",
     )
     error_reason = serializers.CharField(read_only=True, allow_blank=True, help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = serializers.CharField(
@@ -1273,7 +1278,7 @@ class ReplayObservationViewSet(
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def retry(self, request: Request, **kwargs: Any) -> Response:
-        """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        """Delete a failed, ineligible, or cancelled observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
@@ -1281,8 +1286,8 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         # Status first, matching the order before this moved: it needs no query, and a succeeded
         # observation should hear that it isn't retryable rather than about consent.
-        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
-            raise ValidationError("Only failed or ineligible observations can be retried.")
+        if observation.status not in RETRYABLE_STATUSES:
+            raise ValidationError("Only failed, ineligible, or cancelled observations can be retried.")
         # Consent is gated before the row is touched: the replacement workflow fails closed at create
         # time when consent is off, and the sweep never revisits past sessions, so a delete would leave
         # nothing behind.
@@ -1294,7 +1299,7 @@ class ReplayObservationViewSet(
         outcome, workflow_id = retry_observation(observation=observation, user=cast(User, request.user))
         if outcome is RetryOutcome.NOT_RETRYABLE:
             # Re-read under the row lock disagreed with the check above; a racing retry won.
-            raise ValidationError("Only failed or ineligible observations can be retried.")
+            raise ValidationError("Only failed, ineligible, or cancelled observations can be retried.")
         if outcome is RetryOutcome.CAPPED:
             raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is RetryOutcome.ALREADY_RUNNING:
@@ -1311,6 +1316,29 @@ class ReplayObservationViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The scan stopped. No credits are charged for it."),
+            409: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The scan finished before it could be canceled."
+            ),
+        },
+    )
+    @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    def cancel(self, request: Request, **kwargs: Any) -> Response:
+        """Stop a pending or running observation. It moves to `cancelled`, releases its quota hold, and charges no credits."""
+        observation = self.get_object()
+        scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
+        # Cancel writes to the scanner; the session route's get_object only object-checks the observation row.
+        self.check_object_permissions(self.request, scanner)
+        if not cancel_observation(observation=observation):
+            return Response(
+                {"detail": "This scan already finished, so it can't be canceled."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         methods=["POST"],

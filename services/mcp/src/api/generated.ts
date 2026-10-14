@@ -46634,6 +46634,7 @@ export namespace Schemas {
      * * `succeeded` - Succeeded
      * * `failed` - Failed
      * * `ineligible` - Ineligible
+     * * `cancelled` - Canceled
      */
     export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
 
@@ -46644,6 +46645,7 @@ export namespace Schemas {
       Succeeded: 'succeeded',
       Failed: 'failed',
       Ineligible: 'ineligible',
+      Cancelled: 'cancelled',
     } as const;
 
     /**
@@ -46786,13 +46788,14 @@ export namespace Schemas {
       readonly scanner_origin: ScannerOriginEnum;
       /** Session recording id this scanner was applied to. */
       readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
+      /** Observation status (pending, running, succeeded, failed, ineligible, cancelled).
        *
        * * `pending` - Pending
        * * `running` - Running
        * * `succeeded` - Succeeded
        * * `failed` - Failed
-       * * `ineligible` - Ineligible */
+       * * `ineligible` - Ineligible
+       * * `cancelled` - Canceled */
       readonly status: ObservationStatusEnum;
       /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
       readonly error_reason: string;
@@ -67805,6 +67808,7 @@ export namespace Schemas {
      * * `succeeded` - Succeeded
      * * `failed` - Failed
      * * `ineligible` - Ineligible
+     * * `cancelled` - Canceled
      * * `skipped` - Skipped
      * * `lost` - Lost
      */
@@ -67817,6 +67821,7 @@ export namespace Schemas {
       Succeeded: 'succeeded',
       Failed: 'failed',
       Ineligible: 'ineligible',
+      Cancelled: 'cancelled',
       Skipped: 'skipped',
       Lost: 'lost',
     } as const;
@@ -67837,13 +67842,14 @@ export namespace Schemas {
        * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
        * * `failed` - Failed to start */
       scan_outcome: ScanOutcomeEnum | null;
-      /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
+      /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed', 'ineligible', and 'cancelled' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
        *
        * * `pending` - Pending
        * * `running` - Running
        * * `succeeded` - Succeeded
        * * `failed` - Failed
        * * `ineligible` - Ineligible
+       * * `cancelled` - Canceled
        * * `skipped` - Skipped
        * * `lost` - Lost */
       state: RequestSessionStateEnum;

@@ -49,6 +49,8 @@ describe('scanner type helpers', () => {
             ['an ineligible observation without AI consent', 'ineligible', 'no_ai_consent:consent off', true, false],
             ['a deterministic ineligibility gate', 'ineligible', 'too_short:12s long', false, false],
             ['an unknown ineligible kind', 'ineligible', 'future_gate:msg', false, false],
+            // A canceled scan has no error_reason, and "Scan again" is the only way to run it once more.
+            ['a canceled observation', 'cancelled', '', true, true],
             ['a succeeded observation', 'succeeded', '', false, false],
             ['a running observation', 'running', '', false, false],
         ])('handles %s', (_label, status, errorReason, show, worthwhile) => {

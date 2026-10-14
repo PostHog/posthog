@@ -28,6 +28,7 @@ import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.sc
 import { isSummarizerScanner } from '../replay_scanners/types'
 import { isSummaryObservation } from '../utils/observation'
 import { RecordingTimeline, recordingTimeline } from '../utils/recordingTimeline'
+import { requestObservationCancel } from './observationCancel'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import {
@@ -49,12 +50,14 @@ export interface observationsDockLogicValues {
     preferredSummarizerId: string | null // visionDockPreferenceLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    cancellingObservationIds: string[]
     defaultSummarizer: ReplayScannerApi | null
     filteredScanners: ReplayScannerApi[]
     focusedObservationId: string | null
     followMoments: boolean
     hasObservationsInFlight: boolean
     hoveredMarkMs: number | null
+    inFlightSummary: ReplayObservationApi | null
     observations: ReplayObservationApi[]
     observationsLoading: boolean
     observing: boolean
@@ -83,6 +86,15 @@ export interface observationsDockLogicActions {
     setPreferredSummarizerId: (scannerId: string | null) => {
         scannerId: string | null
     } // visionDockPreferenceLogic
+    cancelObservation: (observationId: string) => {
+        observationId: string
+    }
+    cancelObservationFailure: (observationId: string) => {
+        observationId: string
+    }
+    cancelObservationSuccess: (observationId: string) => {
+        observationId: string
+    }
     focusObservation: (observationId: string) => {
         observationId: string
     }
@@ -154,7 +166,8 @@ export interface observationsDockLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
-        summaryInFlight: (observations: ReplayObservationApi[]) => boolean
+        inFlightSummary: (observations: ReplayObservationApi[]) => ReplayObservationApi | null
+        summaryInFlight: (inFlightSummary: ReplayObservationApi | null) => boolean
         summarizePending: (summarizing: boolean, summaryInFlight: boolean) => boolean
         timeline: (observations: ReplayObservationApi[]) => RecordingTimeline
         summarizerScanners: (scanners: ReplayScannerApi[]) => ReplayScannerApi[]
@@ -206,6 +219,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         retryObservation: (observationId: string) => ({ observationId }),
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
+        cancelObservation: (observationId: string) => ({ observationId }),
+        cancelObservationSuccess: (observationId: string) => ({ observationId }),
+        cancelObservationFailure: (observationId: string) => ({ observationId }),
         showObservations: true,
         focusObservation: (observationId: string) => ({ observationId }),
         setFollowMoments: (follow: boolean) => ({ follow }),
@@ -305,6 +321,19 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     state.filter((id) => id !== observationId),
             },
         ],
+        cancellingObservationIds: [
+            [] as string[],
+            {
+                cancelObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                cancelObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                cancelObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+            },
+        ],
         pollUntil: [
             0,
             {
@@ -324,10 +353,16 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         ],
         // Only a summary counts here: a monitor scanner the sidebar started is in flight too, and the
         // summarize button must not claim that run as its own.
-        summaryInFlight: [
+        inFlightSummary: [
             (s) => [s.observations],
-            (observations: ReplayObservationApi[]): boolean =>
-                observations.some((o) => isSummaryObservation(o) && (o.status === 'pending' || o.status === 'running')),
+            (observations: ReplayObservationApi[]): ReplayObservationApi | null =>
+                observations.find(
+                    (o) => isSummaryObservation(o) && (o.status === 'pending' || o.status === 'running')
+                ) ?? null,
+        ],
+        summaryInFlight: [
+            (s) => [s.inFlightSummary],
+            (inFlightSummary: ReplayObservationApi | null): boolean => inFlightSummary !== null,
         ],
         // What the button shows. `summarizing` covers the window before the row exists; the row covers
         // a summary that was already running when this recording was opened.
@@ -611,6 +646,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     return
                 }
                 actions.retryObservationSuccess(observationId)
+                actions.loadObservations()
+            },
+
+            cancelObservation: async ({ observationId }) => {
+                if (!(await requestObservationCancel(observationId))) {
+                    actions.cancelObservationFailure(observationId)
+                    return
+                }
+                actions.cancelObservationSuccess(observationId)
                 actions.loadObservations()
             },
         }

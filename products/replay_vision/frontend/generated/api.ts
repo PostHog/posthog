@@ -362,6 +362,24 @@ export const visionObservationsRetrieve = async (
     })
 }
 
+export const getVisionObservationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/cancel/`
+}
+
+/**
+ * Stop a pending or running observation. It moves to `cancelled`, releases its quota hold, and charges no credits.
+ */
+export const visionObservationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionObservationsCreateTaskCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/vision/observations/${id}/create_task/`
 }
@@ -424,7 +442,7 @@ export const getVisionObservationsRetryCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed, ineligible, or cancelled observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionObservationsRetryCreate = async (
     projectId: string,
@@ -1156,6 +1174,25 @@ export const visionScannersObservationsRetrieve = async (
     )
 }
 
+export const getVisionScannersObservationsCancelCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/cancel/`
+}
+
+/**
+ * Stop a pending or running observation. It moves to `cancelled`, releases its quota hold, and charges no credits.
+ */
+export const visionScannersObservationsCancelCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsCancelCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getVisionScannersObservationsCreateTaskCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/create_task/`
 }
@@ -1227,7 +1264,7 @@ export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, s
 }
 
 /**
- * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed, ineligible, or cancelled observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionScannersObservationsRetryCreate = async (
     projectId: string,

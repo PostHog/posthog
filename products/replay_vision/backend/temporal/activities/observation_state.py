@@ -53,10 +53,11 @@ def _kind_from_error_reason(error_reason: str, valid_kinds: Container[str]) -> s
 _TERMINAL_SCAN_EVENTS: dict[str, str] = {
     ObservationStatus.FAILED: "replay_vision_scan_failed",
     ObservationStatus.INELIGIBLE: "replay_vision_scan_ineligible",
+    ObservationStatus.CANCELLED: "replay_vision_scan_cancelled",
 }
 
 
-def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, scanner_type: str, kind: str) -> None:
+def capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, scanner_type: str, kind: str) -> None:
     """Internal cross-customer telemetry for a scan that ended with no result.
 
     `replay_vision_scan_completed` fires only on success, so on its own it is a numerator with no
@@ -149,7 +150,7 @@ def mark_observation_terminal(
         error_reason=error_reason,
     )
     try:
-        _capture_terminal_scan(observation_id=observation_id, status=status, scanner_type=scanner_type, kind=kind)
+        capture_terminal_scan(observation_id=observation_id, status=status, scanner_type=scanner_type, kind=kind)
     except Exception:
         # Fail-soft: the row is already settled, and the transition is sticky, so raising here would
         # retry an activity that has nothing left to do.
@@ -187,8 +188,11 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 
 @activity.defn
 @track_activity()
-def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
-    """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
+def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> bool:
+    """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter.
+
+    Returns False when a user cancelled the scan first, so the workflow stops before any delivery step.
+    """
     with transaction.atomic():
         updated = ReplayObservation.objects.filter(
             pk=inputs.observation_id,
@@ -199,7 +203,10 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             scanner_result=inputs.scanner_result.model_dump(mode="json"),
         )
         if not updated:
-            return  # No state transition — retry against an already-terminal row.
+            # A retry against a row this run already settled continues. A cancelled row gets no result and no receipt.
+            return not ReplayObservation.objects.filter(
+                pk=inputs.observation_id, status=ObservationStatus.CANCELLED
+            ).exists()
         # Write the usage receipt in the same transaction as the transition so a crash can't undercount.
         obs = ReplayObservation.objects.values(
             "team_id",
@@ -283,3 +290,4 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         ],
         site="replay_vision",
     )
+    return True

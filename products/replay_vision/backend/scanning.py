@@ -14,9 +14,14 @@ from enum import Enum
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.temporal.common.client import sync_connect
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
@@ -25,15 +30,23 @@ from products.replay_vision.backend.enqueue_claims import (
     release_enqueue_claim,
 )
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
-from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    TERMINAL_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.temporal.activities.observation_state import capture_terminal_scan
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_apply_scanner_workflow_id,
 )
+
+logger = structlog.get_logger(__name__)
 
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
@@ -288,9 +301,12 @@ def run_inline_scan(
     return InlineScanResult(scanner=scanner, started=started, results=results)
 
 
+# Succeeded observations already have their answer, so they can't be retried.
+RETRYABLE_STATUSES = (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE, ObservationStatus.CANCELLED)
+
+
 class RetryOutcome(Enum):
     STARTED = "started"
-    # Succeeded observations already have their answer; only failed and ineligible ones are retryable.
     NOT_RETRYABLE = "not_retryable"
     # The prior run is still closing, so its deterministic workflow id blocks the restart.
     ALREADY_RUNNING = "already_running"
@@ -299,7 +315,7 @@ class RetryOutcome(Enum):
 
 
 def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[RetryOutcome, str]:
-    """Delete a failed or ineligible observation and scan the same recording again.
+    """Delete a failed, ineligible, or cancelled observation and scan the same recording again.
 
     The row has to go because UNIQUE(scanner, session_id) would otherwise lock the session out of that
     scanner forever, and the delete cascades the team's rating with it. So the rating is captured first
@@ -314,10 +330,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
         claim_apply_scanner_slot,
         start_apply_scanner_workflow,
     )
-    from products.replay_vision.backend.models.replay_observation import (  # noqa: PLC0415
-        ObservationStatus,
-        ObservationTrigger,
-    )
+    from products.replay_vision.backend.models.replay_observation import ObservationTrigger  # noqa: PLC0415
     from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel  # noqa: PLC0415
 
     scanner = observation.scanner
@@ -327,7 +340,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
     # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS).
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
-    if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+    if observation.status not in RETRYABLE_STATUSES:
         return RetryOutcome.NOT_RETRYABLE, workflow_id
     # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate, and
     # these two read enough to be worth keeping off a held row lock.
@@ -340,7 +353,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     # Locked so two concurrent retries can't both pass the status check and both delete the row.
     with transaction.atomic():
         locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=scanner.team_id)
-        if locked.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+        if locked.status not in RETRYABLE_STATUSES:
             return RetryOutcome.NOT_RETRYABLE, workflow_id
         # Captured before the delete cascades it away: a run that never starts has to put the team's
         # rating back with the row, not just the row.
@@ -397,3 +410,40 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     if outcome is WorkflowStartOutcome.STARTED:
         return RetryOutcome.STARTED, workflow_id
     return RetryOutcome.FAILED, workflow_id
+
+
+def cancel_observation(*, observation: ReplayObservation) -> bool:
+    """Stop a pending or running scan; returns False when the scan settled first and keeps its result.
+
+    The row moves to `cancelled` before the workflow is told to stop. A terminal row frees its quota hold,
+    and every later state transition of the run is a no-op against it, so a run the cancel request misses
+    still writes no result and no usage receipt.
+    """
+    updated = ReplayObservation.objects.filter(
+        pk=observation.pk, team_id=observation.team_id, status__in=IN_FLIGHT_STATUSES
+    ).update(status=ObservationStatus.CANCELLED, completed_at=timezone.now())
+    if not updated:
+        return False
+    workflow_id = build_apply_scanner_workflow_id(observation.scanner_id, observation.session_id)
+    release_enqueue_claim(
+        team_id=observation.team_id,
+        scanner_id=observation.scanner_id,
+        workflow_id=workflow_id,
+        immediately=True,
+        backfill_id=observation.backfill_id,
+    )
+    try:
+        async_to_sync(sync_connect().get_workflow_handle(workflow_id).cancel)()
+    except Exception:
+        # The run may have closed already. If it is still open, the guarded transitions keep it from billing.
+        logger.warning("replay_vision.cancel.workflow_cancel_failed", workflow_id=workflow_id, exc_info=True)
+    try:
+        capture_terminal_scan(
+            observation_id=observation.pk,
+            status=ObservationStatus.CANCELLED,
+            scanner_type=str(observation.scanner_snapshot.get("scanner_type") or ""),
+            kind="user_cancelled",
+        )
+    except Exception:
+        logger.exception("replay_vision.cancel.capture_failed", observation_id=str(observation.pk))
+    return True

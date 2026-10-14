@@ -390,7 +390,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
             # Persist the billed result first — everything past this point is fail-soft delivery.
-            await wf.execute_activity(
+            settled = await wf.execute_activity(
                 mark_observation_succeeded_activity,
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
@@ -412,6 +412,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
                 retry_policy=STATE_ACTIVITY_RETRY,
             )
+            # False only when a user cancelled the scan and the cancel request didn't stop this run. Histories
+            # recorded before this check return None, so they replay down the same path.
+            if settled is False:
+                return
             try:
                 await wf.execute_activity(
                     emit_observation_event_activity,

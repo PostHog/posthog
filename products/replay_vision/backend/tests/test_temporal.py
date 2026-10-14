@@ -1269,7 +1269,12 @@ class TestObservationStateActivities:
 
     @pytest.mark.parametrize(
         "terminal_status",
-        [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.INELIGIBLE],
+        [
+            ObservationStatus.SUCCEEDED,
+            ObservationStatus.FAILED,
+            ObservationStatus.INELIGIBLE,
+            ObservationStatus.CANCELLED,
+        ],
     )
     def test_terminal_status_is_not_overwritten_by_state_activities(self, terminal_status: str) -> None:
         # Bounded UPDATE protects against retries that race past a settled row.
@@ -1320,24 +1325,30 @@ class TestObservationStateActivities:
         assert observation.completed_at is not None
         assert observation.scanner_result == result.model_dump(mode="json")
 
-    def test_mark_succeeded_does_not_overwrite_terminal_status(self) -> None:
-        # Bounded UPDATE: failed/succeeded rows are sticky.
+    @pytest.mark.parametrize(
+        "terminal_status,continues",
+        [(ObservationStatus.FAILED, True), (ObservationStatus.CANCELLED, False)],
+    )
+    def test_mark_succeeded_does_not_overwrite_terminal_status(self, terminal_status: str, continues: bool) -> None:
+        # Bounded UPDATE: terminal rows are sticky. A cancelled row also tells the workflow to stop delivery.
         scanner = _make_scanner()
         observation = _make_observation(
-            scanner, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
+            scanner, status=terminal_status, error_reason="prior", completed_at=timezone.now()
         )
         result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="late", confidence=0.9))
 
-        mark_observation_succeeded_activity(
+        settled = mark_observation_succeeded_activity(
             MarkObservationSucceededInputs(
                 observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
             )
         )
 
         observation.refresh_from_db()
-        assert observation.status == ObservationStatus.FAILED
+        assert settled is continues
+        assert observation.status == terminal_status
         assert observation.completed_at is not None
         assert observation.scanner_result == {}  # not overwritten
+        assert not ReplayObservationUsage.objects.filter(observation_id=observation.id).exists()
 
     def test_mark_succeeded_writes_usage_receipt(self) -> None:
         scanner = _make_scanner()
@@ -1368,8 +1379,9 @@ class TestObservationStateActivities:
             observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
         )
 
-        mark_observation_succeeded_activity(inputs)
-        mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second receipt
+        assert mark_observation_succeeded_activity(inputs) is True
+        # Retry: the transition is sticky, so no second receipt, and the workflow still continues.
+        assert mark_observation_succeeded_activity(inputs) is True
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
 

@@ -600,6 +600,7 @@ export const ScannerOriginEnumApi = {
  * * `succeeded` - Succeeded
  * * `failed` - Failed
  * * `ineligible` - Ineligible
+ * * `cancelled` - Canceled
  */
 export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
 
@@ -609,6 +610,7 @@ export const ObservationStatusEnumApi = {
     Succeeded: 'succeeded',
     Failed: 'failed',
     Ineligible: 'ineligible',
+    Cancelled: 'cancelled',
 } as const
 
 /**
@@ -766,13 +768,14 @@ export interface ReplayObservationApi {
     readonly scanner_origin: ScannerOriginEnumApi
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
-    /** Observation status (pending, running, succeeded, failed, ineligible).
+    /** Observation status (pending, running, succeeded, failed, ineligible, cancelled).
      *
      * * `pending` - Pending
      * * `running` - Running
      * * `succeeded` - Succeeded
      * * `failed` - Failed
-     * * `ineligible` - Ineligible */
+     * * `ineligible` - Ineligible
+     * * `cancelled` - Canceled */
     readonly status: ObservationStatusEnumApi
     /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
     readonly error_reason: string
@@ -848,6 +851,14 @@ export interface PaginatedReplayObservationListApi {
 }
 
 /**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
+}
+
+/**
  * The PostHog Task created from an observation.
  */
 export interface CreateTaskFromObservationResponseApi {
@@ -861,14 +872,6 @@ export interface CreateTaskFromObservationResponseApi {
 export interface RetryResponseApi {
     /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
     workflow_id: string
-}
-
-/**
- * The shape every Replay Vision error response uses, so generated clients read one key.
- */
-export interface ReplayVisionErrorApi {
-    /** Human-readable explanation of why the request was refused. */
-    detail: string
 }
 
 /**
@@ -1072,6 +1075,7 @@ export const ScanOutcomeEnumApi = {
  * * `succeeded` - Succeeded
  * * `failed` - Failed
  * * `ineligible` - Ineligible
+ * * `cancelled` - Canceled
  * * `skipped` - Skipped
  * * `lost` - Lost
  */
@@ -1083,6 +1087,7 @@ export const RequestSessionStateEnumApi = {
     Succeeded: 'succeeded',
     Failed: 'failed',
     Ineligible: 'ineligible',
+    Cancelled: 'cancelled',
     Skipped: 'skipped',
     Lost: 'lost',
 } as const
@@ -1103,13 +1108,14 @@ export interface ObservationRequestSessionApi {
      * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
      * * `failed` - Failed to start */
     scan_outcome: ScanOutcomeEnumApi | null
-    /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
+    /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed', 'ineligible', and 'cancelled' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
      *
      * * `pending` - Pending
      * * `running` - Running
      * * `succeeded` - Succeeded
      * * `failed` - Failed
      * * `ineligible` - Ineligible
+     * * `cancelled` - Canceled
      * * `skipped` - Skipped
      * * `lost` - Lost */
     state: RequestSessionStateEnumApi

@@ -258,7 +258,7 @@ function FocusPane({
             data-attr="vision-focus-run"
         >
             <div ref={contentRef}>
-                {(observation.error_reason || isInFlight(observation)) && (
+                {(observation.error_reason || observation.status === 'cancelled' || isInFlight(observation)) && (
                     <div className="flex flex-col gap-2 px-2 pb-2">
                         {observation.status === 'failed' && observation.error_reason && (
                             <FailureDetail errorReason={observation.error_reason} />
@@ -266,7 +266,7 @@ function FocusPane({
                         {observation.status === 'ineligible' && observation.error_reason && (
                             <IneligibleDetail errorReason={observation.error_reason} />
                         )}
-                        {observation.error_reason && (
+                        {(observation.error_reason || observation.status === 'cancelled') && (
                             <div>
                                 <ObservationRetryButton
                                     status={observation.status}

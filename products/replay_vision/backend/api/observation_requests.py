@@ -134,7 +134,7 @@ class ObservationRequestSessionSerializer(BulkObserveResultSerializer):
         choices=RequestSessionState.choices,
         help_text=(
             "Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a "
-            "result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit "
+            "result; 'failed', 'ineligible', and 'cancelled' finished without one; 'skipped' never started because a limit "
             "was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan "
             "timed out."
         ),

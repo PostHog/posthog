@@ -25,6 +25,7 @@ import { DateMappingOption } from '~/types'
 import { VisionDocsLink } from '../../components/DocsLink'
 import { FilterPill } from '../../components/FilterPill'
 import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
+import { ObservationCancelButton } from '../../components/ObservationCancelButton'
 import { ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
@@ -50,6 +51,7 @@ const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
     { value: 'ineligible', label: 'Ineligible' },
+    { value: 'cancelled', label: 'Canceled' },
     { value: 'running', label: 'Running' },
     { value: 'pending', label: 'Pending' },
 ]
@@ -126,12 +128,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         scanner,
         triggeringOnDemandObservation,
         retryingObservationIds,
+        cancellingObservationIds,
         copyingAllObservations,
     } = useValues(logic)
     const {
         setObservationsActive,
         refreshObservations,
         retryObservation,
+        cancelObservation,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -216,6 +220,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                         userAccessLevel={scanner?.user_access_level}
                         iconOnly
                         dataAttr="vision-observation-retry"
+                    />
+                    <ObservationCancelButton
+                        status={obs.status}
+                        onCancel={() => cancelObservation(obs.id)}
+                        loading={cancellingObservationIds.includes(obs.id)}
+                        userAccessLevel={scanner?.user_access_level}
+                        iconOnly
+                        dataAttr="vision-observation-cancel"
                     />
                 </div>
             ),

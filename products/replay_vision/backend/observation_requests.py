@@ -75,6 +75,7 @@ class RequestSessionState(models.TextChoices):
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
     INELIGIBLE = "ineligible", "Ineligible"
+    CANCELLED = "cancelled", "Canceled"
     # Never started because a limit was reached; see the session's `scan_outcome` for which one.
     SKIPPED = "skipped", "Skipped"
     # Started, but never settled before the scan workflow's own timeout ran out.

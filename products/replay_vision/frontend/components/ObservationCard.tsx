@@ -63,6 +63,9 @@ export function ObservationStatusTag({
             </Tooltip>
         )
     }
+    if (status === 'cancelled') {
+        return <LemonTag type="muted">Canceled</LemonTag>
+    }
     if (status === 'running') {
         return (
             <LemonTag type="warning">
@@ -335,7 +338,7 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible' || observation.status === 'failed') {
+    if (observation.status === 'ineligible' || observation.status === 'failed' || observation.status === 'cancelled') {
         return <span className="text-muted text-sm">—</span>
     }
     const snapshot = observation.scanner_snapshot

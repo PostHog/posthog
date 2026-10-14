@@ -568,7 +568,7 @@ export const VisionObservationsLabelDestroyParams = () => zod.object({
 })
 
 /**
- * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed, ineligible, or cancelled observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const VisionObservationsRetryCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this replay observation.'),

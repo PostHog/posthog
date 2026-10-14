@@ -40,6 +40,7 @@ export function ObservationRetryButton({
     if (!show) {
         return null
     }
+    const label = status === 'cancelled' ? 'Scan again' : 'Retry scan'
     return (
         <LemonButton
             size={size}
@@ -48,10 +49,10 @@ export function ObservationRetryButton({
             onClick={onRetry}
             loading={loading}
             disabledReason={getReplayVisionEditDisabledReason(userAccessLevel)}
-            tooltip={hint ?? 'Retry scan'}
+            tooltip={hint ?? label}
             data-attr={dataAttr}
         >
-            {iconOnly ? undefined : 'Retry scan'}
+            {iconOnly ? undefined : label}
         </LemonButton>
     )
 }

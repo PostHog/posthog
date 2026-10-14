@@ -43,6 +43,7 @@ from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_ke
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
 from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
@@ -3282,6 +3283,77 @@ class TestBulkObserveAction(_VisionAPITestCase):
         self.assertEqual(too_many.status_code, 400)
 
 
+@patch("posthoganalytics.capture")
+@patch("products.replay_vision.backend.scanning.async_to_sync")
+@patch("products.replay_vision.backend.scanning.sync_connect")
+class TestCancelAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+
+    def _create(self, status_value: str, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=status_value,
+            completed_at=None if status_value in IN_FLIGHT_STATUSES else timezone.now(),
+        )
+
+    def cancel_url(self, observation_id: str) -> str:
+        return f"{self.observations_url(str(self.scanner.id))}{observation_id}/cancel/"
+
+    def test_cancel_stops_in_flight_scan(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_sync_connect.return_value = mock_client
+        for status_value in IN_FLIGHT_STATUSES:
+            with self.subTest(status=status_value):
+                observation = self._create(status_value, f"sess-{status_value}")
+
+                resp = self.client.post(self.cancel_url(str(observation.id)))
+
+                self.assertEqual(resp.status_code, 204)
+                observation.refresh_from_db()
+                self.assertEqual(observation.status, ObservationStatus.CANCELLED)
+                self.assertIsNotNone(observation.completed_at)
+                self.assertFalse(ReplayObservation.in_flight_for_team(self.team.id).filter(id=observation.id).exists())
+                mock_client.get_workflow_handle.assert_called_with(
+                    build_apply_scanner_workflow_id(self.scanner.id, observation.session_id)
+                )
+                mock_async_to_sync.assert_called_with(mock_client.get_workflow_handle.return_value.cancel)
+                self.assertEqual(mock_capture.call_args.kwargs["event"], "replay_vision_scan_cancelled")
+
+    def test_cancel_keeps_a_settled_result(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        for status_value in (ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.CANCELLED):
+            with self.subTest(status=status_value):
+                observation = self._create(status_value, f"sess-{status_value}")
+
+                resp = self.client.post(self.cancel_url(str(observation.id)))
+
+                self.assertEqual(resp.status_code, 409, resp.json())
+                observation.refresh_from_db()
+                self.assertEqual(observation.status, status_value)
+        mock_sync_connect.assert_not_called()
+        mock_capture.assert_not_called()
+
+    def test_cancel_settles_the_row_when_temporal_is_unreachable(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_sync_connect.side_effect = RuntimeError("temporal unavailable")
+        observation = self._create(ObservationStatus.RUNNING, "sess-down")
+
+        resp = self.client.post(self.cancel_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 204)
+        observation.refresh_from_db()
+        self.assertEqual(observation.status, ObservationStatus.CANCELLED)
+
+
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestRetryActions(_VisionAPITestCase):
@@ -3325,29 +3397,36 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
-    def test_retry_accepts_ineligible_observation(
+    def test_retry_accepts_ineligible_and_cancelled_observations(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and the
-        # UNIQUE(scanner, session_id) row would otherwise lock the session out of this scanner forever.
+        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and a
+        # cancelled scan is how "Scan again" restarts. The UNIQUE(scanner, session_id) row would otherwise
+        # lock the session out of this scanner forever.
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
-        observation = ReplayObservation.objects.create(
-            scanner=self.scanner,
-            session_id="sess-ineligible",
-            scanner_snapshot=_snapshot_for(self.scanner),
-            triggered_by=ObservationTrigger.SCHEDULE,
-            status=ObservationStatus.INELIGIBLE,
-            error_reason="no_snapshots:No snapshots after processing",
-            completed_at=timezone.now(),
-        )
+        cases = [
+            (ObservationStatus.INELIGIBLE, "no_snapshots:No snapshots after processing"),
+            (ObservationStatus.CANCELLED, ""),
+        ]
+        for status_value, error_reason in cases:
+            with self.subTest(status=status_value):
+                observation = ReplayObservation.objects.create(
+                    scanner=self.scanner,
+                    session_id=f"sess-{status_value}",
+                    scanner_snapshot=_snapshot_for(self.scanner),
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    status=status_value,
+                    error_reason=error_reason,
+                    completed_at=timezone.now(),
+                )
 
-        resp = self.client.post(self.retry_url(str(observation.id)))
-        self.assertEqual(resp.status_code, 202, resp.json())
-        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
-        args, _kwargs = start_workflow.call_args
-        self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
+                resp = self.client.post(self.retry_url(str(observation.id)))
+                self.assertEqual(resp.status_code, 202, resp.json())
+                self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+                args, _kwargs = start_workflow.call_args
+                self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
 
     def test_retry_keeps_row_when_ai_consent_is_off(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

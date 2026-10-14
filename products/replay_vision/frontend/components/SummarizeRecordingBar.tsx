@@ -22,6 +22,7 @@ import { BUILT_IN_SUMMARY_LABEL, isSummaryObservation } from '../utils/observati
 import { quotaUx } from '../utils/quotaProjection'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { visionDocsUrl } from './DocsLink'
+import { ObservationCancelButton } from './ObservationCancelButton'
 
 export function SummarizeRecordingBar({
     extraActions,
@@ -190,6 +191,24 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     )
 }
 
+/** Stops the running summary, so a scan started by mistake doesn't spend credits. */
+function CancelSummaryButton({ sessionId }: { sessionId: string }): JSX.Element | null {
+    const logic = observationsDockLogic({ sessionId })
+    const { inFlightSummary, cancellingObservationIds } = useValues(logic)
+    const { cancelObservation } = useActions(logic)
+    if (!inFlightSummary) {
+        return null
+    }
+    return (
+        <ObservationCancelButton
+            status={inFlightSummary.status}
+            onCancel={() => cancelObservation(inFlightSummary.id)}
+            loading={cancellingObservationIds.includes(inFlightSummary.id)}
+            dataAttr="vision-summarize-cancel"
+        />
+    )
+}
+
 /**
  * The bar sits on every standard replay player, so it reaches people who have never heard of Replay
  * vision and meet the summarize button with no idea what it is or what it will spend.
@@ -237,6 +256,7 @@ function SummarizeRecordingBarContent({
             data-attr="vision-observations-dock"
         >
             <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
+            <CancelSummaryButton sessionId={sessionId} />
             <SummarizeExplainer />
             {extraActions}
             {summarizeBlockedReason && (

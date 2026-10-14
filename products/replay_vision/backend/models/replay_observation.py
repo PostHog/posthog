@@ -18,6 +18,8 @@ class ObservationStatus(models.TextChoices):
     # Terminal state for sessions the scanner can't analyze (no recording, too short, too long, etc.).
     # The reason kind is stored in `error_reason` formatted as `kind:human message`.
     INELIGIBLE = "ineligible", "Ineligible"
+    # Terminal state for a scan a user stopped before it settled. It writes no usage receipt.
+    CANCELLED = "cancelled", "Canceled"
 
 
 # Not-yet-terminal statuses: what the quota meter reserves and the concurrency caps count as "in flight".
@@ -139,9 +141,11 @@ class ReplayObservation(UUIDModel):
             models.CheckConstraint(
                 condition=(
                     models.Q(status__in=["pending", "running"], completed_at__isnull=True)
-                    | models.Q(status__in=["succeeded", "failed", "ineligible"], completed_at__isnull=False)
+                    | models.Q(
+                        status__in=["succeeded", "failed", "ineligible", "cancelled"], completed_at__isnull=False
+                    )
                 ),
-                name="replay_observation_completed_at_matches_status",
+                name="rlo_completed_at_matches_status",
             ),
         ]
         indexes = [
