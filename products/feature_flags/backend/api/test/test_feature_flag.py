@@ -69,7 +69,6 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
-    _create_usage_dashboard,
     _flag_write_source,
     parse_created_by_ids,
 )
@@ -84,6 +83,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, Feat
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FLAG_TARGETING_FLAG
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
@@ -133,7 +133,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
     def _generate_usage_dashboard(self, flag_id: int) -> None:
-        _create_usage_dashboard(FeatureFlag.objects.get(id=flag_id), self.user)
+        create_usage_dashboard(FeatureFlag.objects.get(id=flag_id), self.user)
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
