@@ -362,6 +362,84 @@ describe("TaskRunEventStreamSender", () => {
     expect(completionSequences(finalBody)).toEqual([2]);
   });
 
+  it("uploads a Pi runtime error before it reports the failed turn", async () => {
+    let contentUploads = 0;
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = await readRequestBody(init);
+        if (eventSequences(body).length > 0) {
+          contentUploads += 1;
+        }
+        return responseForBody(body);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const uploadsWhenReported: number[] = [];
+
+    const sender = createSender({
+      flushDelayMs: 0,
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+      callbackReporter: new AgentCallbackReporter({
+        send: async (callback) => {
+          if (callback.kind === "turn_failed") {
+            uploadsWhenReported.push(contentUploads);
+          }
+          return true;
+        },
+        logger: new Logger({ debug: false }),
+      }),
+    });
+
+    sender.enqueue({
+      type: "pi_event",
+      event: { type: "turn_completed", stopReason: "error" },
+    });
+
+    await vi.waitFor(() => expect(uploadsWhenReported).toEqual([1]));
+    await sender.stop();
+  });
+
+  it("holds every stop caller until callbacks are delivered", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        responseForBody(await readRequestBody(init)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let deliver: (dispatched: boolean) => void = () => {};
+    const callbackReporter = new AgentCallbackReporter({
+      send: () =>
+        new Promise<boolean>((resolve) => {
+          deliver = resolve;
+        }),
+      logger: new Logger({ debug: false }),
+    });
+    const settled = vi.spyOn(callbackReporter, "settled");
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      callbackReporter,
+    });
+    sender.enqueue({
+      type: "notification",
+      notification: {
+        method: "_posthog/turn_complete",
+        params: { stopReason: "end_turn" },
+      },
+    });
+
+    const firstStop = sender.stop();
+    let secondStopResolved = false;
+    const secondStop = sender.stop().then(() => {
+      secondStopResolved = true;
+    });
+    await vi.waitFor(() => expect(settled).toHaveBeenCalled());
+    expect(secondStopResolved).toBe(false);
+
+    deliver(true);
+    await Promise.all([firstStop, secondStop]);
+    expect(secondStopResolved).toBe(true);
+  });
+
   it("closes a held-open upload so a process kill is reported right away", async () => {
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) =>

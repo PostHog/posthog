@@ -170,8 +170,8 @@ export class TaskRunEventStreamSender {
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
-    this.config.callbackReporter?.observe(event);
     const acceptedEvent = this.prepareEvent(event);
+    this.config.callbackReporter?.observe(event, acceptedEvent !== null);
     if (!acceptedEvent) {
       return;
     }
@@ -201,9 +201,10 @@ export class TaskRunEventStreamSender {
       this.flushTimer = null;
     }
 
-    this.stopPromise = this.drainForStop(complete);
+    this.stopPromise = this.drainForStop(complete).then(async () => {
+      await this.config.callbackReporter?.settled();
+    });
     await this.stopPromise;
-    await this.config.callbackReporter?.settled();
   }
 
   private scheduleFlush(delayMs = this.flushDelayMs): void {

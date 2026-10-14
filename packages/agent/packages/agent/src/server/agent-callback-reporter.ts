@@ -219,6 +219,9 @@ function acceptedEventCallback(
   sequence: number,
   event: JsonObject,
 ): AgentCallback | null {
+  if (isPiTurnError(event)) {
+    return { kind: "turn_failed", agent_active: false };
+  }
   return (
     budgetSteerCallback(sequence, event) ??
     processKilledCallback(sequence, event)
@@ -259,9 +262,9 @@ export class AgentCallbackReporter {
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   }
 
-  observe(event: JsonObject): void {
+  observe(event: JsonObject, admitted: boolean): void {
     this.reportBootMilestone(event);
-    this.reportTurnState(event);
+    this.reportTurnState(event, admitted);
   }
 
   awaitsAcceptance(event: JsonObject): boolean {
@@ -289,11 +292,13 @@ export class AgentCallbackReporter {
     }
   }
 
-  private reportTurnState(event: JsonObject): void {
+  private reportTurnState(event: JsonObject, admitted: boolean): void {
     if (isTurnComplete(event)) {
       this.agentActive = false;
       if (isPiTurnError(event)) {
-        this.dispatch({ kind: "turn_failed", agent_active: false });
+        if (!admitted) {
+          this.dispatch({ kind: "turn_failed", agent_active: false });
+        }
       } else {
         this.dispatch({
           kind: "awaiting_input",

@@ -98,28 +98,48 @@ describe("AgentCallbackReporter", () => {
         turn_succeeded: true,
       },
     },
-    {
-      name: "a Pi runtime error",
-      event: piEvent({ type: "turn_completed", stopReason: "error" }),
-      expected: { kind: "turn_failed", agent_active: false },
-    },
   ])("reports $name", async ({ event, expected }) => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(event);
+    reporter.observe(event, true);
     await reporter.settled();
 
     expect(sent).toEqual([expected]);
   });
 
+  it("reports a Pi runtime error only after the stream accepted the event", async () => {
+    const { reporter, sent } = createReporter();
+    const failure = piEvent({ type: "turn_completed", stopReason: "error" });
+
+    reporter.observe(failure, true);
+    await reporter.settled();
+    expect(sent).toEqual([]);
+
+    reporter.observeAccepted(9, failure);
+    await reporter.settled();
+    expect(sent).toEqual([{ kind: "turn_failed", agent_active: false }]);
+  });
+
+  it("reports a Pi runtime error at once when the stream dropped the event", async () => {
+    const { reporter, sent } = createReporter();
+
+    reporter.observe(
+      piEvent({ type: "turn_completed", stopReason: "error" }),
+      false,
+    );
+    await reporter.settled();
+
+    expect(sent).toEqual([{ kind: "turn_failed", agent_active: false }]);
+  });
+
   it("sends one heartbeat per 30 seconds of activity", async () => {
     const { reporter, sent, clock } = createReporter();
 
-    reporter.observe(sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"), true);
     clock.nowMs = 29_999;
-    reporter.observe(sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"), true);
     clock.nowMs = 30_000;
-    reporter.observe(sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"), true);
     await reporter.settled();
 
     expect(sent).toEqual([
@@ -131,13 +151,16 @@ describe("AgentCallbackReporter", () => {
   it("stays quiet after a turn ends until the agent is active again", async () => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(sessionUpdate("plan"));
-    reporter.observe(turnComplete("end_turn"));
-    reporter.observe({
-      type: "notification",
-      notification: { method: "_posthog/usage" },
-    });
-    reporter.observe(sessionUpdate("plan"));
+    reporter.observe(sessionUpdate("plan"), true);
+    reporter.observe(turnComplete("end_turn"), true);
+    reporter.observe(
+      {
+        type: "notification",
+        notification: { method: "_posthog/usage" },
+      },
+      true,
+    );
+    reporter.observe(sessionUpdate("plan"), true);
     await reporter.settled();
 
     expect(sent.map((callback) => callback.kind)).toEqual([
@@ -164,8 +187,8 @@ describe("AgentCallbackReporter", () => {
   ])("reports the $kind boot milestone once", async ({ kind, event }) => {
     const { reporter, sent } = createReporter();
 
-    reporter.observe(event);
-    reporter.observe(event);
+    reporter.observe(event, true);
+    reporter.observe(event, true);
     await reporter.settled();
 
     expect(sent.filter((callback) => callback.kind === kind)).toHaveLength(1);
@@ -200,9 +223,9 @@ describe("AgentCallbackReporter", () => {
       notification: { method: "_posthog/agent_command_dispatched" },
     };
 
-    reporter.observe(dispatched);
+    reporter.observe(dispatched, true);
     await reporter.settled();
-    reporter.observe(dispatched);
+    reporter.observe(dispatched, true);
     await reporter.settled();
 
     expect(sent).toHaveLength(reports);
@@ -238,7 +261,7 @@ describe("AgentCallbackReporter", () => {
       throw failure;
     });
 
-    reporter.observe(event);
+    reporter.observe(event, true);
     await reporter.settled();
 
     expect(sent).toHaveLength(attempts);
