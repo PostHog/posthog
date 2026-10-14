@@ -190,19 +190,28 @@ describe('workflowProposalsLogic', () => {
         expect(logic.values.turnOnDisabledReason).toBe(reason)
     })
 
-    it('a 409 on turning suggestions on reloads the workflow so the toggles show why', async () => {
+    it('a 409 on turning suggestions on shows the reason and keeps unsaved edits until the workflow reloads', async () => {
+        const flowLogic = workflowLogic({ id: WORKFLOW_ID })
         workflowActions = [{ id: 'mail', type: 'function_email' }]
         await expectLogic(logic, () => {
-            workflowLogic({ id: WORKFLOW_ID }).actions.loadWorkflow()
+            flowLogic.actions.loadWorkflow()
         }).toFinishAllListeners()
         expect(logic.values.turnOnDisabledReason).toBeUndefined()
 
+        flowLogic.actions.setAutoSaveEnabled(false)
+        flowLogic.actions.setWorkflowValue('name', 'Unsaved edit')
         workflowActions = [{ id: 'hook', type: 'function' }]
         await expectLogic(logic, () => {
             logic.actions.setOptimizationEnabled(true)
         }).toFinishAllListeners()
 
+        expect(flowLogic.values.workflow.name).toBe('Unsaved edit')
         expect(logic.values.optimizationEnabled).toBe(false)
+        expect(logic.values.turnOnDisabledReason).toBe('Add an email step.')
+
+        await expectLogic(logic, () => {
+            flowLogic.actions.loadWorkflow()
+        }).toFinishAllListeners()
         expect(logic.values.turnOnDisabledReason).toContain('Self-driving only works on workflows that send email')
     })
 
