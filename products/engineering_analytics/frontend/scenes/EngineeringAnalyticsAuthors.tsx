@@ -6,7 +6,6 @@ import { AuthorFrictionTable } from '../components/AuthorFrictionTable'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { FrictionGroupLegend } from '../components/FrictionGroupLegend'
-import { SourceScopeChip } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { authorFrictionLogic } from './authorFrictionLogic'
@@ -55,7 +54,7 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopePanel busy={frictionLoading && !!friction} controls={<SourceScopeChip pickerOnly />}>
+            <ScopePanel busy={frictionLoading && !!friction} controls={null}>
                 <Section
                     id="author-friction"
                     title="Friction by author"

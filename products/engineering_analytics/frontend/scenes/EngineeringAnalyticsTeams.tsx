@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { timesTypical } from '../lib/format'
 import { rowNavigationProps } from '../lib/rowNavigation'
@@ -118,7 +117,6 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <Section id="team-ci-health" title="Owned tests by team">
                 {teamsFailed ? (
                     <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />

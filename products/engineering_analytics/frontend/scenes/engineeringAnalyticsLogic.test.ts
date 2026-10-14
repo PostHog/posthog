@@ -41,6 +41,7 @@ import {
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
+import { repoScopeLogic } from './repoScopeLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -370,7 +371,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
-    it('lists one option per (source, repo) pair and scopes to the picked repo', async () => {
+    it('lists one option per (source, repo) pair and switches to the picked repo', async () => {
         // The option value encodes (source, repo) so a multi-repo source's repos stay distinct;
         // two distinct sources and one source syncing two repos produce the same option shape.
         mockSources.mockResolvedValue([
@@ -380,28 +381,65 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess', 'loadCardsSuccess'])
+        const scope = repoScopeLogic()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(true)
-        expect(logic.values.sourceOptions).toEqual([
+        expect(scope.values.hasMultipleSources).toBe(true)
+        expect(scope.values.sourceOptions).toEqual([
             { value: 'src-multi::posthog/posthog', label: 'posthog/posthog' },
             { value: 'src-multi::posthog/posthog.com', label: 'posthog/posthog.com' },
             { value: 'src-other::posthog/posthog.js', label: 'posthog/posthog.js' },
         ])
 
-        logic.actions.setScope('src-multi', 'posthog/posthog.com')
+        // One source syncs that repository, so the path alone names it and no `?source` rides along.
+        scope.actions.switchRepo('src-multi::posthog/posthog.com')
         await expectLogic(logic).toDispatchActions(['setScope', 'loadCardsSuccess'])
-        expect(logic.values.selectedScope).toBe('src-multi::posthog/posthog.com')
-        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-multi', repo: 'posthog/posthog.com' })
+        expect(routedPath()).toBe(urls.engineeringAnalytics('posthog/posthog.com'))
+        expect(router.values.searchParams).toEqual({})
+        expect(scope.values.selectedScope).toBe('src-multi::posthog/posthog.com')
+        expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: undefined, repo: 'posthog/posthog.com' })
+    })
+
+    it.each([
+        [
+            'another source of the repository on screen keeps the page and sets ?source',
+            'src-mirror::PostHog/PostHog',
+            urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42),
+            { source: 'src-mirror' },
+        ],
+        [
+            'a legacy source with no repository opens the repo-less list tab with ?source',
+            'src-legacy::',
+            urls.engineeringAnalyticsPullRequestList(),
+            { source: 'src-legacy' },
+        ],
+    ])('switching repository: %s', async (_label, pick, pathname, searchParams) => {
+        mockSources.mockResolvedValue([
+            { id: 'src-main', repo: 'posthog/posthog', prefix: 'main', synced: true },
+            { id: 'src-mirror', repo: 'PostHog/PostHog', prefix: 'mirror', synced: true },
+            { id: 'src-legacy', repo: '', prefix: 'legacy', synced: true },
+        ])
+        router.actions.push(urls.engineeringAnalyticsPullRequest('posthog', 'posthog', 42))
+        const scope = repoScopeLogic()
+        scope.mount()
+        extraUnmounts.push(() => scope.unmount())
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
+
+        scope.actions.switchRepo(pick)
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(scope.values.selectedScope).toBe(pick)
     })
 
     it('hides the picker when the team has a single source', async () => {
         mockSources.mockResolvedValue([SOURCES[0]])
-        logic = engineeringAnalyticsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        const scope = repoScopeLogic()
+        scope.mount()
+        await expectLogic(scope).toDispatchActions(['loadGithubSourcesSuccess'])
 
-        expect(logic.values.hasMultipleSources).toBe(false)
+        expect(scope.values.hasMultipleSources).toBe(false)
     })
 
     it('defaults to no source, then scopes every endpoint to the picked one and reloads', async () => {
@@ -531,7 +569,7 @@ describe('engineeringAnalyticsLogic', () => {
         router.actions.push(urls.engineeringAnalyticsPullRequestList(repo), rest)
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        await expectLogic(repoScopeLogic).toDispatchActions(['loadGithubSourcesSuccess'])
         return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
     }
     const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
