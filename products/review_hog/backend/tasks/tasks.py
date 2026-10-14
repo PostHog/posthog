@@ -13,6 +13,7 @@ from products.review_hog.backend.label_reviews import LabelReview
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
+    name="products.review_hog.backend.tasks.process_authored_pr_event",
 )
 def process_authored_pr_event(
     *,
@@ -49,6 +50,7 @@ def process_authored_pr_event(
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,
+    name="products.review_hog.backend.tasks.process_label_event",
 )
 def process_label_event(
     *,

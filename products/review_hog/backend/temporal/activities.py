@@ -37,12 +37,13 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.label_reviews import comment_commands_enabled, label_commands_hint
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
-from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
+from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
