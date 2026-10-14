@@ -13839,6 +13839,11 @@ export namespace Schemas {
          */
       summary?: string | null;
       /**
+         * Short title for this experiment, for people.
+         * @nullable
+         */
+      headline?: string | null;
+      /**
          * Agent's self-assessed confidence 0–1
          * @nullable
          */
@@ -14588,6 +14593,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly summary: string | null;
+      /**
+         * Short title for this experiment, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailModelSpec;
     }
@@ -14639,6 +14649,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly reader_summary: string | null;
+      /**
+         * Short title for this run, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /**
          * Short plain-language next steps for people, at most 5. Null if not written.
          * @nullable
@@ -24691,6 +24706,11 @@ export namespace Schemas {
          * @nullable
          */
       reader_summary?: string | null;
+      /**
+         * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+         * @nullable
+         */
+      headline?: string | null;
       /**
          * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
          * @maxItems 5
@@ -60488,6 +60508,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly summary: string | null;
+      /**
+         * Short title for this experiment, for people. Null if not written.
+         * @nullable
+         */
+      readonly headline: string | null;
       /** Model class and hyperparameters tried in this iteration. */
       model_spec: IterationTrailWithRecipeModelSpec;
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -73216,18 +73241,6 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
-    /**
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed
-     */
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
 
 
@@ -73623,6 +73636,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -73732,6 +73746,11 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
+      /**
+         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+         * @nullable
+         */
+      readonly inbox_merge_key: number | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -73741,6 +73760,11 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportList[];
+      /**
+         * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * @nullable
+         */
+      ranker?: string | null;
     }
 
     /**
@@ -94604,6 +94628,11 @@ export namespace Schemas {
          */
       summary?: string | null;
       /**
+         * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+         * @nullable
+         */
+      headline?: string | null;
+      /**
          * Agent's self-assessed confidence (0-1) that this iteration helps.
          * @minimum 0
          * @maximum 1
@@ -95292,6 +95321,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -129046,7 +129076,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string;
     /**

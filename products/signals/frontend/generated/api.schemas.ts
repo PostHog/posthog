@@ -131,18 +131,6 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `monitoring` - Monitoring
- * * `resolved` - Resolved
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
@@ -672,6 +660,7 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -781,6 +770,11 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
+    /**
+     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. Reports without a usable score sort after scored ones. Null for every other sort.
+     * @nullable
+     */
+    readonly inbox_merge_key: number | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -790,6 +784,11 @@ export interface PaginatedSignalReportListListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportListApi[]
+    /**
+     * The ranker that ordered the page when sort=recommended: priority, or fixed for the served ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * @nullable
+     */
+    ranker?: string | null
 }
 
 /**
@@ -900,6 +899,7 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -7796,7 +7796,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string
     /**
