@@ -14,7 +14,6 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
-    TEAM_BATCHED_SOURCES,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
@@ -210,12 +209,12 @@ def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None
         safe_record(increment_history_rows_dropped, len(rows) - recorded)
 
 
-def _shard_offset_seconds(configuration: PlatformAlertConfiguration) -> int:
-    """A team-batched source takes its team's slot, the same slot its own stack gives it. Any other
-    source spreads by configuration, so one team's checks do not all land in one minute."""
-    if configuration.source_kind in TEAM_BATCHED_SOURCES:
-        return compute_team_shard_offset_seconds(configuration.team_id, configuration.check_interval_minutes)
-    return compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes)
+def _shard_offset_seconds(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> int:
+    if outcome.schedule_group is None:
+        return compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes)
+    return compute_team_shard_offset_seconds(
+        configuration.team_id, configuration.check_interval_minutes, group=outcome.schedule_group
+    )
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -277,7 +276,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 tz_name=team_timezone,
                 now=now,
                 configuration_id=configuration.id,
-                shard_offset_seconds=_shard_offset_seconds(configuration),
+                shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
             )
 
         PlatformAlert.objects.for_team(team_id).bulk_update(

@@ -133,6 +133,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
+    def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
+        same_a = self._configuration(name="A")
+        same_b = self._configuration(name="B")
+        longer_window = self._configuration(name="C", source_config={"condition": {**CONDITION, "window_minutes": 60}})
+        more_periods = self._configuration(name="D", evaluation_periods=3, datapoints_to_alarm=1)
+
+        evaluation, _ = self._run(same_a, same_b, longer_window, more_periods)
+
+        group = {o.configuration_id: o.schedule_group for o in evaluation.outcomes}
+        assert group[same_a.id] == group[same_b.id]
+        assert len({group[same_a.id], group[longer_window.id], group[more_periods.id]}) == 3
+
     @parameterized.expand([("below_a_high_bound", 1000, "below"), ("above_zero", 0, "above")])
     def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(
         self, _name: str, threshold_count: int, threshold_operator: str

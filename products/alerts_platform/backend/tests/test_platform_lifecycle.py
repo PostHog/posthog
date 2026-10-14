@@ -143,14 +143,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
 
-    @parameterized.expand(
-        [
-            ("logs_shares_the_team_slot", PlatformAlertConfiguration.SourceKind.LOGS, 1),
-            ("insight_spreads_by_configuration", PlatformAlertConfiguration.SourceKind.INSIGHT, 2),
-        ]
-    )
-    def test_a_team_alerts_on_one_cadence_are_due_together_only_where_the_source_batches_them(
-        self, _name: str, source_kind: str, expected_slots: int
+    @parameterized.expand([("one_schedule_group", "5:1:True", 1), ("no_schedule_group", None, 2)])
+    def test_a_team_checks_share_a_slot_only_when_the_source_groups_them(
+        self, _name: str, schedule_group: str | None, expected_slots: int
     ) -> None:
         # Ids 1 and 2 fall in different slots of a 5-minute cadence when the offset is per configuration.
         with team_scope(self.team.id):
@@ -159,7 +154,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                     id=UUID(int=n),
                     team=self.team,
                     name=f"Alert {n}",
-                    source_kind=source_kind,
+                    source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                     source_config={},
                     check_interval_minutes=5,
                     next_check_at=self.cutoff - timedelta(minutes=1),
@@ -174,6 +169,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 new_state="not_firing",
                 notified=False,
                 consecutive_failures=0,
+                schedule_group=schedule_group,
             )
             for c in configurations
         ]

@@ -27,11 +27,6 @@ class SourceKind(StrEnum):
     INSIGHT = "insight"
 
 
-# Sources that answer one team's due alerts in one query per slot. Their alerts take the team's
-# slot, because alerts spread over several slots cannot share that query.
-TEAM_BATCHED_SOURCES: Final = frozenset({SourceKind.LOGS})
-
-
 @frozen
 class DemandDiscoveryInputs:
     cutoff: str
@@ -247,6 +242,9 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # A team's checks with the same group are due in one slot, so a source that answers them with
+    # one query can do so. None spreads the configuration by its own id.
+    schedule_group: str | None = None
 
 
 @frozen

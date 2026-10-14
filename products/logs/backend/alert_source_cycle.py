@@ -185,12 +185,28 @@ def window_end_of(evaluation_key: str) -> datetime | None:
         return None
 
 
-def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
+def _query_shape(check: PlatformAlertCheckInput) -> tuple[object, int, bool]:
+    """The part of `_cohort_key` a configuration fixes. Checks that differ here never share a query."""
     return (
-        LogsAlertCondition.of(check).window_minutes,
+        check.condition.get("window_minutes"),
         check.evaluation_periods,
-        check.check_interval_minutes,
         is_projection_eligible(check.source_config),
+    )
+
+
+def _schedule_group(check: PlatformAlertCheckInput) -> str:
+    # The platform puts a team's checks with one group in one slot and spreads different groups
+    # across slots, so one batch rarely holds more cohorts than `MAX_COHORTS_PER_CYCLE`.
+    return ":".join(str(part) for part in _query_shape(check))
+
+
+def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
+    window_minutes, evaluation_periods, projection_eligible = _query_shape(check)
+    return (
+        window_minutes,
+        evaluation_periods,
+        check.check_interval_minutes,
+        projection_eligible,
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
     )
 
@@ -325,6 +341,7 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
         disable=disable,
+        schedule_group=_schedule_group(check),
     )
 
 

@@ -53,9 +53,8 @@ def compute_shard_offset_seconds(
     return shard_index * schedule_interval_seconds
 
 
-# The team ID goes through uuid5 so that sequential IDs do not fill the slots in a pattern.
-# Production logs alerting and the platform both key on this namespace, so the two stacks
-# check one team's alerts in the same minute. Changing it moves every logs alert to a new slot.
+# uuid5 keeps sequential team IDs from filling the slots in a pattern. Production logs alerting
+# keys on this namespace too, so changing it moves every logs alert to a new slot.
 _TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
 
 
@@ -63,13 +62,16 @@ def compute_team_shard_offset_seconds(
     team_id: int,
     check_interval_minutes: int,
     *,
+    group: str | None = None,
     schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
 ) -> int:
-    """One slot for all of a team's alerts on a cadence, for a source that batches a team's due
-    alerts into one query per slot. A per-alert offset splits that team across slots, and each
-    slot then runs its own query."""
+    """One slot for all of a team's alerts in `group` on a cadence, for a source that answers them
+    with one query per slot. A per-alert offset splits them across slots, and each slot then runs
+    its own query. Different groups spread across slots, so one slot does not collect every
+    query the team needs."""
+    key = str(team_id) if group is None else f"{team_id}:{group}"
     return compute_shard_offset_seconds(
-        uuid5(_TEAM_SHARD_NAMESPACE, str(team_id)),
+        uuid5(_TEAM_SHARD_NAMESPACE, key),
         check_interval_minutes,
         schedule_interval_seconds=schedule_interval_seconds,
     )
