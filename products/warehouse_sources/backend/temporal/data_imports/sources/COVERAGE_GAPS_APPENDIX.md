@@ -4743,10 +4743,10 @@ Diffed against: <https://developer.fleetio.com/sitemap.xml>
 - [x] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
 - [x] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
 - [x] `purchase_orders (and purchase_order_line_items)` — parts procurement transactions and their line items; parts are synced but never their purchases (medium)
-- [ ] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
-- [ ] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
-- [ ] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
-- [ ] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
+- [x] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
+- [x] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
+- [x] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
+- [x] `inventory_journal_entries` — parts inventory movements; parts are synced only as current stock levels (medium)
 
 Note: No OpenAPI file is published; the resource list came from the Docusaurus sitemap, which enumerates every documented endpoint page (index/show/create/update per resource) under /docs/api/2023-03-01/. Also unsynced but lower value: equipment and equipment_assignments, submitted_inspection_forms, issue_priorities, fuel_types, groups, labels, places, tires, vehicle/contact renewal reminders and types, part_locations, comments, vmrs_reason_for_repairs.
 
