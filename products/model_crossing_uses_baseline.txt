@@ -678,7 +678,6 @@ surveys.Survey products.early_access_features.backend.management.commands.migrat
 tasks.Channel products.tasks.backend.facade.api.create_task_without_run facade-accepts(channel) 1
 tasks.Task signals.SignalReportTask.task reverse-accessor(signal_report_tasks) 1
 tasks.Task slack_app.SlackThreadTaskMapping.task reverse-accessor(slack_thread_mappings) 1
-tasks.TaskRun products.review_hog.backend.receivers get_model 1
 tasks.TaskRun products.tasks.backend.facade.api.post_artifact_thread_update facade-accepts(run) 1
 tasks.TaskRun products.tasks.backend.facade.api.post_commits_pushed_thread_update facade-accepts(run) 1
 tasks.TaskRun products.tasks.backend.facade.api.post_pr_created_thread_update facade-accepts(run) 1

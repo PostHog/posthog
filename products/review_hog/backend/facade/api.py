@@ -17,8 +17,10 @@ from products.review_hog.backend.automatic_review_rules import load_people
 from products.review_hog.backend.facade.contracts import (
     UNSET,
     RepositoryNotFoundError,
+    ReviewDetail,
     ReviewInstallationClaimInfo,
     ReviewInstallationInfo,
+    ReviewPerspectiveStats,
     ReviewProjectPreferenceDefaults,
     ReviewProjectSettingsInfo,
     ReviewRepositoryChoiceInfo,
@@ -31,6 +33,8 @@ from products.review_hog.backend.facade.contracts import (
     ReviewRepositoryWriteOutcome,
     ReviewSkill,
     ReviewSkillChoice,
+    ReviewSummaryPage,
+    ReviewTablePage,
     ReviewUserPreferences,
     ReviewUserRef,
     Unset,
@@ -38,8 +42,10 @@ from products.review_hog.backend.facade.contracts import (
 from products.review_hog.backend.facade.enums import (
     AutomaticFlashFor,
     RepositoryOverviewView,
+    ReviewActivityFilter,
     ReviewInstallationClaimScope,
     ReviewProjectSettingsBotPullRequests,
+    ReviewReportScope,
     ReviewRepositoryPersonKind,
     ReviewSkillKind,
     ReviewUserRepositoryChoiceMode,
@@ -61,6 +67,7 @@ from products.review_hog.backend.repository_settings import (
     RepositoryChoices,
     RepositoryOverview,
 )
+from products.review_hog.backend.review_listing import ReviewListing
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.review_hog.backend.skill_configs import ReviewSkillMenu
 from products.stamphog.backend.facade.api import has_reviewable_repo_config
@@ -450,3 +457,53 @@ def get_review_repository_overview(
         total=total,
         my_choices_unlike_default=overview.choices_unlike_default(),
     )
+
+
+# Review reads. Each function takes the root project id, like the repository settings.
+
+
+def list_recent_reviews(team_id: int, user_id: int, scope: ReviewReportScope, limit: int) -> ReviewSummaryPage:
+    """At most `limit` reviews: the visibly running ones first, then the completed ones, newest first."""
+    return ReviewListing(team_id).recent(user_id, scope, limit)
+
+
+def list_reviews_table(
+    team_id: int,
+    user_id: int,
+    scope: ReviewReportScope,
+    *,
+    repository: str | None,
+    review_mode: str | None,
+    activity: ReviewActivityFilter | None,
+    published: bool | None,
+    limit: int,
+    offset: int,
+) -> ReviewTablePage:
+    """One page of the reviews with a completed turn or a running one, most recent activity first.
+
+    A filter that is None does not filter.
+    """
+    return ReviewListing(team_id).table(
+        user_id,
+        scope,
+        repository=repository,
+        review_mode=review_mode,
+        activity=activity,
+        published=published,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def get_review_perspective_stats(team_id: int, user_id: int, scope: ReviewReportScope) -> ReviewPerspectiveStats:
+    """How many findings each review skill raised across the recent completed reviews in scope, and how many stayed."""
+    return ReviewListing(team_id).perspective_stats(user_id, scope)
+
+
+def get_review_detail(team_id: int, report_id: UUID, run_index: int | None) -> ReviewDetail:
+    """One completed turn of a review, the latest when `run_index` is None.
+
+    Raises `ReviewNotFoundError` when the project has no such review with a completed turn, and
+    `ReviewTurnNotFoundError` when the review has no completed turn `run_index`.
+    """
+    return ReviewListing(team_id).detail(report_id, run_index)
