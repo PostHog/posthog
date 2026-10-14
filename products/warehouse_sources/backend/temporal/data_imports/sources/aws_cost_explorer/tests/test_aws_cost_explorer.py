@@ -34,6 +34,7 @@ LOGGER = structlog.get_logger()
 
 COST_DAILY = AWS_COST_EXPLORER_ENDPOINTS["cost_and_usage_daily"]
 SAVINGS_PLANS = AWS_COST_EXPLORER_ENDPOINTS["savings_plans_utilization_daily"]
+WITH_RESOURCES = AWS_COST_EXPLORER_ENDPOINTS["cost_and_usage_with_resources_daily"]
 
 
 def without_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,6 +110,11 @@ class TestResolveStartDate:
 
     def test_ignores_an_unparseable_watermark(self) -> None:
         assert resolve_start_date("2024-01-01", COST_DAILY, True, "not-a-date", self.END) == dt.date(2024, 1, 1)
+
+    def test_resource_level_data_never_reaches_past_the_14_days_aws_serves(self) -> None:
+        # GetCostAndUsageWithResources rejects a start date older than 14 days.
+        # END is exclusive and reaches into tomorrow, so today is 2024-05-31.
+        assert resolve_start_date("2024-01-01", WITH_RESOURCES, False, None, self.END) == dt.date(2024, 5, 17)
 
 
 class TestBuildPayload:
@@ -307,3 +313,122 @@ class TestGetRows:
         assert batches == []
         assert send.call_count == 0
         assert manager.cleared is True
+
+    def test_resource_costs_are_filtered_to_the_services_listed_for_the_window(self) -> None:
+        manager = FakeResumeManager()
+
+        batches, send = self._run(
+            [
+                {"DimensionValues": [{"Value": "Amazon Simple Storage Service"}, {"Value": "AWS Lambda"}]},
+                cost_page(
+                    [{"Keys": ["AWS Lambda", "arn:aws:lambda:us-east-1:000000000000:function:f"], "Metrics": {}}]
+                ),
+            ],
+            manager,
+            endpoint="cost_and_usage_with_resources_daily",
+        )
+
+        assert [call[0][2] for call in send.call_args_list] == ["GetDimensionValues", "GetCostAndUsageWithResources"]
+        assert send.call_args_list[1][0][3]["Filter"] == {
+            "Dimensions": {"Key": "SERVICE", "Values": ["Amazon Simple Storage Service", "AWS Lambda"]}
+        }
+        assert batches[0][0]["resource_id"] == "arn:aws:lambda:us-east-1:000000000000:function:f"
+
+    def test_a_window_without_services_skips_the_resource_request(self) -> None:
+        manager = FakeResumeManager()
+
+        batches, send = self._run([{"DimensionValues": []}], manager, endpoint="cost_and_usage_with_resources_daily")
+
+        assert batches == []
+        assert send.call_count == 1
+
+    def test_dimension_values_are_listed_per_dimension_with_their_attributes(self) -> None:
+        manager = FakeResumeManager()
+
+        batches, send = self._run(
+            [
+                {"DimensionValues": [{"Value": "111111111111", "Attributes": {"description": "0010"}}]},
+                {"DimensionValues": [{"Value": "AWS Lambda", "Attributes": {}}]},
+                {"DimensionValues": [{"Value": "us-east-1", "Attributes": {}}]},
+            ],
+            manager,
+            endpoint="dimension_values",
+        )
+
+        assert [call[0][3]["Dimension"] for call in send.call_args_list] == ["LINKED_ACCOUNT", "SERVICE", "REGION"]
+        assert "Granularity" not in send.call_args_list[0][0][3]
+        assert batches == [
+            [{"dimension": "LINKED_ACCOUNT", "value": "111111111111", "description": "0010"}],
+            [{"dimension": "SERVICE", "value": "AWS Lambda"}],
+            [{"dimension": "REGION", "value": "us-east-1"}],
+        ]
+
+    def test_a_saved_dimension_resumes_at_that_dimension_and_page(self) -> None:
+        manager = FakeResumeManager(
+            AwsCostExplorerResumeConfig(window_start="2024-03-01", next_page_token="page-2", slice_key="SERVICE")
+        )
+
+        _, send = self._run([{"DimensionValues": []}, {"DimensionValues": []}], manager, endpoint="dimension_values")
+
+        assert [(call[0][3]["Dimension"], call[0][3].get("NextPageToken")) for call in send.call_args_list] == [
+            ("SERVICE", "page-2"),
+            ("REGION", None),
+        ]
+
+    def test_savings_plans_coverage_walks_its_next_token_pages(self) -> None:
+        manager = FakeResumeManager()
+
+        def coverage_page(day: str, next_token: Optional[str]) -> dict[str, Any]:
+            body: dict[str, Any] = {
+                "SavingsPlansCoverages": [
+                    {
+                        "Attributes": {},
+                        "Coverage": {"CoveragePercentage": "40", "OnDemandCost": "6"},
+                        "TimePeriod": {"Start": day, "End": "2024-03-03"},
+                    }
+                ]
+            }
+            if next_token:
+                body["NextToken"] = next_token
+            return body
+
+        batches, send = self._run(
+            [coverage_page("2024-03-01", "page-2"), coverage_page("2024-03-02", None)],
+            manager,
+            endpoint="savings_plans_coverage_daily",
+        )
+
+        assert send.call_args_list[1][0][3]["NextToken"] == "page-2"
+        assert [row["coverage_percentage"] for batch in batches for row in batch] == [40.0, 40.0]
+        assert batches[0][0]["on_demand_cost"] == 6.0
+
+    def test_reservation_coverage_is_requested_and_tagged_per_service(self) -> None:
+        # Without a SERVICE filter AWS reports EC2 only, so RDS and the others would go missing.
+        manager = FakeResumeManager()
+        coverage = {
+            "CoveragesByTime": [
+                {
+                    "TimePeriod": {"Start": "2024-03-01", "End": "2024-03-02"},
+                    "Groups": [],
+                    "Total": {
+                        "CoverageHours": {"ReservedHours": "18", "CoverageHoursPercentage": "75"},
+                        "CoverageCost": {"OnDemandCost": "1.5"},
+                    },
+                }
+            ]
+        }
+
+        batches, send = self._run([coverage] * 4, manager, endpoint="reservation_coverage_daily")
+
+        services = [call[0][3]["Filter"]["Dimensions"]["Values"] for call in send.call_args_list]
+        assert services == [
+            ["Amazon Elastic Compute Cloud - Compute"],
+            ["Amazon Relational Database Service"],
+            ["Amazon ElastiCache"],
+            ["Amazon Redshift"],
+        ]
+        assert [batch[0]["service"] for batch in batches] == [service[0] for service in services]
+        row = batches[0][0]
+        assert row["coverage_hours_reserved_hours"] == 18.0
+        assert row["coverage_hours_coverage_hours_percentage"] == 75.0
+        assert row["coverage_cost_on_demand_cost"] == 1.5

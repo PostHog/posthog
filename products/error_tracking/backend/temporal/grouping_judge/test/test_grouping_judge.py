@@ -14,9 +14,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
-    AUTO_MERGE_DISTANCE_THRESHOLD,
-)
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import DEFAULT_AUTO_MERGE_THRESHOLD
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeOutcome,
     FingerprintEmbeddingResultInputs,
@@ -80,7 +78,7 @@ class TestAlgorithms(SimpleTestCase):
         assert decisions_for(distance) == {LIVE_ALGORITHM.id: expected}
 
     def test_v1_matches_the_live_auto_merge_threshold(self) -> None:
-        assert EMBEDDING_THRESHOLD_V1_DISTANCE == AUTO_MERGE_DISTANCE_THRESHOLD
+        assert EMBEDDING_THRESHOLD_V1_DISTANCE == DEFAULT_AUTO_MERGE_THRESHOLD
 
 
 class TestSampling(SimpleTestCase):

@@ -26,8 +26,7 @@ class FingerprintEmbeddingResultInputs:
     source_issue_id: str | None = None
     event_uuid: str | None = None
     event_timestamp: str | None = None
-    # The fingerprint's rendered text, cut to the grouping judge's limit. The judge reads it here because
-    # the embedding row usually is not in ClickHouse yet when the merge runs.
+    # The text that was embedded, so the judge doesn't read it back before ClickHouse has ingested it.
     content: str | None = None
 
 

@@ -219,14 +219,13 @@ def test_embedding_hands_the_judge_its_text_before_clickhouse_has_it(
 ) -> None:
     get_team.return_value.organization.is_ai_data_processing_approved = True
     fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
-    render_stacktrace.return_value = "TypeError: boom\n" + "x" * 7000
+    render_stacktrace.return_value = "TypeError: boom"
     generate_embedding.return_value = MagicMock(embedding=[0.1, 0.2])
 
     result = generate_issue_created_embedding_activity(_inputs("fingerprint"))
 
     assert result.embedding is not None
-    assert result.embedding.content == render_stacktrace.return_value
-    assert result.embedding.merge_inputs.content == render_stacktrace.return_value[:6000]
+    assert result.embedding.merge_inputs.content == "TypeError: boom"
 
 
 def _decision(choice: str) -> DecisionResult:

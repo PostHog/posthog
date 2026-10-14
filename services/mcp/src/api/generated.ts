@@ -1667,6 +1667,43 @@ export namespace Schemas {
       readonly email: string;
     }
 
+    export interface AccountAuditConflict {
+      /** Why this audit did not start. */
+      detail: string;
+    }
+
+    export interface AccountAuditStartRequest {
+      /** Organization that owns the target team. */
+      organization_id: string;
+      /**
+         * Target team ID. Defaults to the non-demo root project with the most distinct resource viewers in the last 30 days, excluding projects pending deletion. Ties use the oldest project.
+         * @minimum 1
+         */
+      team_id?: number;
+      /**
+         * Why the account audit is being requested.
+         * @maxLength 500
+         */
+      reason: string;
+      /**
+         * Project ID containing the skill in this region. Audit credentials authorize reading skills from any project.
+         * @minimum 1
+         */
+      skill_project: number;
+      /**
+         * Name of the single-file skill in skill_project. Uses its latest active version.
+         * @maxLength 64
+         */
+      skill_name: string;
+    }
+
+    export interface AccountAuditStartResponse {
+      /** Native task run executing the account audit. */
+      task_run_id: string;
+      /** Resolved target team ID. */
+      team_id: number;
+    }
+
     /**
      * Metadata for one message a channel summary covered — never the message text.
      */
@@ -57327,7 +57364,7 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
-      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      /** UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the ingested unit, except that a count of series has no unit and a rate is per second. Empty when the values have no unit. */
       unit?: string | null;
     }
 
@@ -85785,6 +85822,7 @@ export namespace Schemas {
 
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -85815,6 +85853,7 @@ export namespace Schemas {
 
     export const TaskOriginProductEnum = {
       Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -85876,6 +85915,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -94460,6 +94500,71 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export interface WizardScanSignal {
+      /**
+         * Where the wizard found the tool, such as `npm`, `pypi`, `env_key` or `script_host`.
+         * @maxLength 32
+         */
+      source: string;
+      /**
+         * The package name, `.env` key name or script host that matched. Never a `.env` value.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Path of the file the signal came from, relative to the scanned directory.
+         * @maxLength 512
+         * @nullable
+         */
+      file?: string | null;
+    }
+
+    export interface WizardScanTool {
+      /**
+         * The tool's kind in the wizard tool catalog, such as `Stripe` or `Amplitude`.
+         * @maxLength 64
+         */
+      kind: string;
+      /**
+         * The signals that matched this tool.
+         * @maxItems 50
+         */
+      signals: WizardScanSignal[];
+    }
+
+    export interface RecordWizardScanRequest {
+      /**
+         * The wizard run that made the scan.
+         * @maxLength 255
+         */
+      session_id: string;
+      /**
+         * The wizard program that scanned, such as `posthog-integration` or `warehouse-source`.
+         * @maxLength 50
+         */
+      program: string;
+      /**
+         * Version of the wizard that made the scan.
+         * @maxLength 32
+         */
+      wizard_version: string;
+      /**
+         * sha256 hex digest that identifies the scanned repository without naming it.
+         * @maxLength 64
+         * @pattern ^[0-9a-f]{64}$
+         */
+      workspace_fingerprint: string;
+      /** When the wizard scanned the codebase. */
+      scanned_at: string;
+      /**
+         * Every tool the scan found. An empty list is a scan that found nothing.
+         * @maxItems 300
+         */
+      tools: WizardScanTool[];
+      /** False when the scan could not read the whole workspace. Tools it did not find are then kept. */
+      complete?: boolean;
+    }
+
     /**
      * * `Redshift` - Redshift
      */
@@ -96624,6 +96729,7 @@ export namespace Schemas {
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
      * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit
      */
     export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
 
@@ -96635,6 +96741,7 @@ export namespace Schemas {
       DedupAnchor: 'dedup_anchor',
       DedupSibling: 'dedup_sibling',
       Cap: 'cap',
+      Budget: 'budget',
     } as const;
 
     export interface ReviewDroppedFinding {
@@ -96666,7 +96773,8 @@ export namespace Schemas {
        * * `dedup_comment` - Already in a PR comment
        * * `dedup_anchor` - Same spot as another finding
        * * `dedup_sibling` - Repeat of a finding
-       * * `cap` - Over the limit */
+       * * `cap` - Over the limit
+       * * `budget` - Over the pull request limit */
       disposition: ReviewDropDispositionEnum;
       /**
          * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
@@ -108681,6 +108789,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -110377,6 +110486,7 @@ export namespace Schemas {
       /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
+       * * `account_audit` - Account audit
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
@@ -113923,6 +114033,55 @@ export namespace Schemas {
     }
 
     /**
+     * * `in-cli` - In the terminal
+     * * `deep-link` - In the app
+     */
+    export type WizardSetupModeEnum = typeof WizardSetupModeEnum[keyof typeof WizardSetupModeEnum];
+
+
+    export const WizardSetupModeEnum = {
+      InCli: 'in-cli',
+      DeepLink: 'deep-link',
+    } as const;
+
+    /**
+     * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
+     */
+    export type WizardCatalogToolSignalsPackages = {[key: string]: string[]};
+
+    export interface WizardCatalogToolSignals {
+      /** Anchored regexes matched against `.env` key names. Values are never read. */
+      env_key_patterns: string[];
+      /** Hosts matched against script URLs. A host also matches its subdomains. */
+      script_hosts: string[];
+      /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
+      packages: WizardCatalogToolSignalsPackages;
+    }
+
+    export interface WizardCatalogTool {
+      /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
+      kind: string;
+      /** Human-readable tool name. */
+      label: string;
+      /**
+         * Data warehouse source type the tool imports as, or null for a tool with no warehouse source.
+         * @nullable
+         */
+      warehouse_source_type: string | null;
+      /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
+       *
+       * * `in-cli` - In the terminal
+       * * `deep-link` - In the app */
+      wizard_setup_mode: WizardSetupModeEnum | null;
+      /** PostHog products this tool competes with. */
+      competes_with: string[];
+      /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
+      superseded_by: string[];
+      /** How the wizard detects the tool in a codebase. */
+      signals: WizardCatalogToolSignals;
+    }
+
+    /**
      * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
@@ -114033,6 +114192,20 @@ export namespace Schemas {
     export interface WizardRunTaskList {
       /** Complete task list in snapshot order. */
       readonly tasks: readonly WizardRunTask[];
+    }
+
+    export interface WizardScanResult {
+      /** ID of the stored scan. */
+      id: string;
+      /** False when this session had already reported its scan, so nothing changed. */
+      created: boolean;
+    }
+
+    export interface WizardToolCatalog {
+      /** Bumped when the shape changes in a way an older wizard cannot read. */
+      schema_version: number;
+      /** Every tool the wizard can detect. */
+      tools: WizardCatalogTool[];
     }
 
     /**
@@ -115588,6 +115761,11 @@ export namespace Schemas {
          * @nullable
          */
       clause?: string | null;
+      /**
+         * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+         * @nullable
+         */
+      unit?: string | null;
     }
 
     export interface _MetricAnomalyReport {
@@ -129667,6 +129845,7 @@ export namespace Schemas {
      * Exclude tasks with this origin product from the results
      *
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -129815,6 +129994,7 @@ export namespace Schemas {
 
     export const TasksListExcludeOriginProduct = {
       Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
@@ -130852,6 +131032,11 @@ export namespace Schemas {
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
+     * @minLength 1
+     */
+    created_by?: string;
     /**
      * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
      * @minLength 1
