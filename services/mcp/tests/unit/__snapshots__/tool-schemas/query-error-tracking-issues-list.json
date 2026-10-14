@@ -232,8 +232,8 @@
         },
         "orderBy": {
             "default": "occurrences",
-            "description": "Field used to sort issues. Defaults to occurrences.\n\n* `last_seen` - last_seen\n* `first_seen` - first_seen\n* `occurrences` - occurrences\n* `users` - users\n* `sessions` - sessions",
-            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+            "description": "Field used to sort issues. Defaults to occurrences.\n\n* `last_seen` - last_seen\n* `first_seen` - first_seen\n* `occurrences` - occurrences\n* `users` - users\n* `sessions` - sessions\n* `severity` - severity",
+            "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "type": "string"
         },
         "orderDirection": {

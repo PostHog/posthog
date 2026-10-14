@@ -946,7 +946,14 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Maximum number of issues to return.'),
                                         orderBy: zod
-                                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                            .enum([
+                                                'last_seen',
+                                                'first_seen',
+                                                'occurrences',
+                                                'users',
+                                                'sessions',
+                                                'severity',
+                                            ])
                                             .default(
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderByDefault
                                             )
@@ -1993,7 +2000,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneLimitDefault)
                                     .describe('Maximum number of issues to return.'),
                                 orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemThreeConfigOneOrderByDefault)
                                     .describe('Issue ranking column.'),
                                 orderDirection: zod
