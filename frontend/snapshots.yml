@@ -12294,6 +12294,14 @@ snapshots:
         hash: v1.k794b7964.b8c44f66626ff2d35a9a566c58337683e9ade9433d135be7f8bb4b17e338aa09.7bPm3c8fFjrHeUafx8VSL7V8MoY0Pu3_ayEeP_YTbBQ
     scenes-app-logs-logsimpactcounts--sessions-only--light:
         hash: v1.k794b7964.1df982f4a9a5e13533ba18e16809fc68a44c64764aaf3713a8a7e98ab55e9b9b.1CPqsq76kdQ_uWZLQRqBLYswgFVx3N9_2mm6WN0mc_M
+    scenes-app-logs-natural-language-candidates--ranked--dark:
+        hash: v1.k794b7964.523510a7d77c898c9f3b1eaafb064bb1db6fc1b803c98e6cd80d1bd2c8413d3d.cs9osp6j41Z9r-oMn5s9DM1D2J2bAsUxh6Vl_5Lvj1U
+    scenes-app-logs-natural-language-candidates--ranked--light:
+        hash: v1.k794b7964.87db26120b5d1e8aa9e8e038364cd7d0a888d804db446b5f3ed433bfc7def248.ZwIVorDG5jnvRLPTJn64q03isCm0zLfAKpKk6qa7J4s
+    scenes-app-logs-natural-language-candidates--unranked--dark:
+        hash: v1.k794b7964.de07814e8377eb9e6c5638caeeb66268a5f31313a5976f91b8948669f5098dbc.fYclKNsn5YRSmLg27tkO69aX4JCSnMmBFhPHDV8Lg8A
+    scenes-app-logs-natural-language-candidates--unranked--light:
+        hash: v1.k794b7964.008090fc440f239b44be43fb91bbf122bcca4cba25daff0fa028b1fcc2a6f1f4.nGZXRWKiZRq_NsQGPVsmNt9UW7vLmZMWn0U5BkOuRUM
     scenes-app-logs-sessionerrorsbadge--one-error--dark:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.Zoa3-_zRiDxW2DVeBYD64fV80BWOtlngAzOqnRjMam8
     scenes-app-logs-sessionerrorsbadge--one-error--light:
