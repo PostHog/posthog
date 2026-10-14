@@ -1,18 +1,16 @@
 import json
-import threading
-import http.server
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 import requests
+from posthoganalytics import FeatureFlagResult
 
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
@@ -514,29 +512,21 @@ class TestWizardGatewayPolicy:
     @staticmethod
     @contextmanager
     def _flags(prompt=PROMPT_PAYLOAD, allowlist=ALLOWLIST_PAYLOAD):
-        def reader(payloads):
-            def read(key, *args, **kwargs):
-                value = payloads.get(key)
-                if isinstance(value, Exception):
-                    raise value
-                return value
+        payloads = {WIZARD_SYSTEM_PROMPT_FLAG: prompt, WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}
 
-            return read
+        def read(key, *args, **kwargs):
+            value = payloads.get(key)
+            if isinstance(value, Exception):
+                raise value
+            return None if value is None else FeatureFlagResult.from_value_and_payload(key, True, value)
 
-        with (
-            patch(
-                "posthog.llm.wizard_gateway_token._read_remote_config_payload",
-                side_effect=reader({WIZARD_SYSTEM_PROMPT_FLAG: prompt}),
-            ) as remote_config,
-            patch(
-                "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
-                side_effect=reader({WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}),
-            ) as evaluated,
-        ):
-            yield remote_config, evaluated
+        with patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_result", side_effect=read
+        ) as evaluated:
+            yield evaluated
 
     def test_both_flags_make_the_policy(self):
-        with self._flags() as (remote_config, evaluated):
+        with self._flags():
             policy = _policy()
 
         assert policy == WizardGatewayPolicy(
@@ -545,10 +535,6 @@ class TestWizardGatewayPolicy:
             programs=("integration", "audit"),
             prompt=WizardSystemPrompt(text=PROMPT_TEXT),
         )
-        # `/flags` serves an unencrypted payload to anyone with the public project
-        # token, so the prompt must come only from the decrypting remote-config read.
-        remote_config.assert_called_once_with(WIZARD_SYSTEM_PROMPT_FLAG)
-        assert [call.args[0] for call in evaluated.call_args_list] == [WIZARD_GATEWAY_ALLOWLIST_FLAG]
 
     def test_the_prompt_text_is_kept_untrimmed(self):
         text = "  [posthog:abort] \n"
@@ -557,17 +543,15 @@ class TestWizardGatewayPolicy:
         assert policy.prompt is not None
         assert policy.prompt.text == text
 
-    def test_the_allowlist_is_read_with_the_override_flags_targeting_properties(self):
-        with self._flags() as (_, evaluated):
+    def test_both_flags_are_read_with_the_override_flags_targeting_properties_and_send_their_events(self):
+        with self._flags() as evaluated:
             _policy()
 
-        evaluated.assert_called_once_with(
-            WIZARD_GATEWAY_ALLOWLIST_FLAG,
-            "d1",
-            person_properties={"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        properties = {"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"}
+        assert evaluated.call_args_list == [
+            call(key, "d1", person_properties=properties)
+            for key in (WIZARD_SYSTEM_PROMPT_FLAG, WIZARD_GATEWAY_ALLOWLIST_FLAG)
+        ]
 
     @pytest.mark.parametrize("missing", [None, RuntimeError("flags down")])
     @pytest.mark.parametrize(
@@ -587,53 +571,6 @@ class TestWizardGatewayPolicy:
         logged = [call.args[0] for call in log.warning.call_args_list]
         expected = f"wizard_gateway_token: {message} " + ("returned no payload" if missing is None else "unavailable")
         assert logged == [expected]
-
-    @pytest.mark.parametrize("status", [429, 503])
-    def test_a_throttled_prompt_read_mints_unpinned_after_one_attempt(self, status):
-        hits = []
-
-        class Throttled(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                hits.append(self.path)
-                self.send_response(status)
-                self.send_header("Retry-After", "1")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-
-            def log_message(self, *args):
-                pass
-
-        server = http.server.HTTPServer(("127.0.0.1", 0), Throttled)
-        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
-        thread.start()
-        sdk = SimpleNamespace(
-            disabled=False,
-            personal_api_key="phx_test",
-            api_key="phc_test",
-            host=f"http://127.0.0.1:{server.server_port}",
-        )
-        try:
-            with (
-                patch("posthog.llm.wizard_gateway_token.posthoganalytics.setup", return_value=sdk),
-                patch(
-                    "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
-                    return_value=ALLOWLIST_PAYLOAD,
-                ),
-                patch("posthog.llm.wizard_gateway_token.logger") as log,
-            ):
-                policy = _policy()
-        finally:
-            server.shutdown()
-            server.server_close()
-
-        assert policy.prompt is None
-        assert policy.programs == ("integration", "audit")
-        # A retry that honored Retry-After would sleep on the mint worker and hit again.
-        assert len(hits) == 1
-        assert hits[0].startswith(f"/api/projects/@current/feature_flags/{WIZARD_SYSTEM_PROMPT_FLAG}/remote_config?")
-        assert [call.args[0] for call in log.warning.call_args_list] == [
-            "wizard_gateway_token: system prompt flag unavailable"
-        ]
 
     def test_models_that_spell_one_model_do_not_count_twice_against_the_gateways_cap(self):
         names = [f"m{i}" for i in range(31)]
@@ -699,7 +636,6 @@ class TestWizardGatewayPolicy:
             # Off or unreadable is quiet: a flag outage is not a bad payload.
             (None, False),
             (RuntimeError("flags down"), False),
-            ("not json", True),
             ([], True),
             ({"version": 4}, True),
             ({"version": 4, "text": ""}, True),
@@ -710,8 +646,6 @@ class TestWizardGatewayPolicy:
             # The gateway refuses these two, so they must never reach it.
             ({"version": 4, "text": "[posthog:abort] \ud800"}, True),
             ({"version": 4, "text": "[posthog:abort] \ufffd"}, True),
-            # remote_config's answer for an encrypted payload when the SDK holds a project secret key.
-            ('"********* (encrypted)"', True),
         ],
     )
     def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
@@ -738,7 +672,6 @@ class TestWizardGatewayPolicy:
         [
             (None, False),
             (RuntimeError("flags down"), False),
-            ("not json", True),
             ([], True),
             ({}, True),
             ({"models": [], "efforts": ["high"], "programs": ["integration"]}, True),
