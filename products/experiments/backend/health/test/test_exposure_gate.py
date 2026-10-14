@@ -15,6 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.health.context import SplitHistory
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
@@ -180,6 +181,19 @@ class TestLoadSplitHistory(BaseTest):
         self.assertEqual(query.call_count, expected_queries)
         self.assertEqual(history.counted_changes[0].changed_at, changed_at[expected_queries])
         self.assertIsNone(history.exposed_before_first)
+
+    def test_editing_the_exposure_action_asks_again(self) -> None:
+        action = Action.objects.create(team=self.team, name="Checkout", steps_json=[{"event": "checkout_viewed"}])
+        self.experiment.exposure_criteria = {"exposure_config": {"kind": "ActionsNode", "id": action.id}}
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([False])
+
+        action.steps_json = [{"event": "checkout_completed"}]
+        action.save()
+        _, query = self._load([False])
+
+        self.assertEqual(query.call_count, 1)
 
     @parameterized.expand(
         [

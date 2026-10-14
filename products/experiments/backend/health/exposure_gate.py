@@ -16,6 +16,8 @@ from time import monotonic
 from django.core.cache import cache
 from django.utils import timezone
 
+from posthog.schema import ActionsNode
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
@@ -30,6 +32,7 @@ from posthog.exceptions import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.health.context import SplitChange, SplitHistory
 from products.experiments.backend.health.split_changes import (
     same_assignment,
@@ -39,6 +42,7 @@ from products.experiments.backend.health.split_changes import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
+    normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -127,6 +131,7 @@ class _ExposureGate:
         self._experiment = experiment
         self._launched_at = launched_at
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
+        self._exposure_action_version = _exposure_action_version(experiment)
         self._started_at = monotonic()
         self._query_count = 0
         self._stopped = False
@@ -171,7 +176,8 @@ class _ExposureGate:
     def _cache_key(self, window_start: datetime, window_end: datetime, variant_keys: Sequence[str]) -> str:
         experiment = self._experiment
         # Every input of the query. The resolved exposure event is one, because the exposure event rollout
-        # can move an experiment to another event.
+        # can move an experiment to another event. An exposure action is one by its last edit, because the
+        # criteria hold only its id.
         inputs = json.dumps(
             [
                 self._launched_at.isoformat(),
@@ -181,12 +187,26 @@ class _ExposureGate:
                 sorted(variant_keys),
                 experiment.exposure_criteria,
                 self._default_exposure_event,
+                self._exposure_action_version,
             ],
             sort_keys=True,
             default=str,
         )
         digest = hashlib.sha256(inputs.encode()).hexdigest()
         return f"experiment_split_exposure:{experiment.team_id}:{experiment.id}:{digest}"
+
+
+def _exposure_action_version(experiment: Experiment) -> str | None:
+    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if not isinstance(config, ActionsNode):
+        return None
+    updated_at = (
+        Action.objects.filter(team_id=experiment.team_id, id=int(config.id))
+        .values_list("updated_at", flat=True)
+        .first()
+    )
+    return updated_at.isoformat() if updated_at else None
 
 
 def _load_split_history(experiment: Experiment) -> SplitHistory | None:
