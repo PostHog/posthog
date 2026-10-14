@@ -70,16 +70,30 @@ def unbound_alert_destinations(
     Such a function fires for every alert of the team. Native delivery reads destinations per
     alert, so it would stop sending at cutover.
     """
-    owned = owned_alert_destinations_qs(
-        team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids, known_templates_only=False
-    ).values("id")
-    return tuple(
+    known_alert_ids = set(alert_ids)
+    candidates = (
         HogFunction.objects.filter(
             _allowed_event_filter(allowed_event_ids), team_id=team_id, deleted=False, enabled=True
         )
-        .exclude(id__in=owned)
         .order_by("created_at", "id")
-        .values_list("id", flat=True)
+        .values_list("id", "filters")
+    )
+    return tuple(
+        function_id for function_id, filters in candidates if not _bound_to_one_alert(filters, known_alert_ids)
+    )
+
+
+def _bound_to_one_alert(filters: Any, alert_ids: set[str]) -> bool:
+    # Only an exact match on one alert id scopes a function to that alert. Any other operator,
+    # such as `is_not`, still lets it fire for other alerts.
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    return any(
+        isinstance(prop, dict)
+        and prop.get("key") == "alert_id"
+        and prop.get("operator", "exact") == "exact"
+        and isinstance(prop.get("value"), str)
+        and prop["value"] in alert_ids
+        for prop in properties or ()
     )
 
 
