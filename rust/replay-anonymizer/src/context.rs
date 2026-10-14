@@ -12,10 +12,10 @@ use anyhow::{bail, Result};
 use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
-use crate::assets::PLACEHOLDER_SRC;
+use crate::assets::{is_numbered_placeholder, PLACEHOLDER_SRC};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
-    DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, MAX_IMAGE_BYTES,
+    DROP_COLLECTION_OFF, DROP_MESSAGE_CAP, DROP_SVG, MAX_IMAGE_BYTES,
 };
 use crate::data_uri::blank_image_data_uri;
 use crate::data_uri::ImageFallback;
@@ -123,6 +123,10 @@ impl<'a> Ctx<'a> {
     /// to the caller for the out-of-band scrub. An image the lane cannot take is replaced by
     /// `fallback` and counted, never passed through or scrubbed here.
     pub(crate) fn scrub_image(&self, original: &str, fallback: ImageFallback) -> String {
+        // This anonymizer's own placeholders, met again on a re-scrub: they carry no page content.
+        if original == PLACEHOLDER_SRC || is_numbered_placeholder(original) {
+            return original.to_string();
+        }
         match self.collect_image(original) {
             Ok(reference) => reference,
             Err(reason) => {
@@ -328,8 +332,11 @@ impl<'a> Ctx<'a> {
             return hit.clone();
         }
         let max_image_bytes = collector.borrow().max_image_bytes();
-        let outcome = collectable_data_uri_bytes(original, max_image_bytes)
-            .and_then(|bytes| collector.borrow_mut().collect(bytes));
+        let outcome = match collectable_data_uri_bytes(original, max_image_bytes) {
+            Err(DROP_SVG) => crate::svg::rasterize_svg_data_uri(original, max_image_bytes),
+            decoded => decoded,
+        }
+        .and_then(|bytes| collector.borrow_mut().collect(bytes));
         self.image_memo
             .borrow_mut()
             .insert(original.to_string(), outcome.clone());
@@ -403,6 +410,21 @@ mod tests {
         ctx.discard_walk(checkpoint);
         assert!(is_image_ref(&ctx.scrub_image(&late, ImageFallback::Blank)));
         assert_eq!(ctx.into_collected_images().len(), 1);
+    }
+
+    #[test]
+    fn this_anonymizers_own_placeholder_is_never_collected() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::with_image_collection(
+            &allow,
+            Some(ImageCollection::new("42".to_string(), "k".repeat(32))),
+        );
+        assert_eq!(
+            ctx.scrub_image(PLACEHOLDER_SRC, ImageFallback::Placeholder),
+            PLACEHOLDER_SRC
+        );
+        assert!(ctx.take_scrub_drops().is_empty());
+        assert!(ctx.into_collected_images().is_empty());
     }
 
     #[test]

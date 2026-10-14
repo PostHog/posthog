@@ -54,6 +54,8 @@ pub mod snapshot;
 #[doc(hidden)]
 pub mod srcset;
 #[doc(hidden)]
+pub mod svg;
+#[doc(hidden)]
 pub mod text;
 pub mod timings;
 #[cfg(feature = "typed-parse")]

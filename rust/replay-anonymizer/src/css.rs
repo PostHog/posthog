@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_svg_in_css_stays_out_of_the_collection_lane() {
+    fn inline_svg_in_css_reaches_the_collection_lane_as_png() {
         let allow = AllowLists::default();
         let ctx = Ctx::with_image_collection(
             &allow,
@@ -823,10 +823,14 @@ mod tests {
         let original = "data:image/svg+xml;base64,PHN2Zz48dGV4dD5qb2huLmZha2VuYW1lQGV4YW1wbGUuY29tPC90ZXh0Pjwvc3ZnPg==";
         let css = format!("background-image:url('{original}')");
         let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
-        assert!(rewritten.refs.is_empty());
+        assert_eq!(rewritten.refs.len(), 1);
         assert!(!rewritten.css.contains(original));
-        assert!(rewritten.css.contains("data:image/png;base64"));
-        assert!(ctx.take_image_source_counts().is_empty());
+        let images = ctx.into_collected_images();
+        assert_eq!(images.len(), 1);
+        assert!(
+            images[0].bytes.starts_with(b"\x89PNG"),
+            "collected as a raster"
+        );
     }
 
     #[test]
