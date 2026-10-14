@@ -1,4 +1,4 @@
 <resources>
   <string name="hedgehog_widget_label">Hedgehog</string>
-  <string name="hedgehog_widget_description">A hedgehog that wanders around your home screen. Tap it to say hi.</string>
+  <string name="hedgehog_widget_description">A roaming hedgehog with visiting hoggies. Tap one for a surprise.</string>
 </resources>

@@ -102,7 +102,7 @@ struct HedgehogTimelineProvider: TimelineProvider {
             return Self.entries(from: beats, after: onScreen)
         }
 
-        let reactionKeyframes = choreography.reaction.keyframes
+        let reactionKeyframes = poke.map { choreography.reaction(at: $0.at).keyframes } ?? choreography.reaction.keyframes
         let reactionDuration = TimeInterval(reactionKeyframes.count) * reactionStep
         guard let poke, !reactionKeyframes.isEmpty,
               let reactionStart = reactionStart(for: poke, now: now, duration: reactionDuration)
@@ -208,7 +208,8 @@ struct HedgehogTimelineProvider: TimelineProvider {
             y: tick.y,
             facing: current.facing,
             bubble: tick.bubble,
-            turn: tick.turn.map { current.facing == .left ? -$0 : $0 }
+            turn: tick.turn.map { current.facing == .left ? -$0 : $0 },
+            hoggie: tick.hoggie
         )
     }
 }

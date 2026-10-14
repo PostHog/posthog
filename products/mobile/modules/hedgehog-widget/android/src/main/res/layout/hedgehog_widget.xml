@@ -21,4 +21,22 @@
     android:layout_height="match_parent"
     android:autoStart="true"
     android:flipInterval="120" />
+
+  <TextView
+    android:id="@+id/hedgehog_caption"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="top|center_horizontal"
+    android:layout_marginTop="8dp"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="8dp"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="4dp"
+    android:background="@drawable/hedgehog_bubble"
+    android:textColor="#1F1F1C"
+    android:textSize="12sp"
+    android:maxLines="1"
+    android:ellipsize="end"
+    android:importantForAccessibility="no"
+    android:visibility="gone" />
 </FrameLayout>

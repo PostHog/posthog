@@ -46,7 +46,7 @@ class HedgehogWidgetProvider : AppWidgetProvider() {
 
         // ViewFlipper always loops, so the reaction must be swapped for the normal loop once it has played once.
         val choreography = HedgehogRenderer.choreography(context)
-        val durationMs = HedgehogRenderer.reactionTicks(choreography).size.toLong() * choreography.tickMs
+        val durationMs = HedgehogRenderer.reactionTicks(choreography, pokedAt).size.toLong() * choreography.tickMs
         if (durationMs > MAX_HELD_BROADCAST_MS) {
             HedgehogRenderer.scheduleReactionEnd(context, pokedAt + durationMs)
             return

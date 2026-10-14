@@ -32,8 +32,9 @@ struct Tick: Codable, Equatable {
     let bubble: String?
     /// Turns added on the way into this tick, clockwise on screen. A flip is two ticks of half a turn each.
     let turn: Double?
+    let hoggie: String?
 
-    init(pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil, turn: Double? = nil) {
+    init(pose: Pose, frame: Int, x: Double, y: Double, facing: Facing, bubble: String? = nil, turn: Double? = nil, hoggie: String? = nil) {
         self.pose = pose
         self.frame = frame
         self.x = x
@@ -41,11 +42,12 @@ struct Tick: Codable, Equatable {
         self.facing = facing
         self.bubble = bubble
         self.turn = turn
+        self.hoggie = hoggie
     }
 
     /// Feet on the floor and no flip, for an entry shown without the keyframes around it.
     var grounded: Tick {
-        Tick(pose: y > 0 ? .idle : pose, frame: frame, x: x, y: 0, facing: facing, bubble: bubble)
+        Tick(pose: y > 0 ? .idle : pose, frame: frame, x: x, y: 0, facing: facing, bubble: bubble, hoggie: hoggie)
     }
 
     /// An out-of-range frame would name a sprite that does not exist and render nothing.
@@ -71,6 +73,13 @@ struct Choreography: Codable {
     let loopMinutes: Int
     let loops: [[Tick]]
     let reaction: Reaction
+    var surprises: [Reaction]? = nil
+
+    func reaction(at poke: Date) -> Reaction {
+        guard let surprises, !surprises.isEmpty else { return reaction }
+        let index = Int(poke.timeIntervalSince1970 * 1000) % surprises.count
+        return surprises[(index + surprises.count) % surprises.count]
+    }
 
     static let supportedVersion = 1
 }
@@ -194,7 +203,17 @@ enum FallbackChoreography {
             tickMs: 120,
             loopMinutes: 10,
             loops: [],
-            reaction: reaction
+            reaction: reaction,
+            surprises: ["party", "wizard", "superhero"].map { hoggie in
+                Reaction(
+                    keyframes: [
+                        Tick(pose: .wave, frame: 10, x: 0.5, y: 0, facing: .right, bubble: "Hi there!", hoggie: hoggie),
+                        Tick(pose: .jump, frame: 4, x: 0.5, y: 0.2, facing: .right, hoggie: hoggie),
+                        Tick(pose: .idle, frame: 0, x: 0.5, y: 0, facing: .right, bubble: "Ta-da!", hoggie: hoggie),
+                    ],
+                    ticks: []
+                )
+            }
         )
     }()
 }

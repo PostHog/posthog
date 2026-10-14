@@ -12,7 +12,7 @@ struct HedgehogWidget: Widget {
                 }
         }
         .configurationDisplayName("Hedgehog")
-        .description("A hedgehog that wanders around your home screen. Tap it to say hi.")
+        .description("A roaming hedgehog with visiting hoggies. Tap one for a surprise.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
     }

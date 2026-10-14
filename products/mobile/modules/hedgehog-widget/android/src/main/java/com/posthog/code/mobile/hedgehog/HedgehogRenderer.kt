@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Parcel
 import android.util.Log
+import android.view.View
 import android.widget.RemoteViews
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -73,21 +74,22 @@ object HedgehogRenderer {
         return cachedChoreography ?: FallbackChoreography.value
     }
 
-    fun reactionTicks(choreography: Choreography): List<Tick> =
-        choreography.reactionTicks.ifEmpty { FallbackChoreography.value.reactionTicks }
+    fun reactionTicks(choreography: Choreography, pokedAtMs: Long): List<Tick> =
+        choreography.reactionAt(pokedAtMs).ifEmpty { FallbackChoreography.value.reactionTicks }
 
     /**
      * Reaction ticks are authored at x 0.5 facing right. Shift them to where the loop starts, which is also where
      * every loop comes to rest, so the hedgehog reacts on the spot instead of jumping to the centre.
      */
-    private fun reactionInPlace(choreography: Choreography, anchor: Tick): List<Tick> =
-        reactionTicks(choreography).map {
+    private fun reactionInPlace(choreography: Choreography, anchor: Tick, pokedAtMs: Long): List<Tick> =
+        reactionTicks(choreography, pokedAtMs).map {
             it.copy(x = (it.x + anchor.x - 0.5f).coerceIn(0f, 1f), facing = anchor.facing)
         }
 
     private fun isReacting(context: Context, choreography: Choreography, now: Long): Boolean {
-        val elapsed = now - HedgehogStore.pokedAt(context)
-        return elapsed >= 0 && elapsed < reactionTicks(choreography).size.toLong() * choreography.tickMs
+        val pokedAt = HedgehogStore.pokedAt(context)
+        val elapsed = now - pokedAt
+        return elapsed >= 0 && elapsed < reactionTicks(choreography, pokedAt).size.toLong() * choreography.tickMs
     }
 
     private fun build(
@@ -105,20 +107,24 @@ object HedgehogRenderer {
         // Portrait size: the launcher reports min width and max height for the portrait cell grid.
         val widthPx = (options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: DEFAULT_WIDTH_DP) * density
         val heightPx = (options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: DEFAULT_HEIGHT_DP) * density
-        val spritePx = resources.getDimensionPixelSize(R.dimen.hedgehog_sprite_size)
         val floorPx = resources.getDimensionPixelSize(R.dimen.hedgehog_floor_inset)
-        val maxLeft = (widthPx - spritePx).coerceAtLeast(0f)
-        val maxBottom = (heightPx - spritePx).coerceAtLeast(0f)
-        // In a widget too short for the sprite, the feet sink below the floor line instead of the head clipping.
-        val minBottom = minOf(floorPx.toFloat(), maxBottom)
 
         val loop = choreography.loopAt(now)
-        val ticks = (if (reacting) reactionInPlace(choreography, loop.first()) else loop).take(Choreography.MAX_TICKS)
+        val ticks = (if (reacting) reactionInPlace(choreography, loop.first(), HedgehogStore.pokedAt(context)) else loop).take(Choreography.MAX_TICKS)
+        val caption = ticks.firstOrNull()?.bubble?.takeIf { heightPx >= 110 * density }
         val poke = pokeIntent(context)
         val root = RemoteViews(pkg, R.layout.hedgehog_widget)
         root.removeAllViews(R.id.hedgehog_flipper)
         for (tick in ticks) {
-            val frame = RemoteViews(pkg, R.layout.hedgehog_frame)
+            val illustrated = tick.hoggie != null && hoggieId(context, tick) != 0
+            val largeIllustration = illustrated && heightPx >= 140 * density
+            val spritePx = resources.getDimensionPixelSize(if (largeIllustration) R.dimen.hoggie_sprite_size else R.dimen.hedgehog_sprite_size)
+            val maxLeft = (widthPx - spritePx).coerceAtLeast(0f)
+            val captionSpace = if (caption != null) 36 * density else 0f
+            val artInset = if (illustrated) spritePx * 0.125f else 0f
+            val minBottom = minOf(floorPx.toFloat(), (heightPx - spritePx).coerceAtLeast(0f))
+            val maxBottom = (heightPx - spritePx + artInset - captionSpace).coerceAtLeast(minBottom)
+            val frame = RemoteViews(pkg, if (largeIllustration) R.layout.hedgehog_hoggie_frame else R.layout.hedgehog_frame)
             frame.setImageViewResource(R.id.hedgehog_sprite, spriteId(context, tick))
             val left = (tick.x * widthPx - spritePx / 2f).coerceIn(0f, maxLeft).roundToInt()
             val bottom = (floorPx + tick.y * (heightPx - floorPx)).coerceIn(minBottom, maxBottom).roundToInt()
@@ -129,6 +135,8 @@ object HedgehogRenderer {
         }
         root.setInt(R.id.hedgehog_flipper, "setFlipInterval", choreography.tickMs)
         root.setDisplayedChild(R.id.hedgehog_flipper, 0)
+        root.setTextViewText(R.id.hedgehog_caption, caption.orEmpty())
+        root.setViewVisibility(R.id.hedgehog_caption, if (caption.isNullOrEmpty()) View.GONE else View.VISIBLE)
         // A tap that misses the sprite falls through the frames, which are not clickable, to the root.
         openAppIntent(context)?.let { root.setOnClickPendingIntent(R.id.hedgehog_root, it) }
 
@@ -145,7 +153,17 @@ object HedgehogRenderer {
     }
 
     @Synchronized
+    private fun hoggieId(context: Context, tick: Tick): Int {
+        val name = "hoggie_${tick.hoggie}${if (tick.facing == Facing.LEFT) "_l" else ""}"
+        return spriteIds.getOrPut(name) { context.resources.getIdentifier(name, "drawable", context.packageName) }
+    }
+
+    @Synchronized
     private fun spriteId(context: Context, tick: Tick): Int {
+        if (tick.hoggie != null) {
+            val id = hoggieId(context, tick)
+            if (id != 0) return id
+        }
         val name = String.format(Locale.US, "hog_%s_%02d%s", tick.pose, tick.frame, if (tick.facing == Facing.LEFT) "_l" else "")
         return spriteIds.getOrPut(name) {
             val id = context.resources.getIdentifier(name, "drawable", context.packageName)

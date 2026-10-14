@@ -1,4 +1,4 @@
-import { type Choreography, createChoreography, dailySeed, FRAME_COUNTS, type Tick } from './choreography'
+import { type Choreography, createChoreography, dailySeed, FRAME_COUNTS, HOGGIES, type Tick } from './choreography'
 
 const STARTS_AT = new Date('2026-10-13T00:00:00Z')
 const GENERATED_AT = new Date('2026-10-13T08:00:00Z')
@@ -14,6 +14,7 @@ function allTicks(choreography: Choreography): Tick[] {
         ...choreography.loops.flat(),
         ...choreography.reaction.keyframes,
         ...choreography.reaction.ticks,
+        ...choreography.surprises.flatMap(({ keyframes, ticks }) => [...keyframes, ...ticks]),
     ]
 }
 
@@ -34,7 +35,8 @@ describe('choreography', () => {
                 !Number.isInteger(tick.frame) ||
                 tick.frame < 0 ||
                 tick.frame >= FRAME_COUNTS[tick.pose] ||
-                (tick.bubble?.length ?? 0) > 24
+                (tick.bubble?.length ?? 0) > 24 ||
+                (tick.hoggie !== undefined && !HOGGIES.includes(tick.hoggie))
         )
         expect(invalid).toEqual([])
     })
@@ -55,11 +57,12 @@ describe('choreography', () => {
 
     it.each(SEEDS)('keeps the hedgehog busy on both platforms for seed %i', (seed) => {
         const { keyframes, loops } = build(seed)
-        const travelling = keyframes.filter((keyframe, index) => {
-            const previous = keyframes[index - 1]
+        const roaming = keyframes.filter((tick) => !tick.hoggie)
+        const travelling = roaming.filter((keyframe, index) => {
+            const previous = roaming[index - 1]
             return previous && (Math.abs(keyframe.x - previous.x) > 0.005 || keyframe.y !== previous.y)
         })
-        expect(travelling.length / keyframes.length).toBeGreaterThan(0.5)
+        expect(travelling.length / roaming.length).toBeGreaterThan(0.5)
 
         let longestStill = 1
         let still = 1
@@ -69,8 +72,25 @@ describe('choreography', () => {
         }
         expect(longestStill).toBeLessThanOrEqual(4)
 
-        const idleLoops = loops.filter((loop) => loop.filter((tick) => tick.pose === 'idle').length > loop.length / 3)
+        const idleLoops = loops.filter(
+            (loop) => !loop[0]?.hoggie && loop.filter((tick) => tick.pose === 'idle').length > loop.length / 3
+        )
         expect(idleLoops).toEqual([])
+    })
+
+    it.each(SEEDS)('visits the whole cast without changing characters mid-loop for seed %i', (seed) => {
+        const { keyframes, loops, surprises } = build(seed)
+        expect(new Set(keyframes.flatMap((tick) => (tick.hoggie ? [tick.hoggie] : [])))).toEqual(new Set(HOGGIES))
+        expect(new Set(loops.flatMap((loop) => (loop[0]?.hoggie ? [loop[0].hoggie] : [])))).toEqual(new Set(HOGGIES))
+        for (const loop of loops) {
+            expect(new Set(loop.map((tick) => tick.hoggie)).size).toBe(1)
+        }
+        expect(new Set(surprises.map((reaction) => reaction.keyframes[0]?.hoggie))).toEqual(new Set(HOGGIES))
+        for (const reaction of surprises) {
+            expect(reaction.keyframes.every((tick) => tick.x === 0.5 && tick.facing === 'right')).toBe(true)
+            expect(reaction.ticks.every((tick) => tick.x === 0.5 && tick.facing === 'right')).toBe(true)
+            expect(new Set([...reaction.keyframes, ...reaction.ticks].map((tick) => tick.hoggie)).size).toBe(1)
+        }
     })
 
     it.each(SEEDS)('lands every flip on its feet for seed %i', (seed) => {
@@ -97,7 +117,7 @@ describe('choreography', () => {
     it.each(SEEDS)('closes every loop so Android can repeat it seamlessly for seed %i', (seed) => {
         const { loops } = build(seed)
         expect(loops).toHaveLength(16)
-        for (const loop of loops) {
+        for (const loop of [...loops, ...build(seed).surprises.map(({ ticks }) => ticks)]) {
             const first = loop[0] as Tick
             const last = loop[loop.length - 1] as Tick
             expect(loop.length).toBeGreaterThan(1)

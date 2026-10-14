@@ -133,6 +133,15 @@ Before sharing a build:
 Native checks need an iOS simulator or a device.
 Type checks alone do not validate WebView messages, native appearance, or cloud login.
 
+## Hedgehog widget
+
+- Install a new native build to include the bundled visitor illustrations. Open the app once to update the widget's script, even if it was already opened today.
+- Place small and medium iOS widgets, or resize the Android widget. Check visitor art near both edges and bubbles with long dialogue. Artwork and text must stay inside the widget.
+- Watch roaming and visitor scenes. Coffee, reading and sleeping visitors rest; the party, wizard, explorer, superhero and floating visitors have matching movements. Android keeps the same visitor throughout each animation loop.
+- Tap the hog several times. A surprise visitor appears where the hog stands, then the regular routine resumes. A background tap opens the app. On iOS the other widget family must not react.
+- Turn on Reduce Motion on iOS. Visitor artwork and dialogue remain visible without travel, flip or spring animations.
+- Place a widget before launching the app and test a tap. Its built-in routine and illustrated surprises must work offline. Keep an older saved script and confirm that its original reaction still plays.
+
 ## Rich content, dictation, and report controls
 
 - Sign out and sign in to grant insight access. Open a saved insight and a SQL chart with multiple lines.

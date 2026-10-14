@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WidgetKit
 
 /// Colors from src/ui/tokens.ts, so the widget matches the app.
@@ -35,7 +36,11 @@ struct HedgehogView: View {
     private static let spinAnchor = UnitPoint(x: 79.0 / 160, y: 96.0 / 160)
     private static let bubbleFont = Font.system(size: 12, weight: .semibold)
 
-    private var spriteSize: CGFloat { family == .systemSmall ? 56 : 64 }
+    private var hoggieImage: UIImage? { entry.tick.hoggie.flatMap { UIImage(named: "hoggie_\($0)") } }
+    private var illustrated: Bool { hoggieImage != nil }
+    private var spriteSize: CGFloat { illustrated ? (family == .systemSmall ? 76 : 88) : (family == .systemSmall ? 56 : 64) }
+    private var artTopInset: CGFloat { illustrated ? 0.125 : Self.artTopInset }
+    private var artHalfWidth: CGFloat { illustrated ? 0.375 : Self.artHalfWidth }
     private var floorInset: CGFloat { family == .systemSmall ? 18 : 20 }
     private var edgePadding: CGFloat { 8 }
 
@@ -61,8 +66,9 @@ struct HedgehogView: View {
                     sprite
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Hedgehog")
-                .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: Self.spinAnchor)
+                .accessibilityLabel(entry.tick.bubble.map { "Hedgehog. \($0)" } ?? "Hedgehog")
+                .accessibilityHint("Tap for a surprise hoggie")
+                .rotationEffect(.degrees(reduceMotion ? 0 : entry.spin), anchor: illustrated ? .center : Self.spinAnchor)
                 .animation(spinAnimation, value: entry.spin)
                 .offset(y: floorY - spriteSize - lift)
                 .animation(liftAnimation, value: lift)
@@ -71,7 +77,7 @@ struct HedgehogView: View {
 
                 ZStack {
                     if let bubble = entry.tick.bubble, !bubble.isEmpty {
-                        bubbleView(bubble)
+                        bubbleView(bubble, width: size.width)
                             .position(bubblePosition(for: bubble, feetX: feetX, feetY: floorY - lift, width: size.width))
                             .transition(.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity))
                     }
@@ -86,8 +92,8 @@ struct HedgehogView: View {
     }
 
     private var sprite: some View {
-        Image(entry.tick.spriteName)
-            .interpolation(.none)
+        (hoggieImage.map { Image(uiImage: $0) } ?? Image(entry.tick.spriteName))
+            .interpolation(illustrated ? .high : .none)
             .resizable()
             .frame(width: spriteSize, height: spriteSize)
             .contentShape(Rectangle())
@@ -122,36 +128,38 @@ struct HedgehogView: View {
         (entry.tick.turn ?? 0) != 0 ? liftAnimation : nil
     }
 
-    private func bubbleView(_ text: String) -> some View {
+    private func bubbleView(_ text: String, width: CGFloat) -> some View {
         Text(text)
             .font(Self.bubbleFont)
             .foregroundStyle(Palette.ink)
             .lineLimit(1)
-            .fixedSize()
+            .minimumScaleFactor(0.75)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Capsule().fill(Palette.bubbleFill))
             .overlay(Capsule().strokeBorder(Palette.bubbleBorder, lineWidth: 1))
+            .frame(maxWidth: max(width - 16, 0))
     }
 
     private func feetX(width: CGFloat) -> CGFloat {
-        let margin = spriteSize * Self.artHalfWidth + edgePadding
+        let margin = spriteSize * artHalfWidth + edgePadding
         return margin + clamp(entry.tick.x) * max(width - 2 * margin, 0)
     }
 
     private func lift(floorY: CGFloat) -> CGFloat {
-        let artHeight = spriteSize * (1 - Self.artTopInset)
+        let artHeight = spriteSize * (1 - artTopInset)
         let rise = max(floorY - artHeight - edgePadding, 0)
         return clamp(entry.tick.y) * rise
     }
 
     /// The bubble width is estimated because its laid-out size is not known when it is positioned.
     private func bubblePosition(for text: String, feetX: CGFloat, feetY: CGFloat, width: CGFloat) -> CGPoint {
-        let estimatedHalfWidth = (CGFloat(text.count) * 6.6 + 16) / 2
+        let estimatedHalfWidth = min(CGFloat(text.count) * 6.6 + 16, max(width - 16, 0)) / 2
         let minX = estimatedHalfWidth + 4
         let maxX = width - estimatedHalfWidth - 4
         let x = minX <= maxX ? min(max(feetX, minX), maxX) : width / 2
-        let headY = feetY - spriteSize * (1 - Self.artTopInset)
+        let headY = feetY - spriteSize * (1 - artTopInset)
         return CGPoint(x: x, y: max(headY - 12, 14))
     }
 

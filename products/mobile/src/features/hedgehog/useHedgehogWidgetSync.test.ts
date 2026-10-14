@@ -34,8 +34,8 @@ describe('syncHedgehogWidget', () => {
         expect(JSON.parse(mockSetChoreography.mock.calls[1][0])).toMatchObject({ seed: 20261014 })
     })
 
-    it('writes the new script on the same day when an older app version already synced today', async () => {
-        await AsyncStorage.setItem('hedgehog_widget_seed', '20261013')
+    it.each(['20261013', '2:20261013'])('upgrades the same day script after an older sync stamp %s', async (stamp) => {
+        await AsyncStorage.setItem('hedgehog_widget_seed', stamp)
 
         await syncHedgehogWidget(new Date('2026-10-13T08:00:00Z'))
 

@@ -15,6 +15,8 @@ data class Tick(
     val x: Float,
     val y: Float,
     val facing: Facing,
+    val hoggie: String? = null,
+    val bubble: String? = null,
 )
 
 data class Choreography(
@@ -23,7 +25,11 @@ data class Choreography(
     val loopMinutes: Int,
     val loops: List<List<Tick>>,
     val reactionTicks: List<Tick>,
+    val surprises: List<List<Tick>> = emptyList(),
 ) {
+    fun reactionAt(pokedAtMs: Long): List<Tick> =
+        if (surprises.isEmpty()) reactionTicks else surprises[Math.floorMod(pokedAtMs, surprises.size.toLong()).toInt()]
+
     fun loopAt(nowMs: Long): List<Tick> {
         val slot = Math.floorDiv(nowMs - startsAtMs, loopMinutes * MS_PER_MINUTE)
         return loops[Math.floorMod(slot, loops.size.toLong()).toInt()]
@@ -73,6 +79,11 @@ data class Choreography(
                 loopMinutes = root.optInt("loopMinutes", DEFAULT_LOOP_MINUTES).coerceIn(1, 24 * 60),
                 loops = loops,
                 reactionTicks = reaction,
+                surprises = root.optJSONArray("surprises")?.let { array ->
+                    (0 until array.length()).mapNotNull {
+                        array.optJSONObject(it)?.optJSONArray("ticks")?.let(::parseTicks)?.takeIf { ticks -> ticks.isNotEmpty() }
+                    }
+                }.orEmpty(),
             )
         }
 
@@ -87,6 +98,8 @@ data class Choreography(
                     x = unit(tick.optDouble("x", 0.5)),
                     y = unit(tick.optDouble("y", 0.0)),
                     facing = if (tick.optString("facing") == "left") Facing.LEFT else Facing.RIGHT,
+                    hoggie = tick.optString("hoggie").takeIf { it.isNotEmpty() },
+                    bubble = tick.optString("bubble").takeIf { it.isNotEmpty() }?.take(24),
                 )
             }
 
@@ -122,6 +135,12 @@ object FallbackChoreography {
             loopMinutes = DEFAULT_LOOP_MINUTES,
             loops = listOf(loop()),
             reactionTicks = (0 until WAVE_FRAMES).map { Tick("wave", it, 0.5f, 0f, Facing.RIGHT) },
+            surprises = listOf("party", "wizard", "superhero").map { hoggie ->
+                (0 until 40).map { index ->
+                    val progress = index / 39f
+                    Tick("idle", 0, 0.5f, 0.8f * progress * (1 - progress), Facing.RIGHT, hoggie, "Hi there!")
+                }
+            },
         )
     }
 

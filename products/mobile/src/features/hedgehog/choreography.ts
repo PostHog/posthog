@@ -2,6 +2,20 @@
 export type Pose = 'idle' | 'walk' | 'jump' | 'wave' | 'action' | 'fall'
 export type Facing = 'left' | 'right'
 
+export const HOGGIES = ['coffee_cup', 'party', 'wizard', 'explorer', 'asleep', 'superhero', 'reading', 'float'] as const
+export type Hoggie = (typeof HOGGIES)[number]
+
+const HOGGIE_LINES: Record<Hoggie, string> = {
+    coffee_cup: 'Coffee break',
+    party: 'Dance break',
+    wizard: 'A little magic',
+    explorer: 'On an adventure',
+    asleep: 'Five more minutes',
+    superhero: 'Up, up and away!',
+    reading: 'One more chapter',
+    float: 'Going with the flow',
+}
+
 export interface Tick {
     pose: Pose
     frame: number
@@ -10,6 +24,7 @@ export interface Tick {
     facing: Facing
     bubble?: string
     turn?: number
+    hoggie?: Hoggie
 }
 
 export interface Choreography {
@@ -23,6 +38,7 @@ export interface Choreography {
     loopMinutes: 10
     loops: Tick[][]
     reaction: { keyframes: Tick[]; ticks: Tick[] }
+    surprises: Choreography['reaction'][]
 }
 
 export const FRAME_COUNTS: Record<Pose, number> = {
@@ -130,6 +146,15 @@ function pickWeighted<T>(random: Random, entries: readonly (readonly [T, number]
     return (entries[entries.length - 1] as readonly [T, number])[0]
 }
 
+function shuffled<T>(random: Random, items: readonly T[]): T[] {
+    const result = [...items]
+    for (let index = result.length - 1; index > 0; index--) {
+        const swap = Math.floor(random() * (index + 1))
+        ;[result[index], result[swap]] = [result[swap] as T, result[index] as T]
+    }
+    return result
+}
+
 function opposite(facing: Facing): Facing {
     return facing === 'left' ? 'right' : 'left'
 }
@@ -180,8 +205,11 @@ class KeyframePlanner {
     private x: number
     private facing: Facing
     private readonly frameCursors: Record<Pose, number> = { idle: 0, walk: 0, jump: 0, wave: 0, action: 0, fall: 0 }
+    private readonly visitors: Hoggie[]
+    private sceneCount = 0
 
     constructor(private readonly random: Random) {
+        this.visitors = shuffled(random, HOGGIES)
         this.startX = roundTo3(between(random, 0.3, 0.7))
         this.x = this.startX
         this.facing = chance(random, 0.5) ? 'left' : 'right'
@@ -230,6 +258,10 @@ class KeyframePlanner {
     ]
 
     private scene(): void {
+        if (this.sceneCount++ % 3 === 0) {
+            this.visit()
+            return
+        }
         const moves = intBetween(this.random, 2, 4)
         for (let index = 0; index < moves; index++) {
             pickWeighted(this.random, this.moves)()
@@ -245,6 +277,40 @@ class KeyframePlanner {
         } else {
             this.rest(intBetween(this.random, 0, 2))
         }
+    }
+
+    private visit(): void {
+        const hoggie = this.visitors.shift() as Hoggie
+        this.visitors.push(hoggie)
+        const start = this.keyframes.length
+        this.say(HOGGIE_LINES[hoggie])
+        switch (hoggie) {
+            case 'party':
+                this.dance()
+                break
+            case 'wizard':
+                this.hop()
+                this.wave()
+                break
+            case 'superhero':
+                this.zoom()
+                this.hop()
+                break
+            case 'explorer':
+                this.stroll(4)
+                this.lookAround()
+                break
+            case 'float':
+                this.stroll(3)
+                break
+            default:
+                this.rest(3)
+        }
+        this.say(HOGGIE_LINES[hoggie])
+        for (const tick of this.keyframes.slice(start)) {
+            tick.hoggie = hoggie
+        }
+        this.push('idle')
     }
 
     private push(pose: Pose, options: { y?: number; frame?: number; bubble?: string; turn?: number } = {}): void {
@@ -616,13 +682,25 @@ const LOOP_ROUTINES: readonly LoopRoutine[] = [
     },
 ]
 
-function shuffled<T>(random: Random, items: readonly T[]): T[] {
-    const result = [...items]
-    for (let index = result.length - 1; index > 0; index--) {
-        const swap = Math.floor(random() * (index + 1))
-        ;[result[index], result[swap]] = [result[swap] as T, result[index] as T]
-    }
-    return result
+function illustratedLoop(hoggie: Hoggie, anchor: Tick, count = 80): Tick[] {
+    return Array.from({ length: count }, (_, index) => {
+        const progress = index / (count - 1)
+        const travelling = hoggie === 'explorer' || hoggie === 'superhero' || hoggie === 'float'
+        const sway = hoggie === 'party' ? 0.035 * Math.sin(progress * Math.PI * 6) : 0
+        const travel = travelling ? 0.16 * Math.sin(progress * Math.PI * 2) : sway
+        const hop = hoggie === 'wizard' || hoggie === 'superhero' || hoggie === 'party'
+        return {
+            ...makeTick(
+                travelling ? 'walk' : 'idle',
+                0,
+                anchor.x + travel,
+                hop ? 0.12 * Math.sin(progress * Math.PI * 2) ** 2 : 0,
+                travelling && index >= count / 2 ? opposite(anchor.facing) : anchor.facing
+            ),
+            hoggie,
+            ...(index === 0 ? { bubble: HOGGIE_LINES[hoggie] } : {}),
+        }
+    }).map((tick, index) => (index === count - 1 ? { ...tick, facing: anchor.facing, y: 0 } : tick))
 }
 
 function planLoops(random: Random): Tick[][] {
@@ -633,15 +711,34 @@ function planLoops(random: Random): Tick[][] {
         }
         return queue.shift() as LoopRoutine
     }
-    return Array.from({ length: LOOP_COUNT }, () => {
+    const visitors = shuffled(random, HOGGIES)
+    return Array.from({ length: LOOP_COUNT }, (_, index) => {
         const loop = new LoopBuilder(random)
         // Chain routines until the next one does not fit, so the hedgehog stays busy for the whole loop.
         let fits = true
         while (fits) {
             fits = loop.append(nextRoutine(), random)
         }
-        return loop.finish()
+        const ticks = loop.finish()
+        const hoggie = visitors[Math.floor(index / 2)] as Hoggie
+        return index % 2 === 0 ? ticks : illustratedLoop(hoggie, ticks[0] as Tick)
     })
+}
+
+function planSurprises(random: Random): Choreography['reaction'][] {
+    return shuffled(random, HOGGIES).map((hoggie) => ({
+        keyframes: [
+            { ...makeTick('wave', 10, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
+            { ...makeTick('jump', 4, 0.5, hoggie === 'asleep' || hoggie === 'reading' ? 0 : 0.2, 'right'), hoggie },
+            { ...makeTick('idle', 0, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
+            { ...makeTick('idle', 0, 0.5, 0, 'right', { bubble: HOGGIE_LINES[hoggie] }), hoggie },
+        ],
+        ticks: illustratedLoop(hoggie, makeTick('idle', 0, 0.5, 0, 'right'), 32).map((tick) => ({
+            ...tick,
+            x: 0.5,
+            facing: 'right',
+        })),
+    }))
 }
 
 // Reactions play wherever the hedgehog stands, so they start at the centre and stay there. A renderer can shift
@@ -683,5 +780,6 @@ export function createChoreography(options: { seed: number; startsAt: Date; gene
         loopMinutes: 10,
         loops: planLoops(random),
         reaction: planReaction(random),
+        surprises: planSurprises(random),
     }
 }
