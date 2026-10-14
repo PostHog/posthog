@@ -153,6 +153,7 @@ describe('PostgresPersonMerge merge events', () => {
             claimLifecycleMarks: jest.fn(),
             isPersonLive: jest.fn().mockResolvedValue(true),
             addDistinctId: jest.fn().mockResolvedValue([mappingMessage]),
+            updatePersonForMerge: jest.fn().mockResolvedValue([existingPerson, [], false]),
             releaseLifecycleMarks: jest.fn(),
         }
         const store = {
@@ -180,6 +181,81 @@ describe('PostgresPersonMerge merge events', () => {
         )
         expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
         await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
+    // The attach's identified flag used to ride the batch flush, so a merge on another pod could read the
+    // person as unidentified in between and attach a second user to it.
+    it.each([
+        { name: 'writes the flag with the mapping and caches the committed row', locked: true, written: true },
+        { name: 'leaves the cache alone when the row was already identified', locked: true, written: false },
+        { name: 'defers the flag to the flush for a deferred-outcome team', locked: false, written: false },
+    ])('a one-exists merge $name', async ({ locked, written }) => {
+        const order: string[] = []
+        const existingPerson = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const identifiedRow = { ...existingPerson, is_identified: true, version: 1 } as InternalPerson
+        const cachedRow = { ...identifiedRow, properties: { pending: true } } as InternalPerson
+        const flagMessage = { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"flag":true}') }
+        const tx = {
+            claimLifecycleMarks: jest.fn(),
+            isPersonLive: jest.fn().mockResolvedValue(true),
+            addDistinctId: jest.fn().mockImplementation(() => {
+                order.push('addDistinctId')
+                return Promise.resolve([])
+            }),
+            updatePersonForMerge: jest.fn().mockImplementation(() => {
+                order.push('updatePersonForMerge')
+                return Promise.resolve(written ? [identifiedRow, [flagMessage], true] : [existingPerson, [], false])
+            }),
+            releaseLifecycleMarks: jest.fn().mockImplementation(() => {
+                order.push('releaseLifecycleMarks')
+                return Promise.resolve()
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? existingPerson : null)
+                ),
+            inTransaction: jest
+                .fn()
+                .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                    const result = await body(tx)
+                    order.push('commit')
+                    return result
+                }),
+            takeMergedRow: jest.fn().mockImplementation(() => {
+                order.push('takeMergedRow')
+                return cachedRow
+            }),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString(), { isLockedOutcomeTeam: () => locked })
+
+        const result = await merge.execute()
+
+        if (!locked) {
+            expect(tx.updatePersonForMerge).not.toHaveBeenCalled()
+        } else {
+            expect(tx.updatePersonForMerge).toHaveBeenCalledWith(existingPerson, { is_identified: true }, 'd')
+        }
+        if (written) {
+            expect(order).toEqual([
+                'addDistinctId',
+                'updatePersonForMerge',
+                'releaseLifecycleMarks',
+                'commit',
+                'takeMergedRow',
+            ])
+            expect(store.takeMergedRow).toHaveBeenCalledWith(identifiedRow, 'd', { is_identified: true }, null, 0)
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                expect.objectContaining({ value: flagMessage.value })
+            )
+            expect(result.survivor).toBe(cachedRow)
+        } else {
+            expect(store.takeMergedRow).not.toHaveBeenCalled()
+            expect(result.survivor).toBe(existingPerson)
+        }
     })
 
     // Same contract as the one-exists case: createPerson returns its messages and the
