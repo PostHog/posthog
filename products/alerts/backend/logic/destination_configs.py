@@ -128,6 +128,8 @@ _TRANSPORT_HEADER_NAMES: Final = frozenset(
 
 # The HTTP token grammar (RFC 9110). requests accepts a space or a tab inside a name, which receivers reject.
 _HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+# A field value may hold a tab but no other control character. requests rejects only CR and LF.
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
 
 def _added_webhook_headers(headers: Any) -> dict[str, str]:
@@ -144,7 +146,12 @@ def _added_webhook_headers(headers: Any) -> dict[str, str]:
         if not isinstance(raw_name, str) or not isinstance(raw_value, str):
             continue
         name, value = raw_name.strip(), raw_value.strip()
-        if name.lower() in _TRANSPORT_HEADER_NAMES or "{" in value or not _HEADER_NAME.fullmatch(name):
+        if (
+            name.lower() in _TRANSPORT_HEADER_NAMES
+            or "{" in value
+            or not _HEADER_NAME.fullmatch(name)
+            or _CONTROL_CHARACTER.search(value)
+        ):
             continue
         try:
             check_header_validity((name, value))
