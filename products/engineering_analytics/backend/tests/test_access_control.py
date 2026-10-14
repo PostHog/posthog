@@ -12,6 +12,7 @@ GitHubSourceNotConnectedError -> 400. Whether the resolver lets a denied source 
 the bug under test, independent of object-storage availability for the real warehouse read.
 """
 
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -52,6 +53,7 @@ _EXECUTE_HOGQL = "products.engineering_analytics.backend.logic.queries._curated.
 # Schema build reads this to decide whether per-table warehouse ACL is enforced.
 _FLAG = "posthog.hogql.database.database.feature_enabled_or_false"
 _ENSURE_STORED = "products.engineering_analytics.backend.logic.ci_precompute.ensure_stored"
+_HISTORY_START = "products.engineering_analytics.backend.logic.ci_precompute.history_start"
 
 
 def _warehouse_acl_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
@@ -220,6 +222,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         with (
             mock.patch(_FLAG, side_effect=_warehouse_acl_enabled),
             mock.patch(_ENSURE_STORED, return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])),
+            mock.patch(_HISTORY_START, return_value=timezone.now() - timedelta(days=400)),
             mock.patch(_EXECUTE_HOGQL, return_value=SimpleNamespace(results=[])) as execute,
         ):
             curated = CuratedGitHubSource.for_team(self.team, user_access_control=user_access_control)
