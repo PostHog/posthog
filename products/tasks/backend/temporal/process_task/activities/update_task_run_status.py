@@ -104,12 +104,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if marker in _TERMINAL_STATE_MARKERS:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
                 task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
-                task_run.completed_at = timezone.now()
-            elif (
-                input.status == TaskRun.Status.CANCELLED
-                and task_run.environment == TaskRun.Environment.CLOUD
-                and not task_run.completed_at
+            if not task_run.completed_at and (
+                input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
+                or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)
             ):
                 task_run.completed_at = timezone.now()
             task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])

@@ -12715,8 +12715,8 @@ Today (6): `affiliates`, `coupons`, `payments_paid`, `payments_unpaid`, `program
 
 Diffed against: <https://aff-api.uppromote.com/docs/v2/llms.txt>
 
-- [ ] `connected customers (GET connected customer list)` — the customer-to-affiliate mapping — the lookup that lets referrals and payments be attributed back to individual customers (high)
-- [ ] `program excluded products/collections` — per-program commission exclusions, needed to explain why some orders generate no referral (low)
+- [x] `connected customers (GET connected customer list)` — the customer-to-affiliate mapping — the lookup that lets referrals and payments be attributed back to individual customers (high)
+- [x] `program excluded products/collections` — per-program commission exclusions, needed to explain why some orders generate no referral (low)
 
 Note: The v2 public API is small; the llms.txt index lists every operation. Coverage is otherwise complete — the only unsynced read endpoints are the connected-customer list, a program config sub-resource, an aggregate count, and webhook subscriptions (config).
 
