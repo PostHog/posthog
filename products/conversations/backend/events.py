@@ -353,7 +353,7 @@ def analytics_distinct_id_for_ticket(ticket: Ticket, team: Team) -> str:
     )
 
     try:
-        person = _get_persons_by_email(team, [email]).get(email.lower())
+        person = _get_persons_by_email(team, [email], distinct_id_limit=1).get(email.lower())
     except Exception:
         logger.exception("ticket_analytics_distinct_id_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         return ticket.distinct_id

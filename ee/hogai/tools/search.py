@@ -330,7 +330,9 @@ DOCS_SEARCH_UNAVAILABLE = "Documentation search is not available. Do not call it
 
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        if await database_sync_to_async(is_inkeep_docs_search_disabled)(self._team, str(self._user.distinct_id)):
+        if await database_sync_to_async(is_inkeep_docs_search_disabled, thread_sensitive=False)(
+            self._team, str(self._user.distinct_id)
+        ):
             # Not the no-results template: that one tells the agent to retry and not to answer.
             return DOCS_SEARCH_UNAVAILABLE, None
         return await perform_inkeep_docs_search(query, team=self._team), None
