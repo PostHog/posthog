@@ -653,6 +653,9 @@ importers:
       '@posthog/products-access-control':
         specifier: workspace:*
         version: link:../products/access_control
+      '@posthog/products-account-audits':
+        specifier: workspace:*
+        version: link:../products/account_audits
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
@@ -2334,6 +2337,8 @@ importers:
         version: 0.7.0
 
   products/access_control: {}
+
+  products/account_audits: {}
 
   products/actions:
     dependencies:

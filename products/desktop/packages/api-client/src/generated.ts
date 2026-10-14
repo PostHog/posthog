@@ -19672,6 +19672,7 @@ export namespace Schemas {
     }>;
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -19699,6 +19700,7 @@ export namespace Schemas {
      */
     export type TaskOriginProductEnum =
         | "onboarding"
+        | "account_audit"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -22812,6 +22814,7 @@ export namespace Endpoints {
                 created_by: number;
                 exclude_origin_product:
                     | "onboarding"
+                    | "account_audit"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"
