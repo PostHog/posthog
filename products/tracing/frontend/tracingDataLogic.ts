@@ -369,10 +369,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: LatencyHeatmapRow[],
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: LatencyHeatmapRow[]
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -473,10 +481,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: SparklineRow[],
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawSparklineData: SparklineRow[]
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[]
         payload?: any
     }
     handleFilterChange: (
@@ -963,15 +979,27 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         traceSpans: [
             [] as Span[],
             {
-                loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
+                loadTraceSpans: async (
+                    { traceId, ts }: { traceId: string; ts?: string | null },
+                    breakpoint
+                ): Promise<Span[]> => {
                     // Filters can change while the request is in flight; the empty-result capture must describe these.
                     cache.traceLoadFiltersActive =
                         values.filters.serviceNames.length > 0 || hasFilterConditions(values.queryFilterGroup)
-                    const response = await api.tracing.getTrace(traceId, {
-                        dateRange: resolveTraceLookupRange(ts),
-                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
-                    })
+                    let response: Awaited<ReturnType<typeof api.tracing.getTrace>>
+                    try {
+                        response = await api.tracing.getTrace(traceId, {
+                            dateRange: resolveTraceLookupRange(ts),
+                            serviceNames:
+                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                        })
+                    } catch (error) {
+                        // A superseded request's failure must not mark the newer trace as failed.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
                 },

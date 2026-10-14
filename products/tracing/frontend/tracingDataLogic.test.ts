@@ -505,6 +505,35 @@ describe('tracingDataLogic', () => {
             logic.actions.loadTraceSpans({ traceId: 'trace-1' })
             expect(logic.values.traceSpansLoadFailed).toBe(false)
         })
+
+        it('does not flag a failure when a superseded trace load rejects after the newer one resolved', async () => {
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+            let rejectA: (error: Error) => void = () => {}
+            let resolveB: (value: { results: Span[]; hasMore: boolean; nextOffset: number | null }) => void = () => {}
+            const apiSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectA = reject)))
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)))
+            logic = mountWithSpans([])
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-a' })
+            logic.actions.loadTraceSpans({ traceId: 'trace-b' })
+
+            const bSpans = [createMockSpan('span-b', '2024-01-01T04:00:00Z')]
+            resolveB({ results: bSpans, hasMore: false, nextOffset: null })
+            await flushPromises()
+
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+
+            // trace A's late rejection must not mark trace B's spans as failed.
+            rejectA(new Error('boom'))
+            await flushPromises()
+
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            apiSpy.mockRestore()
+        })
     })
 
     describe('cancelled requests', () => {
