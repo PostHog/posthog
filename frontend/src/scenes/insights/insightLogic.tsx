@@ -910,8 +910,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return {
                     ...state,
                     dashboard_tiles: state.dashboard_tiles?.filter((tile) => tile.dashboard_id !== id),
-                    // An unsaved insight must not ask to be placed on the deleted dashboard.
-                    dashboards: state.dashboards?.filter((d: number) => d !== id),
+                    // An unsaved insight must not ask to be placed on the deleted dashboard. A saved insight has
+                    // no `dashboards`, and an `undefined` one would replace the list a write builds from the tiles.
+                    ...(state.dashboards ? { dashboards: state.dashboards.filter((d: number) => d !== id) } : {}),
                 }
             },
         },

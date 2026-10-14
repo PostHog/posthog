@@ -578,12 +578,12 @@ export interface dashboardLogicActions {
         errorObject?: any
     }
     duplicateTileSuccess: (
-        dashboard: DashboardType | null,
+        dashboard: DashboardType,
         payload?: {
             tile: DashboardTile
         }
     ) => {
-        dashboard: DashboardType | null
+        dashboard: DashboardType
         payload?: {
             tile: DashboardTile
         }

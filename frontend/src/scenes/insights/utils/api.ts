@@ -23,7 +23,7 @@ export const insightsApi = {
         variablesOverride?: Record<string, HogQLVariable> | null,
         tileFiltersOverride?: TileFilters | null
     ): Promise<InsightModel | null> {
-        const insights = await api.insights.loadInsight(
+        const legacyInsights = await api.insights.loadInsight(
             shortId,
             basic,
             refresh,
@@ -31,13 +31,17 @@ export const insightsApi = {
             variablesOverride,
             tileFiltersOverride
         )
-        if (insights.results.length === 0) {
+        if (legacyInsights.results.length === 0) {
             return null
         }
-        return insights.results[0] as InsightModel
+        return legacyInsights.results[0] as InsightModel
     },
     async getByNumericId(numericId: number): Promise<InsightModel | null> {
-        return api.insights.get(numericId)
+        const legacyInsight = await api.insights.get(numericId)
+        if (legacyInsight === null) {
+            return null
+        }
+        return legacyInsight
     },
     async create(insight: Partial<InsightModel>): Promise<InsightModel> {
         return this._perform('create', insight)

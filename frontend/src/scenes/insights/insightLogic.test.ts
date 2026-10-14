@@ -1088,6 +1088,19 @@ describe('insightLogic', () => {
             await expectLogic(router).toDispatchActions([router.actionCreators.push(expectedUrl)])
         })
 
+        it('keeps the remaining dashboards in the delete request after one of them is deleted', async () => {
+            jest.spyOn(api, 'update')
+
+            dashboardsModel.actions.deleteDashboardSuccess({ id: 3 } as DashboardType)
+            logic.actions.confirmDeleteInsight(null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/insights/42'),
+                expect.objectContaining({ deleted: true, dashboards: [1, 2] })
+            )
+        })
+
         it('restores insight on undo from dashboard', async () => {
             logic.actions.confirmDeleteInsight(5)
             await expectLogic(logic).toFinishAllListeners()

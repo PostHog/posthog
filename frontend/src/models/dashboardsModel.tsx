@@ -180,32 +180,22 @@ export interface dashboardsModelActions {
     }
     loadDashboardsSuccess: (
         pagedDashboards:
+            | PaginatedResponse<DashboardType>
             | {
                   count: number
                   next: null
                   previous: null
                   results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType[]
               },
         payload?: string
     ) => {
         pagedDashboards:
+            | PaginatedResponse<DashboardType>
             | {
                   count: number
                   next: null
                   previous: null
                   results: DashboardBasicType[]
-              }
-            | {
-                  count?: undefined
-                  next?: string | null | undefined
-                  previous?: string | null | undefined
-                  results: DashboardType[]
               }
         payload?: string
     }
@@ -531,9 +521,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             pinDashboard: async ({ id, source }) => {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
-                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: true,
-                })
+                const response = await api.update<DashboardType>(
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: true,
+                    }
+                )
                 reportDashboardPinToggled(id, true, source)
                 return response
             },
