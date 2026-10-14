@@ -92,7 +92,6 @@ def query_log_clusters() -> tuple[str, ...]:
 
 
 def query_log_source() -> str:
-    # system.query_log is per node, so every replica of every cluster that runs warehouse reads is read.
     # It keeps 14 days, so a day older than that rolls up to nothing and the published day is kept.
     branches = " UNION ALL ".join(
         f"SELECT {QUERY_LOG_COLUMNS} FROM clusterAllReplicas('{cluster}', system.query_log)"
