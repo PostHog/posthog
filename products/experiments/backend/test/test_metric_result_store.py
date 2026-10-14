@@ -288,9 +288,7 @@ class TestMetricResultStore(BaseTest):
             ("run_result", True, ExperimentMetricResult.Status.COMPLETED),
             ("run_failure", True, ExperimentMetricResult.Status.FAILED),
             ("daily_point", False, ExperimentMetricResult.Status.COMPLETED),
-            ("daily_failure", False, ExperimentMetricResult.Status.FAILED),
             ("daily_metric_result", False, ExperimentMetricResult.Status.COMPLETED),
-            ("daily_metric_failure", False, ExperimentMetricResult.Status.FAILED),
             ("sync_copy", True, ExperimentMetricResult.Status.COMPLETED),
         ]
     )
@@ -331,15 +329,15 @@ class TestMetricResultStore(BaseTest):
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
+        stale_key = "key-of-the-configuration-before-an-edit"
         self._row(
             experiment,
-            calculation_config.calculation_key(),
+            stale_key,
             query_to=_WINDOW,
             completed_at=_WINDOW,
             samples=1,
             spec=StoredSpec.of(calculation_config),
         )
-        stale_key = "key-of-the-configuration-before-an-edit"
 
         if outcome == "result":
             record_daily_metric_result(
@@ -364,6 +362,35 @@ class TestMetricResultStore(BaseTest):
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
         assert (row.fingerprint, row.spec, row.spec_version) == (stale_key, None, None)
+
+    @parameterized.expand([("held_by_a_recalculation", True), ("held_by_the_same_daily_key", False)])
+    def test_a_daily_failure_replaces_a_completed_row_only_under_its_own_key(
+        self, _name: str, held_by_recalculation: bool
+    ) -> None:
+        experiment = self._experiment()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
+        held_fingerprint = _recalc_fingerprint(key) if held_by_recalculation else key
+        self._row(experiment, held_fingerprint, query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+
+        self._write("daily_failure", experiment, calculation_config)
+
+        row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
+        if held_by_recalculation:
+            assert (row.fingerprint, row.status, _samples(row)) == (
+                held_fingerprint,
+                ExperimentMetricResult.Status.COMPLETED,
+                [1],
+            )
+            assert self._read("for_run", experiment, calculation_config) == [1]
+        else:
+            assert (row.fingerprint, row.status, row.result, row.error_message) == (
+                key,
+                ExperimentMetricResult.Status.FAILED,
+                None,
+                "boom",
+            )
 
     @parameterized.expand(
         [

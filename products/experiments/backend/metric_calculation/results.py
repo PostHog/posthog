@@ -15,7 +15,8 @@ row up with `.get()` on that key. While the constraint holds, no two rows tie, s
 
 Every write looks the row up on `(experiment, metric_uuid, query_to)` and stores the fingerprint as an updated
 field. A row that holds the window under another fingerprint is therefore updated in place, and no write can
-violate the unique constraint or create a second row for a window.
+violate the unique constraint or create a second row for a window. A daily failure is the exception: it leaves a
+completed row under another fingerprint in place, because it has no result to replace that row with.
 
 Every write also stores the calculation config that its fingerprint was derived from, in the `spec` column, and
 replaces the spec together with the fingerprint. A daily write stores no spec when the current configuration no
@@ -303,8 +304,14 @@ class MetricResultStore:
         query_from: datetime,
         error_message: str,
     ) -> None:
-        """Store a failed daily point under the bare calculation key. `calculation_config` is as for
-        `record_daily_point`."""
+        """Store a failed daily point under the bare calculation key, unless a completed row under another
+        fingerprint holds the window. `calculation_config` is as for `record_daily_point`.
+
+        That row is usually a recalculation of a stopped experiment, because a late daily run and the recalculation
+        both use `end_date`. The run finds its row only by the salted key, and a failure has no result to put in its
+        place, so the store keeps the row and drops the failure. A completed point under the same key gets the
+        failure, so the timeseries shows the latest attempt at that window.
+        """
         self._upsert(
             metric_uuid,
             window,
@@ -316,6 +323,7 @@ class MetricResultStore:
             error_message=error_message,
             query_id=None,
             completed_at=None,
+            keep_completed_row_of_other_fingerprint=True,
         )
 
     def copy_into_sync_run(
@@ -411,27 +419,41 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
         completed_at: datetime | None,
+        keep_completed_row_of_other_fingerprint: bool = False,
     ) -> None:
-        # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
-        # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
-        # duplicate. The spec is written with the fingerprint, and a write without a spec clears the spec of the
-        # earlier write, so a row never keeps a spec that another fingerprint came from.
-        ExperimentMetricResult.objects.update_or_create(
-            experiment_id=self.experiment_id,
-            metric_uuid=metric_uuid,
-            query_to=window,
-            defaults={
-                "fingerprint": fingerprint,
-                "spec": spec.payload if spec is not None else None,
-                "spec_version": spec.spec_version if spec is not None else None,
-                "query_from": query_from,
-                "status": status,
-                "result": result,
-                "query_id": query_id,
-                "completed_at": completed_at,
-                "error_message": error_message,
-            },
-        )
+        fields: dict[str, Any] = {
+            "fingerprint": fingerprint,
+            "spec": spec.payload if spec is not None else None,
+            "spec_version": spec.spec_version if spec is not None else None,
+            "query_from": query_from,
+            "status": status,
+            "result": result,
+            "query_id": query_id,
+            "completed_at": completed_at,
+            "error_message": error_message,
+        }
+        with transaction.atomic():
+            # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in the updated fields
+            # so a row already occupying that key under a different fingerprint is updated in place, not inserted as a
+            # colliding duplicate. When a concurrent write inserts the row first, get_or_create locks that row instead.
+            # The spec is written with the fingerprint, and a write without a spec clears the spec of the earlier
+            # write, so a row never keeps a spec that another fingerprint came from.
+            row, created = ExperimentMetricResult.objects.select_for_update().get_or_create(
+                experiment_id=self.experiment_id, metric_uuid=metric_uuid, query_to=window, defaults=fields
+            )
+            if created:
+                return
+            if keep_completed_row_of_other_fingerprint and row.status == _COMPLETED and row.fingerprint != fingerprint:
+                logger.info(
+                    "Keeping a completed experiment metric result that another fingerprint holds",
+                    experiment_id=self.experiment_id,
+                    metric_uuid=metric_uuid,
+                    query_to=window,
+                )
+                return
+            for name, value in fields.items():
+                setattr(row, name, value)
+            row.save(update_fields=[*fields, "updated_at"])
 
     @staticmethod
     def stored_spec(row: ExperimentMetricResult) -> MetricCalculationConfig | None:

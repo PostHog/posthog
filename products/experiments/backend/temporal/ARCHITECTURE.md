@@ -106,7 +106,8 @@ The unique constraint on that key allows only one row, so this order decides not
 Every writer (the calc activity, the daily activities, the backfill and the timeseries sync) looks the row up on `(experiment, metric_uuid, query_to)` and stores its fingerprint as an updated field.
 A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
 A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
-The daily write then takes over the recalculation's row, and the next reload recomputes that metric.
+A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
+A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 Each row also records the calculation config that its fingerprint was derived from: `spec` holds the JSON form and `spec_version` the version whose reader decodes it (`StoredSpec` in `metric_calculation/config.py`).
