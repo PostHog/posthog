@@ -5,11 +5,18 @@ the GitHub client and the Celery task module, which must stay off the module rev
 serializer imports on every request.
 """
 
+from collections.abc import Collection
+
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.api import _review_run_to_dto
-from products.stamphog.backend.tasks.tasks import request_manual_review
+from products.stamphog.backend.tasks.tasks import _reviewable_repo_config, request_manual_review
 
-__all__ = ["request_review"]
+__all__ = ["request_review", "reviewing_team_ids"]
+
+
+def reviewing_team_ids(repository: str, team_ids: Collection[int]) -> list[int]:
+    """The projects among ``team_ids`` where stamphog reviews ``repository``, by the rule ``request_review`` applies."""
+    return [team_id for team_id in team_ids if _reviewable_repo_config(team_id, repository) is not None]
 
 
 def request_review(

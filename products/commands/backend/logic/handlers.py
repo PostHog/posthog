@@ -1,11 +1,14 @@
 """Handlers that dispatch a command into the product that does the work.
 
-Each handler picks a project from the ones that passed ``dispatcher.py``'s checks, and runs as the
-commenter's PostHog account that is a member of it, so a command can only do what the commenter
-could do in PostHog themselves. Handlers never pass the pull request's title, body or comments to
+A command's target hook names the projects its product acts in, before ``dispatcher.py`` checks
+membership and access there. The handler then runs as the commenter's PostHog account that is a
+member of the first of them, so a command can only do what the commenter could do in PostHog
+themselves. Handlers never pass the pull request's title, body or comments to
 an agent. They pass identifiers, and the downstream product reads the content itself as untrusted
 data.
 """
+
+from collections.abc import Collection
 
 import structlog
 
@@ -28,63 +31,71 @@ from products.tasks.backend.facade import (
     usage as tasks_usage,
 )
 
-from .commands import CommandContext, CommandOutcome, ProjectMember
+from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
 from .schema import LoopArgs, QaArgs, ReviewArgs, StampArgs
 
 logger = structlog.get_logger(__name__)
 
 
+def _project_ids(team_ids: Collection[int]) -> dict[int, int]:
+    """Each team's project: the parent of an environment, else the team itself. One query."""
+    rows = Team.objects.filter(id__in=team_ids).values_list("id", "parent_team_id")
+    return {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
+
+
+def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+    """The project that owns the repository in PostHog Review, and its environments."""
+    owner_team_id = review_hog_github.owning_team_id(ref.installation_id, ref.repository)
+    if owner_team_id is None:
+        return Answer(outcome="refused", message="PostHog Review isn't set up for this repository.")
+    project_ids = _project_ids([*team_ids, owner_team_id])
+    return CommandTarget(
+        team_ids=tuple(team_id for team_id in team_ids if project_ids.get(team_id) == project_ids.get(owner_team_id)),
+        not_member_message="You aren't a member of the PostHog project that reviews this repository.",
+    )
+
+
+def stamp_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+    """The projects where Stamphog reviews the repository, and their environments."""
+    # Stamphog keeps its repositories on the parent project.
+    project_ids = _project_ids(team_ids)
+    reviewing = set(stamphog_requests.reviewing_team_ids(ref.repository, set(project_ids.values())))
+    if not reviewing:
+        return Answer(outcome="refused", message="Stamphog is not set up for this repository.")
+    return CommandTarget(
+        team_ids=tuple(team_id for team_id in team_ids if project_ids.get(team_id) in reviewing),
+        not_member_message="You aren't a member of the PostHog project where Stamphog reviews this repository.",
+    )
+
+
 def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     """Ask Stamphog to review the pull request. Stamphog alone decides whether to approve."""
     pull_request = context.pull_request
-    refusal: stamphog_contracts.ReviewRequestRefusedError | None = None
-    # Stamphog keeps its repositories on the parent project, so environments of one project are one.
-    user_ids_by_project: dict[int, int] = {}
-    for member in context.members:
-        user_ids_by_project.setdefault(resolve_effective_team_id(member.team_id), member.user_id)
-    for team_id, user_id in user_ids_by_project.items():
-        try:
-            result = stamphog_requests.request_review(
-                team_id, user_id=user_id, repository=pull_request.repository, pr_number=pull_request.number
-            )
-        except stamphog_contracts.ReviewRequestRefusedError as error:
-            refusal = error
-            # The repository can be connected to Stamphog in another of the commenter's projects.
-            if error.refusal == stamphog_contracts.ReviewRequestRefusal.NOT_FOUND:
-                continue
-            break
-        if result.created:
-            return CommandOutcome(accepted=True, message="Stamphog is reviewing this pull request.")
-        return CommandOutcome(
-            accepted=True, message="Stamphog already has a review for the current commit of this pull request."
+    member = context.members[0]
+    try:
+        result = stamphog_requests.request_review(
+            resolve_effective_team_id(member.team_id),
+            user_id=member.user_id,
+            repository=pull_request.repository,
+            pr_number=pull_request.number,
         )
-    if refusal is None:
-        return CommandOutcome(accepted=False, message="Stamphog is not set up for this repository.")
-    # Stamphog writes its refusals for the requester, from the repository name and PR number only.
-    return CommandOutcome(accepted=False, message=refusal.message)
-
-
-def _member_in_project(members: tuple[ProjectMember, ...], project_team_id: int) -> ProjectMember | None:
-    """The first of ``members`` that belongs to the project, environments included."""
-    project_id = resolve_effective_team_id(project_team_id)
-    return next((member for member in members if resolve_effective_team_id(member.team_id) == project_id), None)
+    except stamphog_contracts.ReviewRequestRefusedError as error:
+        # Stamphog writes its refusals for the requester, from the repository name and PR number only.
+        return CommandOutcome(accepted=False, message=error.message)
+    if result.created:
+        return CommandOutcome(accepted=True, message="Stamphog is reviewing this pull request.")
+    return CommandOutcome(
+        accepted=True, message="Stamphog already has a review for the current commit of this pull request."
+    )
 
 
 def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     """Start a PostHog Review run on the pull request, with the commenter as the acting user.
 
-    The project that owns the repository in PostHog Review decides, and one of the commenter's linked
-    accounts must be a member of it. That account acts.
+    ``review_target`` already narrowed the members to the project that owns the repository.
     """
     pull_request = context.pull_request
-    owner_team_id = review_hog_github.owning_team_id(context.request.subject.installation_id, pull_request.repository)
-    if owner_team_id is None:
-        return CommandOutcome(accepted=False, message="PostHog Review isn't set up for this repository.")
-    member = _member_in_project(context.members, owner_team_id)
-    if member is None:
-        return CommandOutcome(
-            accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
-        )
+    member = context.members[0]
     # Standard is the default review, and Deep is the longer one asked for with `--deep`. Only a Deep
     # review resolves comments, and only when the pull request owner opted in, so `--no-resolve` can
     # turn resolving off but nothing here can turn it on.

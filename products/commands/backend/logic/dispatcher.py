@@ -6,9 +6,10 @@ Every command passes the same steps, in this order, before its handler runs:
    may ask. People who fail it get no answer at all, so the bot gives outsiders nothing to probe
    and no way to make it post. Everyone past it gets a reply that says what happened.
 2. The request holds exactly one command, the command exists, and its arguments match its grammar.
-3. The requester's linked PostHog accounts include one that is a member of a rolled-out candidate
-   project of the subject. With several linked accounts, the handler picks the project, and the
-   account that is a member of it acts there.
+3. The command's product names the projects it acts in, out of the rolled-out candidates: for
+   ``review``, the project that owns the repository in PostHog Review. Membership and access are
+   checked only there, and the requester's linked accounts must include a member of one of them.
+   With several linked accounts, the most recently linked member acts.
 4. The subject allows the command, for example the pull request is open, and the command allows
    forks if the head is a fork.
 5. The account has the access the command declares on the project, in PostHog access control.
@@ -136,17 +137,25 @@ class CommandDispatcher:
     ) -> CommandContext | Answer:
         request = self._channel.request
         declaration = spec.declaration
-        requester = resolve_requester(self._channel.linked_users(), team_ids)
+        not_member_message = (
+            "You aren't a member of a PostHog project that uses pull request commands on this repository."
+        )
+        # The command's product names the projects it acts in first, so membership and access are
+        # checked only there.
+        if spec.target is not None:
+            target = spec.target(request.subject, team_ids)
+            if isinstance(target, Answer):
+                return target
+            team_ids, not_member_message = target.team_ids, target.not_member_message
+        users = self._channel.linked_users()
+        requester = resolve_requester(users, team_ids)
         if not isinstance(requester, Requester):
             if requester.reason == "refused":
                 return Answer(outcome="account_refused", message="I can't run commands for your PostHog account.")
             return Answer(outcome="unlinked", message=self._channel.unlinked_message)
         members = requester.members
         if not members:
-            return Answer(
-                outcome="no_project",
-                message="You aren't a member of a PostHog project that uses pull request commands on this repository.",
-            )
+            return Answer(outcome="no_project", message=not_member_message)
 
         pull_request = PullRequestSubject(request.subject, github).facts(declaration)
         if isinstance(pull_request, Answer):
@@ -154,7 +163,7 @@ class CommandDispatcher:
 
         access = declaration.access
         if access is not None:
-            members = _members_with_access(members, access)
+            members = _members_with_access(members, access, {user.id: user for user in users})
             if not members:
                 return Answer(
                     outcome="access_denied",
@@ -180,11 +189,12 @@ class CommandDispatcher:
         return "accepted" if outcome.accepted else "refused"
 
 
-def _members_with_access(members: tuple[ProjectMember, ...], access: ResourceAccess) -> tuple[ProjectMember, ...]:
+def _members_with_access(
+    members: tuple[ProjectMember, ...], access: ResourceAccess, users: dict[int, User]
+) -> tuple[ProjectMember, ...]:
     # Products keep their rows, and their access rules, on the parent project.
     effective_team_ids = {member.team_id: resolve_effective_team_id(member.team_id) for member in members}
     teams = Team.objects.in_bulk(set(effective_team_ids.values()))
-    users = User.objects.in_bulk({member.user_id for member in members})
 
     def has_access(member: ProjectMember) -> bool:
         team = teams.get(effective_team_ids[member.team_id])

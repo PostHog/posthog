@@ -30,8 +30,8 @@ from products.commands.backend.channels.github.comments import GitHubCommentChan
 from products.commands.backend.channels.github.intake import CommentCommandRequest
 from products.commands.backend.logic.commands import CommandContext, CommandRequest, ProjectMember, PullRequestFacts
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
-from products.commands.backend.logic.handlers import handle_loop, handle_qa, handle_review
-from products.commands.backend.logic.schema import LoopArgs, QaArgs, ReviewArgs
+from products.commands.backend.logic.handlers import handle_loop, handle_qa
+from products.commands.backend.logic.schema import LoopArgs, QaArgs
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -45,6 +45,7 @@ INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
 FLAG = "products.commands.backend.logic.admission.posthog_feature_flag_enabled"
 REQUEST_STAMPHOG_REVIEW = "products.commands.backend.logic.handlers.stamphog_requests.request_review"
+STAMPHOG_REVIEWING = "products.commands.backend.logic.handlers.stamphog_requests.reviewing_team_ids"
 DESKTOP_ACCESS = "products.commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
@@ -102,6 +103,9 @@ class TestDispatchCommentCommand(BaseTest):
         self.github_id = next(_github_ids)
         Integration.objects.create(team=self.team, kind="github", integration_id=INSTALLATION_ID, config={})
         self.flag = self.enterContext(patch(FLAG, return_value=True))
+        self.stamphog_reviewing = self.enterContext(
+            patch(STAMPHOG_REVIEWING, side_effect=lambda repository, team_ids: list(team_ids))
+        )
 
     def _request(self, verb: str = "stamp", argument: str = "", comment_id: int = 555) -> CommentCommandRequest:
         return CommentCommandRequest(
@@ -372,75 +376,62 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "standard",
-                "commenter_project",
-                False,
-                False,
-                RUN_MODE_FLASH,
-                "PostHog Review is reviewing this pull request.",
-            ),
-            (
-                "deep",
-                "commenter_project",
-                True,
-                False,
-                RUN_MODE_REVIEW,
-                "PostHog Review is reviewing this pull request.",
-            ),
+            ("standard", "commenter_project", "", RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
+            ("deep", "commenter_project", "--deep", RUN_MODE_REVIEW, "PostHog Review is reviewing this pull request."),
             (
                 "deep_without_resolving",
                 "commenter_project",
-                True,
-                True,
+                "--deep --no-resolve",
                 RUN_MODE_REVIEW_ONLY,
                 "PostHog Review is reviewing this pull request.",
             ),
-            ("no_owner", None, False, False, None, "PostHog Review isn't set up for this repository."),
+            ("no_owner", None, "", None, "PostHog Review isn't set up for this repository."),
             (
                 "owner_without_the_commenter",
                 "other_project",
-                False,
-                False,
+                "",
                 None,
                 "You aren't a member of the PostHog project that reviews this repository.",
             ),
         ]
     )
     def test_review_runs_in_the_project_that_owns_the_repository(
-        self,
-        _name: str,
-        owner: str | None,
-        deep: bool,
-        no_resolve: bool,
-        expected_mode: str | None,
-        expected_message: str,
+        self, _name: str, owner: str | None, argument: str, expected_mode: str | None, expected_message: str
     ) -> None:
+        self._link_github_login()
+        other_organization = Organization.objects.create(name="Other")
         owner_team_ids = {
             "commenter_project": self.team.id,
-            "other_project": Team.objects.create(organization=self.organization, name="Other").id,
+            "other_project": Team.objects.create(organization=other_organization, name="Other").id,
             None: None,
         }
-        context = CommandContext(
-            request=self._command_request(verb="review"),
-            pull_request=_pull_request(),
-            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
-        )
+        github = FakeGitHub()
         started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
 
         with (
             patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
-            outcome = handle_review(context, ReviewArgs(deep=deep, no_resolve=no_resolve))
+            dispatch_comment_command(self._request(verb="review", argument=argument), github=github)
 
-        assert outcome.message == expected_message
-        assert outcome.accepted == (expected_mode is not None)
+        assert github.replies[-1].endswith(expected_message)
         if expected_mode is None:
             request_pr_review.assert_not_called()
         else:
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
+
+    def test_stamp_answers_before_identity_when_stamphog_does_not_review_the_repository(self) -> None:
+        github = FakeGitHub()
+        self.stamphog_reviewing.side_effect = None
+        self.stamphog_reviewing.return_value = []
+
+        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
+            outcome = dispatch_comment_command(self._request(), github=github)
+
+        assert outcome == "refused"
+        request_review.assert_not_called()
+        assert github.replies[-1].endswith("Stamphog is not set up for this repository.")
 
     @parameterized.expand(
         [("environment_of_a_denied_project",), ("unverified_email_domain",), ("organization_pending_deletion",)]

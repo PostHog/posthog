@@ -57,6 +57,15 @@ class PullRequestRef:
 
 
 @frozen
+class CommandTarget:
+    """The projects a command's product acts in, out of the candidates dispatch offered it."""
+
+    team_ids: tuple[int, ...]
+    # The answer when none of the requester's accounts is a member of these projects.
+    not_member_message: str
+
+
+@frozen
 class CommandRequest:
     """A command as a channel delivers it: what it acts on, what was asked, and who asked.
 

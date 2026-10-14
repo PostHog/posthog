@@ -9,8 +9,8 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from .commands import CommandContext, CommandOutcome
-from .handlers import handle_loop, handle_qa, handle_review, handle_stamp
+from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
+from .handlers import handle_loop, handle_qa, handle_review, handle_stamp, review_target, stamp_target
 from .schema import (
     COMMAND_DECLARATIONS,
     LOOP,
@@ -39,6 +39,9 @@ class Invocation[A]:
 class CommandSpec[A]:
     declaration: CommandDeclaration[A]
     handler: Callable[[CommandContext, A], CommandOutcome]
+    # Names the projects the command's product acts in, out of the rolled-out candidates, before
+    # dispatch checks membership and access. Without one, every candidate counts.
+    target: Callable[[PullRequestRef, tuple[int, ...]], CommandTarget | Answer] | None = None
 
     def parse(self, raw_argument: str) -> Invocation[A] | ArgumentError:
         args = parse_arguments(self.declaration, raw_argument)
@@ -58,8 +61,8 @@ def _index(specs: tuple[CommandSpec[Any], ...]) -> Mapping[str, CommandSpec[Any]
 
 COMMANDS: Mapping[str, CommandSpec[Any]] = _index(
     (
-        CommandSpec(declaration=REVIEW, handler=handle_review),
-        CommandSpec(declaration=STAMP, handler=handle_stamp),
+        CommandSpec(declaration=REVIEW, handler=handle_review, target=review_target),
+        CommandSpec(declaration=STAMP, handler=handle_stamp, target=stamp_target),
         CommandSpec(declaration=QA, handler=handle_qa),
         CommandSpec(declaration=LOOP, handler=handle_loop),
     )
