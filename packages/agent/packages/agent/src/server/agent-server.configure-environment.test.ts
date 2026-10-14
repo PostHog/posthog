@@ -24,6 +24,7 @@ interface TestableServer {
     snapshotKind?: string | null;
     prewarmed?: boolean | null;
     executionEnvironment?: "local" | "cloud";
+    sharedPromptCache?: boolean;
   }): GatewayEnv;
 }
 
@@ -683,6 +684,30 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(codex.anthropicCustomHeaders).not.toContain("X-PostHog-Trace-Id");
     expect(claude.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBeUndefined();
   });
+
+  // Codex sub-agents reach the gateway with the process headers only, so the
+  // shared cache scope has to ride the OpenAI record, and only when the run asks.
+  it.each([
+    { sharedPromptCache: true, scope: "shared" },
+    { sharedPromptCache: undefined, scope: undefined },
+  ])(
+    "sends prompt cache scope $scope when the run asks for $sharedPromptCache",
+    ({ sharedPromptCache, scope }) => {
+      const env = buildServer().configureEnvironment({
+        originProduct: "signal_report",
+        aiStage: "scout",
+        runtimeAdapter: "codex",
+        sharedPromptCache,
+      });
+
+      expect(env.openaiCustomHeaders?.["X-PostHog-Prompt-Cache-Scope"]).toBe(
+        scope,
+      );
+      expect(env.anthropicCustomHeaders).not.toContain(
+        "X-PostHog-Prompt-Cache-Scope",
+      );
+    },
+  );
 
   it("keeps non-signals products on their existing ai_product name", () => {
     const env = buildServer().configureEnvironment({ isInternal: true });
