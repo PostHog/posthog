@@ -221,4 +221,4 @@ class TestSourceResponseShape:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_pk
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None

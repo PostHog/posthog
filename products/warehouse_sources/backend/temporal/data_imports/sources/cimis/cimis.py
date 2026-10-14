@@ -194,8 +194,9 @@ def _get_data_rows(
     session = make_tracked_session(headers=_headers(), redact_values=(app_key,))
     rpd = _records_per_day(config.scope)
 
-    # Keep the date window as the outer loop so rows are emitted in ascending Date order even when the
-    # target set is large enough to require multiple requests per window (sort_mode="asc" relies on it).
+    # Keep the date window as the outer loop so the windows are emitted in ascending Date order even when
+    # the target set is large enough to require multiple requests per window. Rows inside a window have
+    # no documented order.
     if len(targets) * rpd <= CIMIS_RECORD_CAP:
         window_days = max(1, CIMIS_RECORD_CAP // (len(targets) * rpd))
         target_batches = [targets]
@@ -304,5 +305,4 @@ def cimis_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
     )

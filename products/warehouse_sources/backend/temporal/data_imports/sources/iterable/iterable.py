@@ -332,7 +332,7 @@ def _export_source_response(
         partition_mode="datetime" if partition_key else None,
         partition_format="month" if partition_key else None,
         partition_keys=[partition_key] if partition_key else None,
-        sort_mode="asc",
+        # No `sort_mode`: the export sends no sort, so the rows in a window have no order.
     )
 
 

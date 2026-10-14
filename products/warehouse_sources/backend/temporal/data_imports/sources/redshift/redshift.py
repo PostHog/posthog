@@ -2176,4 +2176,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=duplicate_primary_keys,
             verified_primary_keys=verified_primary_keys,
+            # One statement with `ORDER BY <incremental field>`. Each fallback runs the same
+            # statement, and only before the first row.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

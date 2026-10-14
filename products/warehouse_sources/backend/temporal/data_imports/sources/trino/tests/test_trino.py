@@ -506,9 +506,12 @@ def test_build_pipeline_query(
             "db_incremental_field_last_value": last_value,
         }
 
-    _run_pipeline(_config(schema="s"), _inputs("t", enabled_columns=enabled_columns, **incremental_inputs), cursor)
+    response, _ = _run_pipeline(
+        _config(schema="s"), _inputs("t", enabled_columns=enabled_columns, **incremental_inputs), cursor
+    )
 
     assert cursor.data_queries[-1] == (expected_sql, expected_params)
+    assert response.sort_mode == ("asc" if incremental is not None else None)
 
 
 def test_build_pipeline_ignores_the_incremental_field_on_a_full_refresh() -> None:

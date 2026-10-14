@@ -52,7 +52,7 @@ class AlphaVantageEndpointConfig:
     # a merge can dedupe them.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # The order rows actually arrive in, which the pipeline's cursor watermark trusts.
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = "asc"
 
 
 ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
@@ -192,6 +192,8 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         primary_keys=["symbol", "url"],
         partition_key="time_published",
         incremental_fields=[incremental_field("time_published")],
+        # Each symbol is a separate oldest-first request series, so the rows of a run have no single order.
+        sort_mode=None,
         description="Market news articles mentioning each symbol, with article-level and per-ticker sentiment scores. One row per article per symbol. Supports incremental sync.",
         should_sync_default=False,
     ),

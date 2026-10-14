@@ -85,9 +85,32 @@ For a source to support incremental syncing, the `SourceResponse` must have prim
 
 #### `sort_mode`
 
-Which direction the source scrolls incremental data, either ascending (the default and preferred sort mode) or descending. Majority of APIs will support ascending sorted responses, but if they only support descending then this will need to be set.
+The order in which the rows of an incremental or append read arrive. It has three values:
 
-We store both a `db_incremental_field_last_value` and `db_incremental_field_earliest_value` value - these represent that max/min of the data we've read from the source and processed by the pipeline. When using a `descending` sort mode, we recommend that your source also scrolls for any earlier rows than `db_incremental_field_earliest_value` before trying to scroll for more recent rows. A great example of this is the Stripe source.
+- `"asc"`: the rows arrive in ascending order of the incremental field, from the first row of the run to the last.
+- `"desc"`: the rows arrive in descending order of the incremental field. Use it only when the API cannot return ascending order.
+- `None` (the default): the rows have no order, or the source does not know it.
+
+It applies to incremental and append reads only. A full refresh has no incremental field, so the value has no effect there, and a full refresh can read in any order.
+
+The watermark does not depend on the value. For `"asc"` and `None` the pipeline stages the largest incremental value it read after each batch, and the loader saves it when the run completes. A run that fails does not move the watermark. For `"desc"` the pipeline also keeps the earliest value it read, and it stages the watermark at the end of the run. We store both a `db_incremental_field_last_value` and a `db_incremental_field_earliest_value`. With `"desc"`, we recommend that your source also scrolls for rows earlier than `db_incremental_field_earliest_value` before it scrolls for more recent rows. A great example of this is the Stripe source.
+
+`"asc"` is a promise that the pipeline relies on. When a worker shuts down in the middle of an incremental run, the next attempt of an `"asc"` source does not start again from the stored watermark. It reads the source after the last value the earlier attempt queued. If a row with a lower incremental value can arrive after a row with a higher one, that row is never read, and the watermark then moves past it. A false `"asc"` loses rows silently. A source with `None` starts again from the stored watermark, which is always correct.
+
+So set `"asc"` only when the query or the API contract proves the order:
+
+- one query with `ORDER BY <incremental field> ASC`, read as one result stream (the SQL sources do this for a plain incremental read)
+- an API request that sends an explicit ascending sort on the incremental field, in one request series for the whole run
+
+These do not prove it, so leave `None`:
+
+- pages ordered by another key, for example keyset pages by primary key or a cursor sorted by an internal id
+- one request series per parent, per account or per partition, because the order starts again for each one
+- time windows whose rows are not sorted inside the window
+- an ordered query whose result is stored and then read back with no order
+- an API that seems to sort by default but does not document it
+
+Set the value per run, where the response is built, not once per source: a source with an ordered incremental read and a keyset full refresh says `"asc"` only for the ordered read. Add a test that fails when the incremental query loses its `ORDER BY`. The pipeline also drops the continuation point when it sees a batch out of order, but that check only sees the rows that arrived before the shutdown, so it does not replace the proof.
 
 #### `rows_to_sync`
 

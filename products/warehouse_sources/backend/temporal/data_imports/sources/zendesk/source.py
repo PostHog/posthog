@@ -17,7 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    SortMode,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
     ZendeskSourceConfig,
 )
@@ -198,13 +202,15 @@ class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
             resumable_source_manager=resumable_source_manager,
         )
         # The original nine endpoints aren't in the declarative catalog; they keep the `id`
-        # primary key and ascending sort they have always used.
+        # primary key. The time-ordered incremental exports give them an ascending sort, except
+        # `tickets`: its cursor export states no order for `generated_timestamp`.
+        legacy_sort_mode: SortMode | None = None if inputs.schema_name == "tickets" else "asc"
         response = SourceResponse(
             name=resource.name,
             items=lambda: resource,
             primary_keys=endpoint_config.primary_key if endpoint_config else ["id"],
             column_hints=resource.column_hints,
-            sort_mode=endpoint_config.sort_mode if endpoint_config else "asc",
+            sort_mode=endpoint_config.sort_mode if endpoint_config else legacy_sort_mode,
             # The fan-out saves no checkpoint (see `zendesk_source`), so a shutdown must not hand it
             # to another worker expecting one.
             supports_resume=not is_fanout,

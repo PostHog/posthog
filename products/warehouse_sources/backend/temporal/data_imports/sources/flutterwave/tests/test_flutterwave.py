@@ -178,9 +178,8 @@ class TestSourceResponseMetadata:
         assert result.response is not None
         assert result.response.name == endpoint
         assert result.response.primary_keys == ["id"]
-        # Every endpoint is full-refresh, so the pipeline never consults sort_mode; it stays the
-        # framework default.
-        assert result.response.sort_mode == "asc"
+        # Every endpoint is full-refresh, so the pipeline never consults sort_mode; it is None.
+        assert result.response.sort_mode is None
         assert result.response.partition_mode == "datetime"
         assert result.response.partition_keys == ["created_at"]
 

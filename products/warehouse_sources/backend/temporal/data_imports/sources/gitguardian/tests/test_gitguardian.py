@@ -95,6 +95,7 @@ class TestLinkHeaderPagination:
         )
         assert result.raised is None
         assert result.params("date_after") == [expected]
+        assert result.params("ordering") == ["date"]
 
     def test_cross_origin_next_link_is_refused(self) -> None:
         # Pagination URLs are fetched with the Authorization token attached; a tampered Link

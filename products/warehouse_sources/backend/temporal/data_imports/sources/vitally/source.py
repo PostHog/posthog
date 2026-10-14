@@ -164,7 +164,8 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["created_at"],
-            sort_mode="desc" if inputs.schema_name == "Messages" else "asc",
+            # `sortBy` carries no direction, so only the Messages read claims an order.
+            sort_mode="desc" if inputs.schema_name == "Messages" else None,
         )
 
     @property

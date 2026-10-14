@@ -464,6 +464,30 @@ python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
 python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
 ```
 
+#### Row order and `sort_mode`
+
+`SourceResponse.sort_mode` says whether the rows of an incremental or append read are ordered:
+
+- `"asc"`: the rows arrive in ascending order of the incremental field, from the first row of the run to the last.
+- `"desc"`: the rows arrive in descending order. Use it only when the API cannot return ascending order.
+- `None` (the default): not ordered, or not known.
+
+It has no meaning for a full refresh. A full refresh can read in any order, and nothing requires it to sort.
+
+The watermark does not depend on the value: it is the largest incremental value the run read, and the loader saves it when the run completes.
+
+`"asc"` is a promise the pipeline relies on. After a worker shutdown, the next attempt of an `"asc"` run reads only the rows after the last value the earlier attempt queued. A row below that value that arrives later is never read, and the watermark then moves past it. A false `"asc"` loses rows silently. With `None` the interrupted run starts again from the stored watermark, which is always correct.
+
+Before you set `"asc"`, prove all of these:
+
+1. The order comes from the query or the API contract: an `ORDER BY <incremental field> ASC`, or an explicit ascending sort parameter on the incremental field. A default order that the vendor does not document is not proof.
+2. The run is one ordered series. Pages by another key (a primary-key keyset, an `_id` cursor), one request series per parent, account or partition, unsorted time windows, and an ordered query whose stored result is read back with no order do not qualify.
+3. The value is set per run, where the response is built. Say `"asc"` only on the read path that has the order, not on a keyset, partition, fallback or full refresh path of the same source.
+4. No fallback or retry in the generator drops the order, or starts the read again after rows were yielded.
+5. A test fails when the incremental query or request loses its sort, and a test asserts `sort_mode` for each read path.
+
+When in doubt, leave `None`. The only cost is that an interrupted run starts again from the stored watermark.
+
 ### Webhook source pattern
 
 - Implement `webhook_template` returning a `HogFunctionTemplateDC` that transforms incoming webhook payloads.
@@ -602,7 +626,7 @@ skill — don't hand-roll version handling.
 - **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another, or use a different timestamp column on certain resources.
 - **Pass `?sorting=` explicitly on a stable monotonic field when paginating.** For incremental sources, the request sort must match `SourceResponse.sort_mode` (`"asc"` typically; `"desc"` only when forced by the API — see `stripe/stripe.py`, `github/settings.py`) so the pipeline's cursor watermark advances correctly. For full-refresh sources, an explicit sort prevents page-boundary skips/duplicates if the API's implicit default is unstable or shifts as rows are inserted during the sync.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
-- **`sort_mode` must match the order rows actually arrive in — verify it, don't assume it.** The pipeline trusts `sort_mode="asc"` to checkpoint the incremental watermark after every batch and to allow safe mid-sync worker shutdowns; declaring `asc` while the API returns newest-first corrupts the watermark and breaks resume semantics. Check the API's _default_ sort (it applies when you can't pass `sort`), and remember cursor pagination often rejects or ignores sort params entirely.
+- **`sort_mode` must match the order rows actually arrive in. Verify it, do not assume it.** `sort_mode="asc"` is a promise: after a mid-sync worker shutdown the pipeline continues an `asc` run after the last value it queued, so a row that arrives out of order is lost. Leave the default `None` when the order is not proven: per-parent or per-window paging, an API _default_ sort (it applies when you can't pass `sort`), or cursor pagination that rejects or ignores sort params. See "Row order and `sort_mode`".
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
 - **Incremental pagination must terminate at the watermark.** Some APIs reject mixing their time-window filter with cursor pagination, so only the first page is windowed and later pages walk back through history unbounded. If the server can't keep the filter on every page, the paginator must stop client-side once an entire page predates `db_incremental_field_last_value` (see `typeform/typeform.py:TypeformResponsesPaginator`) — otherwise **every incremental sync re-fetches and re-merges each parent's full history**, which is both an API-cost bug and a per-sync memory amplifier.
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
@@ -899,7 +923,8 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.
-- `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
+- `sort_mode="asc"` declared on an API that returns newest-first: a run that continues after a mid-sync shutdown skips the older rows it did not read yet. Declare `"desc"`, or `None` when the order is not known.
+- `sort_mode="asc"` on a read that is not one ordered series (per parent, per window, by another key): a run that continues after a worker shutdown skips the rows below its continuation point. See "Row order and `sort_mode`".
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.

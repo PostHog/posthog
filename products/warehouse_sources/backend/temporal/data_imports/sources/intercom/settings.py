@@ -26,7 +26,7 @@ class IntercomEndpointConfig:
     partition_count: int = 1
     partition_size: int = 1
     page_size: int = 150
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = "asc"
     extra_params: dict[str, str] = field(default_factory=dict)
     # Query-string param Intercom expects for the cursor filter (e.g. "created_at_after"
     # on /admins/activity_logs). Only set on endpoints that filter via query params.
@@ -181,6 +181,8 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="substream",
         parent_endpoint="conversations",
         partition_key="created_at",
+        # The parts of each conversation are a separate series, so the rows of a run have no single order.
+        sort_mode=None,
     ),
     "help_centers": IntercomEndpointConfig(
         # `GET /help_center/help_centers` — one row per Help Center site. A workspace
