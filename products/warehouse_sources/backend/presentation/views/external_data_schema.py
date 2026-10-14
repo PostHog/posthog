@@ -46,12 +46,13 @@ from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
+    DiscoveredSchemaIndex,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
-    find_discovered_schema,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -2351,11 +2352,18 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
+        # A stored resource id can outlive the stored name after an upstream rename, so discover every
+        # schema and match by id. Without an id, the name filter keeps discovery cheap: a SharePoint
+        # endpoint table, for example, then skips the file crawl.
+        match_by_resource_id = (
+            new_source.uses_stable_schema_resource_ids
+            and (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None
+        )
         try:
             schemas = new_source.get_schemas(
                 config,
                 self.team_id,
-                names=None if new_source.uses_stable_schema_resource_ids else [instance.name],
+                names=None if match_by_resource_id else [instance.name],
                 api_version=effective_api_version,
             )
         except Exception as e:
@@ -2388,7 +2396,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = find_discovered_schema(instance.name, instance.schema_metadata, schemas)
+        schema = DiscoveredSchemaIndex(schemas).find(instance.name, instance.schema_metadata)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}

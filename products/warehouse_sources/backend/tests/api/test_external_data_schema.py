@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.source import SharePointSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
@@ -537,6 +538,20 @@ class TestExternalDataSchema(APIBaseTest):
                         supports_append=False,
                         supports_webhooks=True,
                         schema_metadata={"source_resource_id": "123"},
+                    ),
+                ],
+            ),
+            (
+                # A SharePoint endpoint table has no resource id, so discovery keeps the name filter
+                # and skips the file crawl.
+                "name_filter_kept_without_stored_resource_id",
+                SharePointSource,
+                {"tenant_id": "tenant", "client_id": "client", "client_secret": "secret"},
+                None,
+                ["C123"],
+                [
+                    SourceSchema(
+                        name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True
                     ),
                 ],
             ),
