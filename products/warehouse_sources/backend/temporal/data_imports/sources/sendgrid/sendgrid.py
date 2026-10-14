@@ -553,7 +553,11 @@ def _probe_params(config: SendGridEndpointConfig) -> dict[str, Any]:
 def get_endpoint_status_code(api_key: str, config: SendGridEndpointConfig) -> Optional[int]:
     # A fan-out child path needs a parent id, and its parent reads with the same scope, so the
     # parent listing stands in for it.
-    probe_config = SENDGRID_ENDPOINTS[config.fanout.parent_name] if config.fanout is not None else config
+    probe_config = config
+    if config.fanout is not None:
+        probe_config = SENDGRID_ENDPOINTS[config.fanout.parent_name]
+    elif config.probe_endpoint is not None:
+        probe_config = SENDGRID_ENDPOINTS[config.probe_endpoint]
     return get_status_code(api_key, probe_config.path, _probe_params(probe_config))
 
 

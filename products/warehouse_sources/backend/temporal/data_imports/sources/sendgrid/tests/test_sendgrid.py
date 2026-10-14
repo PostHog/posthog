@@ -426,6 +426,13 @@ class TestGetEndpointPermissions:
         assert network.requests_log[0].path == "/v3/marketing/singlesends"
         assert permissions["singlesend_link_stats"] is not None
 
+    def test_unbounded_endpoint_probes_a_small_one_with_the_same_scope(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            permissions = get_endpoint_permissions("k", ["unsubscribe_group_suppressions"])
+
+        assert network.requests_log[0].path == "/v3/asm/groups"
+        assert permissions["unsubscribe_group_suppressions"] is not None
+
     def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
         assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}
 

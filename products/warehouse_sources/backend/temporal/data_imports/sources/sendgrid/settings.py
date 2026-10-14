@@ -78,6 +78,9 @@ class SendGridEndpointConfig:
     default_incremental_field: Optional[str] = None
     # Set on a child endpoint whose path takes one id per row of a parent endpoint.
     fanout: Optional[DependentEndpointConfig] = None
+    # Endpoint to probe for permissions instead of this one, when this response is too large to
+    # download on every schema-picker load. It must read with the same scope.
+    probe_endpoint: Optional[str] = None
 
 
 # Marketing Campaigns is provisioned per account, and legacy Marketing Campaigns serves a different
@@ -204,6 +207,7 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         pagination="single",
         partition_key="created_at",
         required_scope="asm.groups.read",
+        probe_endpoint="unsubscribe_groups",
     ),
     "marketing_lists": SendGridEndpointConfig(
         name="marketing_lists",
