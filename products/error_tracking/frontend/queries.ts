@@ -77,7 +77,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            severity,
+            ...(severity ? { severity } : {}),
             dateRange,
             assignee,
             volumeResolution,

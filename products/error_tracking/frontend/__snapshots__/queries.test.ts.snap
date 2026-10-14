@@ -34,7 +34,6 @@ exports[`queries errorTrackingQuery usage in web analytics should return a query
     "orderDirection": undefined,
     "personId": undefined,
     "searchQuery": undefined,
-    "severity": undefined,
     "status": undefined,
     "tags": {
       "productKey": "error_tracking",
