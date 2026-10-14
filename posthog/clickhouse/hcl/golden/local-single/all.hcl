@@ -4172,6 +4172,38 @@ database "posthog" {
     }
   }
 
+  table "kafka_realtime_cohort_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cohort_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "Enum8('entered'=1, 'left'=2)"
+    }
+    column "last_updated" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "origin" {
+      type = "LowCardinality(String)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "cohort_membership_changed"
+      group_name           = "clickhouse_realtime_cohort_membership"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+
   table "kafka_session_replay_events" {
     column "session_id" {
       type = "String"
@@ -9942,6 +9974,45 @@ SQL
       remote_database = "posthog"
       remote_table    = "sharded_raw_sessions_v3"
       sharding_key    = "cityHash64(session_id_v7)"
+    }
+  }
+
+  table "realtime_cohort_membership" {
+    order_by = ["team_id", "cohort_id", "person_id"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cohort_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "Enum8('entered'=1, 'left'=2)"
+    }
+    column "last_updated" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "origin" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.realtime_cohort_membership"
+      replica_name   = "{replica}-{shard}"
+      version_column = "last_updated"
     }
   }
 
@@ -19015,6 +19086,41 @@ SQL
     }
   }
 
+  table "writable_realtime_cohort_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cohort_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "Enum8('entered'=1, 'left'=2)"
+    }
+    column "last_updated" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "origin" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "realtime_cohort_membership"
+    }
+  }
+
   table "writable_session_replay_embeddings" {
     column "session_id" {
       type = "String"
@@ -23818,6 +23924,51 @@ SQL
     }
     column "vitals_lcp" {
       type = "AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))"
+    }
+  }
+
+  materialized_view "realtime_cohort_membership_mv" {
+    to_table = "posthog.writable_realtime_cohort_membership"
+    query    = <<SQL
+SELECT
+  team_id,
+  cohort_id,
+  person_id,
+  status,
+  last_updated,
+  origin,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_realtime_cohort_membership
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "cohort_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "Enum8('entered'=1, 'left'=2)"
+    }
+    column "last_updated" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "origin" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
     }
   }
 

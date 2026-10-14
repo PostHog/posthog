@@ -796,6 +796,17 @@ CREATE TABLE posthog.query_log_archive (
   lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
   lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', last_updated) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,

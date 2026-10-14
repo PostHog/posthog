@@ -172,6 +172,14 @@ CREATE TABLE posthog.kafka_posthog_document_embeddings (
   metadata String,
   embedding Array(Float64)
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_document_embeddings', kafka_topic_list = 'clickhouse_document_embeddings';
+CREATE TABLE posthog.kafka_realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String)
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -544,6 +552,17 @@ CREATE TABLE posthog.writable_posthog_document_embeddings_buffer (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_buffer', cityHash64(document_id));
+CREATE TABLE posthog.writable_realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'realtime_cohort_membership');
 CREATE TABLE posthog.writable_session_replay_events (
   session_id String,
   team_id Int64,
@@ -799,6 +818,17 @@ CREATE MATERIALIZED VIEW posthog.posthog_document_embeddings_kafka_to_buffer_mv 
   _offset,
   _partition
 FROM posthog.kafka_posthog_document_embeddings;
+CREATE MATERIALIZED VIEW posthog.realtime_cohort_membership_mv TO posthog.writable_realtime_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status Enum8('entered'=1, 'left'=2), last_updated DateTime64(6, 'UTC'), origin LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  cohort_id,
+  person_id,
+  status,
+  last_updated,
+  origin,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_realtime_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,

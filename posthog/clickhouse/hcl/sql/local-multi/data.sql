@@ -892,6 +892,17 @@ CREATE TABLE posthog.query_log_archive_v2 (
   lc_dagster__owner String,
   lc_modifiers String
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.query_log_archive_new', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', last_updated) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.session_replay_features (
   session_id String,
   team_id Int64,

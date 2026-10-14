@@ -762,6 +762,14 @@ CREATE TABLE posthog.kafka_property_values (
   property_value String,
   property_count UInt64
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+CREATE TABLE posthog.kafka_realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String)
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_realtime_cohort_membership', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -1878,6 +1886,17 @@ CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version) ORDER BY (team_id, fingerprint) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.realtime_cohort_membership', '{replica}-{shard}', last_updated) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_ai_events (
   uuid UUID,
   event LowCardinality(String),
@@ -4364,6 +4383,17 @@ CREATE TABLE posthog.writable_raw_sessions_v3 (
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   has_replay_events SimpleAggregateFunction(max, Bool)
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_raw_sessions_v3', cityHash64(session_id_v7));
+CREATE TABLE posthog.writable_realtime_cohort_membership (
+  team_id Int64,
+  cohort_id Int64,
+  person_id UUID,
+  status Enum8('entered'=1, 'left'=2),
+  last_updated DateTime64(6, 'UTC'),
+  origin LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'realtime_cohort_membership');
 CREATE TABLE posthog.writable_session_replay_embeddings (
   session_id String,
   team_id Int64,
@@ -5691,6 +5721,17 @@ WHERE
   bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7
 GROUP BY
   team_id, toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), cityHash64(session_id_v7), session_id_v7;
+CREATE MATERIALIZED VIEW posthog.realtime_cohort_membership_mv TO posthog.writable_realtime_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status Enum8('entered'=1, 'left'=2), last_updated DateTime64(6, 'UTC'), origin LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  cohort_id,
+  person_id,
+  status,
+  last_updated,
+  origin,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_realtime_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,

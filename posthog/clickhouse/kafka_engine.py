@@ -33,6 +33,7 @@ CONSUMER_GROUP_BILLING_USAGE_RECORDS = "clickhouse_billing_usage_records"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
 CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
 CONSUMER_GROUP_FLAG_EVALUATIONS = "clickhouse_flag_evaluations"
+CONSUMER_GROUP_REALTIME_COHORT_MEMBERSHIP = "clickhouse_realtime_cohort_membership"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
