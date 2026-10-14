@@ -450,6 +450,7 @@ export interface SCIMTokenResponseApi {
 }
 
 /**
+ * * `0` - guest
  * * `1` - member
  * * `8` - administrator
  * * `15` - owner
@@ -458,10 +459,38 @@ export type OrganizationMembershipLevelEnumApi =
     (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
 export const OrganizationMembershipLevelEnumApi = {
+    Number0: 0,
     Number1: 1,
     Number8: 8,
     Number15: 15,
 } as const
+
+/**
+ * * `dashboard` - dashboard
+ * * `insight` - insight
+ * * `notebook` - notebook
+ */
+export type GuestGrantResourceEnumApi = (typeof GuestGrantResourceEnumApi)[keyof typeof GuestGrantResourceEnumApi]
+
+export const GuestGrantResourceEnumApi = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+    Notebook: 'notebook',
+} as const
+
+export interface GuestGrantApi {
+    /** The resource type the guest may view.
+     *
+     * * `dashboard` - dashboard
+     * * `insight` - insight
+     * * `notebook` - notebook */
+    resource: GuestGrantResourceEnumApi
+    /**
+     * The ID of the object the guest may view. Null lets the guest view every object of this type in the project.
+     * @nullable
+     */
+    id?: string | null
+}
 
 export interface OrganizationInviteApi {
     readonly id: string
@@ -480,6 +509,8 @@ export interface OrganizationInviteApi {
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
+    /** For a guest invite, the dashboards, insights and notebooks the guest may view, in the invite's one project. */
+    guest_grants?: GuestGrantApi[]
     send_email?: boolean
     combine_pending_invites?: boolean
 }

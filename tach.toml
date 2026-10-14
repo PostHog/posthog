@@ -1692,7 +1692,13 @@ from = [
 
 [[modules]]
 path = "products.authz"
-depends_on = ["posthog", "products.access_control", "products.dashboards", "products.notebooks"]
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.dashboards",
+    "products.notebooks",
+    "products.product_analytics",
+]
 layer = "modules"
 
 [[interfaces]]

@@ -929,6 +929,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `0` - guest
      * * `1` - member
      * * `8` - administrator
      * * `15` - owner
@@ -937,6 +938,7 @@ export namespace Schemas {
 
 
     export const OrganizationMembershipLevelEnum = {
+      Number0: 0,
       Number1: 1,
       Number8: 8,
       Number15: 15,
@@ -950,8 +952,9 @@ export namespace Schemas {
       organization_membership_id: string;
       /** The member's identity. */
       user: AccessControlMemberUser;
-      /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.
+      /** The member's organization level: 0 guest, 1 member, 8 admin, 15 owner. Admins and owners have full access to everything. Guests can only view what member rules grant them.
        *
+       * * `0` - guest
        * * `1` - member
        * * `8` - administrator
        * * `15` - owner */
@@ -2741,6 +2744,8 @@ export namespace Schemas {
       start_time?: string | null;
       task_id?: string | null;
       team_id: number;
+      /** The user who started the query. Guests can read and cancel only their own queries. */
+      user_id?: number | null;
     }
 
     export interface ResolvedDateRangeResponse {
@@ -53475,6 +53480,34 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
+    /**
+     * * `dashboard` - dashboard
+     * * `insight` - insight
+     * * `notebook` - notebook
+     */
+    export type GuestGrantResourceEnum = typeof GuestGrantResourceEnum[keyof typeof GuestGrantResourceEnum];
+
+
+    export const GuestGrantResourceEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+    } as const;
+
+    export interface GuestGrant {
+      /** The resource type the guest may view.
+       *
+       * * `dashboard` - dashboard
+       * * `insight` - insight
+       * * `notebook` - notebook */
+      resource: GuestGrantResourceEnum;
+      /**
+         * The ID of the object the guest may view. Null lets the guest view every object of this type in the project.
+         * @nullable
+         */
+      id?: string | null;
+    }
+
     export interface HandsFreeToken {
       /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
       token: string;
@@ -68380,6 +68413,8 @@ export namespace Schemas {
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown;
+      /** For a guest invite, the dashboards, insights and notebooks the guest may view, in the invite's one project. */
+      guest_grants?: GuestGrant[];
       send_email?: boolean;
       combine_pending_invites?: boolean;
     }
@@ -90393,10 +90428,16 @@ export namespace Schemas {
       /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
       client_query_id?: string | null;
       filters_override?: DashboardFilter | null;
+      /** The saved insight this query renders. For a guest, the server runs the insight's saved query instead of `query`. */
+      insight_id?: number | null;
       /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
       limit_context?: LimitContext | null;
       /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
       name?: string | null;
+      /** The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query. */
+      node_id?: string | null;
+      /** The short ID of the notebook that holds the query node. Send it with `node_id`. */
+      notebook_short_id?: string | null;
       /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
        *
        * Example payload:
@@ -90417,6 +90458,8 @@ export namespace Schemas {
        * - `'force_async'` - kick off background calculation, even if fresh results are already cached
        * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field. */
       refresh?: RefreshType | null;
+      /** The session recording whose events this query loads. For a guest, the server builds the events query. */
+      session_recording_id?: string | null;
       variables_override?: QueryRequestVariablesOverride;
     }
 

@@ -441,14 +441,35 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
     target_email: zod.email().max(invitesCreateBodyTargetEmailMax),
     first_name: zod.string().max(invitesCreateBodyFirstNameMax).optional(),
     level: zod
-        .union([zod.literal(1), zod.literal(8), zod.literal(15)])
+        .union([zod.literal(0), zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+        .describe('\* `0` - guest\n\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()
         .optional()
         .describe('List of team IDs and corresponding access levels to private projects.'),
+    guest_grants: zod
+        .array(
+            zod.object({
+                resource: zod
+                    .enum(['dashboard', 'insight', 'notebook'])
+                    .describe('\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook')
+                    .describe(
+                        'The resource type the guest may view.\n\n\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook'
+                    ),
+                id: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'The ID of the object the guest may view. Null lets the guest view every object of this type in the project.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            "For a guest invite, the dashboards, insights and notebooks the guest may view, in the invite's one project."
+        ),
     send_email: zod.boolean().default(invitesCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesCreateBodyCombinePendingInvitesDefault),
 })
@@ -464,14 +485,35 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
     target_email: zod.email().max(invitesBulkCreateBodyTargetEmailMax),
     first_name: zod.string().max(invitesBulkCreateBodyFirstNameMax).optional(),
     level: zod
-        .union([zod.literal(1), zod.literal(8), zod.literal(15)])
+        .union([zod.literal(0), zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+        .describe('\* `0` - guest\n\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()
         .optional()
         .describe('List of team IDs and corresponding access levels to private projects.'),
+    guest_grants: zod
+        .array(
+            zod.object({
+                resource: zod
+                    .enum(['dashboard', 'insight', 'notebook'])
+                    .describe('\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook')
+                    .describe(
+                        'The resource type the guest may view.\n\n\* `dashboard` - dashboard\n\* `insight` - insight\n\* `notebook` - notebook'
+                    ),
+                id: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'The ID of the object the guest may view. Null lets the guest view every object of this type in the project.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            "For a guest invite, the dashboards, insights and notebooks the guest may view, in the invite's one project."
+        ),
     send_email: zod.boolean().default(invitesBulkCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesBulkCreateBodyCombinePendingInvitesDefault),
 })
