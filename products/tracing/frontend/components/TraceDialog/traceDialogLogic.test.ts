@@ -54,7 +54,10 @@ describe('traceDialogLogic', () => {
         } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
+            [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
+        })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))
         router.actions.push('/logs')
         logic = traceDialogLogic()
@@ -323,5 +326,29 @@ describe('traceDialogLogic', () => {
             expect(logic.values.selectedSpan?.span_id).toBe('a')
             expect(pageListener).toHaveBeenCalledTimes(1)
         })
+    })
+
+    it.each([
+        ['names the person and session of a complete trace', 1, { distinctId: 'person-1', sessionId: 'session-1' }],
+        // A later page could carry a second person, so a truncated trace names no one.
+        ['names no one when the trace is truncated', 6, { distinctId: null, sessionId: null }],
+    ])('%s', async (_name, pageCount, expectedIdentity) => {
+        for (let i = 0; i < pageCount; i++) {
+            const identified = {
+                ...span(`s${i}`),
+                attributes: { posthogDistinctId: 'person-1', sessionId: 'session-1' },
+            }
+            getTraceSpy.mockResolvedValueOnce({
+                results: [identified],
+                hasMore: i < pageCount - 1,
+                nextOffset: i < pageCount - 1 ? i + 1 : null,
+            })
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'abc123' })
+        })
+            .toDispatchActions(['loadTraceSpansSuccess'])
+            .toMatchValues({ traceIdentity: expectedIdentity })
     })
 })

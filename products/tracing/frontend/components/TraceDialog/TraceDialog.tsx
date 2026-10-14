@@ -12,6 +12,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
 import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
+import { TraceIdentityChips } from 'products/tracing/frontend/components/TraceDrawer/TraceIdentityChips'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import { TRACE_DIALOG_DATA_ATTR, traceDialogLogic } from './traceDialogLogic'
@@ -46,6 +47,8 @@ export function TraceDialog(): JSX.Element | null {
         serviceColorMap,
         activeInspectorTab,
         sessionErrorBadgesEnabled,
+        traceIdentity,
+        traceSessionId,
     } = useValues(traceDialogLogic)
     const { closeTraceDialog, loadTraceSpans, setInspectorTab } = useActions(traceDialogLogic)
     // The dialog sits above popovers, so the inspector's menus and drawers portal inside it instead.
@@ -102,6 +105,10 @@ export function TraceDialog(): JSX.Element | null {
                 {/* The span list virtualizes, so it needs a definite height to measure against. */}
                 <div className="flex flex-col gap-2 h-[65vh]">
                     <TraceDialogOpenedFromLog />
+                    <TraceIdentityChips
+                        identity={traceIdentity}
+                        timestamp={summary.rootSpan?.timestamp ?? trace.ts ?? null}
+                    />
                     {traceSpans?.truncated && (
                         <LemonBanner type="info">
                             Showing the first {summary.spanCount.toLocaleString()} spans. Open this trace in Tracing to
@@ -164,7 +171,7 @@ export function TraceDialog(): JSX.Element | null {
                                                     traceTimestamp={
                                                         summary.rootSpan?.timestamp ?? selectedSpan.timestamp
                                                     }
-                                                    sessionId={null}
+                                                    sessionId={traceSessionId}
                                                     showErrorsTab={sessionErrorBadgesEnabled}
                                                     errorsScope="span"
                                                     resolving={false}
