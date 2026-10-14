@@ -36,15 +36,15 @@ the durable run log when its cursor has been trimmed out of Redis.
 
 ## Agents that send their own callbacks
 
-An agent-server can send the side-effect callbacks for its run directly to the PostHog API.
+An agent-server can report heartbeats and finished turns for its run directly to the PostHog API.
 The `tasks-agent-sends-callbacks` feature flag opts a run in.
 Django stamps the decision into the run state at dispatch and into the `agent_sends_callbacks` claim of the event ingest token.
 
-An agent that reads the claim sends `X-PostHog-Agent-Callbacks: 1` on every ingest request and posts its callbacks to `POST /api/projects/:project/tasks/:task/runs/:run/agent_callback/`.
-For a request with that header this service sends no callback to Django.
-It still records whether the agent is active, because the ingest disconnect metric needs it.
+An agent that reads the claim sends `X-PostHog-Agent-Callbacks: 1` on every ingest request and posts those two callbacks to `POST /api/projects/:project/tasks/:task/runs/:run/agent_callback/`.
+For a request with that header this service sends no heartbeat and no finished-turn callback.
+It still sends boot milestones, failed Pi turns, budget steers and process kills.
 
-An older agent build ignores the claim and sends no header, so this service keeps sending its callbacks.
+An older agent build ignores the claim and sends no header, so this service keeps sending every callback.
 
 ## Environment variables
 

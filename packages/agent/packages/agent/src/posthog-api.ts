@@ -376,8 +376,8 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     callback: AgentCallback,
-  ): Promise<boolean> {
-    const response = await this.apiRequest<{ dispatched?: unknown }>(
+  ): Promise<void> {
+    await this.apiRequest(
       `/api/projects/${this.getTeamId()}/tasks/${taskId}/runs/${runId}/agent_callback/`,
       {
         method: "POST",
@@ -385,7 +385,6 @@ export class PostHogAPIClient {
         signal: AbortSignal.timeout(AGENT_CALLBACK_TIMEOUT_MS),
       },
     );
-    return response?.dispatched === true;
   }
 
   async appendTaskRunLog(

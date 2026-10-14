@@ -32,7 +32,6 @@ import {
     captureBudgetSteerIfNeeded,
     captureProcessKilledIfNeeded,
     heartbeatWorkflowIfNeeded,
-    trackAgentActivity,
 } from '../lib/side-effects.js'
 import {
     ClientDisconnected,
@@ -263,17 +262,7 @@ async function ingestEventLines(
 
             const { seq, event } = eventLine
             const write = await redisStream.writeEventWithSequence(event, seq)
-            if (!agentSendsCallbacks) {
-                captureBudgetSteerIfNeeded(
-                    claims.runId,
-                    seq,
-                    event,
-                    claims.taskId,
-                    claims.teamId,
-                    originalToken,
-                    config
-                )
-            }
+            captureBudgetSteerIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             if (!write.accepted) {
                 // Duplicate: advance last_accepted_seq to whatever Redis has.
@@ -288,10 +277,6 @@ async function ingestEventLines(
 
             result.accepted++
             result.last_accepted_seq = seq
-            if (agentSendsCallbacks) {
-                await trackAgentActivity(redisStream, event)
-                continue
-            }
             captureProcessKilledIfNeeded(claims.runId, seq, event, claims.taskId, claims.teamId, originalToken, config)
 
             await heartbeatWorkflowIfNeeded(
@@ -301,7 +286,8 @@ async function ingestEventLines(
                 claims.taskId,
                 claims.teamId,
                 originalToken,
-                config
+                config,
+                agentSendsCallbacks
             )
         }
     } catch (err: unknown) {

@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../utils/logger";
-import {
-  type AgentCallback,
-  AgentCallbackReporter,
-} from "./agent-callback-reporter";
+import { AgentCallbackReporter } from "./agent-callback-reporter";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
@@ -208,69 +205,69 @@ describe("TaskRunEventStreamSender", () => {
   });
 
   it.each([
-    {
-      name: "with a reporter",
-      reporting: true,
-      maxBufferedEvents: undefined,
-      header: "1",
-      callbacks: ["awaiting_input"],
-    },
-    {
-      name: "with a reporter and a full buffer",
-      reporting: true,
-      maxBufferedEvents: 0,
-      header: "1",
-      callbacks: ["awaiting_input"],
-    },
-    {
-      name: "without a reporter",
-      reporting: false,
-      maxBufferedEvents: undefined,
-      header: null,
-      callbacks: [],
-    },
-  ])(
-    "reports turn state and marks its ingest requests $name",
-    async ({ reporting, maxBufferedEvents, header, callbacks }) => {
-      const fetchMock = vi.fn(
-        async (_url: string | URL | Request, init?: RequestInit) => {
-          const body = await readRequestBody(init);
-          return responseForBody(body);
-        },
+    { name: "with a callback reporter", reporting: true, header: "1" },
+    { name: "without a callback reporter", reporting: false, header: null },
+  ])("marks its ingest requests only $name", async ({ reporting, header }) => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        responseForBody(await readRequestBody(init)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const callbackReporter = new AgentCallbackReporter({
+      send: async () => {},
+      flushEvents: async () => {},
+      logger: new Logger({ debug: false }),
+    });
+
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      callbackReporter: reporting ? callbackReporter : null,
+    });
+    sender.enqueue({ type: "notification", notification: { method: "first" } });
+    await sender.stop();
+
+    expect(fetchMock).toHaveBeenCalled();
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get("X-PostHog-Agent-Callbacks")).toBe(
+        header,
       );
-      vi.stubGlobal("fetch", fetchMock);
-      const sent: AgentCallback[] = [];
-      const callbackReporter = new AgentCallbackReporter({
-        send: async (callback) => {
-          sent.push(callback);
-          return true;
-        },
-        logger: new Logger({ debug: false }),
-      });
+    }
+  });
 
-      const sender = createSender({
-        eventIngestBaseUrl: "http://agent-proxy:8003/",
-        maxBufferedEvents,
-        callbackReporter: reporting ? callbackReporter : null,
-      });
-      sender.enqueue({
-        type: "notification",
-        notification: {
-          method: "_posthog/turn_complete",
-          params: { stopReason: "end_turn" },
-        },
-      });
-      await sender.stop();
+  it("holds every stop caller until callbacks are delivered", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        responseForBody(await readRequestBody(init)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let deliver: () => void = () => {};
+    const callbackReporter = new AgentCallbackReporter({
+      send: () =>
+        new Promise<void>((resolve) => {
+          deliver = resolve;
+        }),
+      flushEvents: async () => {},
+      logger: new Logger({ debug: false }),
+    });
+    const settled = vi.spyOn(callbackReporter, "settled");
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      callbackReporter,
+    });
+    callbackReporter.turnCompleted("end_turn");
 
-      expect(sent.map((callback) => callback.kind)).toEqual(callbacks);
-      expect(fetchMock).toHaveBeenCalled();
-      for (const [, init] of fetchMock.mock.calls) {
-        expect(
-          new Headers(init?.headers).get("X-PostHog-Agent-Callbacks"),
-        ).toBe(header);
-      }
-    },
-  );
+    const firstStop = sender.stop();
+    let secondStopResolved = false;
+    const secondStop = sender.stop().then(() => {
+      secondStopResolved = true;
+    });
+    await vi.waitFor(() => expect(settled).toHaveBeenCalled());
+    expect(secondStopResolved).toBe(false);
+
+    deliver();
+    await Promise.all([firstStop, secondStop]);
+    expect(secondStopResolved).toBe(true);
+  });
 
   it.each([undefined, "http://agent-proxy:8003/"])(
     "closes each drained batch with ingest base %s",
@@ -360,125 +357,6 @@ describe("TaskRunEventStreamSender", () => {
     const finalBody = requestBodies.at(-1) ?? "";
     expect(eventSequences(finalBody)).toEqual([1, 2]);
     expect(completionSequences(finalBody)).toEqual([2]);
-  });
-
-  it("uploads a Pi runtime error before it reports the failed turn", async () => {
-    let contentUploads = 0;
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) => {
-        const body = await readRequestBody(init);
-        if (eventSequences(body).length > 0) {
-          contentUploads += 1;
-        }
-        return responseForBody(body);
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const uploadsWhenReported: number[] = [];
-
-    const sender = createSender({
-      flushDelayMs: 0,
-      eventIngestBaseUrl: "http://agent-proxy:8003/",
-      keepProxyStreamOpen: true,
-      callbackReporter: new AgentCallbackReporter({
-        send: async (callback) => {
-          if (callback.kind === "turn_failed") {
-            uploadsWhenReported.push(contentUploads);
-          }
-          return true;
-        },
-        logger: new Logger({ debug: false }),
-      }),
-    });
-
-    sender.enqueue({
-      type: "pi_event",
-      event: { type: "turn_completed", stopReason: "error" },
-    });
-
-    await vi.waitFor(() => expect(uploadsWhenReported).toEqual([1]));
-    await sender.stop();
-  });
-
-  it("holds every stop caller until callbacks are delivered", async () => {
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) =>
-        responseForBody(await readRequestBody(init)),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    let deliver: (dispatched: boolean) => void = () => {};
-    const callbackReporter = new AgentCallbackReporter({
-      send: () =>
-        new Promise<boolean>((resolve) => {
-          deliver = resolve;
-        }),
-      logger: new Logger({ debug: false }),
-    });
-    const settled = vi.spyOn(callbackReporter, "settled");
-    const sender = createSender({
-      eventIngestBaseUrl: "http://agent-proxy:8003/",
-      callbackReporter,
-    });
-    sender.enqueue({
-      type: "notification",
-      notification: {
-        method: "_posthog/turn_complete",
-        params: { stopReason: "end_turn" },
-      },
-    });
-
-    const firstStop = sender.stop();
-    let secondStopResolved = false;
-    const secondStop = sender.stop().then(() => {
-      secondStopResolved = true;
-    });
-    await vi.waitFor(() => expect(settled).toHaveBeenCalled());
-    expect(secondStopResolved).toBe(false);
-
-    deliver(true);
-    await Promise.all([firstStop, secondStop]);
-    expect(secondStopResolved).toBe(true);
-  });
-
-  it("closes a held-open upload so a process kill is reported right away", async () => {
-    const fetchMock = vi.fn(
-      async (_url: string | URL | Request, init?: RequestInit) =>
-        responseForBody(await readRequestBody(init)),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const sent: AgentCallback[] = [];
-
-    const sender = createSender({
-      flushDelayMs: 0,
-      eventIngestBaseUrl: "http://agent-proxy:8003/",
-      keepProxyStreamOpen: true,
-      callbackReporter: new AgentCallbackReporter({
-        send: async (callback) => {
-          sent.push(callback);
-          return true;
-        },
-        logger: new Logger({ debug: false }),
-      }),
-    });
-
-    sender.enqueue({
-      type: "notification",
-      notification: {
-        method: "_posthog/process_killed",
-        params: {
-          comm: "bash",
-          signal: "SIGKILL",
-          treeRssBytes: 100,
-          memoryCurrentBytes: 200,
-          memoryLimitBytes: 300,
-        },
-      },
-    });
-
-    await vi.waitFor(() =>
-      expect(sent).toMatchObject([{ kind: "process_killed", sequence: 1 }]),
-    );
-    await sender.stop();
   });
 
   it("aborts a stuck ingest response after closing the request body", async () => {
@@ -975,37 +853,18 @@ describe("TaskRunEventStreamSender", () => {
       },
     );
     vi.stubGlobal("fetch", fetchMock);
-    const sent: AgentCallback[] = [];
 
-    const sender = createSender({
-      callbackReporter: new AgentCallbackReporter({
-        send: async (callback) => {
-          sent.push(callback);
-          return true;
-        },
-        logger: new Logger({ debug: false }),
-      }),
-    });
+    const sender = createSender();
 
     sender.enqueue({
       type: "notification",
-      notification: {
-        method: "_posthog/process_killed",
-        params: {
-          comm: "bash",
-          signal: "SIGKILL",
-          treeRssBytes: 100,
-          memoryCurrentBytes: 200,
-          memoryLimitBytes: 300,
-        },
-      },
+      notification: { method: "after-restart" },
     });
     sender.enqueue({ type: "notification", notification: { method: "next" } });
     await sender.stop();
 
     expect(eventSequences(requestBodies[0])).toEqual([43, 44]);
     expect(completionSequences(requestBodies[0])).toEqual([44]);
-    expect(sent).toMatchObject([{ kind: "process_killed", sequence: 43 }]);
   });
 
   it("rebases buffered events after a sequence gap response", async () => {

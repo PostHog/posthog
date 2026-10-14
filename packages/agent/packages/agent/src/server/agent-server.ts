@@ -135,7 +135,10 @@ import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
-import { createAgentCallbackReporter } from "./agent-callback-reporter";
+import {
+  type AgentCallbackReporter,
+  createAgentCallbackReporter,
+} from "./agent-callback-reporter";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -550,6 +553,7 @@ export class AgentServer {
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
+  private agentCallbacks: AgentCallbackReporter | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
   private questionRelayedToSlack = false;
@@ -714,21 +718,25 @@ export class AgentServer {
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
     if (config.eventIngestToken) {
+      this.agentCallbacks = createAgentCallbackReporter({
+        eventIngestToken: config.eventIngestToken,
+        eventIngestBaseUrl: config.eventIngestBaseUrl,
+        logger: this.logger.child("AgentCallback"),
+        send: (callback) =>
+          this.posthogAPI.sendAgentCallback(
+            config.taskId,
+            config.runId,
+            callback,
+          ),
+        flushEvents: async () => {
+          await this.eventStreamSender?.flushNow();
+        },
+      });
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
         keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-        callbackReporter: createAgentCallbackReporter({
-          eventIngestToken: config.eventIngestToken,
-          eventIngestBaseUrl: config.eventIngestBaseUrl,
-          logger: this.logger.child("AgentCallback"),
-          send: (callback) =>
-            this.posthogAPI.sendAgentCallback(
-              config.taskId,
-              config.runId,
-              callback,
-            ),
-        }),
+        callbackReporter: this.agentCallbacks,
         projectId: config.projectId,
         taskId: config.taskId,
         runId: config.runId,
@@ -5686,6 +5694,32 @@ export class AgentServer {
       return;
     }
     this.broadcastEvent(event);
+    this.reportAgentMessage(message);
+  }
+
+  private reportAgentMessage(message: unknown): void {
+    if (
+      !this.agentCallbacks ||
+      typeof message !== "object" ||
+      message === null
+    ) {
+      return;
+    }
+    const { method, params } = message as {
+      method?: unknown;
+      params?: unknown;
+    };
+    if (method === "session/update") {
+      this.agentCallbacks.agentActivity();
+    } else if (method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE) {
+      const stopReason =
+        typeof params === "object" && params !== null && "stopReason" in params
+          ? params.stopReason
+          : undefined;
+      this.agentCallbacks.turnCompleted(
+        typeof stopReason === "string" ? stopReason : "",
+      );
+    }
   }
 
   /** The turn's gateway trace id: the one the Claude adapter reports via
@@ -5714,6 +5748,7 @@ export class AgentServer {
         ...(traceId ? { traceId } : {}),
       },
     });
+    this.agentCallbacks?.turnCompleted(stopReason);
   }
 
   private broadcastAndPersistNotification(

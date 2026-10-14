@@ -36,7 +36,6 @@ interface TaskRunEventStreamSenderConfig {
 interface EventEnvelope {
   seq: number;
   event: Record<string, unknown>;
-  awaitsCallback?: boolean;
 }
 
 interface IngestResponse {
@@ -133,7 +132,6 @@ export class TaskRunEventStreamSender {
   private transportCompleted = false;
   private droppedBeforeSequenceCount = 0;
   private bufferRevision = 0;
-  private eventsAwaitingCallback = 0;
 
   constructor(private readonly config: TaskRunEventStreamSenderConfig) {
     const usingProxy = Boolean(config.eventIngestBaseUrl);
@@ -171,7 +169,6 @@ export class TaskRunEventStreamSender {
     if (this.stopped) return;
 
     const acceptedEvent = this.prepareEvent(event);
-    this.config.callbackReporter?.observe(event, acceptedEvent !== null);
     if (!acceptedEvent) {
       return;
     }
@@ -180,10 +177,6 @@ export class TaskRunEventStreamSender {
       seq: ++this.sequence,
       event: acceptedEvent,
     };
-    if (this.config.callbackReporter?.awaitsAcceptance(acceptedEvent)) {
-      envelope.awaitsCallback = true;
-      this.eventsAwaitingCallback += 1;
-    }
     this.bufferedEvents.push(envelope);
     this.scheduleFlush();
   }
@@ -205,6 +198,11 @@ export class TaskRunEventStreamSender {
       await this.config.callbackReporter?.settled();
     });
     await this.stopPromise;
+  }
+
+  async flushNow(): Promise<void> {
+    if (this.stopped) return;
+    await this.flush();
   }
 
   private scheduleFlush(delayMs = this.flushDelayMs): void {
@@ -276,10 +274,7 @@ export class TaskRunEventStreamSender {
       await flushPromise;
       // The ingress ahead of the agent-proxy only forwards the request body once the
       // upload closes, so close per drained batch to avoid stranding buffered events.
-      if (
-        !this.stopped &&
-        (!this.keepProxyStreamOpen || this.eventsAwaitingCallback > 0)
-      ) {
+      if (!this.stopped && !this.keepProxyStreamOpen) {
         await this.closeActiveStream();
       }
       return this.bufferedEvents.length < previousBufferLength;
@@ -687,25 +682,12 @@ export class TaskRunEventStreamSender {
   }
 
   private acceptThrough(lastAcceptedSeq: number): void {
-    const accepted = this.bufferedEvents.filter(
-      (event) => event.seq <= lastAcceptedSeq,
-    );
-    if (accepted.length === 0) {
-      return;
-    }
+    const previousLength = this.bufferedEvents.length;
     this.bufferedEvents = this.bufferedEvents.filter(
       (event) => event.seq > lastAcceptedSeq,
     );
-    this.bufferRevision += 1;
-    for (const envelope of accepted) {
-      if (!envelope.awaitsCallback) {
-        continue;
-      }
-      this.eventsAwaitingCallback -= 1;
-      this.config.callbackReporter?.observeAccepted(
-        envelope.seq,
-        envelope.event,
-      );
+    if (this.bufferedEvents.length !== previousLength) {
+      this.bufferRevision += 1;
     }
   }
 

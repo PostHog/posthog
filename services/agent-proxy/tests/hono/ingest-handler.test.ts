@@ -653,7 +653,7 @@ describe('ingest-handler', () => {
         }
     })
 
-    it('leaves callbacks to an agent that sends its own and still tracks its activity', async () => {
+    it('leaves heartbeats and finished turns to an agent that sends its own callbacks', async () => {
         const callback = vi
             .spyOn(globalThis, 'fetch')
             .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
@@ -668,11 +668,9 @@ describe('ingest-handler', () => {
                 },
                 {
                     type: 'notification',
-                    notification: {
-                        method: '_posthog/budget_steer',
-                        params: { stage: 'critical', mode: 'publish', delivered: true, spent_usd: 7, cap_usd: 10 },
-                    },
+                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
                 },
+                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
             ]
             const body = makeStringBody(
                 events.map((event, index) => JSON.stringify({ seq: index + 1, event }) + '\n').join('')
@@ -685,9 +683,10 @@ describe('ingest-handler', () => {
                 [] as CryptoKey[]
             )
 
-            expect(await decodeJson(response)).toMatchObject({ accepted: 2 })
-            expect(callback).not.toHaveBeenCalled()
-            expect(await redisStream.getAgentActive()).toBe(true)
+            expect(await decodeJson(response)).toMatchObject({ accepted: 3 })
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2))
+            const kinds = callback.mock.calls.map(([, request]) => JSON.parse(String(request?.body)).kind)
+            expect(kinds.sort()).toEqual(['agent_activity', 'turn_failed'])
         } finally {
             callback.mockRestore()
         }

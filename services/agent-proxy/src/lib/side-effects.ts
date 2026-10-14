@@ -428,17 +428,6 @@ async function releaseMilestoneClaim(
     }
 }
 
-export async function trackAgentActivity(
-    redisStream: TaskRunRedisStream,
-    event: Record<string, unknown>
-): Promise<void> {
-    if (isTurnComplete(event)) {
-        await redisStream.setAgentActive(false)
-    } else if (isSessionUpdate(event) || isAgentGenerationEvent(event)) {
-        await redisStream.setAgentActive(true)
-    }
-}
-
 export async function heartbeatWorkflowIfNeeded(
     redisStream: TaskRunRedisStream,
     runId: string,
@@ -446,7 +435,8 @@ export async function heartbeatWorkflowIfNeeded(
     taskId: string,
     teamId: number,
     originalToken: string,
-    config: Config
+    config: Config,
+    agentSendsCallbacks = false
 ): Promise<void> {
     if (isAgentCommandDispatched(event) && (await redisStream.claimFirstAgentCommand())) {
         fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, {
@@ -464,7 +454,7 @@ export async function heartbeatWorkflowIfNeeded(
             // A pi runtime error ends the turn but is not a successful completion —
             // fail the run outright rather than reporting the turn as answered.
             fireCallback(runId, 'turn_failed', false, taskId, teamId, originalToken, config)
-        } else {
+        } else if (!agentSendsCallbacks) {
             // Let Django decide whether the run is interactive; it will only
             // dispatch the push notification for interactive mode runs.
             fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config, {
@@ -484,7 +474,7 @@ export async function heartbeatWorkflowIfNeeded(
         agentActive = await redisStream.getAgentActive()
     }
 
-    if (!agentActive) {
+    if (!agentActive || agentSendsCallbacks) {
         return
     }
 
