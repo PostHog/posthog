@@ -146,7 +146,7 @@ pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
 
 const TIMEOUT_CLIENT: &str = "client_timeout";
 const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
-const TIMEOUT_PERSONHOG: &str = "personhog_timeout";
+pub(crate) const TIMEOUT_PERSONHOG: &str = "personhog_timeout";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`

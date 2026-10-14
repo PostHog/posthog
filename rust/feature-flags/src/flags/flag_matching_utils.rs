@@ -1972,6 +1972,7 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        api::errors::TIMEOUT_PERSONHOG,
         config::DEFAULT_TEST_CONFIG,
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
@@ -2430,7 +2431,7 @@ mod tests {
                 PoolConfig::default(),
             )
             .unwrap();
-            Some(start_personhog_replica(pool).await)
+            Some(start_personhog_replica(pool, 2000).await)
         } else {
             None
         };
@@ -3112,7 +3113,10 @@ mod tests {
 
     /// Serves the personhog service on the replica handler, as the router does, and returns a
     /// client for it. The replica storage uses `pool` for every pool.
-    async fn start_personhog_replica(pool: sqlx::PgPool) -> RouterClient {
+    async fn start_personhog_replica(
+        pool: sqlx::PgPool,
+        hash_key_override_statement_timeout_ms: u64,
+    ) -> RouterClient {
         use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
         use personhog_replica::service::PersonHogReplicaService;
         use personhog_replica::storage::postgres::PostgresStorage;
@@ -3160,6 +3164,7 @@ mod tests {
             50,
             5,
             12,
+            hash_key_override_statement_timeout_ms,
         ));
         let server = ServiceToReplica(PersonHogReplicaServer::new(PersonHogReplicaService::new(
             storage,
@@ -3171,15 +3176,18 @@ mod tests {
                 .add_service(server)
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
         );
-        RouterClient::with_channels(&format!("http://{addr}"), Duration::from_secs(5), 1).unwrap()
+        // The client deadline is longer than any test waits, so a personhog_timeout comes from
+        // the replica and not from this client.
+        RouterClient::with_channels(&format!("http://{addr}"), Duration::from_secs(60), 1).unwrap()
     }
 
     #[rstest]
-    #[case::persons_db(false)]
-    #[case::personhog(true)]
+    #[case::persons_db(false, "query_canceled")]
+    #[case::personhog(true, TIMEOUT_PERSONHOG)]
     #[tokio::test]
     async fn test_set_overrides_statement_timeout_covers_person_row_lock(
         #[case] through_personhog: bool,
+        #[case] expected_timeout: &str,
     ) {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
@@ -3205,7 +3213,7 @@ mod tests {
         )
         .unwrap();
         let personhog = if through_personhog {
-            Some(start_personhog_replica(timeout_pool.clone()).await)
+            Some(start_personhog_replica(timeout_pool.clone(), 200).await)
         } else {
             None
         };
@@ -3241,16 +3249,9 @@ mod tests {
         .expect("the write waited for the person row lock instead of timing out");
         lock_tx.rollback().await.unwrap();
 
-        let statement_timeout = match &result {
-            Err(FlagError::TimeoutError(_)) => !through_personhog,
-            Err(FlagError::InternalError { cause, .. }) => cause
-                .downcast_ref::<tonic::Status>()
-                .is_some_and(|status| status.message().contains("statement timeout")),
-            _ => false,
-        };
         assert!(
-            statement_timeout,
-            "expected a statement timeout, got {result:?}"
+            matches!(&result, Err(FlagError::TimeoutError(Some(t))) if t == expected_timeout),
+            "expected a {expected_timeout} timeout, got {result:?}"
         );
     }
 

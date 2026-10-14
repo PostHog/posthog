@@ -149,7 +149,8 @@ For teams in `PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS`, the hash key override
 feature-flags still reads the active flags with experience continuity from the non-persons DB, and sends only those flag keys.
 personhog-replica resolves the distinct IDs, keeps each real key that a person already has, and replaces a stored `$posthog_cookieless` key.
 The call stays inside `PERSONS_DB_DEADLINE_MS`.
-On personhog-replica, `statement_timeout` and `lock_timeout` stop the write when a person delete or merge holds the person row.
+On personhog-replica, `HASH_KEY_OVERRIDE_STATEMENT_TIMEOUT_MS` (default 2000ms) sets the `statement_timeout` of the insert, so the write stops when a person delete or merge holds the person row.
+personhog-replica answers that timeout with `DEADLINE_EXCEEDED`, and the call fails with `timeout:personhog_timeout`.
 When a person merge or delete commits during the write, the insert fails its foreign key check.
 personhog-replica retries the transaction once, and the retry writes to the surviving person.
 The persons DB path retries the same failure in feature-flags.
