@@ -7,14 +7,19 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
@@ -22,6 +27,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_cutover import cut_over_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_ALERTS_PER_TEAM,
@@ -150,6 +156,42 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(results) == 2
         assert results[0]["name"] == "Alert 2"
         assert results[1]["name"] == "Alert 1"
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_a_platform_owned_alert_reports_the_platform_state(self, action: str) -> None:
+        now = datetime.now(UTC)
+        alerts = [
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"Errors {i}",
+                filters={"severityLevels": ["error"]},
+                next_check_at=now + timedelta(minutes=3),
+                last_notified_at=now - timedelta(days=1),
+            )
+            for i in range(2)
+        ]
+        cut_over_team(self.team.id, now=now)
+        platform_due_at = now + timedelta(minutes=7)
+        with team_scope(self.team.id):
+            for alert in alerts:
+                copy_id = platform_testing.copy_of(alert.id).id
+                platform_testing.start_firing(copy_id, team_id=self.team.id, at=now)
+                platform_testing.set_due_at(copy_id, platform_due_at)
+
+        with CaptureQueriesContext(connection) as queries:
+            if action == "list":
+                response = self.client.get(self.base_url)
+                rows = response.json()["results"]
+            else:
+                response = self.client.get(f"{self.base_url}{alerts[0].id}/")
+                rows = [response.json()]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["state"], row["next_check_at"]) for row in rows] == [
+            ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
+        ] * len(rows)
+        platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
+        assert len(platform_reads) == 1
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)

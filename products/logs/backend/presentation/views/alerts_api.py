@@ -2,10 +2,11 @@ import os
 import datetime as dt
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -41,12 +42,14 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
+from products.alerts_platform.backend.facade.api import runtime_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertRuntime,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -80,6 +83,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
@@ -201,6 +205,24 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
         required=False,
         help_text="PagerDuty service region the events go to.",
     )
+
+
+_PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+
+
+def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, PlatformAlertRuntime]:
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+
+
+class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: Any) -> list[dict[str, Any]]:
+        alerts = list(data.all() if isinstance(data, Manager) else data)
+        # One platform read for the page, which the child serializer finds in the shared context.
+        self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        return super().to_representation(alerts)
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -452,8 +474,26 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             .first()
         )
 
+    def to_representation(self, instance: LogsAlertConfiguration) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not instance.platform_owned:
+            return data
+        # The platform evaluates an alert it owns, so the logs row stops moving once the shadow ends.
+        runtimes = self.context.get(_PLATFORM_RUNTIME_CONTEXT_KEY)
+        if runtimes is None:
+            runtimes = _platform_runtime_of([instance])
+        runtime = runtimes.get(instance.id)
+        if runtime is None:
+            return data
+        data["state"] = logs_state_of_platform(instance, runtime.state, timezone.now()).value
+        data["consecutive_failures"] = runtime.consecutive_failures
+        data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
+        data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
+        return data
+
     class Meta:
         model = LogsAlertConfiguration
+        list_serializer_class = LogsAlertConfigurationListSerializer
         fields = [
             "id",
             "name",

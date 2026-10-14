@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
+    PlatformAlertRuntime,
     PlatformAlertUpsert,
     PlatformHandback,
     PlatformOwnershipHandover,
@@ -80,3 +81,10 @@ def get_configuration(
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
     )
+
+
+def runtime_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertRuntime]:
+    """The runtime state of each named alert the platform owns, keyed by the source's id."""
+    return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
