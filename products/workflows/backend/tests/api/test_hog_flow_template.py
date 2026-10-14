@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -162,6 +163,25 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             for action in body["actions"]:
                 assert action["config"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
             assert body["trigger"]["inputs"] == {"url": {"value": "https://custom.example.com"}}
+
+    def test_scope_only_update_drops_secret_inputs_stored_before(self):
+        legacy = self._template_with_secret_inputs("LEGACY-SECRET")
+        template = HogFlowTemplate.objects.create(
+            team=self.team,
+            name=legacy["name"],
+            scope="team",
+            actions=legacy["actions"],
+            trigger=legacy["actions"][0]["config"],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flow_templates/{template.id}",
+            {"scope": "organization"},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "LEGACY-SECRET" not in json.dumps(response.json())
 
     def test_template_creation_with_multiple_function_actions(self):
         """Test that all function actions preserve their inputs when creating templates"""

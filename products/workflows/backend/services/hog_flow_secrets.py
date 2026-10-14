@@ -187,8 +187,7 @@ def mask_workflow_fields(
 def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Move secret inputs out of content["actions"] into an encrypted map, updating content["actions"]
     # (stripped) and the derived content["trigger"] in place. Returns the {action_id: {key: value}} map.
-    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare and template
-    # write paths.
+    # Shared by the live write, the draft write, and (map discarded) the snapshot/compare paths.
     actions = content.get("actions")
     if not isinstance(actions, list):
         return {}
