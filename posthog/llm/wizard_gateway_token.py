@@ -242,8 +242,12 @@ def wizard_gateway_policy(
     )
     prompt = _parse_system_prompt(prompt_raw) if prompt_raw is not None else None
     allowlist = _parse_allowlist(allowlist_raw) if allowlist_raw is not None else None
-    models, efforts, programs = allowlist or (WIZARD_DEFAULT_MODELS, WIZARD_DEFAULT_EFFORTS, WIZARD_DEFAULT_PROGRAMS)
-    return WizardGatewayPolicy(models=models, efforts=efforts, programs=programs, prompt=prompt)
+    allowlist = allowlist or _Allowlist(
+        models=WIZARD_DEFAULT_MODELS, efforts=WIZARD_DEFAULT_EFFORTS, programs=WIZARD_DEFAULT_PROGRAMS
+    )
+    return WizardGatewayPolicy(
+        models=allowlist.models, efforts=allowlist.efforts, programs=allowlist.programs, prompt=prompt
+    )
 
 
 def _policy_payload(
@@ -297,7 +301,14 @@ def _reject_system_prompt(problem: str) -> None:
     WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="system_prompt").inc()
 
 
-def _parse_allowlist(raw: dict) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
+@frozen
+class _Allowlist:
+    models: tuple[str, ...]
+    efforts: tuple[str, ...]
+    programs: tuple[str, ...]
+
+
+def _parse_allowlist(raw: dict) -> _Allowlist | None:
     """All three lists or none: a half-applied allowlist would pin a mix nobody wrote."""
     try:
         models = _string_list(raw, "models")
@@ -310,7 +321,9 @@ def _parse_allowlist(raw: dict) -> tuple[tuple[str, ...], tuple[str, ...], tuple
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="allowlist").inc()
         return None
     # Vocabulary order, so the pin reads the same whatever order the payload used.
-    return models, tuple(level for level in WIZARD_EFFORT_LEVELS if level in efforts), programs
+    return _Allowlist(
+        models=models, efforts=tuple(level for level in WIZARD_EFFORT_LEVELS if level in efforts), programs=programs
+    )
 
 
 def _string_list(payload: dict, key: str) -> tuple[str, ...]:
