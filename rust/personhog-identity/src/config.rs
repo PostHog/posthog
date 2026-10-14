@@ -1,7 +1,6 @@
 use common_database::PoolConfig;
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
-use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -231,60 +230,23 @@ pub struct Config {
     #[envconfig(default = "person_publish_outbox_tmp")]
     pub person_publish_outbox_table: String,
 
-    /// Write outbox rows and run the drain that publishes them to Kafka. Off,
-    /// identity produces nothing and needs no Kafka. Any table set may
-    /// publish, so an identity on the validation set must point its topics
-    /// at capture topics, never the production names: its versions come from
-    /// a different sequence than the real tables and would win in ClickHouse.
+    /// Write the publish outbox, one pointer per completed merge or delete
+    /// op, for a publisher to drain. Off, identity writes nothing there and
+    /// never names the outbox table in a completion. An outbox nobody drains
+    /// holds every pointed op past GC retention, so turn this on only where
+    /// a publisher runs against the same table set.
     #[envconfig(default = "false")]
-    pub lifecycle_publisher_enabled: bool,
-
-    #[envconfig(default = "clickhouse_person_distinct_id")]
-    pub person_distinct_id_topic: String,
-
-    /// Same name as the Node setting.
-    #[envconfig(default = "false")]
-    pub person_merge_events_enabled: bool,
-
-    #[envconfig(default = "person_merge_events")]
-    pub person_merge_events_topic: String,
-
-    /// Teams whose merges emit person_merge_events: comma separated team
-    /// ids, "*" for every team, empty for none. Same syntax and default as
-    /// the Node setting. The cohort seeder's own allowlist must cover the
-    /// same teams but reads an empty value as every team, so copy the ids
-    /// across, not the string.
-    #[envconfig(default = "2")]
-    pub person_merge_events_team_allowlist: String,
+    pub lifecycle_outbox_enabled: bool,
 }
 
-/// Teams a per-team output is enabled for. Not the cohort crates'
-/// `TeamAllowlist`: that one reads an empty value as every team and accepts
-/// ranges, and the contract here is Node's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
-/// where empty means no team.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TeamAllowlist {
-    All,
-    Teams(HashSet<i64>),
-}
-
-impl TeamAllowlist {
-    /// An entry that is not a team id is an error instead of a silently
-    /// dropped team, so a typo cannot close the gate for one team unnoticed.
-    pub fn parse(value: &str) -> Result<Self, String> {
-        let value = value.trim();
-        if value == "*" {
-            return Ok(Self::All);
-        }
-        let mut teams = HashSet::new();
-        for entry in value.split(',').map(str::trim).filter(|e| !e.is_empty()) {
-            let team_id = entry
-                .parse::<i64>()
-                .map_err(|_| format!("invalid team id {entry:?} in team allowlist {value:?}"))?;
-            teams.insert(team_id);
-        }
-        Ok(Self::Teams(teams))
-    }
+/// Whether identity writes the publish outbox (`LIFECYCLE_OUTBOX_ENABLED`):
+/// one pointer per completed merge or delete op. Carried by every writer so
+/// the choice is made where the writer is built, never defaulted at the
+/// write site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutboxWrites {
+    Enabled,
+    Disabled,
 }
 
 /// The paired table set identity operates on: the person table plus the
@@ -360,8 +322,12 @@ impl Config {
         }
     }
 
-    pub fn merge_events_team_allowlist(&self) -> Result<TeamAllowlist, String> {
-        TeamAllowlist::parse(&self.person_merge_events_team_allowlist)
+    pub fn outbox_writes(&self) -> OutboxWrites {
+        if self.lifecycle_outbox_enabled {
+            OutboxWrites::Enabled
+        } else {
+            OutboxWrites::Disabled
+        }
     }
 
     pub fn request_limits(&self) -> crate::service::validation::RequestLimits {
@@ -490,9 +456,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use super::{IdentityTables, TeamAllowlist};
+    use super::IdentityTables;
 
     #[test]
     fn complete_table_sets_pass_validation() {
@@ -510,26 +474,5 @@ mod tests {
             ..IdentityTables::validation()
         };
         assert!(mixed.validate().is_err());
-    }
-
-    #[test]
-    fn team_allowlist_follows_the_node_syntax() {
-        let cases = [
-            ("", Some(TeamAllowlist::Teams(HashSet::new()))),
-            ("*", Some(TeamAllowlist::All)),
-            (
-                "2,125931",
-                Some(TeamAllowlist::Teams(HashSet::from([2, 125931]))),
-            ),
-            (" 2 , 3 ", Some(TeamAllowlist::Teams(HashSet::from([2, 3])))),
-            ("1000:2000", None),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(
-                TeamAllowlist::parse(input).ok(),
-                expected,
-                "input {input:?}"
-            );
-        }
     }
 }

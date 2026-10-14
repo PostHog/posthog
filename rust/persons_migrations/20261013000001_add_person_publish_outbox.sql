@@ -1,5 +1,6 @@
--- Outbox for the ClickHouse distinct id feed (clickhouse_person_distinct_id)
--- and person_merge_events, drained by personhog-identity's publisher.
+-- Outbox for the ClickHouse distinct id feed (clickhouse_person_distinct_id),
+-- written by personhog-identity and drained by the personhog-publisher
+-- deployment.
 --
 -- Two row shapes share the table. A create or attach settles inline with no
 -- op record, so it writes one row per mapping in the same transaction as the
@@ -68,7 +69,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS person_publish_outbox_op_id
     ON person_publish_outbox (op_id) WHERE op_id IS NOT NULL;
 
 COMMENT ON TABLE person_publish_outbox IS
-    'Distinct id rows and lifecycle op pointers not yet published to Kafka by personhog-identity. Rows with given_up_at set need an operator.';
+    'Distinct id rows and lifecycle op pointers not yet published to Kafka by personhog-publisher. Rows with given_up_at set need an operator.';
 
 -- Validation set twin, used by an identity on the _tmp tables.
 CREATE TABLE IF NOT EXISTS person_publish_outbox_tmp (

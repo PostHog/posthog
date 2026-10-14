@@ -126,23 +126,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Leader fan-out concurrency"
     );
     tracing::info!("Tables: {:?}", tables);
-    if config.lifecycle_publisher_enabled {
-        let allowlist = config
-            .merge_events_team_allowlist()
-            .expect("Invalid PERSON_MERGE_EVENTS_TEAM_ALLOWLIST");
+    let outbox_writes = config.outbox_writes();
+    if config.lifecycle_outbox_enabled {
         tracing::info!(
-            distinct_id_topic = %config.person_distinct_id_topic,
-            merge_events_enabled = config.person_merge_events_enabled,
-            merge_events_topic = %config.person_merge_events_topic,
-            merge_events_team_allowlist = ?allowlist,
-            "Lifecycle publisher enabled"
+            outbox = %tables.person_publish_outbox,
+            "Lifecycle outbox enabled; a personhog-publisher on the same table set must drain it"
         );
         if tables.is_validation() {
             tracing::warn!(
                 outbox = %tables.person_publish_outbox,
-                distinct_id_topic = %config.person_distinct_id_topic,
-                merge_events_topic = %config.person_merge_events_topic,
-                "Lifecycle publisher is on for the validation table set; its topics must be capture topics, never the production names"
+                "Lifecycle outbox is on for the validation table set; the publisher draining it must point at capture topics, never the production names"
             );
         }
     }
@@ -308,12 +301,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             property_writer.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
+            outbox_writes,
         );
         let sweeper_delete_driver = DeleteDriver::new(
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
             num_partitions,
+            outbox_writes,
         );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
@@ -365,6 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 property_writer.clone(),
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
+                outbox_writes,
             ),
             detached_drives.clone(),
         ),
@@ -375,6 +371,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.tables(),
         config.lifecycle_leader_call_concurrency,
         num_partitions,
+        outbox_writes,
     );
     let service = PersonHogIdentityService::new(
         storage,

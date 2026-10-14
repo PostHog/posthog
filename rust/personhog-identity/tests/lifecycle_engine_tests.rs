@@ -22,28 +22,50 @@ use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
+    abort_op_in_tx, advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError,
+    STEP_ABORTED, STEP_COMPLETED,
 };
 use personhog_identity::pools::IdentityPools;
 
-/// Two-step dummy op: `started → half → completed`. Counts step executions
-/// so tests can prove what did (or did not) re-run.
+/// Two-step dummy op: `started → half → <final step>`. Counts step
+/// executions so tests can prove what did (or did not) re-run.
 struct DummyDriver {
     steps_run: AtomicUsize,
     pause: std::time::Duration,
+    final_step: &'static str,
+    outbox_writes: OutboxWrites,
 }
 
 impl DummyDriver {
     fn new() -> Self {
-        Self::paced(std::time::Duration::ZERO)
+        Self::with(
+            std::time::Duration::ZERO,
+            STEP_COMPLETED,
+            OutboxWrites::Disabled,
+        )
     }
 
     fn paced(pause: std::time::Duration) -> Self {
+        Self::with(pause, STEP_COMPLETED, OutboxWrites::Disabled)
+    }
+
+    fn settling(final_step: &'static str, outbox_writes: OutboxWrites) -> Self {
+        Self::with(std::time::Duration::ZERO, final_step, outbox_writes)
+    }
+
+    fn with(
+        pause: std::time::Duration,
+        final_step: &'static str,
+        outbox_writes: OutboxWrites,
+    ) -> Self {
         Self {
             steps_run: AtomicUsize::new(0),
             pause,
+            final_step,
+            outbox_writes,
         }
     }
 }
@@ -73,13 +95,23 @@ impl OpDriver for DummyDriver {
                 )
                 .await?
             }
-            "half" => {
+            "half" if self.final_step == STEP_COMPLETED => {
                 complete_op_in_tx(
                     &mut tx,
                     &common::default_tables(),
                     op.op_id,
                     "half",
-                    STEP_COMPLETED,
+                    &json!({"ok": true}),
+                    self.outbox_writes,
+                )
+                .await?
+            }
+            "half" => {
+                abort_op_in_tx(
+                    &mut tx,
+                    &common::default_tables(),
+                    op.op_id,
+                    "half",
                     &json!({"ok": true}),
                 )
                 .await?
@@ -257,6 +289,67 @@ async fn resume_picks_up_an_op_from_its_saved_step() {
         1,
         "only the remaining step runs"
     );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+async fn pointer_kinds(ctx: &TestContext, op_id: Uuid) -> Vec<String> {
+    sqlx::query_scalar("SELECT kind FROM person_publish_outbox WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_all(&ctx.pool)
+        .await
+        .expect("query runs")
+}
+
+#[tokio::test]
+async fn only_a_completed_op_with_outbox_writes_enabled_enqueues_a_publish_pointer() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let cases = [
+        (
+            OutboxWrites::Enabled,
+            STEP_COMPLETED,
+            vec!["merge_op".to_string()],
+        ),
+        (OutboxWrites::Enabled, STEP_ABORTED, vec![]),
+        (OutboxWrites::Disabled, STEP_COMPLETED, vec![]),
+    ];
+    for (outbox_writes, final_step, expected) in cases {
+        let driver = DummyDriver::settling(final_step, outbox_writes);
+        let op_id = Uuid::now_v7();
+        engine
+            .execute(&driver, op_id, ctx.team_id, &json!({}))
+            .await
+            .expect("op settles");
+        assert_eq!(
+            pointer_kinds(&ctx, op_id).await,
+            expected,
+            "{outbox_writes:?} {final_step}"
+        );
+    }
+
+    // The pointer rides the compare-and-swap: a completion that loses it
+    // (the row is not on `from`) commits nothing, pointer included.
+    let driver = DummyDriver::settling(STEP_COMPLETED, OutboxWrites::Enabled);
+    let op_id = Uuid::now_v7();
+    engine
+        .create_or_attach(&driver, op_id, ctx.team_id, &json!({}))
+        .await
+        .expect("op created");
+    let mut tx = ctx.pool.begin().await.expect("begin");
+    let advanced = complete_op_in_tx(
+        &mut tx,
+        &common::default_tables(),
+        op_id,
+        "half",
+        &json!({}),
+        OutboxWrites::Enabled,
+    )
+    .await
+    .expect("statement runs");
+    tx.commit().await.expect("commit");
+    assert!(!advanced, "the row is on 'started', not 'half'");
+    assert!(pointer_kinds(&ctx, op_id).await.is_empty());
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -734,8 +827,8 @@ impl OpDriver for RefusingDriver {
             &common::default_tables(),
             op.op_id,
             "started",
-            STEP_COMPLETED,
             &json!({}),
+            OutboxWrites::Disabled,
         )
         .await?;
         if !advanced {

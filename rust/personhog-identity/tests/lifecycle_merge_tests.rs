@@ -24,6 +24,7 @@ use sqlx::Row;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
     Engine, OpDriver, OpRow, SagaError, STEP_ABORTED, STEP_COMPLETED,
@@ -56,6 +57,7 @@ impl MergeHarness {
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
         );
         Self {
             ctx,
@@ -1759,6 +1761,7 @@ impl MergeHarness {
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
+                        OutboxWrites::Disabled,
                     ),
                     self.drives.clone(),
                 ),
@@ -1787,6 +1790,7 @@ impl MergeHarness {
                         self.leader.clone(),
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
+                        OutboxWrites::Disabled,
                     ),
                     self.drives.clone(),
                 ),
@@ -2144,6 +2148,7 @@ async fn an_executor_call_dropped_once_detached_still_drives_the_merge() {
             h.leader.clone(),
             h.ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
         ),
         h.drives.clone(),
     );
@@ -2192,6 +2197,7 @@ async fn a_retry_waiting_behind_a_live_lease_dies_with_its_caller_instead_of_det
             h.leader.clone(),
             h.ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
         ),
         h.drives.clone(),
     );
@@ -2419,6 +2425,7 @@ async fn a_create_race_loser_answers_retryable_unavailable() {
             h.leader.clone(),
             h.ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
+            OutboxWrites::Disabled,
         ),
         h.drives.clone(),
     );
