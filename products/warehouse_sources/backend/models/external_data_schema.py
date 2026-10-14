@@ -2248,26 +2248,29 @@ def _resource_id(metadata: object) -> str | None:
     return None
 
 
-class DiscoveredSchemaIndex:
-    """Find the discovered schema for a stored one: by its stable resource id first, then by name.
+def discovered_schema_finder(
+    discovered: Iterable["SourceSchema"],
+) -> Callable[[str, object], "SourceSchema | None"]:
+    """Return a lookup that finds the discovered schema for a stored one: by its stable resource id
+    first, then by name.
 
     A renamed resource keeps its id but not its name, so a match by name alone misses it. Build one
-    index per discovery, so that matching many stored schemas costs one lookup each."""
+    lookup per discovery, so that matching many stored schemas costs one dict read each."""
+    by_resource_id: dict[str, SourceSchema] = {}
+    by_name: dict[str, SourceSchema] = {}
+    for discovered_schema in discovered:
+        resource_id = _resource_id(discovered_schema.schema_metadata)
+        if resource_id is not None:
+            by_resource_id.setdefault(resource_id, discovered_schema)
+        by_name.setdefault(discovered_schema.name, discovered_schema)
 
-    def __init__(self, discovered: Iterable["SourceSchema"]) -> None:
-        self._by_resource_id: dict[str, SourceSchema] = {}
-        self._by_name: dict[str, SourceSchema] = {}
-        for discovered_schema in discovered:
-            resource_id = _resource_id(discovered_schema.schema_metadata)
-            if resource_id is not None:
-                self._by_resource_id.setdefault(resource_id, discovered_schema)
-            self._by_name.setdefault(discovered_schema.name, discovered_schema)
-
-    def find(self, stored_name: str, stored_metadata: object) -> "SourceSchema | None":
+    def find(stored_name: str, stored_metadata: object) -> "SourceSchema | None":
         stored_resource_id = _resource_id(stored_metadata)
-        if stored_resource_id is not None and stored_resource_id in self._by_resource_id:
-            return self._by_resource_id[stored_resource_id]
-        return self._by_name.get(stored_name)
+        if stored_resource_id is not None and stored_resource_id in by_resource_id:
+            return by_resource_id[stored_resource_id]
+        return by_name.get(stored_name)
+
+    return find
 
 
 def _renamed_schema_names(

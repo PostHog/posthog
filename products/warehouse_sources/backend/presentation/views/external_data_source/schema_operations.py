@@ -21,10 +21,10 @@ from products.access_control.backend.facade.user_access_control import access_le
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
-    DiscoveredSchemaIndex,
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -521,11 +521,11 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
 
         # Not every source honors the `names` filter, so match by name instead of order. Sheets are
         # discovered without that filter because a renamed worksheet is matched by its stable id.
-        discovered_index = DiscoveredSchemaIndex(discovered)
+        find_discovered_schema = discovered_schema_finder(discovered)
         defaulted_schema_ids: set[str] = set()
         for schema_update in needing_defaults:
             schema = source_schemas_by_id[schema_update["id"]]
-            discovered_schema = discovered_index.find(schema.name, schema.schema_metadata)
+            discovered_schema = find_discovered_schema(schema.name, schema.schema_metadata)
             if discovered_schema is None:
                 failures[str(schema.id)] = (
                     schema.name,

@@ -47,12 +47,12 @@ from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
-    DiscoveredSchemaIndex,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
@@ -2396,7 +2396,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
         # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
         # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
-        schema = DiscoveredSchemaIndex(schemas).find(instance.name, instance.schema_metadata)
+        schema = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
         if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
