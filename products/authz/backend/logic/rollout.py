@@ -10,7 +10,7 @@ from posthog.ph_client import get_feature_flag_or_none
 
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, ResourceType
-from . import authorization, legacy_authorization
+from . import authorization, legacy_authorization, request_context
 
 logger = structlog.get_logger(__name__)
 ROLLOUT_FLAG = "authz-rebac"
@@ -44,13 +44,20 @@ def organization_variant(organization_id: UUID) -> object:
 
 
 def guest_memberships(organization_ids: set[UUID], user_ids: set[int]) -> set[tuple[UUID, int]]:
-    if not organization_ids or not user_ids:
-        return set()
-    return set(
-        OrganizationMembership.objects.filter(
-            organization_id__in=organization_ids, user_id__in=user_ids, level=OrganizationMembership.Level.GUEST
-        ).values_list("organization_id", "user_id")
-    )
+    pairs = {(organization_id, user_id) for organization_id in organization_ids for user_id in user_ids}
+    cached = request_context.guest_memberships.get()
+    known = cached if cached is not None else {}
+    missing = pairs - known.keys()
+    if missing:
+        guests = set(
+            OrganizationMembership.objects.filter(
+                organization_id__in={organization_id for organization_id, _ in missing},
+                user_id__in={user_id for _, user_id in missing},
+                level=OrganizationMembership.Level.GUEST,
+            ).values_list("organization_id", "user_id")
+        )
+        known.update({pair: pair in guests for pair in missing})
+    return {pair for pair in pairs if known[pair]}
 
 
 def guest_mode(variant: object, resource_type: ResourceType) -> Literal["v1", "v2", "denied"]:

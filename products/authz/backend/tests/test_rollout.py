@@ -3,7 +3,9 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -212,6 +214,18 @@ class TestGuestRollout(BaseTest):
         assert decisions == [expected != "denied"]
         assert v2.called == (expected == "v2")
         assert v1.called == (expected == "v1")
+
+    def test_a_request_looks_up_guest_memberships_once(self) -> None:
+        with (
+            patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2"),
+            patch("products.authz.backend.logic.rollout.authorization.check", return_value=[True]),
+            patch("products.authz.backend.logic.rollout.legacy_authorization.check", return_value=[True]),
+            api.authorization_session(),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            for user in (self.user, self.user, self.guest, self.guest):
+                api.check([self._request(ResourceType.DASHBOARD, user)])
+        assert len([query for query in queries if "posthog_organizationmembership" in query["sql"]]) == 2
 
     def test_guest_lists_use_v2_without_a_shadow(self) -> None:
         resource = Resource(type=ResourceType.NOTEBOOK, project_id=self.team.id)
