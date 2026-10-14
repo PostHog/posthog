@@ -63,6 +63,10 @@ export const DashboardsListParams = () => zod.object({
 })
 
 export const DashboardsListQueryParams = () => zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Optional. Return only dashboards created by the user with this UUID.'),
     exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()

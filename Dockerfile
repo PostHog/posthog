@@ -55,6 +55,7 @@ COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
+COPY packages/agent/packages/agent-contracts/src/ packages/agent/packages/agent-contracts/src/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -250,6 +251,10 @@ COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/p
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
+# Render the wizard tool catalog from the warehouse source declarations. Web workers serve this file,
+# so they never import every source module, and a source module that fails to import fails the build.
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
+
 # Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
 # isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
 # upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
@@ -396,6 +401,7 @@ COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
+COPY --from=posthog-build --chown=posthog:posthog /code/products/wizard/tool-catalog.json /code/products/wizard/tool-catalog.json
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
 # source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This

@@ -1,81 +1,49 @@
-import json
-from typing import Any
+from typing import Any, Literal
 
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarcloud import (
+    SonarCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.settings import MAX_PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud import (
     SonarCloudResumeConfig,
     _base_url,
     _total,
-    sonar_cloud_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.source import SonarCloudSource
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the sonar_cloud module.
-SONAR_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud.make_tracked_session"
-)
 LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.sonar_cloud.sonar_cloud.logger"
 
 
 def _response(
     rows: list[dict[str, Any]], total: int | None, *, key: str = "components", flat_total: bool = False
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {key: rows}
     if total is not None:
         # metrics/search reports p/ps/total at the top level; issues/projects nest total under `paging`.
         body["total" if flat_total else "paging"] = total if flat_total else {"total": total}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: SonarCloudResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared instead of inspecting it after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, region: str = "eu"):
-    return sonar_cloud_source(
-        token="t",
-        organization="org",
-        region=region,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(
+    endpoint: str,
+    script: list[ScriptedResponse],
+    resume_state: SonarCloudResumeConfig | None = None,
+    region: Literal["eu", "us"] = "eu",
+) -> DriveResult:
+    config = SonarCloudSourceConfig(token="t", organization="org", region=region)
+    return SourceDriver(SonarCloudSource(), config).run(endpoint, script, resume_state=resume_state)
 
 
 class TestBaseUrl:
@@ -107,51 +75,40 @@ class TestTotal:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
+    def test_resumes_from_saved_page(self) -> None:
         # Resume state points at page 2; the first request must be for page 2, not page 1.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"key": "p2"}], total=MAX_PAGE_SIZE + 1)])
+        result = _run(
+            "projects",
+            [_response([{"key": "p2"}], total=MAX_PAGE_SIZE + 1)],
+            resume_state=SonarCloudResumeConfig(page=2),
+        )
 
-        manager = _make_manager(SonarCloudResumeConfig(page=2))
-        _rows(_source("projects", manager))
-
-        assert params[0]["p"] == 2
+        assert result.requests[0].param("p") == "2"
 
     @mock.patch(LOGGER_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_result_cap_stops_and_warns(self, MockSession, mock_logger) -> None:
+    def test_result_cap_stops_and_warns(self, mock_logger: mock.MagicMock) -> None:
         # The v1 API hard-caps results at 10000 rows; the loop must stop at the cap even when the
         # reported total is higher, and it should log that rows were dropped.
-        session = MockSession.return_value
         cap_pages = 10000 // MAX_PAGE_SIZE
         full = [{"key": str(i)} for i in range(MAX_PAGE_SIZE)]
-        _wire(session, [_response(full, total=999999) for _ in range(cap_pages)])
 
-        _rows(_source("projects", _make_manager()))
+        result = _run("projects", [_response(full, total=999999) for _ in range(cap_pages)])
 
-        assert session.send.call_count == cap_pages
+        assert len(result.requests) == cap_pages
         assert mock_logger.warning.called
 
 
 class TestNonPaginated:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_quality_gates_single_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1", "name": "Sonar way"}], total=None, key="qualitygates")])
+    def test_quality_gates_single_request(self) -> None:
+        result = _run("quality_gates", [_response([{"id": "1", "name": "Sonar way"}], total=None, key="qualitygates")])
 
-        manager = _make_manager()
-        rows = _rows(_source("quality_gates", manager))
-
-        assert session.send.call_count == 1
-        assert rows == [{"id": "1", "name": "Sonar way"}]
-        manager.save_state.assert_not_called()
+        assert len(result.requests) == 1
+        assert result.rows == [{"id": "1", "name": "Sonar way"}]
+        assert result.saved_states == []
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, 200), (401, 401), (403, 403), (500, 500)])
     def test_returns_status_code(self, status: int, expected: int) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status)
-        with mock.patch(SONAR_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("token", "org", "eu") == expected

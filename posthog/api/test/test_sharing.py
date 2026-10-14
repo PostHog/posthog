@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import wraps
+from typing import Any
 from urllib.parse import quote
 
 import time_machine
@@ -24,6 +25,8 @@ from posthog.api.sharing import (
     check_can_access_sharing_configuration,
     shared_url_as_png,
 )
+from posthog.api.sharing_publish_gate import dashboard_filter_leaves
+from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
@@ -31,7 +34,9 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import browser_filtered_pageview_query
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -41,6 +46,7 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
@@ -177,6 +183,7 @@ class TestSharing(APIBaseTest):
         mock_record_access.assert_called_once_with(expected_access_method)
 
     @patch("posthog.api.sharing.render_template")
+    @covers_authentication(SharingPasswordProtectedAuthentication)
     def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:
         sharing_configuration = SharingConfiguration.objects.create(
             team=self.team,
@@ -2218,6 +2225,52 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is True
 
+    @parameterized.expand(
+        [
+            (
+                "warehouse_person_chain",
+                "data_warehouse_person_property",
+                "allowed_join.denied_join.id",
+                "`person`.`allowed_join`.`denied_join`.`id`",
+            ),
+            ("warehouse_chain", "data_warehouse", "stripe.charges.amount", "`stripe`.`charges`.`amount`"),
+            ("keyword_chain", "data_warehouse_person_property", "null.id", "`person`.`null`.`id`"),
+            ("percent_chain", "data_warehouse", "discount%", "`discount%`"),
+            ("escaped_chain", "data_warehouse", "odd`name.amount", "`odd``name`.`amount`"),
+            ("event_metadata", "event_metadata", "(SELECT 1 FROM t)", "(SELECT 1 FROM t)"),
+            ("person_property", "person", "email", None),
+        ]
+    )
+    def test_breakdown_reads_the_chain_trends_resolves(
+        self, _name: str, breakdown_type: str, key: str, expected: str | None
+    ):
+        leaves = dashboard_filter_leaves({"breakdown_filter": {"breakdown_type": breakdown_type, "breakdown": key}})
+
+        assert leaves == ([{"type": "hogql", "key": expected}] if expected else [])
+
+    @parameterized.expand([("dashboard_filters",), ("tile_overrides",)])
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_denied_dashboard_filters_saved_before_sharing_block_enabling(self, target: str, _flag):
+        # Saved while unshared, so the save-time check did not run. Enabling the share must catch them.
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        filters = {"properties": [denied_filter]}
+        dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.user, filters=filters if target == "dashboard_filters" else {}
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=Insight.objects.create(team=self.team, created_by=self.user),
+            filters_overrides=filters if target == "tile_overrides" else {},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "denied_warehouse_table" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
@@ -2609,3 +2662,87 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "publicly shared" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("dashboard_filters", "subscription", status.HTTP_400_BAD_REQUEST),
+            ("grouped_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("grouped_tile_overrides", "shared", status.HTTP_400_BAD_REQUEST),
+            ("null_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("metadata_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("list_breakdown_dashboard_filters", "shared", status.HTTP_400_BAD_REQUEST),
+            ("untyped_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("untyped_breakdown_dashboard_filters", "shared", status.HTTP_200_OK),
+            ("dashboard_filters", "none", status.HTTP_200_OK),
+        ]
+    )
+    @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+    def test_filters_through_denied_table_on_delivered_dashboard(
+        self, target: str, exposure: str, expected: int, _flag
+    ):
+        denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        if exposure == "shared":
+            SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif exposure == "subscription":
+            Subscription.objects.create(
+                team=self.team,
+                dashboard=dashboard,
+                target_type="email",
+                target_value="recipient@example.com",
+                frequency="daily",
+                start_date=timezone.now(),
+                created_by=self.user,
+            )
+        filters = {"properties": [denied_filter]}
+        sent_filters: dict[str, Any] = filters
+        if target.startswith("grouped"):
+            sent_filters = {"properties": [{"type": "AND", "values": [denied_filter]}]}
+        elif target.startswith("null"):
+            sent_filters = {"properties": None}
+        elif target.startswith("breakdown"):
+            sent_filters = {
+                "breakdown_filter": {"breakdown_type": "data_warehouse_person_property", "breakdown": "denied_join.id"}
+            }
+        elif target.startswith("metadata_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "event_metadata",
+                    "breakdown": "(SELECT any(id) FROM denied_warehouse_table)",
+                }
+            }
+        elif target.startswith("list_breakdown"):
+            sent_filters = {
+                "breakdown_filter": {
+                    "breakdown_type": "hogql",
+                    "breakdown": ["distinct_id", "(SELECT count() FROM denied_warehouse_table)"],
+                }
+            }
+        elif target.startswith("untyped_breakdown"):
+            sent_filters = {"breakdown_filter": {"breakdown_type": [], "breakdown": "denied_join.id"}}
+        elif target.startswith("untyped"):
+            sent_filters = {"properties": [{"type": [], "key": "x", "value": "y"}]}
+        payload = (
+            {"filters": sent_filters}
+            if target.endswith("dashboard_filters")
+            else {"tiles": [{"id": tile.id, "filters_overrides": sent_filters}]}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {**payload, "name": "Renamed"}
+        )
+
+        assert response.status_code == expected, response.content
+        dashboard.refresh_from_db()
+        tile.refresh_from_db()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert "denied_warehouse_table" in str(response.json())
+            assert dashboard.name != "Renamed"
+            assert dashboard.filters == {}
+            assert not tile.filters_overrides
+        else:
+            assert dashboard.filters == sent_filters

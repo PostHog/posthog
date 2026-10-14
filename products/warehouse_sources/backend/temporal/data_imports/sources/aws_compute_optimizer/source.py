@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig, AwsComputeOptimizerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_COMPUTE_OPTIMIZER|AWSCOMPUTEOPTIMIZER)_",),
+        npm=("@aws-sdk/client-compute-optimizer",),
+        cargo=("aws-sdk-computeoptimizer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/computeoptimizer",),
+        maven=(
+            "software.amazon.awssdk:computeoptimizer",
+            "com.amazonaws:aws-java-sdk-computeoptimizer",
+            "software.amazon.awssdk:computeoptimizerautomation",
+        ),
+        rubygems=("aws-sdk-computeoptimizer",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -109,6 +123,10 @@ Grant these permissions for the tables you select:
 - `compute-optimizer:GetECSServiceRecommendations`
 - `compute-optimizer:GetEBSVolumeRecommendations`
 - `compute-optimizer:GetRecommendationSummaries`
+- `compute-optimizer:GetRDSDatabaseRecommendations`
+- `compute-optimizer:GetIdleRecommendations`
+- `compute-optimizer:GetEC2RecommendationProjectedMetrics` (also needs `GetEC2InstanceRecommendations`)
+- `compute-optimizer:GetECSServiceRecommendationProjectedMetrics` (also needs `GetECSServiceRecommendations`)
 
 Each sync replaces the current recommendations. This source does not keep recommendation history.""",
             iconPath="/static/services/aws_compute_optimizer.png",

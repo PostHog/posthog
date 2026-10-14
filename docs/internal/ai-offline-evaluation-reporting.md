@@ -21,6 +21,11 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
 Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
 
+Each trial has a unique ID in engine metadata. Local logs and summaries use that ID, so repeated trials retain separate output and scores.
+The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
+Scorer traces and agent trace roots use the same ID to match each result to its own execution.
+Case names stay the same across trials.
+
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.

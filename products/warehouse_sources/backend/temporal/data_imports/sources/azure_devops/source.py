@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AZURE_DEVOPS|AZUREDEVOPS)_", "^SYSTEM_ACCESSTOKEN$"),
+        npm=("azure-devops-node-api", "azure-devops-extension-sdk", "azure-devops-extension-api"),
+        pypi=("azure-devops",),
+        go=("github.com/microsoft/azure-devops-go-api/azuredevops",),
+    )
+
     api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"
 
     # The legacy label keeps sending api-version 7.1; 7.2 is the current GA stable API.

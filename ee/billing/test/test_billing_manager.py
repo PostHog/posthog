@@ -1676,7 +1676,7 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == member.email
 
 
-class TestParamSerialization(BaseTest):
+class TestParamSerialization(SimpleTestCase):
     @parameterized.expand(
         [
             ("teams_map", {"1": "Team A", "2": "Team B"}, '{"1": "Team A", "2": "Team B"}'),

@@ -19,9 +19,11 @@ from products.data_modeling.backend.logic.node_frequency import get_declared_tar
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 M15 = timedelta(minutes=15)
 H6 = timedelta(hours=6)
@@ -575,9 +577,18 @@ class TestConsolidateDags(BaseTest):
     def test_managed_dag_never_touched(self):
         target = DAG.get_or_create_default(self.team)
         managed = DAG.get_or_create_revenue_analytics(self.team)
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
         managed_query = self._query("stripe.prod.mrr_revenue_view", "SELECT 1")
+        unplaced_managed_query = self._query("stripe.prod.charge_revenue_view", "SELECT 1")
+        for query in (managed_query, unplaced_managed_query):
+            query.managed_viewset = viewset
+            query.save(update_fields=["managed_viewset"])
         self._node(managed, managed_query)
         source = DAG.objects.create(team=self.team, name="posthog_team")
+        self._node(source, managed_query)
+        self._node(source, unplaced_managed_query)
         moved = self._query("only_in_source", "SELECT 1")
         self._node(source, moved)
 
@@ -586,9 +597,12 @@ class TestConsolidateDags(BaseTest):
 
         self.assertIn(f"Excluding 1 system-managed DAG(s): {REVENUE_ANALYTICS_DAG_NAME}", output)
         self.assertTrue(DAG.objects.filter(id=managed.id).exists())
-        self.assertTrue(Node.objects.filter(dag=managed, saved_query=managed_query).exists())
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=managed_query).values_list("dag_id", flat=True)), [managed.id]
+        )
         self.assertFalse(DAG.objects.filter(id=source.id).exists())
         self.assertTrue(Node.objects.filter(dag=target, saved_query=moved).exists())
+        self.assertTrue(Node.objects.filter(dag=target, saved_query=unplaced_managed_query).exists())
 
     @parameterized.expand(
         [

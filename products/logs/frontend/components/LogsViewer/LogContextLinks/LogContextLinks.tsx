@@ -3,6 +3,10 @@ import { useValues } from 'kea'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
+import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -12,10 +16,11 @@ import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getDistinctIdWithKey, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceButton'
-import { type ErrorScope, usableId } from 'products/tracing/frontend/errorCorrelation'
+import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 
 import { LogErrorCount } from './LogErrorCount'
+import { MissingLinkInvestigate } from './MissingLinkInvestigate'
+import { MissingLink } from './missingLinkPrompt'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
 
@@ -30,18 +35,33 @@ export interface LogContextLinksProps {
     surface: LogContextLinksSurface
     /** Called when the error count is clicked, with the scope the count was taken on. */
     onOpenRelatedErrors: (scope: ErrorScope) => void
+    /** Closes the surface holding these links, so the AI side panel opened from them is not covered. */
+    onLeave?: () => void
 }
 
-export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContextLinksProps): JSX.Element | null {
+export function LogContextLinks({
+    log,
+    surface,
+    onOpenRelatedErrors,
+    onLeave,
+}: LogContextLinksProps): JSX.Element | null {
     const { configuredSessionIdKeys, configuredDistinctIdKeys } = useValues(logsConfigLogic)
 
     const traceId = usableId(log.trace_id)
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
-    const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!traceId && !sessionId && !distinctId) {
+    const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
+    const investigateEnabled = !!featureFlags[FEATURE_FLAGS.LOGS_MISSING_LINK_INVESTIGATE]
+    const missing: MissingLink[] = investigateEnabled
+        ? [!traceId && 'trace', !sessionId && 'session', !distinctId && 'person'].filter(
+              (link): link is MissingLink => !!link
+          )
+        : []
+
+    if (!investigateEnabled && !traceId && !sessionId && !distinctId) {
         return null
     }
 
@@ -84,6 +104,9 @@ export function LogContextLinks({ log, surface, onOpenRelatedErrors }: LogContex
                     checkRecordingExists
                     data-attr={`logs-${surface}-context-recording`}
                 />
+            )}
+            {missing.length > 0 && (
+                <MissingLinkInvestigate log={log} missing={missing} surface={surface} onLeave={onLeave} />
             )}
         </div>
     )

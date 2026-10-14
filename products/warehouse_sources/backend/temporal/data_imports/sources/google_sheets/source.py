@@ -3,8 +3,10 @@ from typing import Optional, cast
 from django.conf import settings
 
 import gspread
+import structlog
 from google.auth import exceptions as google_auth_exceptions
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,9 +34,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+logger = structlog.get_logger(__name__)
+
 
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
+    codebase_detection = detect(
+        env=("^GOOGLE_SHEETS_",),
+        npm=("google-spreadsheet", "@googleapis/sheets"),
+        pypi=("gspread", "pygsheets"),
+        maven=("com.google.apis:google-api-services-sheets",),
+        rubygems=("google-apis-sheets_v4",),
+    )
+
     api_docs_url = "https://developers.google.com/sheets/api"
     uses_stable_schema_resource_ids = True
 
@@ -149,7 +161,17 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        client = google_sheets_client()
+        try:
+            client = google_sheets_client()
+        except ValueError:
+            # google-auth raises ValueError when this instance's service account key is malformed,
+            # for example not valid PEM. The user can't fix that, so return a clear message, not a 500.
+            logger.exception("google_sheets_service_account_key_invalid", team_id=team_id)
+            return (
+                False,
+                "The Google Sheets integration isn't configured correctly on this PostHog instance. "
+                "Ask your instance administrator to check the Google Sheets service account key.",
+            )
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LessAnnoyingCRMSource(ResumableSource[LessAnnoyingCRMSourceConfig, LessAnnoyingCRMResumeConfig]):
+    codebase_detection = detect(env=("^(LESS_ANNOYING_CRM|LESSANNOYINGCRM)_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://account.lessannoyingcrm.com/api_docs/v2/"
