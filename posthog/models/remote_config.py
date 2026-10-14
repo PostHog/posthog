@@ -103,7 +103,7 @@ class RemoteConfig(UUIDTModel):
         """
         Build session recording configuration with V1/V2 support.
 
-        V2: If team.session_recording_trigger_groups is set, use new trigger groups format
+        V2: If team.session_recording_trigger_groups holds a groups list, use new trigger groups format
         V1: Otherwise, use legacy trigger fields for backward compatibility
         """
         # Build base config (common to both V1 and V2)
@@ -169,26 +169,34 @@ class RemoteConfig(UUIDTModel):
             "triggerMatchType": team.session_recording_trigger_match_type_config,
         }
 
-        # V2: If trigger groups configured, send V2 + V1 fallback fields
-        if team.session_recording_trigger_groups:
-            trigger_groups_config = team.session_recording_trigger_groups
-            groups = trigger_groups_config.get("groups", [])
+        # The Team API validates this column. Older rows can still hold malformed JSON.
+        # An unreadable column takes the V1 path.
+        trigger_groups_config = team.session_recording_trigger_groups
+        groups = trigger_groups_config.get("groups") if isinstance(trigger_groups_config, dict) else None
 
+        # V2: If trigger groups configured, send V2 + V1 fallback fields
+        if isinstance(groups, list):
             # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
             # This future-proofs the contract so WHERE clauses (property filters on events)
             # can be added later without a breaking SDK change.
             # Build normalized copies to avoid mutating the team's stored data.
             normalized_groups = []
             for group in groups:
-                conditions = group.get("conditions", {})
-                if "events" in conditions:
+                # The SDK throws on a group whose conditions or events it cannot read. This loop drops such a group.
+                conditions = group.get("conditions") if isinstance(group, dict) else None
+                if not isinstance(conditions, dict):
+                    continue
+                events = conditions.get("events")
+                if isinstance(events, list):
                     group = {
                         **group,
                         "conditions": {
                             **conditions,
-                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
+                            "events": [{"name": e} if isinstance(e, str) else e for e in events],
                         },
                     }
+                elif events is not None:
+                    continue
                 normalized_groups.append(group)
 
             return {

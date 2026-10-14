@@ -23,6 +23,13 @@ from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
 SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
+_READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
+_SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
+_FLAG_GROUP_WITH_NULL_EVENTS = {
+    "id": "g3",
+    "sampleRate": 1,
+    "conditions": {"matchType": "any", "events": None, "flag": "k"},
+}
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -336,6 +343,34 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert config is not None
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
+
+    @parameterized.expand(
+        [
+            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP]),
+            (
+                "conditions_not_an_object",
+                {"version": 2, "groups": [{"conditions": None}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+            ),
+            ("events_null", {"version": 2, "groups": [_FLAG_GROUP_WITH_NULL_EVENTS]}, [_FLAG_GROUP_WITH_NULL_EVENTS]),
+            (
+                "events_not_a_list",
+                {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+            ),
+            ("column_not_an_object", ["not-a-config"], None),
+            ("groups_not_a_list", {"version": 2, "groups": None}, None),
+        ]
+    )
+    def test_session_recording_trigger_groups_send_only_readable_groups(
+        self, _name: str, stored: Any, expected_trigger_groups: list[dict] | None
+    ) -> None:
+        self.team.session_recording_trigger_groups = stored
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        assert session_recording["version"] == (1 if expected_trigger_groups is None else 2)
+        assert session_recording.get("triggerGroups") == expected_trigger_groups
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
