@@ -1089,14 +1089,28 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("credit_limit", {"credit_limit": 500}, {"credit_limit": None}, 400),
-            ("free_only_without_own_limit", {"free_only": True}, {"free_only": False}, 400),
-            ("free_only_with_own_limit", {"free_only": True, "credit_limit": 500}, {"free_only": False}, 200),
+            ("credit_limit", {"credit_limit": 500}, {"credit_limit": None}, 1000, 400),
+            ("free_only_without_own_limit", {"free_only": True}, {"free_only": False}, 1000, 400),
+            ("free_only_with_own_limit", {"free_only": True, "credit_limit": 500}, {"free_only": False}, 1000, 200),
+            (
+                "free_only_with_own_limit_in_an_uncapped_org",
+                {"free_only": True, "credit_limit": 500},
+                {"free_only": False},
+                None,
+                400,
+            ),
         ]
     )
     def test_scout_cannot_remove_a_spend_ceiling(
-        self, _name: str, ceiling: dict[str, Any], patch_body: dict[str, Any], expected_status: int
+        self,
+        _name: str,
+        ceiling: dict[str, Any],
+        patch_body: dict[str, Any],
+        organization_limit: int | None,
+        expected_status: int,
     ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="capped", **ceiling)
         self._authenticate_as_scout()
 

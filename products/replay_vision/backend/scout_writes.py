@@ -130,5 +130,7 @@ def check_scout_scanner_credit_limit(
             )
         return
     raises_limit = "credit_limit" in attrs and (instance.credit_limit is None or credit_limit > instance.credit_limit)
-    if turning_on or changes_enabled_cost or raises_limit:
+    # Without free-only, an enabled scanner bills up to its own limit, so that limit has to fit the org quota.
+    starts_billing = instance.free_only and attrs.get("free_only") is False and attrs.get("enabled", instance.enabled)
+    if turning_on or changes_enabled_cost or raises_limit or starts_billing:
         _check_credit_ceiling(credit_limit, max_credit_limit)
