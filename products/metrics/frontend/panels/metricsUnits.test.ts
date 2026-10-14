@@ -35,6 +35,7 @@ describe('formatMetricValue', () => {
         [88, '1/s', '88/s'],
         [88, '{request}/s', '88 request/s'],
         [1500, '{message}/s', '1.5K message/s'],
+        [2048, 'By/s', '2 KiB/s'],
         // unknown unit falls back to compact + suffix
         [1234, 'widgets', '1.23K widgets'],
         // small nonzero values keep two significant digits instead of rounding to zero

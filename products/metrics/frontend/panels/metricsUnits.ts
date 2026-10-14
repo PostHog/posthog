@@ -82,6 +82,10 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
     if (unit === '1/s') {
         return `${compact(value)}/s`
     }
+    if (unit === 'By/s') {
+        // A rate over a byte counter: scale through bytes so it reads as throughput.
+        return `${bytes(value, 1024)}/s`
+    }
     if (unit.endsWith('/s')) {
         // "{request}/s", "{message}/s", etc. Show the count rate with the noun.
         const noun = unit.slice(0, -2).replace(/[{}]/g, '')

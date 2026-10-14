@@ -8,7 +8,7 @@ export interface MetricsChartSeries {
     metricName?: string | null
     /** Alias of the query clause that produced this series (`formula` for a formula result). */
     clause?: string | null
-    /** UCUM unit as ingested, e.g. "By", "ms". Absent when the SDK did not set one. */
+    /** UCUM unit of the values, as the query resolves it, e.g. "By", "ms", "1/s". Absent when the values have no unit. */
     unit?: string | null
 }
 
