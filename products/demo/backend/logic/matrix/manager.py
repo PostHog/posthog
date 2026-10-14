@@ -1,10 +1,11 @@
 # ruff: noqa: T201 allow print statements
 
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from functools import partial
 from time import sleep
 from typing import Any, Literal, cast
+from uuid import UUID, uuid5
 
 from django.conf import settings
 from django.core import exceptions
@@ -30,6 +31,30 @@ from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
 # Each flush waits at most 1 second, so one event waits at most about this many seconds for queue room.
 QUEUE_FULL_MAX_FLUSHES = 60
+
+# Demo events go straight to ClickHouse and skip Node ingestion, so this module makes the
+# $experiment_exposure copies itself. Keep these values and the copy rule in sync with
+# nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts.
+EVENT_FEATURE_FLAG_CALLED = "$feature_flag_called"
+EVENT_EXPERIMENT_EXPOSURE = "$experiment_exposure"
+EXPERIMENT_EXPOSURE_UUID_NAMESPACE = UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48")
+
+
+def _is_multivariate_flag_call(event: SimEvent) -> bool:
+    response = event.properties.get("$feature_flag_response")
+    return (
+        event.event == EVENT_FEATURE_FLAG_CALLED and isinstance(response, str) and response not in ("", "true", "false")
+    )
+
+
+def _with_exposure_copies(events: list[SimEvent]) -> Iterator[tuple[UUID, str, SimEvent]]:
+    """Yield (uuid, event name, event) for each event to save, with each multivariate flag call
+    followed by its $experiment_exposure copy."""
+    for event in events:
+        event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
+        yield event_uuid, event.event, event
+        if _is_multivariate_flag_call(event):
+            yield uuid5(EXPERIMENT_EXPOSURE_UUID_NAMESPACE, str(event_uuid)), EVENT_EXPERIMENT_EXPOSURE, event
 
 
 def _produce_when_queue_has_room(produce: Callable[[], object]) -> None:
@@ -313,13 +338,12 @@ class MatrixManager:
         """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
-        for event in events:
-            event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
+        for event_uuid, event_name, event in _with_exposure_copies(events):
             _produce_when_queue_has_room(
                 partial(
                     create_event,
                     event_uuid=event_uuid,
-                    event=event.event,
+                    event=event_name,
                     team=team,
                     distinct_id=event.distinct_id,
                     timestamp=event.timestamp,
