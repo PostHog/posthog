@@ -63,7 +63,7 @@ class HogFlowState(LabeledStrEnum):
 
 
 class HogFlowOriginProduct(LabeledStrEnum):
-    """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
+    """The product surface that owns a workflow. Null for workflows built in the workflows UI or through the hog flows API."""
 
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"

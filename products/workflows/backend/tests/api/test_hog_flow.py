@@ -613,6 +613,19 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["origin_product"] == "loops"
 
+    def test_api_sends_origin_is_refused_on_create(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "api_sends"}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "origin_product"
+        assert not HogFlow.objects.filter(team=self.team, origin_product="api_sends").exists()
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.

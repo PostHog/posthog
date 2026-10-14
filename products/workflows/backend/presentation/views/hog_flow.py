@@ -2683,7 +2683,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow. Filter the list with `?origin_product=`. PostHog creates `api_sends` workflows "
+        "itself, so a create request cannot set it.",
     )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
@@ -2984,6 +2985,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
         ]
+
+    def validate_origin_product(self, value: str | None) -> str | None:
+        if value == HogFlowOriginProduct.API_SENDS:
+            raise serializers.ValidationError(
+                "PostHog creates the API sends workflow itself. Leave this field empty or choose another value."
+            )
+        return value
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)

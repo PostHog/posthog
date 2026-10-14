@@ -144,7 +144,7 @@ class HogFlow(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=20, choices=State.choices, default=State.DRAFT.value)
     # The product surface that owns this workflow, so that surface can list only its own flows.
-    # Null for workflows built directly in the workflows UI or over the API.
+    # Null for workflows built directly in the workflows UI or through the hog flows API.
     origin_product = models.CharField(
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )

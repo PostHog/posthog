@@ -495,7 +495,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`. PostHog creates `api_sends` workflows itself, so a create request cannot set it.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
             ),
         trigger_masking: zod
             .union([
@@ -1905,7 +1905,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`. PostHog creates `api_sends` workflows itself, so a create request cannot set it.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2789,7 +2789,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`. PostHog creates `api_sends` workflows itself, so a create request cannot set it.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
             ),
         trigger_masking: zod
             .union([

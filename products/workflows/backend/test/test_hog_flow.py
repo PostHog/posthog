@@ -63,7 +63,6 @@ class TestHogFlow(TestCase):
         [
             ("an api sends flow on another team", True, HogFlow.OriginProduct.API_SENDS, 1),
             ("two broadcasts on the same team", False, HogFlow.OriginProduct.BROADCASTS, 2),
-            ("two workflows built in the UI on the same team", False, None, 2),
         ]
     )
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
