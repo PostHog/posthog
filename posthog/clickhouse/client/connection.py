@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.event.new_events_schema import get_new_events_cluster_host
 from posthog.settings import data_stores
 from posthog.utils import patchable
 
@@ -432,6 +431,8 @@ def get_kwargs_for_client(
     base_kwargs = {"user": creds.user, "password": creds.password}
 
     if workload == Workload.NEW_EVENTS_CLUSTER:
+        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
+
         host = get_new_events_cluster_host()
         if not host:
             raise ValueError("Native events ClickHouse host is not configured")
