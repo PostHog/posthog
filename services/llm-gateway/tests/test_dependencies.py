@@ -27,13 +27,16 @@ from llm_gateway.dependencies import (
     get_request_json,
     resolve_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID, WIZARD_US_APP_ID
+from llm_gateway.products.config import (
+    POSTHOG_CODE_RETIRED_MESSAGE,
+    POSTHOG_CODE_US_APP_ID,
+    SIGNALS_DEV_APP_ID,
+    WIZARD_US_APP_ID,
+)
 from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
 from llm_gateway.services.desktop_access_resolver import (
     DesktopAccessDecision,
-    DesktopAccessReason,
-    DesktopAccessStatus,
 )
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
@@ -561,161 +564,6 @@ class TestServerCredentialRequirementWiring:
             get_settings.cache_clear()
 
 
-class TestDesktopAccessGate:
-    def _oauth_user(self, scopes: list[str] | None = None) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=7,
-            team_id=1,
-            auth_method="oauth_access_token",
-            distinct_id="test-distinct-id-7",
-            scopes=scopes if scopes is not None else ["llm_gateway:read"],
-            application_id=POSTHOG_CODE_US_APP_ID,
-        )
-
-    def _request(
-        self,
-        resolver_answer: bool,
-        path: str = "/posthog_code/v1/messages",
-        reason: DesktopAccessReason | None = "startup_plan",
-        unavailable: bool = False,
-    ) -> Request:
-        request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
-        status: DesktopAccessStatus
-        if unavailable:
-            status = "unavailable"
-        elif resolver_answer:
-            status = "allowed"
-        else:
-            status = "blocked"
-        decision_reason = reason if status == "blocked" else None
-        resolver = MagicMock()
-        resolver.resolve_access = AsyncMock(
-            return_value=DesktopAccessDecision(
-                status=status,
-                reason=decision_reason,
-            )
-        )
-        request.app.state.desktop_access_resolver = resolver
-        return request
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("reason", ["startup_plan", "prepaid_credits"])
-    async def test_unentitled_user_blocked_with_backend_reason(self, reason: DesktopAccessReason) -> None:
-        get_settings.cache_clear()
-        try:
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(False, reason=reason), user=self._oauth_user())
-            assert exc_info.value.status_code == 403
-            assert exc_info.value.detail["error"]["code"] == "code_access_required"
-            assert exc_info.value.detail["error"]["reason"] == reason
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_legacy_denial_preserves_generic_error_shape(self) -> None:
-        get_settings.cache_clear()
-        try:
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(False, reason=None), user=self._oauth_user())
-            assert exc_info.value.status_code == 403
-            assert exc_info.value.detail["error"]["code"] == "code_access_required"
-            assert "reason" not in exc_info.value.detail["error"]
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_resolution_failure_returns_retryable_service_error(self) -> None:
-        get_settings.cache_clear()
-        try:
-            request = self._request(False, unavailable=True)
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=request, user=self._oauth_user())
-            assert exc_info.value.status_code == 503
-            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_missing_validated_team_returns_retryable_service_error(self) -> None:
-        get_settings.cache_clear()
-        try:
-            user = self._oauth_user()
-            user.team_id = None
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(True), user=user)
-            assert exc_info.value.status_code == 503
-            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_entitled_user_allowed(self) -> None:
-        get_settings.cache_clear()
-        try:
-            user = self._oauth_user()
-            assert await enforce_product_access(request=self._request(True), user=user) is user
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "env_var",
-        [
-            pytest.param("LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED", id="kill_switch"),
-            pytest.param("LLM_GATEWAY_DEBUG", id="debug"),
-        ],
-    )
-    async def test_gate_short_circuits(self, monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
-        monkeypatch.setenv(env_var, "false" if env_var.endswith("GATE_ENABLED") else "true")
-        get_settings.cache_clear()
-        try:
-            request = self._request(False)
-            user = self._oauth_user()
-            assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_server_minted_token_exempt(self) -> None:
-        get_settings.cache_clear()
-        try:
-            request = self._request(False)
-            user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
-            assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("path", ["/array/v1/messages", "/twig/v1/messages"])
-    async def test_alias_path_is_gated(self, path: str) -> None:
-        get_settings.cache_clear()
-        try:
-            with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(False, path=path), user=self._oauth_user())
-            assert exc_info.value.status_code == 403
-        finally:
-            get_settings.cache_clear()
-
-    @pytest.mark.asyncio
-    async def test_other_products_untouched(self) -> None:
-        get_settings.cache_clear()
-        try:
-            request = self._request(False, path="/django/v1/messages")
-            user = AuthenticatedUser(
-                user_id=7,
-                team_id=1,
-                auth_method="personal_api_key",
-                distinct_id="test-distinct-id-7",
-                scopes=["llm_gateway:read"],
-            )
-            assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
-        finally:
-            get_settings.cache_clear()
-
-
 class TestSandboxTaskIdPlumbing:
     """The whole path the per-run spend ceiling rides on: token row -> AuthenticatedUser ->
     ThrottleContext -> cache key.
@@ -835,5 +683,38 @@ class TestRetiredProduct:
             assert error["code"] == "product_access_denied"
             assert error["reason"] == "product_retired"
             assert "npx @posthog/wizard@latest" in error["message"]
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("path", ["/posthog_code/v1/messages", "/array/v1/messages", "/twig/v1/messages"])
+    @pytest.mark.parametrize(
+        "scopes",
+        [["llm_gateway:read"], ["llm_gateway:read", "internal_run:read"]],
+        ids=["desktop_oauth_token", "server_minted_token"],
+    )
+    async def test_posthog_code_is_refused_before_the_desktop_gate(self, path: str, scopes: list[str]) -> None:
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
+            resolver = MagicMock()
+            resolver.resolve_access = AsyncMock(return_value=DesktopAccessDecision(status="allowed", reason=None))
+            request.app.state.desktop_access_resolver = resolver
+            user = AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="oauth_access_token",
+                distinct_id="test-distinct-id-7",
+                scopes=scopes,
+                application_id=POSTHOG_CODE_US_APP_ID,
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=user)
+            assert exc_info.value.status_code == 403
+            error = exc_info.value.detail["error"]
+            assert error["code"] == "product_access_denied"
+            assert error["reason"] == "product_retired"
+            assert error["message"] == POSTHOG_CODE_RETIRED_MESSAGE
+            resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()

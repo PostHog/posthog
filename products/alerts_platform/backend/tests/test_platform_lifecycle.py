@@ -143,6 +143,45 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
 
+    @parameterized.expand([("one_schedule_group", "5:1:True", 1), ("no_schedule_group", None, 2)])
+    def test_a_team_checks_share_a_slot_only_when_the_source_groups_them(
+        self, _name: str, schedule_group: str | None, expected_slots: int
+    ) -> None:
+        # Ids 1 and 2 fall in different slots of a 5-minute cadence when the offset is per configuration.
+        with team_scope(self.team.id):
+            configurations = [
+                PlatformAlertConfiguration.objects.create(
+                    id=UUID(int=n),
+                    team=self.team,
+                    name=f"Alert {n}",
+                    source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                    source_config={},
+                    check_interval_minutes=5,
+                    next_check_at=self.cutoff - timedelta(minutes=1),
+                )
+                for n in (1, 2)
+            ]
+        outcomes = [
+            PlatformAlertOutcome(
+                configuration_id=c.id,
+                evaluation_key=f"window:{self.cutoff.isoformat()}",
+                kind=AlertEventKind.CHECK,
+                new_state="not_firing",
+                notified=False,
+                consecutive_failures=0,
+                schedule_group=schedule_group,
+            )
+            for c in configurations
+        ]
+        record_outcomes(self.team.id, outcomes, self.cutoff)
+
+        with team_scope(self.team.id):
+            due = {
+                c.next_check_at
+                for c in PlatformAlertConfiguration.objects.filter(id__in=[c.id for c in configurations])
+            }
+        assert len(due) == expected_slots
+
     def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
         fields: dict[str, Any] = {
             "legacy_configuration_id": legacy_id,

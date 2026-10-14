@@ -53,7 +53,7 @@ class TestPostSlackUnfurlChartsActivity(BaseTest):
         post_slack_unfurl_charts_activity(
             SlackAppUnfurlChartsPostInput(
                 request=request,
-                rendered=[SlackUnfurlChartAsset(insight_id=insight.id, asset_id=asset.id)],
+                rendered=[SlackUnfurlChartAsset(render_key=f"insight:{insight.id}", asset_id=asset.id)],
                 elapsed_ms=1,
             )
         )

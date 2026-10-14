@@ -44,7 +44,7 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{tasks,conversations,error_tracking,github_commands,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{commands,conversations,error_tracking,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
@@ -52,9 +52,9 @@ It scans descriptions for direct issue links and fingerprint permalinks on the c
 Repeated links and deliveries reuse an existing reference.
 Removing a link from a later description does not remove the reference.
 
-The GitHub commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
+The commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
 The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
-See `products/github_commands/README.md`.
+See `products/commands/README.md`.
 
 ### Picking the project
 

@@ -67,12 +67,14 @@ class _OneShotEvalRun(_BaseEvalRun):
         case = self.cases_by_name.get(input["name"]) or BaseEvalCase(name=input["name"], prompt=input.get("prompt", ""))
         started = time.monotonic()
         async with self.ctx.one_shot_slots:
+            await self._set_case_phase(hooks, "agent")
             # Budget the task from slot acquisition, so time spent queued on the
             # semaphore can never eat into a case's timeout.
             output = await asyncio.wait_for(
                 self._task_fn(case, self.ctx),
                 timeout=self.ctx.per_case_timeout_seconds,
             )
+        await self._set_case_phase(hooks, "logs")
         output.setdefault("prompt", case.prompt)
         await self._write_local_logs(
             case, output, duration=time.monotonic() - started, trial_id=hooks.metadata.get("trial_id")
