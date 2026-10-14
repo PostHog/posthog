@@ -3,8 +3,8 @@ import { router, urlToAction } from 'kea-router'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
-const PANEL_LAYOUT_NAV_IDENTIFIERS = ['Project', 'Notifications'] as const
-export type PanelLayoutNavIdentifier = (typeof PANEL_LAYOUT_NAV_IDENTIFIERS)[number]
+export type PanelLayoutNavIdentifier = 'Project' | 'Notifications'
+const PANEL_LAYOUT_NAV_IDENTIFIERS: string[] = ['Project', 'Notifications'] satisfies PanelLayoutNavIdentifier[]
 export type NavExperimentTab = 'home' | 'files' | 'chat'
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -390,7 +390,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // visitedPanels is not persisted, but activePanelIdentifier is. Seed visitedPanels from
         // the rehydrated identifier so the panel that was open on the previous session starts
         // keep-mounted — without this, the first switch after reload tears the panel down once.
-        if ((PANEL_LAYOUT_NAV_IDENTIFIERS as readonly string[]).includes(values.activePanelIdentifier)) {
+        if (PANEL_LAYOUT_NAV_IDENTIFIERS.includes(values.activePanelIdentifier)) {
             actions.setActivePanelIdentifier(values.activePanelIdentifier as PanelLayoutNavIdentifier)
         } else if (values.activePanelIdentifier) {
             // A panel removed from the app can still be stored from an earlier session. Clear it, because
