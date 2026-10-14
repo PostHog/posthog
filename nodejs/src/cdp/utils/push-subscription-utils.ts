@@ -15,7 +15,8 @@ export interface DeviceSubscription {
     token: string
 }
 
-/** Person property key holding one device's push token. */
+/** Person property key holding one device's push token. Mirrors `device_subscription_key` in
+ * `push_subscriptions.py`; the two must agree or a registration lands on a key sends never read. */
 export function deviceSubscriptionKey(appIdentifier: string, token: string): string {
     return `${DEVICE_SUBSCRIPTION_PREFIX}${appIdentifier}:${createHash('sha256')
         .update(token)
