@@ -1,6 +1,13 @@
 import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
+import { NavigationSample } from '@posthog/replay-headless/protocol'
 
-import { InactivityPeriod, RasterizeRecordingInput, RasterizeRecordingOutput, RecordingResult } from './types'
+import {
+    InactivityPeriod,
+    NavigationChange,
+    RasterizeRecordingInput,
+    RasterizeRecordingOutput,
+    RecordingResult,
+} from './types'
 
 /**
  * Place each period on the video clock from the timeline measured during capture.
@@ -110,6 +117,25 @@ export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityP
     return results
 }
 
+export function navigationFromFrames(
+    samples: NavigationSample[],
+    frameSessionMs: number[],
+    fps: number,
+    preRollFrames = 0
+): NavigationChange[] {
+    if (fps <= 0) {
+        return []
+    }
+    return samples
+        .filter((entry) => entry.sample >= 0 && entry.sample < frameSessionMs.length)
+        .map((entry) => ({
+            video_s: (preRollFrames + entry.sample) / fps,
+            session_s: entry.session_ms / 1000,
+            window_id: entry.window_id,
+            url: entry.url,
+        }))
+}
+
 /** The render's output metadata, shared by the Temporal activity and the file CLI so the two cannot drift. */
 export function renderOutputFields(
     result: RecordingResult,
@@ -123,6 +149,12 @@ export function renderOutputFields(
         truncated: result.truncated,
         inactivity_periods: videoTimestampsFromFrames(
             result.inactivity_periods,
+            result.frame_session_ms,
+            result.output_fps,
+            result.pre_roll_frames
+        ),
+        navigation: navigationFromFrames(
+            result.navigation_samples,
             result.frame_session_ms,
             result.output_fps,
             result.pre_roll_frames

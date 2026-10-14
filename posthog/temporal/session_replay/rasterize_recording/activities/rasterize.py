@@ -23,6 +23,7 @@ from ..types import (
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     InactivityPeriod,
+    NavigationChange,
     RasterizationActivityInput,
     RasterizationActivityOutput,
     compute_params_fingerprint,
@@ -210,6 +211,7 @@ def _try_synthesize_cached_output(
         return None
 
     inactivity_periods = [InactivityPeriod.model_validate(p) for p in ctx.get("inactivity_periods") or []]
+    navigation = [NavigationChange.model_validate(n) for n in ctx.get("navigation") or []]
 
     return RasterizationActivityOutput(
         s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/{asset.content_location}",
@@ -219,6 +221,7 @@ def _try_synthesize_cached_output(
         footer_height_px=int(ctx.get("footer_height_px") or 0),
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
+        navigation=navigation,
         file_size_bytes=int(ctx["file_size_bytes"]),
     )
 
@@ -248,6 +251,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",
+                    "navigation",
                 }
             )
         )

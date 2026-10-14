@@ -1,6 +1,8 @@
 import { DataLoadError } from './data-loader'
 import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
+import { NavigationTimeline } from './navigation-timeline'
+import { PageUrls } from './page-urls'
 import { PlaybackController } from './playback-controller'
 import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
 import { createReplayers } from './replayer-factory'
@@ -24,7 +26,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         return
     }
 
-    const { windows, segments, firstTimestamp } = setup
+    const { windows, segments, firstTimestamp, windowUuidById } = setup
 
     const footerHeight = config.showMetadataFooter ? METADATA_FOOTER_HEIGHT_PX : 0
     const scaler = new ViewportScaler(contentEl, footerHeight)
@@ -49,8 +51,10 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         scaler.fitReplayer(onScreen.replayer)
     })
 
+    const pageUrls = new PageUrls(windows)
+    new NavigationTimeline(controller, pageUrls, windowUuidById).start()
     if (config.showMetadataFooter) {
-        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller)
+        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller, pageUrls)
         footer.start()
     }
 

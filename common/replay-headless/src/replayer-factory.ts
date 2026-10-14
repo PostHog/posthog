@@ -65,6 +65,7 @@ export interface ReplayerSetup {
     windows: ReplayerWindow[]
     segments: RecordingSegment[]
     firstTimestamp: number
+    windowUuidById: Map<number, string>
 }
 
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
@@ -105,7 +106,7 @@ export async function createReplayers(
     rootEl: HTMLElement,
     bridge: HostBridge
 ): Promise<ReplayerSetup | ReplayerSetupFailure> {
-    const { sources, snapshotsBySource } = await loadAllSources(config, (loaded, total) =>
+    const { sources, snapshotsBySource, windowUuidById } = await loadAllSources(config, (loaded, total) =>
         bridge.reportLoadingProgress(loaded, total)
     )
 
@@ -189,5 +190,5 @@ export async function createReplayers(
     }
     windows.sort((a, b) => a.firstTimestamp - b.firstTimestamp)
 
-    return { windows, segments, firstTimestamp }
+    return { windows, segments, firstTimestamp, windowUuidById }
 }

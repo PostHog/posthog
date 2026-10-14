@@ -4,9 +4,10 @@ import {
     PLAYER_CONFIG_KEY,
     PLAYER_EMIT_FN,
     PLAYER_FRAME_TIMELINE_KEY,
+    PLAYER_NAVIGATION_KEY,
     PLAYER_START_EVENT,
 } from '@posthog/replay-headless/protocol'
-import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
+import type { InactivityPeriod, NavigationSample, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
@@ -267,6 +268,17 @@ export class PlayerController {
             // Page already gone: use whatever the player managed to push before teardown.
         }
         return this.state.frameSessionMs
+    }
+
+    async readNavigation(): Promise<NavigationSample[]> {
+        try {
+            return await this.capturePage.page.evaluate(
+                (key: string) => (window as unknown as Record<string, NavigationSample[]>)[key] ?? [],
+                PLAYER_NAVIGATION_KEY
+            )
+        } catch {
+            return []
+        }
     }
 
     dispose(): void {

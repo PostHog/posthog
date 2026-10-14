@@ -1,8 +1,7 @@
-import type { eventWithTime } from 'posthog-js/rrweb-types'
-
-import { getHrefFromSnapshot, type RecordingSegment } from '@posthog/replay-shared'
+import type { RecordingSegment } from '@posthog/replay-shared'
 
 import { footerUrl } from './footer-url'
+import type { PageUrls } from './page-urls'
 import type { PlaybackController } from './playback-controller'
 import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
 import type { ReplayerWindow } from './replayer-factory'
@@ -13,7 +12,6 @@ import type { ReplayerWindow } from './replayer-factory'
  * context.
  */
 export class MetadataFooter {
-    private urlByWindow = new Map<number, string>()
     private numberByWindow = new Map<number, number>()
     private footerEl: HTMLElement | null
     private metaUrlEl: HTMLElement | null
@@ -25,7 +23,8 @@ export class MetadataFooter {
         private windows: ReplayerWindow[],
         private segments: RecordingSegment[],
         private firstTimestamp: number,
-        private controller: PlaybackController
+        private controller: PlaybackController,
+        private pageUrls: PageUrls
     ) {
         this.footerEl = document.getElementById('metadata-footer')
         this.metaUrlEl = document.getElementById('meta-url')
@@ -34,16 +33,6 @@ export class MetadataFooter {
         this.metaStatusEl = document.getElementById('meta-status')
 
         windows.forEach((tab, index) => this.numberByWindow.set(tab.windowId, index + 1))
-        for (const tab of windows) {
-            this.urlByWindow.set(tab.windowId, tab.initialURL)
-            // Custom events carry the URL of in-page navigations, which record no Meta event.
-            tab.replayer.on('event-cast', (event: eventWithTime) => {
-                const href = getHrefFromSnapshot(event)
-                if (href) {
-                    this.urlByWindow.set(tab.windowId, href)
-                }
-            })
-        }
         // The footer's own frame callback runs before the controller's, so without this the frame that switches
         // windows would show the new window's page under the old window's number and URL.
         this.controller.onWindowChange(() => this.update())
@@ -73,7 +62,7 @@ export class MetadataFooter {
         const sessionMs = Math.max(0, this.controller.currentSessionMs())
         this.metaRectEl.textContent = (sessionMs / 1000).toFixed(0)
         this.metaWindowEl.textContent = `${this.numberByWindow.get(active.windowId)} of ${this.windows.length}`
-        this.metaUrlEl.textContent = footerUrl(this.urlByWindow.get(active.windowId) ?? '')
+        this.metaUrlEl.textContent = footerUrl(this.pageUrls.urlOf(active.windowId))
 
         if (this.controller.isStopped) {
             this.metaStatusEl.className = 'status-ended'

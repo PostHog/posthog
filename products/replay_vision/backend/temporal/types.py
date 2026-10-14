@@ -214,13 +214,13 @@ class SessionIdentity(BaseModel, frozen=True):
 
 
 class NavigationEntry(BaseModel, frozen=True):
-    """One page-URL change in the session, precomputed for the prompt's navigation timeline."""
+    """One change of the page or tab on screen, as the prompt's navigation timeline shows it."""
 
-    rec_t: int = Field(ge=0)
-    # Interned `window_N` token, matching what the event lookups return. None when the session has no window ids.
-    window: str | None = None
+    vid_t: int = Field(ge=0)
+    # `window_N` token, matching what the event lookups return for the same tab.
+    window: str
     url: str
-    # First entry seen for a window token other than the session's initial one (a tab or window opening).
+    # The first entry for a tab other than the one the recording starts in (a tab or window opening).
     new_window: bool = False
 
 
@@ -234,9 +234,6 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
-    # Chronological URL-change timeline rendered into the preamble.
-    navigation: list[NavigationEntry] = Field(default_factory=list)
-    navigation_dropped: int = Field(default=0, ge=0)
     # True when the session hit the fetch row cap, so the event lookups can't see the whole session.
     events_truncated: bool = False
     # Customer product context rendered into the preamble; empty for teams without core memory / descriptions.

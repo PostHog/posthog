@@ -79,6 +79,14 @@ class InactivityPeriod(BaseModel, frozen=True):
     recording_ts_to_s: float | None = None
 
 
+class NavigationChange(BaseModel, frozen=True):
+    video_s: float
+    session_s: float
+    # The recording's own window id, the same `$window_id` its analytics events carry.
+    window_id: str
+    url: str
+
+
 class ActivityTimings(BaseModel, frozen=True):
     total_s: float = 0
     setup_s: float = 0
@@ -100,6 +108,8 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     footer_height_px: int = 0
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
+    # Empty for renders from before the renderer recorded it.
+    navigation: list[NavigationChange] = []
     file_size_bytes: int = 0
     timings: ActivityTimings = ActivityTimings()
 
