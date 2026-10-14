@@ -35,6 +35,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.writes import update_workflow
@@ -7363,21 +7364,13 @@ class TestReplayVisionActionValidation(APIBaseTest):
         ]
         sync_template_to_db(template)
 
-    @parameterized.expand(
-        [
-            ("can_view_recordings", "viewer", {"type": "monitor", "prompt": "did they rage click?"}, None),
-            ("cannot_view_recordings", "none", {"type": "monitor", "prompt": "did they rage click?"}, "template_id"),
-            ("incomplete_setup", "viewer", {"type": "classifier", "prompt": "intent?"}, "inputs"),
-        ]
-    )
-    def test_the_step_needs_recording_access_and_a_complete_setup(
-        self, _name: str, recording_access: str, analysis: dict, error_attr: str | None
-    ) -> None:
+    def _enable_access_control(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+    def _save_step(self, analysis: dict, **extra: Any):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -7399,18 +7392,70 @@ class TestReplayVisionActionValidation(APIBaseTest):
                 },
             },
         }
-
-        response = self.client.post(
+        return self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            format="json",
             HTTP_X_POSTHOG_CLIENT="mcp",
+            **extra,
         )
+
+    @parameterized.expand(
+        [
+            ("can_view_recordings", "viewer", {"type": "monitor", "prompt": "did they rage click?"}, None),
+            ("cannot_view_recordings", "none", {"type": "monitor", "prompt": "did they rage click?"}, "template_id"),
+            ("incomplete_setup", "viewer", {"type": "classifier", "prompt": "intent?"}, "inputs"),
+        ]
+    )
+    def test_the_step_needs_recording_access_and_a_complete_setup(
+        self, _name: str, recording_access: str, analysis: dict, error_attr: str | None
+    ) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+        response = self._save_step(analysis)
 
         if error_attr is None:
             assert response.status_code == status.HTTP_201_CREATED, response.json()
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert error_attr in str(response.json()), response.json()
+
+    @parameterized.expand([("editable", "editor", status.HTTP_201_CREATED), ("restricted", "none", 400)])
+    def test_the_step_needs_the_editors_own_access_to_the_scanner(
+        self, _name: str, scanner_access: str, expected: int
+    ) -> None:
+        self._enable_access_control()
+        scanner = ReplayScanner.objects.create(
+            team=self.team, name="checkout", scanner_type="monitor", scanner_config={"prompt": "checked out?"}
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(scanner.id), access_level=scanner_access
+        )
+
+        response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("recording_and_scanner_scopes", ["hog_flow:write", "session_recording:read", "replay_scanner:read"], 201),
+            ("no_recording_scope", ["hog_flow:write", "replay_scanner:read"], 400),
+            ("no_scanner_scope", ["hog_flow:write", "session_recording:read"], 400),
+        ]
+    )
+    def test_a_key_needs_the_scopes_for_what_the_step_reads(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflows", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._save_step(
+            {"type": "monitor", "prompt": "did they rage click?"}, HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected, response.json()
 
     @parameterized.expand([("live", False, status.HTTP_403_FORBIDDEN), ("mocked", True, status.HTTP_200_OK)])
     def test_a_live_test_run_needs_the_testers_recording_access(

@@ -122,7 +122,11 @@ from products.cdp.backend.presentation.serializers import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.replay_vision.backend.facade.api import ObservationRequestRejected, parse_workflow_scan_setup
+from products.replay_vision.backend.facade.api import (
+    ObservationRequestRejected,
+    parse_workflow_scan_setup,
+    workflow_scan_editor_error,
+)
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
@@ -570,6 +574,33 @@ _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 # The scan runs as the workflow's owner, but whoever saves the step chooses which sessions it reads and
 # where the answers go, so the editor needs recording access too.
 _REPLAY_VISION_TEMPLATE_ID = "template-posthog-replay-vision"
+# Each group lists the scopes that let a token read one of the things the step reads.
+_REPLAY_VISION_STEP_SCOPES = (
+    ("session_recording:read", "session_recording:write"),
+    ("replay_scanner:read", "replay_scanner:write"),
+)
+
+
+def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
+    """Why the caller may not save or live-test a Replay Vision step with these inputs, or None."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and "*" not in scopes:
+        for accepted in _REPLAY_VISION_STEP_SCOPES:
+            if not any(scope in scopes for scope in accepted):
+                return f"The Replay Vision step needs a key with the {accepted[0]} scope."
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+        return None
+    setup = ((inputs or {}).get("analysis") or {}).get("value")
+    scanner_id: uuid_mod.UUID | None = None
+    if isinstance(setup, dict) and setup.get("type") == "scanner":
+        try:
+            scanner_id = uuid_mod.UUID(str(setup.get("scanner_id")))
+        except ValueError:
+            # A strict save refuses the incomplete setup; a draft may keep it.
+            return None
+    return workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
+
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1454,24 +1485,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                 )
 
     def _validate_replay_vision_action(self, inputs: dict, *, strict: bool) -> None:
-        """Reject the Replay Vision step from an editor who can't view recordings, so editing someone
-        else's workflow can't forward recordings the editor may not read, and an incomplete scan setup."""
+        """Reject an incomplete scan setup, and a caller who couldn't run the scan themselves: editing someone
+        else's workflow must not forward recordings or scanner answers the editor may not read."""
         if strict:
             try:
                 parse_workflow_scan_setup((inputs.get("analysis") or {}).get("value"))
             except ObservationRequestRejected as rejected:
                 raise serializers.ValidationError({"inputs": {"analysis": rejected.detail}})
         get_team = self.context.get("get_team")
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if get_team is None or user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+        if get_team is None:
             return
-        if not UserAccessControl(user=user, team=get_team()).check_access_level_for_resource(
-            "session_recording", "viewer"
-        ):
-            raise serializers.ValidationError(
-                {"template_id": "You need access to session recordings to use the Replay Vision step."}
-            )
+        error = _replay_vision_step_error(self.context.get("request"), get_team(), inputs)
+        if error is not None:
+            raise serializers.ValidationError({"template_id": error})
 
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
@@ -5770,19 +5796,20 @@ class HogFlowViewSet(
         except Exception as error:
             capture_exception(error)
 
-    def _require_recording_access_for_live_vision_test(
-        self, payload: dict[str, Any], hog_flow: Optional[WorkflowEditState]
+    def _require_access_for_live_vision_test(
+        self, request: Request, payload: dict[str, Any], hog_flow: Optional[WorkflowEditState]
     ) -> None:
-        # A live test runs the Replay Vision step as the workflow's owner, so the tester needs recording
-        # access of their own, as saving the step does.
+        # A live test runs the Replay Vision step as the workflow's owner, so the tester needs the access that
+        # saving the step needs.
         configuration = payload.get("configuration") or {}
         actions = configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
-        runs_vision = any(
-            isinstance(action, dict) and (action.get("config") or {}).get("template_id") == _REPLAY_VISION_TEMPLATE_ID
-            for action in (actions if isinstance(actions, list) else [])
-        )
-        if runs_vision and not self.user_access_control.check_access_level_for_resource("session_recording", "viewer"):
-            raise exceptions.PermissionDenied("You need access to session recordings to test the Replay Vision step.")
+        for step in actions if isinstance(actions, list) else []:
+            config = (step.get("config") or {}) if isinstance(step, dict) else {}
+            if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
+                continue
+            error = _replay_vision_step_error(request, self.team, config.get("inputs"))
+            if error is not None:
+                raise exceptions.PermissionDenied(error)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
@@ -5828,7 +5855,7 @@ class HogFlowViewSet(
             payload["configuration"] = draft
 
         if not payload.get("mock_async_functions", True):
-            self._require_recording_access_for_live_vision_test(payload, hog_flow)
+            self._require_access_for_live_vision_test(request, payload, hog_flow)
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
