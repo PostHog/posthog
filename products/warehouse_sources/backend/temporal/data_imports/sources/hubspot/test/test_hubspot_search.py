@@ -793,3 +793,41 @@ class TestGetRowsFullRefresh:
         assert len(captured_urls) == 2
         assert captured_urls[0] == captured_urls[1]
         assert sum(t.num_rows for t in tables) == 1
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        # Regression: a 408 (Request Timeout) used to fall through to raise_for_hubspot_status
+        # and crash the whole sync instead of being retried like a 429/5xx.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
+
+        manager = _make_manager()
+        logger = MagicMock()
+
+        timeout_resp = _make_response(408, text="Request Timeout")
+        good = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+
+        iter_resp = iter([timeout_resp, good])
+        captured_urls: list[str] = []
+
+        def _get(url, headers=None, timeout=None):  # noqa: ARG001
+            captured_urls.append(url)
+            return next(iter_resp)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        assert len(captured_urls) == 2
+        assert captured_urls[0] == captured_urls[1]
+        assert sum(t.num_rows for t in tables) == 1

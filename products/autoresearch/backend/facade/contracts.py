@@ -72,6 +72,12 @@ class ArtifactStorageUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class TrainingTrendPoint:
+    iteration_number: int
+    best_holdout_score: float
+
+
+@dataclass(frozen=True)
 class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
@@ -80,6 +86,8 @@ class LiveTrainingRun:
     experiment_count: int
     best_holdout_score: float | None
     latest_agent_description: str
+    latest_summary: str | None
+    trend: list[TrainingTrendPoint]
 
 
 @dataclass(frozen=True)
@@ -126,6 +134,7 @@ class Pipeline:
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str
+    write_person_property: bool
     status: str
     created_by: Any
     created_at: datetime
@@ -136,7 +145,11 @@ class Pipeline:
     champion_lift_at_10: float | None
     champion_is_preliminary: bool | None
     champion_realized_auc_trend: list[RealizedAucPoint]
+    champion_training_trend: list[TrainingTrendPoint]
     people_scored: int | None
+    likely_count: int | None
+    likely_threshold: float | None
+    first_check_expected_at: datetime | None
     coverage: PredictionCoverage | None
     training_run_count: int
     experiment_count: int
@@ -178,6 +191,7 @@ class IterationTrailEntry:
     holdout_score: float | None
     train_score: float | None
     agent_description: str
+    summary: str | None
     model_spec: dict[str, Any]
     recipe_snapshot: dict[str, Any]
 
@@ -220,6 +234,8 @@ class TrainingRun:
     iteration_count: int
     best_holdout_score: float | None
     summary: dict[str, Any] | None
+    reader_summary: str | None
+    next_steps: list[str] | None
     iterations: list[IterationTrailEntry]
     error: str
     started_at: datetime | None
@@ -242,6 +258,7 @@ class Iteration:
     holdout_score: float | None
     status: str
     agent_description: str
+    summary: str | None
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
@@ -307,6 +324,7 @@ class PipelineWrite:
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""
+    write_person_property: bool = False
 
 
 # ── Validation and template contracts ──────────────────────────────────────
@@ -451,6 +469,7 @@ class PredictionSegmentThresholds:
     likely_lift: float
     base_rate: float | None
     base_rate_dates: int
+    base_rate_source: str
     champion_mean_p_y: float | None
     champion_base_rate: float | None
     scores_miscalibrated: bool

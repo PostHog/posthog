@@ -65,9 +65,11 @@ export interface inboxTriageLogicValues {
 export interface inboxTriageLogicActions {
     setSelectedReportId: (
         id: string | null,
-        openMethod?: import('../inboxAnalytics').InboxReportOpenMethod | undefined
+        openMethod?: import('../inboxAnalytics').InboxReportOpenMethod | undefined,
+        linkSource?: null | import('../inboxAnalytics').InboxReportLinkSource | undefined
     ) => {
         id: string | null
+        linkSource: null | import('../inboxAnalytics').InboxReportLinkSource
         openMethod: import('../inboxAnalytics').InboxReportOpenMethod
     } // inboxSceneLogic
     createPrFromReport: (

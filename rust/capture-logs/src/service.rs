@@ -21,6 +21,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::kafka::KafkaSink;
+use metrics::counter;
 
 use tracing::{debug, error, instrument};
 
@@ -398,7 +399,7 @@ pub(crate) fn decode_body_if_gzip_magic(
 }
 
 /// Protobuf clients can't decode a JSON body.
-fn export_success_response(headers: &HeaderMap) -> Response {
+pub fn export_success_response(headers: &HeaderMap) -> Response {
     let is_protobuf = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -807,6 +808,8 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        counter!("capture_metrics_records_produced", "source" => "otlp")
+            .increment(row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count

@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
@@ -159,14 +160,13 @@ class TestBingAdsSource:
         mock_integration.refresh_token = "test_refresh_token"
         mock_get_oauth.return_value = mock_integration
 
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "test-job-id"
-        inputs.schema_name = "campaigns"
+        result = SourceDriver(self.source, self.valid_config).run(
+            "campaigns", [], team_id=self.team_id, job_id="test-job-id"
+        )
 
-        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
-        with pytest.raises(ValueError, match="Bing Ads access token not found for job test-job-id"):
-            self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Bing Ads access token not found for job test-job-id"
+        assert result.requests == []
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_refresh_token(self, mock_get_oauth):
@@ -175,14 +175,13 @@ class TestBingAdsSource:
         mock_integration.refresh_token = None
         mock_get_oauth.return_value = mock_integration
 
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "test-job-id"
-        inputs.schema_name = "campaigns"
+        result = SourceDriver(self.source, self.valid_config).run(
+            "campaigns", [], team_id=self.team_id, job_id="test-job-id"
+        )
 
-        resumable_manager = mock.MagicMock(spec=ResumableSourceManager)
-        with pytest.raises(ValueError, match="Bing Ads refresh token not found for job test-job-id"):
-            self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Bing Ads refresh token not found for job test-job-id"
+        assert result.requests == []
 
     def test_aadsts7000215_is_internal_config_not_customer_actionable(self):
         # AADSTS7000215 means PostHog's own app secret is invalid/expired. The message also contains
@@ -251,7 +250,7 @@ class TestBingAdsSource:
         ],
     )
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.integration_secrets.get_secret",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.credentials_service.get_secret",
         return_value="dev-token",
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.BingAdsClient")
@@ -269,29 +268,13 @@ class TestBingAdsSource:
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "test-job-id"
-        inputs.logger = mock.MagicMock()
+        original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
+        integration = mock.MagicMock(access_token=None, refresh_token="test_refresh_token")
+        with mock.patch.object(BingAdsSource, "get_oauth_integration", return_value=integration):
+            result = SourceDriver(self.source, self.valid_config).run(
+                "campaigns", [], team_id=self.team_id, job_id="test-job-id", resume_state=original
+            )
 
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-
-        store: dict[str, bytes] = {}
-        fake_redis = mock.MagicMock()
-        fake_redis.set.side_effect = lambda key, value, ex=None: store.__setitem__(key, value)
-        fake_redis.get.side_effect = lambda key: store.get(key)
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client",
-            return_value=fake_redis,
-        ):
-            original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
-            manager.save_state(original)
-            manager.confirm()
-            manager.commit()
-            loaded = manager.load_state()
-
-        assert isinstance(loaded, BingAdsResumeConfig)
-        assert loaded == original
+        assert isinstance(result.raised, ValueError)
+        assert isinstance(result.final_state, BingAdsResumeConfig)
+        assert result.final_state == original

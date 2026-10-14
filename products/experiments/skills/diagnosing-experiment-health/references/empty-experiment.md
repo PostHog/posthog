@@ -5,6 +5,7 @@ SDK call → exposure event captured → ingested → matches the configured exp
 
 **Which exposure event?** When `exposure_criteria` names no custom event, the experiment counts exposures on its default event.
 Read it from `resolved_exposure_event` in `experiment-get`: `$feature_flag_called`, or `$experiment_exposure` for an experiment that started on or after 2026-09-01 (UTC) in a project that is in the rollout of that event.
+When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
 An `exposure_criteria.exposure_config` that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
 A config that names `$feature_flag_called` counts the default event, as an absent config does.
 `$experiment_exposure` is a copy of `$feature_flag_called`, written at ingestion with the same properties, and only for a string response other than `true`, `false` and the empty value.
@@ -86,8 +87,9 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
   The total is 0 because of that only when every exposure is younger than 15 minutes.
 
-<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS, DEFAULT_EXPOSURE_TTL_SECONDS and
-ExperimentResultsCacheMixin in products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
+<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
+products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in
+products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
 products/experiments/backend/hogql_queries/utils.py (the per-variant floor); NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES and
 EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS in products/experiments/frontend/constants.ts (the forced page read); MIN_EXPERIMENT_AGE and
 MIN_TOTAL_EXPOSURES in products/experiments/backend/temporal/scheduled_recalculation_logic.py. Verify before citing. -->

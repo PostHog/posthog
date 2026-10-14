@@ -22,7 +22,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
     buildRunCreateRequest,
-    DEFAULT_COMPOSER_MODEL,
+    getDefaultModelForTaskRuntime,
     getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -42,14 +42,17 @@ import {
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     type TaskRunDetailDTOApi,
+    type TaskRuntimeEnumApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
+import { isPiTaskRuntime } from '../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
+import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -59,11 +62,18 @@ import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { taskDraftListeners } from './taskDraftListeners'
 import type { DraftRecovery } from './taskDraftPersistence'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
 import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+/** What the agent session runs with before the user picks anything in this composer. */
+export interface SessionBaseline {
+    model: string | null
+    effort: string | null
+}
 
 export interface RunInteractionLogicProps {
     /** Empty until creation attaches a real task and run. */
@@ -92,6 +102,7 @@ export interface RunInteractionLogicProps {
     currentRuntimeAdapter?: string | null
     /** Who pays for the run's Codex model use, from the run state. A live run keeps it. */
     currentCodexModelAccess?: string | null
+    taskRuntime?: TaskRuntimeEnumApi
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
@@ -236,6 +247,7 @@ export interface runInteractionLogicValues {
     sentEffort: string | null
     sentMode: PermissionMode | null
     sentModel: string | null
+    sessionBaseline: SessionBaseline
     showComposerFormErrors: boolean
     startingRun: boolean
     steerPending: boolean
@@ -365,6 +377,9 @@ export interface runInteractionLogicActions {
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
+    applyPendingCommentText: () => {
+        value: true
+    }
     beginTaskDraftDelivery: (content: string) => {
         content: string
     }
@@ -547,18 +562,20 @@ export interface runInteractionLogicMeta {
             isTerminal: boolean
         ) => boolean
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
+        sessionBaseline: (defaultModel: string | null, defaultEffort: string | null, arg: any) => SessionBaseline
         selectedModel: (
             modelOverride: string | null,
             arg: any,
-            defaultModel: string | null,
+            sessionBaseline: SessionBaseline,
             catalogue: ModelChoiceApi[],
             arg2: any,
-            isTerminal: boolean
+            isTerminal: boolean,
+            arg3: any
         ) => string
         selectedEffort: (
             effortOverride: string | null,
             arg: any,
-            defaultEffort: string | null,
+            sessionBaseline: SessionBaseline,
             selectedModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
@@ -605,6 +622,29 @@ export type runInteractionLogicType = MakeLogicType<
     RunInteractionLogicProps,
     runInteractionLogicMeta
 >
+
+function takeCommentContexts(props: RunInteractionLogicProps, content: string): string {
+    const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+    if (!commentLogic || isClearCommand(content)) {
+        return content
+    }
+    const attachments = composerAttachmentsLogic.findMounted({ attachmentsKey: props.interactionKey ?? props.runId })
+    const screenshots = commentLogic.values.commentContexts.flatMap(({ screenshotFile }) =>
+        screenshotFile ? [screenshotFile] : []
+    )
+    if (attachments && screenshots.length > 0) {
+        attachments.actions.addFiles(screenshots)
+    }
+    const stagedFiles = new Set(attachments?.values.stagedAttachments.map(({ file }) => file) ?? [])
+    const stagedNames = new Set([...stagedFiles].map((file) => file.name))
+    const contexts = commentLogic.values.commentContexts.map(({ label, body, screenshot, screenshotFile }) => {
+        const attached = screenshotFile ? stagedFiles.has(screenshotFile) : !!screenshot && stagedNames.has(screenshot)
+        return attached ? { label, body, screenshot: screenshotFile?.name ?? screenshot } : { label, body }
+    })
+    const message = withCommentContexts(contexts, content)
+    commentLogic.actions.clearCommentContexts()
+    return message
+}
 
 /**
  * Max-agnostic interaction facade for a single task run. The UI binds to this one logic to drive every
@@ -703,6 +743,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         blockOnConsent: (source: 'draft' | 'queue' | 'steer' = 'draft') => ({ source }),
         clearConsentBlock: true,
         submitAfterConsent: true,
+        applyPendingCommentText: true,
         // Start a fresh run on the task, seeded with this message and chained from the finished run.
         startNewRun: (content: string) => ({ content }),
         setStartingRun: (starting: boolean) => ({ starting }),
@@ -897,7 +938,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
     }),
 
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         // The composer draft lives here so the input region is a real <form>. `submit` is the single entry
         // point the composer's `onSubmit` calls — it decides send-now vs enqueue vs new-run. It dispatches
         // synchronously (no await), so `isComposerFormSubmitting` isn't the UI loading state — `isSubmitting`
@@ -943,7 +984,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (staged.length > 0) {
                         actions.clearQueue()
                     }
-                    actions.startNewRun([...staged, content].join('\n\n'))
+                    actions.startNewRun([...staged, takeCommentContexts(props, content)].join('\n\n'))
                     return
                 }
                 // While the agent is working, a send is in flight, or a message is already staged — concatenate
@@ -955,12 +996,12 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     values.sending ||
                     values.queuedMessages.length > 0
                 ) {
-                    actions.enqueueMessage(content)
+                    actions.enqueueMessage(takeCommentContexts(props, content))
                     actions.claimAttachmentsForQueue()
                     actions.resetComposerForm()
                     actions.flushQueue()
                 } else {
-                    actions.sendNow(content, 'draft')
+                    actions.sendNow(takeCommentContexts(props, content), 'draft')
                 }
             },
         },
@@ -985,25 +1026,38 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             (s) => [s.currentRunStatus],
             (status: null | import('./runStreamLogic').RunStatus): boolean => isTerminalRunStatus(status),
         ],
+        sessionBaseline: [
+            (s) => [s.defaultModel, s.defaultEffort, (_, p) => p.taskRuntime],
+            (
+                defaultModel: string | null,
+                defaultEffort: string | null,
+                taskRuntime: TaskRuntimeEnumApi | undefined
+            ): SessionBaseline =>
+                isPiTaskRuntime(taskRuntime)
+                    ? { model: null, effort: null }
+                    : { model: defaultModel, effort: defaultEffort },
+        ],
         // The model/effort to display in the picker and launch the next run with: the optimistic client-side
-        // override, else the run's stored value, else the server-resolved default (user preference over
-        // project default), else the built-in default. Effort is clamped to one the model supports.
+        // override, else the run's stored value, else the session baseline, else the runtime's built-in
+        // default. Effort is clamped to one the model supports.
         selectedModel: [
             (s) => [
                 s.modelOverride,
                 (_, p) => p.currentModel,
-                s.defaultModel,
+                s.sessionBaseline,
                 s.catalogue,
                 (_, p) => p.currentRuntimeAdapter,
                 s.isTerminal,
+                (_, p) => p.taskRuntime,
             ],
             (
                 override: string | null,
                 current: string | null | undefined,
-                serverDefault: string | null,
+                baseline: SessionBaseline,
                 catalogue: ModelChoiceApi[],
                 runtimeAdapter: string | null | undefined,
-                terminal: boolean
+                terminal: boolean,
+                taskRuntime: TaskRuntimeEnumApi | undefined
             ): string => {
                 const compatibleOverride =
                     override &&
@@ -1012,18 +1066,19 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getRuntimeAdapterForModel(catalogue, override) !== runtimeAdapter
                         ? null
                         : override
-                return compatibleOverride ?? current ?? serverDefault ?? DEFAULT_COMPOSER_MODEL
+                return compatibleOverride ?? current ?? baseline.model ?? getDefaultModelForTaskRuntime(taskRuntime)
             },
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.defaultEffort, s.selectedModel, s.catalogue],
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.sessionBaseline, s.selectedModel, s.catalogue],
             (
                 override: string | null,
                 current: string | null | undefined,
-                serverDefault: string | null,
+                baseline: SessionBaseline,
                 model: string,
                 catalogue: ModelChoiceApi[]
-            ): ReasoningEffortEnumApi => resolveEffortForModel(catalogue, override ?? current ?? serverDefault, model),
+            ): ReasoningEffortEnumApi =>
+                resolveEffortForModel(catalogue, override ?? current ?? baseline.effort, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -1189,6 +1244,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // A queue send that never landed goes back as the rows it took, so one failure doesn't fuse them
         // into a single uneditable row. A send with no rows attached still has its text, so it returns as
         // one row rather than vanishing.
+        const restoreCommentContexts = (content: string): string => {
+            const { contexts, text } = extractCommentContexts(content)
+            if (contexts.length > 0 && props.taskId) {
+                taskCommentContextsLogic.findMounted({ taskId: props.taskId })?.actions.restoreCommentContexts(contexts)
+            }
+            return contexts.length > 0 ? text : content
+        }
+
         const restoreQueuedRows = (rows: QueuedMessage[], content: string): void => {
             actions.prependQueuedMessages(rows.length > 0 ? rows : [{ id: nextQueuedMessageId(), content }])
         }
@@ -1341,54 +1404,53 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
                     // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                     // successful sync so the next send retries an unsent change.
+                    const setConfigOption = (configId: string, value: string): Promise<unknown> =>
+                        tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                            jsonrpc: '2.0',
+                            method: 'set_config_option',
+                            params: { configId, value },
+                        })
                     const activeModel =
-                        values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
+                        values.sentModel ??
+                        props.currentModel ??
+                        values.sessionBaseline.model ??
+                        getDefaultModelForTaskRuntime(props.taskRuntime)
                     const activeEffort = resolveEffortForModel(
                         values.catalogue,
-                        values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
+                        values.sentEffort ?? props.currentEffort ?? values.sessionBaseline.effort,
                         activeModel
                     )
                     if (values.selectedModel !== activeModel) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
-                        })
+                        await setConfigOption(MODEL_CONFIG_ID, values.selectedModel)
                         if (!isCurrent()) {
                             return
                         }
                         actions.setSentModel(values.selectedModel)
                     }
                     if (values.selectedEffort !== activeEffort) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
-                        })
+                        await setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort)
                         if (!isCurrent()) {
                             return
                         }
                         actions.setSentEffort(values.selectedEffort)
                     }
-                    const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
-                    const lastKnownMode =
-                        values.sentMode ??
-                        getModeOption(values.currentMode)?.value ??
-                        getModeOption(props.currentMode)?.value
-                    const activeMode = lastKnownMode
-                        ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
-                        : getDefaultModeForRuntimeAdapter(modeAdapter)
-                    if (values.selectedMode !== activeMode) {
-                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                            jsonrpc: '2.0',
-                            method: 'set_config_option',
-                            params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
-                        })
-                        if (!isCurrent()) {
-                            return
+                    if (!isPiTaskRuntime(props.taskRuntime)) {
+                        const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                        const lastKnownMode =
+                            values.sentMode ??
+                            getModeOption(values.currentMode)?.value ??
+                            getModeOption(props.currentMode)?.value
+                        const activeMode = lastKnownMode
+                            ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
+                            : getDefaultModeForRuntimeAdapter(modeAdapter)
+                        if (values.selectedMode !== activeMode) {
+                            await setConfigOption(MODE_CONFIG_ID, values.selectedMode)
+                            if (!isCurrent()) {
+                                return
+                            }
                         }
+                        actions.setSentMode(values.selectedMode)
                     }
-                    actions.setSentMode(values.selectedMode)
                     // A drain carries the files queued with its text, not whatever the composer holds now.
                     const sending = source === 'queue' ? values.queuedAttachments : values.stagedAttachments
                     let artifactIds: string[] = []
@@ -1450,8 +1512,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         // Land the pending keystroke first: writing the draft cancels the composer's debounced
                         // sync, so text typed inside that window would be dropped rather than merged behind.
                         props.flushDraft?.()
+                        const draftContent = restoreCommentContexts(content)
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                     } else {
                         actions.queueDeliveryFailed()
@@ -1478,7 +1543,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             // The new model may not support the current effort — clamp the override so it never holds an
             // unsupported value. No network here: the pick is synced to the agent at send time.
             setModel: ({ model }) => {
-                const currentEffort = values.effortOverride ?? props.currentEffort
+                const currentEffort = values.effortOverride ?? props.currentEffort ?? values.sessionBaseline.effort
                 const resolvedEffort = resolveEffortForModel(values.catalogue, currentEffort, model)
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
@@ -1541,20 +1606,29 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
+                    const resumeRequest = {
+                        resume_from_run_id: props.runId,
+                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                    }
                     const codexModelAccess = pickedCodexModelAccess(
                         getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
                     )
-                    const createRequest = buildRunCreateRequest(
-                        values.catalogue,
-                        values.selectedModel,
-                        values.selectedEffort,
-                        values.selectedMode,
-                        {
-                            resume_from_run_id: props.runId,
-                            pending_user_message: wrapWithPosthogContext(content, pendingContext),
-                            ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
-                        }
-                    )
+                    const createRequest = isPiTaskRuntime(props.taskRuntime)
+                        ? {
+                              ...resumeRequest,
+                              ...(values.modelOverride ? { model: values.selectedModel } : {}),
+                              ...(values.effortOverride ? { reasoning_effort: values.selectedEffort } : {}),
+                          }
+                        : buildRunCreateRequest(
+                              values.catalogue,
+                              values.selectedModel,
+                              values.selectedEffort,
+                              values.selectedMode,
+                              {
+                                  ...resumeRequest,
+                                  ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
+                              }
+                          )
                     // The task already exists here, so staged artifacts hold the files whether this request
                     // activates a warm run or cold-boots one.
                     // The queue rides along into the run this send starts, so its files come too.
@@ -1618,10 +1692,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.rollbackOptimisticResume()
                     }
                     actions.releaseApplyBackTargets(streamKey)
+                    const draftContent = restoreCommentContexts(content)
                     if (optimisticStarted) {
                         props.flushDraft?.()
                         actions.setComposerFormValues({
-                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                            draft: values.composerForm.draft
+                                ? `${draftContent}\n\n${values.composerForm.draft}`
+                                : draftContent,
                         })
                         optimisticStarted = false
                     }
@@ -1662,6 +1739,29 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
     }),
     listeners(taskDraftListeners),
+    listeners(({ actions, values, props, cache }) => ({
+        hydrateTaskDraft: () => {
+            const draft = values.composerForm.draft
+            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+            const { contexts, text } = extractCommentContexts(draft)
+            if (commentLogic && contexts.length > 0) {
+                commentLogic.actions.restoreCommentContexts(contexts)
+                actions.setComposerFormValues({ draft: text })
+            }
+            actions.applyPendingCommentText()
+        },
+        applyPendingCommentText: () => {
+            const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null
+            const pendingText = commentLogic?.values.pendingCommentText ?? []
+            if (!commentLogic || pendingText.length === 0 || !cache.taskDraftPersistence) {
+                return
+            }
+            commentLogic.actions.consumePendingCommentText()
+            props.flushDraft?.()
+            const draft = values.composerForm.draft.trimEnd()
+            actions.setComposerFormValues({ draft: [draft, ...pendingText].filter(Boolean).join('\n\n') })
+        },
+    })),
     propsChanged(({ actions }) => {
         actions.hydrateTaskDraft()
     }),

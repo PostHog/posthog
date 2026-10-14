@@ -50,29 +50,10 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.hog_invocation_cancel import (
-    HogInvocationCancelRequestSerializer,
-    HogInvocationCancelResponseSerializer,
-)
-from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
-from posthog.api.hog_invocation_results import (
-    HogInvocationResultDetailSerializer,
-    HogInvocationResultsCountSerializer,
-    HogInvocationResultSerializer,
-    HogInvocationResultsFiltersSerializer,
-    HogInvocationResultsRequestSerializer,
-    fetch_hog_invocation_result,
-    fetch_hog_invocation_results,
-    fetch_hog_invocation_results_count,
-    tag_invocation_results_query,
-)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -87,6 +68,7 @@ from posthog.permissions import (
     is_service_auth,
     posthog_feature_flag_enabled,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -103,6 +85,38 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
+)
+from products.cdp.backend.presentation.hog_functions import (
+    DATA_WAREHOUSE_SOURCES,
+    FLAG_GATED_TEMPLATE_IDS,
+    compile_filters_expr,
+    filter_action_ids,
+    filter_cohort_ids,
+    gated_template_enabled,
+)
+from products.cdp.backend.presentation.hog_invocations.cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.rerun import (
+    HogInvocationRerunRequestSerializer,
+    HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.presentation.hog_invocations.results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultsCountSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsFiltersSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    fetch_hog_invocation_results_count,
+    tag_invocation_results_query,
+)
+from products.cdp.backend.presentation.serializers import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaSerializer,
+    InputsSerializer,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -291,6 +305,9 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
 )
+from products.workflows.backend.presentation.views.workflow_classifications import (
+    WorkflowClassificationRequestSerializer,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -300,6 +317,22 @@ _LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef, WorkflowEditStat
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
+
+WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+
+
+def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+    try:
+        return feature_enabled_or_false(
+            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -348,6 +381,38 @@ def _branch_delay_duration_already_stored(action: dict, context: dict) -> bool:
     if action_id not in stored:
         return False
     return stored[action_id] == (action.get("config") or {}).get("delay_duration")
+
+
+def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+    """
+    True when this conditional_branch condition matches one already persisted for the same action.
+
+    Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
+    edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
+    which has no request to evaluate the flag against) would fail compilation of an active flow's
+    unchanged cohort conditions.
+    """
+    stored = context.get("stored_cohort_conditions")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return _authored_condition(condition) in stored[action_id]
+
+
+def _actions_reference_cohorts(actions: Any) -> bool:
+    """True when a conditional_branch condition in these actions can compile to a cohort membership check."""
+    if not isinstance(actions, list):
+        return False
+    for flow_action in actions:
+        if not isinstance(flow_action, dict) or flow_action.get("type") != "conditional_branch":
+            continue
+        for condition in (flow_action.get("config") or {}).get("conditions") or []:
+            filters = condition.get("filters") if isinstance(condition, dict) else None
+            if isinstance(filters, dict) and (filter_cohort_ids(filters) or filter_action_ids(filters)):
+                return True
+    return False
 
 
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
@@ -492,6 +557,10 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # build panel only hides the node, and the catalog still advertises it to a child-environment
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
+# The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
+# 400, which fails the step on every run, so a strict save applies the same limits.
+_CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1287,6 +1356,26 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    _cohort_conditions_flag: Optional[bool] = None
+
+    def _cohort_conditions_enabled(self) -> bool:
+        if self._cohort_conditions_flag is None:
+            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+        return self._cohort_conditions_flag
+
+    def _check_cohort_conditions_flag(self) -> bool:
+        try:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+                return False
+            get_team = self.context.get("get_team")
+            if get_team is None:
+                return False
+            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
+        except Exception:
+            return False
+
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -1411,6 +1500,15 @@ class HogFlowActionSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
+
+    def _validate_classify_action(self, inputs: dict) -> None:
+        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories", "model")}
+        if data["model"] is None:
+            del data["model"]
+        # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
+        serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
+        if not serializer.is_valid():
+            raise serializers.ValidationError({"inputs": serializer.errors})
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
@@ -1678,6 +1776,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if strict and template_id == _CLASSIFY_TEMPLATE_ID:
+                    self._validate_classify_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -1748,7 +1848,20 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    cohorts_supported = (
+                        is_conditional_branch
+                        and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
+                        and (
+                            _cohort_condition_already_stored(data, condition, self.context)
+                            or self._cohort_conditions_enabled()
+                        )
+                    )
+                    serializer = HogFunctionFiltersSerializer(
+                        data=filters,
+                        context={**self.context, "cohort_membership_supported": True}
+                        if cohorts_supported
+                        else self.context,
+                    )
                     if not strict:
                         if serializer.is_valid():
                             condition["filters"] = serializer.validated_data
@@ -2854,6 +2967,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict)
             and action.get("id")
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+        }
+
+        self.context["stored_cohort_conditions"] = {
+            action["id"]: [
+                _authored_condition(stored_condition)
+                for stored_condition in [
+                    *((action.get("config") or {}).get("conditions") or []),
+                    (action.get("config") or {}).get("condition"),
+                ]
+                if isinstance(stored_condition, dict)
+            ]
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
         status = data.get("status")
@@ -4296,7 +4422,10 @@ class HogFlowViewSet(
         # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
         # running tests while editing is unaffected.
         if self.action == "invocations":
-            return ["hog_flow:write", "group:read"]
+            scopes = ["hog_flow:write", "group:read"]
+            if self._test_invocation_may_read_cohort_membership(request):
+                scopes.append("person:read")
+            return scopes
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) workflow. A `hog_flow:write`-only token could use that to
@@ -4307,6 +4436,35 @@ class HogFlowViewSet(
         if self.action == "rerun":
             return ["hog_flow:write", "person:read", "group:read"]
         return None
+
+    _cohort_conditions_rollout: Optional[bool] = None
+
+    def _test_invocation_may_read_cohort_membership(self, request: Request) -> bool:
+        workflow_id = self.kwargs.get("pk")
+        if workflow_id is None:
+            return False
+        if self._cohort_conditions_rollout is None:
+            user = getattr(request, "user", None)
+            self._cohort_conditions_rollout = (
+                user is not None
+                and not user.is_anonymous
+                and not isinstance(user, SyntheticUser)
+                and _cohort_conditions_rolled_out(user, str(self.team.organization_id))
+            )
+        if self._cohort_conditions_rollout:
+            return True
+        data = request.data if isinstance(request.data, dict) else {}
+        configuration = data.get("configuration")
+        if _actions_reference_cohorts(configuration.get("actions") if isinstance(configuration, dict) else None):
+            return True
+        try:
+            hog_flow = get_workflow_edit_state(
+                team_id=self.team_id, workflow_id=workflow_id, user_access_control=None, required_level=None
+            )
+        except WorkflowNotFound:
+            return False
+        draft_actions = hog_flow.draft.get("actions") if isinstance(hog_flow.draft, dict) else None
+        return _actions_reference_cohorts(hog_flow.actions) or _actions_reference_cohorts(draft_actions)
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
@@ -4634,6 +4792,8 @@ class HogFlowViewSet(
                 {
                     "workflow_id": str(instance.id),
                     "workflow_name": instance.name,
+                    # A WorkflowRef or a deleted workflow carries no origin.
+                    "origin_product": getattr(instance, "origin_product", None),
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization.id),
                     **(extra_properties or {}),
@@ -5593,8 +5753,7 @@ class HogFlowViewSet(
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
         if payload.pop("use_draft", False):

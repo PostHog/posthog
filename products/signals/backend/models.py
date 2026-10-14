@@ -9,9 +9,10 @@ from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -199,6 +200,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    scout_instructions = models.TextField(null=True, blank=True)
+    research_instructions = models.TextField(null=True, blank=True)
+    implementation_instructions = models.TextField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -441,6 +445,10 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
+            # UPPER(col) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -1138,7 +1146,15 @@ class SignalReportSlackThread(UUIDModel):
     A notification invites the reader to reply in the thread and mention PostHog, which starts a
     task. Without this row that task has no way back to the report it discusses, so the work never
     reaches the report's own timeline.
+
+    A scout report row also lets a later delivery of the same report update its message in place
+    instead of posting the report again.
     """
+
+    class Kind(models.TextChoices):
+        INBOX_NOTIFICATION = "inbox_notification", "Inbox notification"
+        SCOUT_REPORT = "scout_report", "Scout report"
+        SCOUT_REPORT_NOTE = "scout_report_note", "Scout report note"
 
     objects = EnvironmentScopedManager()
     all_teams = models.Manager()  # noqa: DJ012
@@ -1155,6 +1171,13 @@ class SignalReportSlackThread(UUIDModel):
     channel = models.CharField(max_length=64)
     # Slack `ts` of the notification message, which is also its thread's root.
     thread_ts = models.CharField(max_length=64)
+    # Null on rows written before the kind was recorded. Those rows never match an in-place update.
+    kind = models.CharField(max_length=32, choices=Kind, null=True, blank=True)
+    # The destination as configured, before Slack resolves it. A member target is a `U…` id here,
+    # while `channel` holds the `D…` direct message that Slack opened for it.
+    target = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
+    reply_ts = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -2754,8 +2777,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
     # No rows, or a single false value, skips the run, so a scout that watches something rare can
     # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
-    # bound as HogQL placeholders. Null turns the pre-check off.
+    # bound as HogQL placeholders, and `{interval_minutes}` is the scout's schedule interval. Null
+    # falls back to the default its canonical skill ships, if any (`scout-precheck-query`).
     precheck_query = models.TextField(null=True, blank=True)
+    # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
+    precheck_disabled = models.BooleanField(default=False, db_default=False)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)

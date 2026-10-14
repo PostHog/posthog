@@ -178,7 +178,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
                 self._inner.anthropic_client = original_anthropic  # ty: ignore[invalid-assignment]
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        case_name = _case_name_from_kwargs(kwargs)
+        case_name = kwargs.get("metadata", {}).get("trial_id") or _case_name_from_kwargs(kwargs)
         with self._invocation_context(case_name) as is_llm_scorer:
             # eval_async, not _run_eval_async: sync-only inner scorers rely on
             # the base class's async-to-sync delegation.
@@ -231,7 +231,7 @@ def wrap_scorers(
 
     Returns (wrapped_scorers, scorer_traces dict).
 
-    ``agent_trace_id_lookup`` maps case_name → agent trace_id. It's populated
+    ``agent_trace_id_lookup`` maps trial_id → agent trace_id. It's populated
     by the ``task()`` function and read by deterministic scorers to attach
     their spans to the agent trace. ``trace_namespace`` prefixes the experiment
     name in trace metadata so eval kinds stay distinguishable in PostHog.

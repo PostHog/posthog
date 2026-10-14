@@ -49,6 +49,8 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
@@ -70,6 +72,12 @@ from products.feature_flags.backend.facade.api import set_flag_active, update_fl
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=experiment.pk), metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _stored_metric_result(*significant: bool | None) -> dict[str, Any]:
@@ -2845,9 +2853,14 @@ class TestExperimentService(APIBaseTest):
         launched.feature_flag.refresh_from_db()
         assert launched.feature_flag.active is True
 
-    def test_launch_experiment_sets_fingerprints(self):
+    @parameterized.expand([("without_maturity", False), ("with_maturity", True)])
+    def test_launch_experiment_sets_fingerprints(self, _name: str, only_count_matured_users: bool):
         self._create_flag(key="fp-launch")
-        experiment = self._create_launchable_experiment(name="Fingerprint Launch", feature_flag_key="fp-launch")
+        experiment = self._create_launchable_experiment(
+            name="Fingerprint Launch",
+            feature_flag_key="fp-launch",
+            only_count_matured_users=only_count_matured_users,
+        )
 
         # Draft metrics have fingerprints computed with start_date=None
         assert experiment.metrics is not None
@@ -2860,6 +2873,9 @@ class TestExperimentService(APIBaseTest):
         launch_fingerprint = launched.metrics[0].get("fingerprint")
         assert launch_fingerprint is not None
         assert launch_fingerprint != draft_fingerprint
+        calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=launched.pk), "m1")
+        assert calculation_config is not None
+        assert launch_fingerprint == calculation_config.calculation_key()
 
     def test_launch_experiment_already_running_raises(self):
         experiment = self._create_launchable_experiment(name="Already Running", feature_flag_key="already-running-flag")
@@ -3500,6 +3516,7 @@ class TestExperimentService(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid=metric_uuid,
+            fingerprint=_calculation_key(experiment, metric_uuid),
             query_from=experiment.start_date,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -3515,6 +3532,71 @@ class TestExperimentService(APIBaseTest):
         )
         metadata = completed_call.args[2]
         assert metadata["significant"] is True
+
+    @parameterized.expand(
+        [
+            # A backfill stores a past window after the newest window was written.
+            ("newest_window_not_newest_write", "backfill", False),
+            ("result_of_an_earlier_configuration", "stale_configuration", False),
+            ("saved_primary_metric", "saved_metric", True),
+            ("metric_listed_first_on_the_results_page", "display_order", False),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_reads_the_current_result_of_the_primary_metric(
+        self, _name: str, case: str, expected_significant: bool, mock_report_user_action: MagicMock
+    ) -> None:
+        now = timezone.now()
+        rows: list[tuple[str, str, datetime, datetime, bool]] = []
+        if case == "saved_metric":
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Saved", query={**self._DEFAULT_METRIC, "uuid": "saved-m"}
+            )
+            experiment = self._create_running_experiment(
+                name=f"Current {case}",
+                feature_flag_key=f"current-{case}",
+                metrics=[],
+                primary_metrics_ordered_uuids=None,
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )
+            rows.append(("saved-m", _calculation_key(experiment, "saved-m"), now, now, True))
+        elif case == "display_order":
+            experiment = self._create_running_experiment(
+                name=f"Current {case}",
+                feature_flag_key=f"current-{case}",
+                metrics=[self._DEFAULT_METRIC, {**self._DEFAULT_METRIC, "uuid": "m2"}],
+                primary_metrics_ordered_uuids=["m2", "m1"],
+            )
+            rows.append(("m1", _calculation_key(experiment, "m1"), now, now, True))
+            rows.append(("m2", _calculation_key(experiment, "m2"), now, now, False))
+        else:
+            experiment = self._create_running_experiment(name=f"Current {case}", feature_flag_key=f"current-{case}")
+            key = _calculation_key(experiment, "m1")
+            if case == "backfill":
+                rows.append(("m1", _recalc_fingerprint(key), now - timedelta(hours=1), now - timedelta(hours=1), False))
+                rows.append(("m1", key, now - timedelta(days=2), now, True))
+            else:
+                rows.append(("m1", key, now - timedelta(days=1), now - timedelta(days=1), False))
+                rows.append(("m1", "key-of-the-configuration-before-an-edit", now, now, True))
+        assert experiment.start_date is not None
+        for metric_uuid, fingerprint, query_to, completed_at, significant in rows:
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                query_from=experiment.start_date,
+                query_to=query_to,
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result=_stored_metric_result(significant),
+                completed_at=completed_at,
+            )
+
+        self._service().end_experiment(experiment, request=MagicMock())
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        assert completed_call.args[2]["significant"] is expected_significant
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_end_experiment_completed_event_omits_significant_when_no_results(self, mock_report_user_action):
@@ -3635,6 +3717,7 @@ class TestExperimentService(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid=experiment.metrics[0]["uuid"],
+                fingerprint=_calculation_key(experiment, experiment.metrics[0]["uuid"]),
                 query_from=experiment.start_date,
                 query_to=timezone.now(),
                 status=ExperimentMetricResult.Status.COMPLETED,
@@ -7550,6 +7633,22 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
                 feature_flag_key="dw-saved",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
+
+    def test_requesting_timeseries_recalculation_on_restricted_table_is_denied(self):
+        # The backfill runs the submitted metric without a user, so the request itself must be denied.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-recalc",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="E", feature_flag=flag, start_date=timezone.now()
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.request_timeseries_recalculation(experiment, metric=self._dw_metric(), fingerprint="fp1")
+        assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
 
 
 class TestDeprecatedFieldsInRequest(SimpleTestCase):

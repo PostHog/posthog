@@ -42,13 +42,11 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import find_metric_dict
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
@@ -60,7 +58,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import EXPERIMENT_HEALTH_FINDINGS_FLAG, ExperimentSerializer
+from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -514,6 +512,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+        # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
+        self.assertEqual(len(five_rows.captured_queries), 15)
+
+    def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
+        experiment = self._create_fully_populated_experiment(0)
+        second_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Second saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "b"}},
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment, saved_metric=second_saved_metric, metadata={"type": "secondary"}
+        )
+        self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
+        # experiment settings, whatever the number of saved metrics.
+        with self.assertNumQueries(17):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        fingerprints = [saved_metric["query"].get("fingerprint") for saved_metric in response.json()["saved_metrics"]]
+        self.assertEqual(len(fingerprints), 2)
+        self.assertTrue(all(fingerprints))
 
     def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
         action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
@@ -686,22 +709,26 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, {}, None, None),
-            ("no_metric", True, {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
-            ("inline_primary_metric_counts", True, {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("inline_secondary_metric_counts", True, {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
-            ("shared_primary_metric_counts", True, {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
-            ("shared_secondary_metric_counts", True, {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
-            ("shared_metric_without_type_counts", True, {}, {}, [_HEALTH_PAUSED]),
+            ("no_metric", {}, None, [_HEALTH_PAUSED, ("no_metric", None)]),
+            ("inline_primary_metric_counts", {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("inline_secondary_metric_counts", {"metrics_secondary": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED]),
+            ("shared_primary_metric_counts", {}, {"metadata": {"type": "primary"}}, [_HEALTH_PAUSED]),
+            ("shared_secondary_metric_counts", {}, {"metadata": {"type": "secondary"}}, [_HEALTH_PAUSED]),
+            ("shared_metric_without_type_counts", {}, {}, [_HEALTH_PAUSED]),
+            (
+                "baseline_not_a_variant",
+                {"metrics": [_HEALTH_METRIC], "stats_config": {"baseline_variant_key": "holdout"}},
+                None,
+                [_HEALTH_PAUSED, ("flag_variants_mismatch", "no_control_variant")],
+            ),
         ]
     )
-    def test_detail_reports_health_findings(
+    def test_health_reports_findings(
         self,
         _name: str,
-        flag_enabled: bool,
-        inline_metrics: dict[str, list[dict[str, Any]]],
+        experiment_fields: dict[str, Any],
         shared_metric_link: dict[str, Any] | None,
-        expected: list[tuple[str, str | None]] | None,
+        expected: list[tuple[str, str | None]],
     ) -> None:
         experiment = Experiment.objects.create(
             team=self.team,
@@ -722,8 +749,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             ),
             start_date=timezone.now() - timedelta(days=3),
-            metrics=inline_metrics.get("metrics", []),
-            metrics_secondary=inline_metrics.get("metrics_secondary", []),
+            metrics=experiment_fields.get("metrics", []),
+            metrics_secondary=experiment_fields.get("metrics_secondary", []),
+            stats_config=experiment_fields.get("stats_config", {}),
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -743,17 +771,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled and flag_key == EXPERIMENT_HEALTH_FINDINGS_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
-            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        health = response.json()["health"]
-        if expected is None:
-            self.assertIsNone(health)
-            return
+        health = response.json()
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
@@ -1404,32 +1425,16 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         experiment = Experiment.objects.get(pk=experiment_response.json()["id"])
         saved_query = experiment.saved_metrics.first().query  # type: ignore[union-attr]
-        fingerprint_args = (
-            experiment.start_date,
-            get_experiment_stats_method(experiment),
-            experiment.exposure_criteria,
-        )
-        effective_definition = find_metric_dict(experiment, saved_query["uuid"])
-        assert effective_definition is not None
-        expected = compute_metric_fingerprint(
-            effective_definition,
-            *fingerprint_args,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants or [],
-        )
-        self.assertEqual(stamped, expected)
+        calculation_config = get_metric_calculation_config(experiment, saved_query["uuid"])
+        assert calculation_config is not None
+        self.assertEqual(stamped, calculation_config.calculation_key())
         if link_has_breakdowns:
             # The raw query hashes differently when real breakdowns exist, so a stamp computed on it would
             # point the chart at rows that do not exist.
-            self.assertNotEqual(
-                stamped,
-                compute_metric_fingerprint(
-                    saved_query,
-                    *fingerprint_args,
-                    only_count_matured_users=experiment.only_count_matured_users,
-                    excluded_variants=experiment.excluded_variants or [],
-                ),
+            raw_query_config = calculation_config.settings.build_metric_config(
+                metric_id=calculation_config.metric_id, role=calculation_config.role, definition=saved_query
             )
+            self.assertNotEqual(stamped, raw_query_config.calculation_key())
 
     def test_saved_metrics(self):
         response = self.client.post(
@@ -8763,9 +8768,12 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             start_date=started_at,
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
         )
+        calculation_config = get_metric_calculation_config(experiment, "populated-metric")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="populated-metric",
+            fingerprint=calculation_config.calculation_key(),
             query_from=started_at,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,

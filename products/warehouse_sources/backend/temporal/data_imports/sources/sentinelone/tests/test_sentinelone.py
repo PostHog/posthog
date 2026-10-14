@@ -1,12 +1,21 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
-from requests import Response
+import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentinelone import (
+    SentineloneSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone import (
     sentinelone as sentinelone_module,
 )
@@ -16,26 +25,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelon
     _build_initial_params,
     _format_incremental_value,
     _normalize_row,
-    sentinelone_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.settings import SENTINELONE_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# The run-time SSRF host check lives in the sentinelone module; keep it a no-op unless a test drives it.
-HOST_CHECK_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.sentinelone._is_host_safe"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.sentinelone.source import SentineloneSource
 
 
-def _mock_response(*, status_code: int = 200, json_data: Any = None, location: Optional[str] = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(json_data).encode() if json_data is not None else b""
-    if location is not None:
-        resp.headers["Location"] = location
-    return resp
+def _mock_response(
+    *, status_code: int = 200, json_data: Any = None, location: Optional[str] = None
+) -> ScriptedResponse:
+    headers = {"Location": location} if location is not None else {}
+    return ScriptedResponse(status=status_code, json=json_data, headers=headers)
 
 
 def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> dict[str, Any]:
@@ -90,45 +90,26 @@ class TestNormalizeRow:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response=None, raises=None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = response
-        return mock.patch.object(sentinelone_module, "make_tracked_session", return_value=session)
-
-    @staticmethod
-    def _probe_response(*, status_code=200, json_data=None, text=""):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        response.is_redirect = status_code in (302, 303, 307)
-        response.is_permanent_redirect = status_code in (301, 308)
-        response.text = text
-        response.json.return_value = json_data
-        return response
-
     def test_invalid_token(self):
-        with self._patch_session(self._probe_response(status_code=401)):
+        with scripted_network(always(_mock_response(status_code=401))):
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
-            assert valid is False
-            assert msg == "Invalid SentinelOne API token"
+        assert valid is False
+        assert msg == "Invalid SentinelOne API token"
 
     def test_403_at_source_create_is_accepted(self):
-        with self._patch_session(self._probe_response(status_code=403)):
+        with scripted_network(always(_mock_response(status_code=403))):
             assert validate_credentials("example.sentinelone.net", "tok", schema_name=None) == (True, None)
 
     def test_403_for_scoped_probe_fails(self):
-        with self._patch_session(self._probe_response(status_code=403)):
+        with scripted_network(always(_mock_response(status_code=403))):
             valid, msg = validate_credentials("example.sentinelone.net", "tok", schema_name="threats")
-            assert valid is False
-            assert msg is not None
+        assert valid is False
+        assert msg is not None
 
     def test_create_probe_hits_system_info(self):
-        with self._patch_session(self._probe_response(status_code=200)) as patched:
+        with scripted_network(always(_mock_response(status_code=200))) as network:
             validate_credentials("example.sentinelone.net", "tok")
-            url = patched.return_value.get.call_args.args[0]
-            assert url == "https://example.sentinelone.net/web/api/v2.1/system/info"
+        assert network.requests_log[0].url == "https://example.sentinelone.net/web/api/v2.1/system/info"
 
     @pytest.mark.parametrize("bad_url", ["", "not a url!", "https://"])
     def test_invalid_console_url_short_circuits(self, bad_url):
@@ -137,150 +118,100 @@ class TestValidateCredentials:
         assert msg == "Invalid SentinelOne console URL"
 
     def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
-            assert valid is False
-            assert "boom" in (msg or "")
+        assert valid is False
+        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be
         # rejected, not followed (SSRF).
-        with self._patch_session(self._probe_response(status_code=302)) as patched:
+        with scripted_network([_mock_response(status_code=302, location="https://evil.example/")]) as network:
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
-            assert valid is False
-            assert msg == sentinelone_module.HOST_NOT_ALLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+        assert valid is False
+        assert msg == sentinelone_module.HOST_NOT_ALLOWED_ERROR
+        assert len(network.requests_log) == 1
+        assert network.session_options[-1]["allow_redirects"] is False
 
     def test_blocks_unsafe_host(self):
         with (
             mock.patch.object(sentinelone_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(self._probe_response(status_code=200)) as patched,
+            scripted_network(always(_mock_response(status_code=200))) as network,
         ):
             valid, msg = validate_credentials("10.0.0.1", "tok", team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+        assert valid is False
+        assert msg == "internal address"
+        assert network.requests_log == []
 
     def test_error_body_is_surfaced(self):
         body = {"errors": [{"title": "Bad request", "detail": "invalid filter"}]}
-        with self._patch_session(self._probe_response(status_code=400, json_data=body)):
+        with scripted_network(always(_mock_response(status_code=400, json_data=body))):
             valid, msg = validate_credentials("example.sentinelone.net", "tok")
-            assert valid is False
-            assert msg == "Bad request: invalid filter"
-
-
-def _make_manager(resume_state: SentinelOneResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so it must be copied when each
-    request is prepared rather than inspected after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+        assert valid is False
+        assert msg == "Bad request: invalid filter"
 
 
 def _run(
-    responses: list[Response],
+    responses: list[ScriptedResponse],
     *,
     endpoint: str = "threats",
-    manager: mock.MagicMock | None = None,
-) -> tuple[list[dict[str, Any]], mock.MagicMock, list[dict[str, Any]], mock.MagicMock]:
-    manager = manager or _make_manager()
-    with (
-        mock.patch(CLIENT_SESSION_PATCH) as MockSession,
-        mock.patch(HOST_CHECK_PATCH, return_value=(True, None)),
-    ):
-        session = MockSession.return_value
-        params = _wire(session, responses)
-        source = sentinelone_source(
-            console_url="example.sentinelone.net",
-            api_token="tok",
-            endpoint=endpoint,
-            resumable_source_manager=manager,
-            team_id=1,
-            job_id="job",
-        )
-        rows = _rows(source)
-    return rows, session, params, manager
+    resume_state: SentinelOneResumeConfig | None = None,
+) -> DriveResult:
+    driver = SourceDriver(
+        SentineloneSource(), SentineloneSourceConfig(console_url="example.sentinelone.net", api_token="tok")
+    )
+    return driver.run(endpoint, responses, resume_state=resume_state)
 
 
 class TestPagination:
     def test_follows_cursor_across_pages(self):
-        rows, session, params, _ = _run(
+        result = _run(
             [
                 _mock_response(json_data=_page([{"id": "1"}, {"id": "2"}], next_cursor="cur")),
                 _mock_response(json_data=_page([{"id": "3"}])),
             ]
         )
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
+        assert [r["id"] for r in result.rows] == ["1", "2", "3"]
         # The cursor is bound to the query it was minted against — non-cursor params carry over.
-        assert params[1]["cursor"] == "cur"
-        assert params[1]["limit"] == 1000
+        assert result.requests[1].param("cursor") == "cur"
+        assert result.requests[1].param("limit") == "1000"
 
     def test_resumes_from_saved_state(self):
-        manager = _make_manager(
-            SentinelOneResumeConfig(
+        result = _run(
+            [_mock_response(json_data=_page([{"id": "9"}]))],
+            resume_state=SentinelOneResumeConfig(
                 next_url="https://example.sentinelone.net/web/api/v2.1/threats?limit=1000&cursor=resume"
-            )
+            ),
         )
-        rows, _, params, _ = _run([_mock_response(json_data=_page([{"id": "9"}]))], manager=manager)
-        assert params[0]["cursor"] == "resume"
-        assert [r["id"] for r in rows] == ["9"]
+        assert result.requests[0].param("cursor") == "resume"
+        assert [r["id"] for r in result.rows] == ["9"]
 
     def test_ignores_resume_url_on_foreign_host(self):
         # A poisoned resume URL must fall back to a fresh start on the console host, not be followed.
-        manager = _make_manager(SentinelOneResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"))
-        rows, _, params, _ = _run([_mock_response(json_data=_page([{"id": "1"}]))], manager=manager)
-        assert "cursor" not in params[0]
-        assert [r["id"] for r in rows] == ["1"]
+        result = _run(
+            [_mock_response(json_data=_page([{"id": "1"}]))],
+            resume_state=SentinelOneResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+        )
+        assert result.requests[0].param("cursor") is None
+        assert [r["id"] for r in result.rows] == ["1"]
 
     def test_empty_page_terminates_even_with_cursor(self):
-        rows, session, _, manager = _run([_mock_response(json_data=_page([], next_cursor="cur"))])
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        result = _run([_mock_response(json_data=_page([], next_cursor="cur"))])
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
     def test_redirect_response_is_rejected(self):
         # An unexpected 3xx (potentially to an internal address) must be rejected, not followed (SSRF).
-        with pytest.raises(ValueError):
-            _run([_mock_response(status_code=302, location="https://evil.example/")])
+        result = _run([_mock_response(status_code=302, location="https://evil.example/")])
+        assert isinstance(result.raised, ValueError)
 
 
 class TestRunTimeHostCheck:
     def test_unsafe_console_host_raises(self):
         # The console URL is re-validated at sync time; an internal address is refused before any request.
-        with (
-            mock.patch(CLIENT_SESSION_PATCH),
-            mock.patch(HOST_CHECK_PATCH, return_value=(False, "internal address")),
-        ):
-            source = sentinelone_source(
-                console_url="10.0.0.1",
-                api_token="tok",
-                endpoint="threats",
-                resumable_source_manager=_make_manager(),
-                team_id=1,
-                job_id="job",
-            )
-            with pytest.raises(SentinelOneHostNotAllowedError):
-                _rows(source)
+        with mock.patch.object(sentinelone_module, "_is_host_safe", return_value=(False, "internal address")):
+            driver = SourceDriver(SentineloneSource(), SentineloneSourceConfig(console_url="10.0.0.1", api_token="tok"))
+            result = driver.run("threats", [])
+        assert isinstance(result.raised, SentinelOneHostNotAllowedError)
+        assert result.requests == []

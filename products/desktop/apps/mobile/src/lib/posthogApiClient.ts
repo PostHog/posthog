@@ -75,6 +75,7 @@ export function createPostHogApiClient(): PostHogAPIClient {
       appVersion,
       fetch: mobileFetch,
       githubConnectFrom: MOBILE_GITHUB_CONNECT_FROM,
+      taskClientProvenance: "posthog_mobile",
       userAgent: `posthog/mobile.hog.dev; version: ${appVersion}`,
     },
   );

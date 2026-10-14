@@ -60,7 +60,9 @@ from products.signals.backend.scout_harness.precheck import (
     PRECHECK_MAX_QUERY_LENGTH,
     PRECHECK_MAX_ROWS,
     PRECHECK_TIMEOUT_S,
+    EffectivePrecheck,
     parse_precheck_query,
+    resolve_effective_precheck,
 )
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
@@ -298,7 +300,9 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
             "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
-            "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
+            "`has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, "
+            "`has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` "
+            "scratchpad entry and produced no report, finding, or structured output). Use "
             "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
             "Note the flags describe the reports the run authored as they stand now, so charts "
             "attached to someone else's report via an edit are not counted. A missing `derived` "
@@ -3139,9 +3143,18 @@ _PRECHECK_QUERY_HELP = (
     "scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events "
     "WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet "
     "it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate "
-    "it: a manual or workflow run always starts. "
+    "it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two "
+    "scheduled runs, so a backstop can follow the schedule: `{since} < {now} - "
+    "toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more "
+    "often than every two intervals. "
     f"The query stops after {PRECHECK_TIMEOUT_S} seconds and reads at most {PRECHECK_MAX_ROWS} rows. "
-    "Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+    "Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default "
+    "pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
+)
+
+_PRECHECK_DISABLED_HELP = (
+    "True turns off the pre-check, both `precheck_query` and the default the skill ships, so every "
+    "scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null."
 )
 
 
@@ -3376,6 +3389,12 @@ class ScoutRole(models.TextChoices):
     OPERATIONAL = "operational", "operational"
 
 
+class ScoutPrecheckQuerySource(models.TextChoices):
+    CONFIG = "config", "config"
+    SKILL_DEFAULT = "skill_default", "skill_default"
+    OFF = "off", "off"
+
+
 class ScoutDeprecationPhase(models.TextChoices):
     ANNOUNCED = "announced", "announced"
     RETIRED = "retired", "retired"
@@ -3550,6 +3569,19 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=_SCOUT_MODEL_HELP,
     )
     precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
+    precheck_disabled = serializers.BooleanField(read_only=True, help_text=_PRECHECK_DISABLED_HELP)
+    effective_precheck_query = serializers.SerializerMethodField(
+        help_text=(
+            "The pre-check query the next scheduled run uses: `precheck_query`, or the default the "
+            "scout's skill ships. Null when no pre-check runs."
+        ),
+    )
+    precheck_query_source = serializers.SerializerMethodField(
+        help_text=(
+            "Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), "
+            "`skill_default` (the default its skill ships), or `off` (no pre-check runs)."
+        ),
+    )
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3646,6 +3678,23 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 
+    def _effective_precheck(self, obj: SignalScoutConfig) -> EffectivePrecheck:
+        # Two fields read it, and the skill default reads the flag payload, so resolve it once per row.
+        cache: dict[Any, EffectivePrecheck] = self.context.setdefault("_effective_precheck_by_config", {})
+        if obj.pk not in cache:
+            cache[obj.pk] = resolve_effective_precheck(
+                obj, is_canonical=self.get_scout_origin(obj) == ScoutOrigin.CANONICAL.value
+            )
+        return cache[obj.pk]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_effective_precheck_query(self, obj: SignalScoutConfig) -> str | None:
+        return self._effective_precheck(obj).query
+
+    @extend_schema_field(serializers.ChoiceField(choices=ScoutPrecheckQuerySource.choices))
+    def get_precheck_query_source(self, obj: SignalScoutConfig) -> str:
+        return self._effective_precheck(obj).source
+
     @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
     def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
         # Same single-query `skill_info` map as `get_description`. The marker is read off the
@@ -3701,6 +3750,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "allowed_mcp_tools",
             "tool_preset",
             "precheck_query",
+            "precheck_disabled",
+            "effective_precheck_query",
+            "precheck_query_source",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -3869,6 +3921,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
     """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     display_name = _display_name_field()
+    precheck_disabled = serializers.BooleanField(required=False, help_text=_PRECHECK_DISABLED_HELP)
     enabled = serializers.BooleanField(
         required=False,
         help_text=(
@@ -4038,6 +4091,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "repositories",
             "write_scopes",
             "precheck_query",
+            "precheck_disabled",
             "suggestion_id",
             "lifecycle_locked",
             "allowed_mcp_tools",
@@ -4151,8 +4205,9 @@ class SignalScoutPrecheckTestRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         max_length=PRECHECK_MAX_QUERY_LENGTH,
         help_text=(
-            "HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check "
-            "gets. Omit it, or pass null or blank, to try the query saved on the scout."
+            "HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders "
+            "a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: "
+            "its own `precheck_query`, or the default its skill ships."
         ),
     )
 
@@ -4176,6 +4231,12 @@ class SignalScoutPrecheckTestSerializer(serializers.Serializer):
         help_text="The value bound to `{since}`: the start of the last run that ran, or when the scout was created."
     )
     now = serializers.DateTimeField(help_text="The value bound to `{now}`.")
+    interval_minutes = serializers.IntegerField(
+        help_text=(
+            "The value bound to `{interval_minutes}`: the scout's rolling interval, or for a cron "
+            "schedule the gap in minutes between the fire times around now."
+        ),
+    )
     row_count = serializers.IntegerField(
         help_text=f"How many rows the query returned, at most {PRECHECK_MAX_ROWS}.",
     )
@@ -4194,6 +4255,15 @@ class SignalScoutPrecheckTestSerializer(serializers.Serializer):
         help_text=(
             "Why the query failed, when it failed. A syntax or schema error is given as written; other "
             "failures read as a general message. Null when the query ran."
+        ),
+    )
+    acting_user = UserBasicSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The member scheduled runs check the query as, when that is not you. The test runs with your "
+            "access, so a table you can read can still fail on a scheduled run, and the run then starts "
+            "as if there were no pre-check. Null when scheduled runs check it as you."
         ),
     )
 

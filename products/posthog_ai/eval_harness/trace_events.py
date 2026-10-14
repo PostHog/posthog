@@ -302,7 +302,7 @@ def emit_evaluation_events(
 ) -> None:
     """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
 
-    ``scorer_traces`` maps ``(case_name, scorer_name)`` to the trace_id of
+    ``scorer_traces`` maps ``(trial_id, scorer_name)`` to the trace_id of
     the scorer's LLM call. If available, ``$ai_trace_id`` on the event
     points to the scorer trace (for inspecting the scorer's reasoning).
     """
@@ -311,6 +311,7 @@ def emit_evaluation_events(
     for result in eval_results:
         case_name = result.input.get("name", "unknown") if isinstance(result.input, dict) else "unknown"
         metadata = result.metadata or {}
+        trial_id = str(metadata.get("trial_id") or case_name)
         agent_trace_id = metadata.get("trace_id")
         item_id = str(uuid.uuid4())
 
@@ -322,7 +323,7 @@ def emit_evaluation_events(
         for scorer_name, score_value in (result.scores or {}).items():
             # Prefer scorer trace_id (links to scorer's LLM reasoning);
             # fall back to agent trace_id
-            scorer_trace_id = scorer_traces.get((case_name, scorer_name)) if scorer_traces else None
+            scorer_trace_id = scorer_traces.get((trial_id, scorer_name)) if scorer_traces else None
             trace_id = scorer_trace_id or agent_trace_id
 
             properties: dict[str, Any] = {

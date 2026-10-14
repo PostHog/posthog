@@ -490,6 +490,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "github_issue_writeback_enabled": "comment back on GitHub issues",
         "pull_request_label_enabled": "label self-driving PRs",
         "pull_request_label": "self-driving PR label",
+        "scout_instructions": "scout instructions",
+        "research_instructions": "research instructions",
+        "implementation_instructions": "implementation instructions",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -574,12 +577,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
-    "Loop": [
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -597,6 +594,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
+    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
+    # site, so the save that only moves the active version must not add an `updated` row.
+    "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
     # and the failure streak by the runner on every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
@@ -720,6 +720,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # on each settings toggle, and none of it is configuration.
         "pull_requests",
     ],
+    "StreamlitApp": [
+        # Reverse relations. Version uploads and activations log their own rows, and a version's
+        # str() includes the app name, so a rename would show a false versions change.
+        "versions",
+        "sandbox",
+    ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.
@@ -746,21 +752,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "evidence",
         "score_inputs",
         "payload",
-    ],
-    "Loop": [
-        # FK relations are not JSON-serializable for the change detail (same reason
-        # FeatureFlag/Subscription exclude theirs).
-        "team",
-        "sandbox_environment",
-        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
-        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
-        "triggers",
-        "fires",
-        # Run bookkeeping, not user-meaningful config.
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",
@@ -1022,7 +1013,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "static_devices",
         "recovery_devices",
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
-        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        # ambient team scope at signal-handling time.
         "facet_settings",
     ],
     "AlertConfiguration": [
@@ -1716,8 +1707,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

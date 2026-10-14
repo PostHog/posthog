@@ -4,6 +4,7 @@ import datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -35,7 +36,7 @@ from products.business_knowledge.backend.models import (
 )
 
 
-class TestChunker(BaseTest):
+class TestChunker(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty", "", 0),

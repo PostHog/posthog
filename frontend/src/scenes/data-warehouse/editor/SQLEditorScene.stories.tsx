@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DatabaseSchemaMaterializedViewTable,
@@ -22,7 +23,8 @@ import {
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
+import { buildBIQuery, getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -376,7 +378,6 @@ export const MaterializationSettings: StoryObj = {
                                 id: 'source',
                                 name: 'orders',
                                 type: 'table',
-                                dag: 'dag-1',
                                 upstream_count: 0,
                                 downstream_count: 1,
                             },
@@ -385,14 +386,11 @@ export const MaterializationSettings: StoryObj = {
                                 name: 'revenue_summary',
                                 type: 'matview',
                                 saved_query_id: 'settings-view',
-                                dag: 'dag-1',
                                 upstream_count: 1,
                                 downstream_count: 0,
                             },
                         ],
-                        edges: [
-                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
-                        ],
+                        edges: [{ id: 'edge-1', source_id: 'source', target_id: 'summary', properties: {} }],
                     },
                 ],
             },
@@ -614,10 +612,12 @@ export const BICalculatedMeasureEditor: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const addMeasure = await canvas.findByText('Add calculated measure', {}, { timeout: 15000 })
-        await waitFor(() => expect(addMeasure.closest('button')).toBeEnabled())
+        const addMeasure = await canvas.findByRole('button', { name: 'Add calculated field' }, { timeout: 15000 })
+        await waitFor(() => expect(addMeasure).toBeEnabled())
         await userEvent.click(addMeasure)
         const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByLabelText('Calculated field role'))
+        await userEvent.click(await modal.findByText('Measure · aggregate each group'))
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
     },
 }
@@ -1161,6 +1161,18 @@ const BI_ANALYSIS_CONFIG: BIConfig = {
     totals: { rows: true, subtotals: true },
 }
 
+async function stabilizeQueryElapsedTime(): Promise<void> {
+    const { dataNodeKey } = biSceneLogic({ tabId: 'bi-default' }).values
+    const logic = dataNodeLogic.findMounted({ key: dataNodeKey })
+    await waitFor(() => {
+        expect(logic).toBeDefined()
+        expect(logic?.values.responseLoading).toBe(false)
+        expect(logic?.values.response).toBeTruthy()
+    })
+    // MSW fixes the response, but the query timer still measures real browser time.
+    logic!.actions.setElapsedTime(180)
+}
+
 export const BITableAnalysis: Story = {
     ...BIModeWorksheet,
     parameters: {
@@ -1200,6 +1212,7 @@ export const BITableAnalysis: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
+        await stabilizeQueryElapsedTime()
     },
 }
 
@@ -1257,13 +1270,16 @@ export const BICombinedMeasures: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await waitFor(() => expect(canvasElement.querySelector('canvas')).not.toBeNull())
+        await stabilizeQueryElapsedTime()
     },
 }
 
 export const BIMeasureDisplay: Story = {
     ...BICombinedMeasures,
     play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
 
@@ -1306,6 +1322,7 @@ export const BIDrilldown: Story = {
         await userEvent.click(await canvas.findByText('120', { exact: true }))
         await userEvent.click(await within(document.body).findByRole('button', { name: 'View underlying rows' }))
         await waitFor(() => expect(within(document.body).getByText('2026-06-01 12:00:00')).toBeVisible())
+        await stabilizeQueryElapsedTime()
     },
 }
 
@@ -1390,6 +1407,112 @@ export const BIPivotTotals: Story = {
                 },
             },
         },
+    },
+}
+
+const BI_GEOGRAPHY_FIELDS: BIField[] = ['Country', 'State', 'City'].map((name) => ({
+    ...biEventsField(name, 'string'),
+    expression: `properties.${name.toLowerCase()}`,
+}))
+const BI_HIERARCHY_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [BI_GEOGRAPHY_FIELDS[0]],
+    columns: [],
+    filters: [],
+    hierarchies: [{ id: 'geography', name: 'Geography', levels: BI_GEOGRAPHY_FIELDS }],
+}
+const BI_HIERARCHY_WORKSHEET = {
+    ...buildBIQuery(BI_HIERARCHY_CONFIG)!.node,
+    kind: NodeKind.BIVisualizationNode,
+    config: BI_HIERARCHY_CONFIG,
+}
+
+export const BINamedHierarchy: Story = {
+    ...BITableAnalysis,
+    parameters: {
+        ...BITableAnalysis.parameters,
+        pageUrl: `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(BI_HIERARCHY_WORKSHEET))}`,
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.get,
+                    '/api/projects/:team_id/insights/': {
+                        results: [
+                            {
+                                id: 910,
+                                short_id: 'exampleGeo',
+                                name: 'Example geography',
+                                query: BI_HIERARCHY_WORKSHEET,
+                            },
+                        ],
+                        next: null,
+                        count: 1,
+                    },
+                    '/api/projects/:team_id/insights/910/': {
+                        id: 910,
+                        short_id: 'exampleGeo',
+                        name: 'Example geography',
+                        query: BI_HIERARCHY_WORKSHEET,
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    ...BI_EVENTS_FIELDS,
+                                    ...Object.fromEntries(
+                                        BI_GEOGRAPHY_FIELDS.map((field) => [
+                                            field.name,
+                                            {
+                                                name: field.name,
+                                                hogql_value: field.expression,
+                                                type: field.type,
+                                                schema_valid: true,
+                                            },
+                                        ])
+                                    ),
+                                },
+                            },
+                        },
+                    },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        const level =
+                            BI_GEOGRAPHY_FIELDS.find((field) =>
+                                query.query.split('FROM')[0].includes(field.expression)
+                            ) ?? BI_GEOGRAPHY_FIELDS[0]
+                        const column = getBIResultDimensions({ ...BI_HIERARCHY_CONFIG, rows: [level] })[0].column
+                        return [
+                            200,
+                            {
+                                columns: [column, 'sum_revenue'],
+                                types: [
+                                    [column, 'String'],
+                                    ['sum_revenue', 'Float64'],
+                                ],
+                                results: [[`Example ${level.name.toLowerCase()}`, 120]],
+                                hasMore: false,
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByText('120', { exact: true }))
+        await waitFor(() => expect(within(document.body).getByRole('link', { name: 'Drill to State' })).toBeVisible())
+        await stabilizeQueryElapsedTime()
     },
 }
 

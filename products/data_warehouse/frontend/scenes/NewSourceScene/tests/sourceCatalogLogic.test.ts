@@ -200,6 +200,34 @@ describe('sourceCatalogLogic', () => {
         expect(logic.values.hasCrossCategoryMatches).toBe(false)
     })
 
+    it.each([
+        { flagEnabled: true, expectedOffer: 'Custom' },
+        { flagEnabled: false, expectedOffer: null },
+    ])(
+        'offers the Custom REST source for an unmatched search only when it is connectable ($flagEnabled)',
+        ({ flagEnabled, expectedOffer }) => {
+            availableSourcesLogic.actions.loadSuccess({
+                ...AVAILABLE_SOURCES,
+                Custom: {
+                    name: 'Custom',
+                    label: 'Custom REST source',
+                    featureFlag: 'dwh_custom_source',
+                    fields: [],
+                } as unknown as SourceConfigResponseApi,
+            })
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(flagEnabled ? ['dwh_custom_source'] : [], {
+                dwh_custom_source: flagEnabled,
+            })
+            const logic = sourceCatalogLogic()
+            logic.actions.setSearch('qwxzv')
+
+            expect(logic.values.filteredItems).toHaveLength(0)
+            // Pointing at a "Coming soon" tile would send the user to a source they can't connect.
+            expect(logic.values.customSourceItem?.name ?? null).toEqual(expectedOffer)
+        }
+    )
+
     // No other test covers narrowing the catalog by category: `self-managed` is the one filter that
     // narrows on the connection model rather than on `item.category`, so it needs its own coverage.
     it('narrows the catalog to the self-managed connectors', () => {

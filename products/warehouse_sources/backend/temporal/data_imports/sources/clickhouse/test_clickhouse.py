@@ -18,6 +18,7 @@ import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
     _REDIRECTED,
+    _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
 )
@@ -413,6 +415,15 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
+    def test_bare_gateway_status_is_classified_as_retryable(self, source):
+        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
+        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
+        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
+        # as tracked exception noise on every occurrence instead of silently retried.
+        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -522,6 +533,13 @@ class TestTranslateError:
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _REDIRECTED
 
+    @pytest.mark.parametrize("code", ["500", "502", "503", "504"])
+    def test_gateway_responses_are_temporarily_unavailable(self, code):
+        # A bare status with no ClickHouse exception code means a proxy/LB in front of
+        # ClickHouse is briefly down, not that the connection details are wrong.
+        msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
 
 class TestGetSchemas:
     """Tests `get_schemas` with a fully mocked ClickHouse client."""
@@ -628,6 +646,40 @@ class TestSourceClassValidateCredentials:
 
         assert valid is False
         assert msg == GENERIC_CONNECTION_ERROR
+
+    @pytest.mark.parametrize(
+        "raw_error,expected",
+        [
+            ("Could not establish session to SSH gateway", "Could not connect to your SSH tunnel"),
+            (
+                "Could not establish session to SSH gateway: the SSH server did not accept a connection within 15 seconds",
+                "Could not connect to your SSH tunnel",
+            ),
+            (
+                "Problem setting SSH Forwarder up: Couldn't open tunnel 127.0.0.1:0 <> bastion.example.com:9000",
+                "SSH tunnel settings",
+            ),
+        ],
+    )
+    def test_ssh_tunnel_errors_return_user_facing_message(self, raw_error, expected):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
+
+        source = source_module.ClickHouseSource()
+
+        config = MagicMock()
+        config.host = "play.clickhouse.com"
+        config.ssh_tunnel = None
+
+        with patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)):
+            with patch.object(source, "is_database_host_valid", return_value=(True, None)):
+                with patch.object(source, "get_schemas", side_effect=BaseSSHTunnelForwarderError(raw_error)):
+                    with patch.object(source_module, "capture_exception"):
+                        valid, msg = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert msg is not None and expected in msg
+        assert "SSH gateway" not in msg
+        assert "example.com" not in msg
 
 
 class TestHasDuplicatePrimaryKeys:

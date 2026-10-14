@@ -234,6 +234,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     clause?: string | null
+    /**
+     * UCUM unit of the returned values, e.g. "By", "ms", "{request}/s". It is the ingested unit, except that a count of series has no unit and a rate is per second ("ms/s", or "1/s" for a counter without a unit). Null when the values have no unit, when merged series disagree on the unit, and for formula results.
+     * @nullable
+     */
+    unit?: string | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -276,6 +281,494 @@ export interface _MetricAnomalyReportApi {
     top_movers: _MetricAnomalyDimensionApi[]
     /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
     series: _MetricSeriesApi
+}
+
+/**
+ * * `grafana` - Grafana
+ * * `screenshot` - Screenshot
+ */
+export type DashboardImportSourceEnumApi =
+    (typeof DashboardImportSourceEnumApi)[keyof typeof DashboardImportSourceEnumApi]
+
+export const DashboardImportSourceEnumApi = {
+    Grafana: 'grafana',
+    Screenshot: 'screenshot',
+} as const
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type DashboardImportStatusEnumApi =
+    (typeof DashboardImportStatusEnumApi)[keyof typeof DashboardImportStatusEnumApi]
+
+export const DashboardImportStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `starting` - Starting
+ * * `matching` - Matching
+ * * `building` - Building
+ * * `checking_layout` - Checking Layout
+ */
+export type DashboardImportPhaseEnumApi = (typeof DashboardImportPhaseEnumApi)[keyof typeof DashboardImportPhaseEnumApi]
+
+export const DashboardImportPhaseEnumApi = {
+    Starting: 'starting',
+    Matching: 'matching',
+    Building: 'building',
+    CheckingLayout: 'checking_layout',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `working` - Working
+ * * `done` - Done
+ * * `skipped` - Skipped
+ */
+export type PanelProgressStateEnumApi = (typeof PanelProgressStateEnumApi)[keyof typeof PanelProgressStateEnumApi]
+
+export const PanelProgressStateEnumApi = {
+    Waiting: 'waiting',
+    Working: 'working',
+    Done: 'done',
+    Skipped: 'skipped',
+} as const
+
+export interface DashboardImportPanelProgressApi {
+    /** Panel key in the import. */
+    key: string
+    /** Panel title. */
+    title: string
+    /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+     *
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped */
+    state: PanelProgressStateEnumApi
+}
+
+export interface DashboardImportSummaryApi {
+    /** Number of panels in the input. */
+    total: number
+    /** Panels imported with the same meaning. */
+    imported: number
+    /** Panels imported with a change in what they show. */
+    approximated: number
+    /** Panels that have no working query. */
+    failed: number
+    /** Panels with no PostHog equivalent. */
+    skipped: number
+}
+
+/**
+ * * `imported` - Imported
+ * * `approximated` - Approximated
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type PanelImportOutcomeEnumApi = (typeof PanelImportOutcomeEnumApi)[keyof typeof PanelImportOutcomeEnumApi]
+
+export const PanelImportOutcomeEnumApi = {
+    Imported: 'imported',
+    Approximated: 'approximated',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+export interface DashboardImportPanelApi {
+    /** Panel key in the import, for example 'p12' for Grafana panel 12. */
+    key: string
+    /** Panel title. */
+    title: string
+    /** What happened to the panel.
+     *
+     * * `imported` - Imported
+     * * `approximated` - Approximated
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    outcome: PanelImportOutcomeEnumApi
+    /** What changed, or why the panel failed or was skipped. */
+    reason: string
+}
+
+export interface DashboardImportApi {
+    /**
+     * Id to poll for the status. Null when the import finished in the request, with no agent.
+     * @nullable
+     */
+    id: string | null
+    /** What the import reads.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /** Where the import is.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    status: DashboardImportStatusEnumApi
+    /** Name of the new dashboard. */
+    dashboard_name: string
+    /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard, or 'checking_layout' against the screenshot.
+     *
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building
+     * * `checking_layout` - Checking Layout */
+    phase: DashboardImportPhaseEnumApi | null
+    /** Where each panel is, while the import runs. */
+    panel_progress: DashboardImportPanelProgressApi[]
+    /**
+     * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
+     * @nullable
+     */
+    layout_rounds: number | null
+    /**
+     * The comparison that runs, from 1, while the phase is 'checking_layout'.
+     * @nullable
+     */
+    layout_round: number | null
+    /**
+     * Id of the new dashboard, when it exists.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * Why the import failed, when it failed.
+     * @nullable
+     */
+    error: string | null
+    /** Panel counts, when the import ended. */
+    summary: DashboardImportSummaryApi | null
+    /** The outcome for each panel, when the import ended. */
+    panels: DashboardImportPanelApi[]
+}
+
+export interface DashboardImportCreateApi {
+    /** What to import: 'grafana' reads a Grafana dashboard JSON model, 'screenshot' reads an image of a dashboard.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * Name of the new dashboard. Defaults to the Grafana dashboard title, or to 'Imported dashboard'.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * The Grafana dashboard JSON model as text, from Dashboard settings > JSON Model or from an export. Required when source is 'grafana'.
+     * @maxLength 5242880
+     */
+    grafana_json?: string
+    /**
+     * The screenshot as base64, without a data URL prefix. PNG, JPEG, WebP or GIF, at most 5 MB. Required when source is 'screenshot'.
+     * @maxLength 7340032
+     */
+    image_base64?: string
+}
+
+/**
+ * * `promql` - Promql
+ * * `builder` - Builder
+ * * `histogram` - Histogram
+ * * `hogql` - Hogql
+ */
+export type PanelQueryLanguageEnumApi = (typeof PanelQueryLanguageEnumApi)[keyof typeof PanelQueryLanguageEnumApi]
+
+export const PanelQueryLanguageEnumApi = {
+    Promql: 'promql',
+    Builder: 'builder',
+    Histogram: 'histogram',
+    Hogql: 'hogql',
+} as const
+
+/**
+ * * `sum` - Sum
+ * * `avg` - Avg
+ * * `count` - Count
+ * * `min` - Min
+ * * `max` - Max
+ * * `p95` - P95
+ * * `rate` - Rate
+ * * `increase` - Increase
+ * * `histogram_quantile` - Histogram Quantile
+ */
+export type PanelBuilderAggregationEnumApi =
+    (typeof PanelBuilderAggregationEnumApi)[keyof typeof PanelBuilderAggregationEnumApi]
+
+export const PanelBuilderAggregationEnumApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Count: 'count',
+    Min: 'min',
+    Max: 'max',
+    P95: 'p95',
+    Rate: 'rate',
+    Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
+} as const
+
+export interface PanelFilterApi {
+    /**
+     * Attribute name, for example 'service.name'.
+     * @maxLength 255
+     */
+    key: string
+    /** Comparison. Regex operators use RE2.
+     *
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex */
+    op: OpEnumApi
+    /**
+     * Value or regex to compare against.
+     * @maxLength 1024
+     */
+    value: string
+}
+
+export interface PanelBuilderClauseApi {
+    /**
+     * Alias that a formula uses, for example 'a'.
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Exact metric name.
+     * @maxLength 255
+     */
+    metric_name: string
+    /** Aggregation for each bucket, with the same meaning as in the metrics query API.
+     *
+     * * `sum` - Sum
+     * * `avg` - Avg
+     * * `count` - Count
+     * * `min` - Min
+     * * `max` - Max
+     * * `p95` - P95
+     * * `rate` - Rate
+     * * `increase` - Increase
+     * * `histogram_quantile` - Histogram Quantile */
+    aggregation: PanelBuilderAggregationEnumApi
+    /**
+     * Quantile between 0 and 1. Required for 'histogram_quantile'. The other aggregations ignore it.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
+    /** Attribute filters, joined with AND. */
+    filters?: PanelFilterApi[]
+    /**
+     * Attribute names that split the result into series.
+     * @items.maxLength 255
+     */
+    group_by?: string[]
+}
+
+export interface PanelBuilderQueryApi {
+    /** One clause for each series. */
+    clauses: PanelBuilderClauseApi[]
+    /**
+     * Arithmetic over clause aliases, for example 'a / b'.
+     * @nullable
+     */
+    formula?: string | null
+}
+
+export interface PanelQueryCheckApi {
+    /**
+     * Panel key. The result for the panel carries the same key.
+     * @maxLength 64
+     */
+    key: string
+    /**
+     * Panel title, shown in the import progress.
+     * @maxLength 200
+     */
+    title?: string
+    /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
+     *
+     * * `promql` - Promql
+     * * `builder` - Builder
+     * * `histogram` - Histogram
+     * * `hogql` - Hogql */
+    language: PanelQueryLanguageEnumApi
+    /**
+     * PromQL expression. Used when language is 'promql'.
+     * @nullable
+     */
+    promql?: string | null
+    /** Builder query. Used when language is 'builder'. */
+    builder?: PanelBuilderQueryApi | null
+    /**
+     * Histogram metric name. Used when language is 'histogram'.
+     * @nullable
+     */
+    histogram_metric?: string | null
+    /**
+     * SQL SELECT over logs or posthog.trace_spans with {filters} in the WHERE clause. Used when language is 'hogql'.
+     * @nullable
+     */
+    hogql?: string | null
+}
+
+export interface PanelQueryCheckRequestApi {
+    /**
+     * Up to 20 panel queries to check.
+     * @minItems 1
+     * @maxItems 20
+     */
+    panels: PanelQueryCheckApi[]
+    /**
+     * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+     * @nullable
+     */
+    import_id?: string | null
+}
+
+export interface PanelQueryCheckResultApi {
+    /** Panel key from the request. */
+    key: string
+    /** True when the query can go on a dashboard. */
+    valid: boolean
+    /**
+     * Why the query cannot go on a dashboard.
+     * @nullable
+     */
+    error: string | null
+    /** Warnings that do not block the query, such as no recent data. */
+    notes: string[]
+}
+
+export interface PanelQueryCheckResponseApi {
+    /** One result for each checked panel. */
+    results: PanelQueryCheckResultApi[]
+}
+
+/**
+ * * `curated` - Curated
+ * * `generated` - Generated
+ */
+export type MetricsDashboardTemplateSourceEnumApi =
+    (typeof MetricsDashboardTemplateSourceEnumApi)[keyof typeof MetricsDashboardTemplateSourceEnumApi]
+
+export const MetricsDashboardTemplateSourceEnumApi = {
+    Curated: 'curated',
+    Generated: 'generated',
+} as const
+
+/**
+ * * `generating` - Generating
+ * * `pending_review` - Pending Review
+ * * `approved` - Approved
+ * * `rejected` - Rejected
+ * * `failed` - Failed
+ */
+export type DashboardTemplateStatusEnumApi =
+    (typeof DashboardTemplateStatusEnumApi)[keyof typeof DashboardTemplateStatusEnumApi]
+
+export const DashboardTemplateStatusEnumApi = {
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Failed: 'failed',
+} as const
+
+export interface MetricsDashboardTemplateRoundApi {
+    /** Check round, from 1. */
+    round: number
+    /** True when the round rendered a picture of the dashboard. */
+    has_picture: boolean
+    /**
+     * The verdict of the model on the picture.
+     * @nullable
+     */
+    looks_good: boolean | null
+    /** The problems that the model saw. */
+    problems: string[]
+    /** True when the model corrected the panels after this round. */
+    revised: boolean
+}
+
+export interface MetricsDashboardTemplateApi {
+    /** Template id. */
+    id: string
+    /** Stable key: the bank file name, or a digest of the metric names. */
+    key: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Curated in code, or generated.
+     *
+     * * `curated` - Curated
+     * * `generated` - Generated */
+    source: MetricsDashboardTemplateSourceEnumApi
+    /** Review status.
+     *
+     * * `generating` - Generating
+     * * `pending_review` - Pending Review
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `failed` - Failed */
+    status: DashboardTemplateStatusEnumApi
+    /** Metric names that the charts read. */
+    metric_names: string[]
+    /** Chart titles, top to bottom. */
+    panel_titles: string[]
+    /** When the template entered the bank. */
+    created_at: string
+    /** Number of projects that have the template suggested. */
+    suggestion_count: number
+    /**
+     * Project whose metrics generated it.
+     * @nullable
+     */
+    source_team_id: number | null
+    /**
+     * Project of the preview dashboard.
+     * @nullable
+     */
+    preview_team_id: number | null
+    /**
+     * Unlisted dashboard that shows the template with live data.
+     * @nullable
+     */
+    preview_dashboard_id: number | null
+    /** The picture check rounds of the generation. */
+    rounds: MetricsDashboardTemplateRoundApi[]
+    /** Drafted charts whose queries failed the checks. */
+    dropped_panels: string[]
+    /**
+     * Why the generation failed.
+     * @nullable
+     */
+    error: string | null
+    /**
+     * Who approved or rejected the template.
+     * @nullable
+     */
+    reviewed_by: string | null
+    /**
+     * When the template was approved or rejected.
+     * @nullable
+     */
+    reviewed_at: string | null
+}
+
+export interface MetricsCreatedDashboardApi {
+    /** The id of the dashboard. */
+    dashboard_id: number
 }
 
 export interface _MetricErrorSpikeApi {
@@ -550,9 +1043,9 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601. */
-    dateFrom: string
-    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    dateFrom?: string
+    /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
 }
 
@@ -653,6 +1146,30 @@ export interface _MetricEventSampleApi {
 export interface _MetricSamplesResponseApi {
     /** Raw emissions ordered by timestamp descending. */
     results: _MetricEventSampleApi[]
+}
+
+export interface MetricsSuggestedDashboardApi {
+    /** Suggestion id. */
+    id: string
+    /** The bank dashboard that the suggestion is for. */
+    template_id: string
+    /** Dashboard name. */
+    name: string
+    /** What the dashboard shows. */
+    description: string
+    /** Why the dashboard suits this project. Can be empty. */
+    reason: string
+    /** Number of charts on the dashboard. */
+    panel_count: number
+    /** Number of the project's metrics that the dashboard uses. */
+    matched_metric_count: number
+    /** Share of the dashboard's charts that have data in this project. */
+    coverage: number
+    /**
+     * The dashboard that someone in the project created from this suggestion.
+     * @nullable
+     */
+    dashboard_id: number | null
 }
 
 export interface _MetricNameApi {
@@ -759,6 +1276,31 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+}
+
+export type MetricsDashboardTemplatesListParams = {
+    /**
+     * Only templates with this status.
+     */
+    status?: MetricsDashboardTemplatesListStatus
+}
+
+export type MetricsDashboardTemplatesListStatus =
+    (typeof MetricsDashboardTemplatesListStatus)[keyof typeof MetricsDashboardTemplatesListStatus]
+
+export const MetricsDashboardTemplatesListStatus = {
+    Approved: 'approved',
+    Failed: 'failed',
+    Generating: 'generating',
+    PendingReview: 'pending_review',
+    Rejected: 'rejected',
+} as const
+
+export type MetricsDashboardTemplatesPictureRetrieveParams = {
+    /**
+     * Check round, from 1.
+     */
+    round: number
 }
 
 export type MetricsErrorSpikesRetrieveParams = {

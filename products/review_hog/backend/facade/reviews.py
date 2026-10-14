@@ -9,18 +9,20 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.review_hog.backend.requested_reviews import (
+from products.review_hog.backend.facade.contracts import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
     PRReviewRequestOutcome,
-    PRReviewRequestStatus,
-    request_pr_review as _request_pr_review,
 )
+from products.review_hog.backend.facade.enums import PRReviewRequestStatus
+from products.review_hog.backend.requested_reviews import request_pr_review as _request_pr_review
 from products.review_hog.backend.temporal.types import TRIGGER_COMMENT
 
 __all__ = [
     "RUN_MODE_FLASH",
     "RUN_MODE_REVIEW",
+    "RUN_MODE_REVIEW_ONLY",
     "PRReviewRequestOutcome",
     "PRReviewRequestStatus",
     "request_pr_review",

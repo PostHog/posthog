@@ -71,6 +71,10 @@ from products.signals.backend.report_sections import (
     ReportSections as ReportSections,
     report_sections as report_sections,
 )
+from products.signals.backend.report_urls import (
+    ReportLinkSource as ReportLinkSource,
+    report_path as report_path,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
@@ -1363,6 +1367,14 @@ def repair_report_actionability_cache(
     artefact write, so this only repairs rows that drifted.
     """
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
+
+
+def resolve_audit_actor_for_team(team_id: int) -> int | None:
+    from products.signals.backend.temporal.agentic import (
+        resolve_acting_user_id_for_team,  # noqa: PLC0415 — keeps Temporal agent dependencies off the facade import path
+    )
+
+    return resolve_acting_user_id_for_team(team_id)
 
 
 def retract_source_signals(*, team: "Team", source_product: str, source_type: str, source_id: str) -> int:

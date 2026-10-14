@@ -51,6 +51,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
+from posthog.test.authentication_checks import covers_authentication
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
 _IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
@@ -1094,6 +1095,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             get_authenticator_client(authenticator), {"credential_type": "id_jag", "client_id": "agent_client_id"}
         )
 
+    @covers_authentication(IDJagAccessTokenAuthentication)
     def test_valid_token_authenticates_user(self) -> None:
         token = self._mint_access_token(scope="user:read")
         resp = self._call_authenticated(token)

@@ -27,6 +27,7 @@ from products.autoresearch.backend.facade.contracts import (
     Run,
     Suggestion,
     TrainingRun,
+    TrainingTrendPoint,
 )
 
 POPULATION_KINDS = api.POPULATION_KINDS
@@ -39,6 +40,7 @@ VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
+BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
@@ -47,6 +49,10 @@ SUGGESTION_SOURCE_CHOICES = api.SUGGESTION_SOURCE_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
+ITERATION_SUMMARY_MAX_LENGTH = 300
+RUN_READER_SUMMARY_MAX_LENGTH = 600
+NEXT_STEPS_MAX_ITEMS = 5
+NEXT_STEP_MAX_LENGTH = 80
 OBJECT_JSON_MAX_BYTES = 64 * 1024
 MODEL_SPEC_MAX_BYTES = 4 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -488,6 +494,18 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -501,10 +519,31 @@ class LiveTrainingRunSerializer(DataclassSerializer):
     latest_agent_description = serializers.CharField(
         read_only=True, allow_blank=True, help_text="The agent's rationale for its newest experiment."
     )
+    latest_summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
+    )
+    trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per experiment of this run, oldest first. "
+            "Experiments before the first holdout score are left out."
+        ),
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
-        fields = ["id", "iteration_budget", "experiment_count", "best_holdout_score", "latest_agent_description"]
+        fields = [
+            "id",
+            "iteration_budget",
+            "experiment_count",
+            "best_holdout_score",
+            "latest_agent_description",
+            "latest_summary",
+            "trend",
+        ]
 
 
 @extend_schema_serializer(component_name="AutoresearchPredictionCoverage")
@@ -630,6 +669,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         max_length=255,
         help_text="Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.",
     )
+    write_person_property = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether live scoring writes the champion's score to output_person_property on each scored person. "
+            "Feature flags, cohorts, workflows and insights that target people by score need it on."
+        ),
+    )
     status = serializers.ChoiceField(
         choices=PIPELINE_STATUS_CHOICES,
         read_only=True,
@@ -666,10 +712,43 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         read_only=True,
         help_text="Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first.",
     )
+    champion_training_trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per iteration of the training run that produced the current champion, "
+            "oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion."
+        ),
+    )
     people_scored = serializers.IntegerField(
         read_only=True,
         allow_null=True,
         help_text="People scored by the most recent completed inference run. Null before the first scoring run.",
+    )
+    likely_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "People the newest completed live run of the current champion scored at or above likely_threshold. "
+            "Null before such a run, and for runs that did not record it."
+        ),
+    )
+    likely_threshold = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The Likely cut point that likely_count used, as it was when that run scored. It is the fixed "
+            "cut point until enough predictions are checked. Null when likely_count is null."
+        ),
+    )
+    first_check_expected_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When online validation can first check the current champion against real outcomes: its earliest "
+            "prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring "
+            "run, and once a validation has checked it."
+        ),
     )
     coverage = PredictionCoverageSerializer(
         read_only=True,
@@ -704,6 +783,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
             "status",
             "created_by",
             "created_at",
@@ -714,7 +794,11 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "champion_lift_at_10",
             "champion_is_preliminary",
             "champion_realized_auc_trend",
+            "champion_training_trend",
             "people_scored",
+            "likely_count",
+            "likely_threshold",
+            "first_check_expected_at",
             "coverage",
             "training_run_count",
             "experiment_count",
@@ -804,6 +888,15 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "non-archived pipelines."
         ),
     )
+    write_person_property = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. "
+            "Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. "
+            "Prediction events, validation and segments work without it. Turning it off, or archiving or deleting "
+            "the pipeline while it is on, removes the property from the people it scored."
+        ),
+    )
 
     class Meta:
         dataclass = PipelineWrite
@@ -821,6 +914,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             "success_auc",
             "plateau_iterations",
             "output_person_property",
+            "write_person_property",
         ]
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
@@ -918,6 +1012,19 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not output_person_property:
             output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
             updates["output_person_property"] = output_person_property
+        if is_update and (
+            self._supplied(data, "output_person_property") or self._supplied(data, "write_person_property")
+        ):
+            stored = api.get_pipeline_definition(team.pk, self._pipeline_id)
+            writes = self._value(data, "write_person_property", stored.write_person_property)
+            if writes and not self._value(data, "output_person_property", stored.output_person_property):
+                raise serializers.ValidationError(
+                    {
+                        "output_person_property": (
+                            "Set a person property name before you turn on writing scores to person profiles."
+                        )
+                    }
+                )
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):
@@ -1108,6 +1215,11 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_blank=True,
         help_text="The agent's one-line rationale for what it tried and why.",
     )
+    summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.",
+    )
     model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -1118,6 +1230,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "holdout_score",
             "train_score",
             "agent_description",
+            "summary",
             "model_spec",
         ]
 
@@ -1173,6 +1286,17 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Distilled cross-run learning summary written on completion. Null until the run completes.",
     )
+    reader_summary = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="One or two plain sentences on what this run learned, for people. Null if not written.",
+    )
+    next_steps = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Short plain-language next steps for people, at most 5. Null if not written.",
+    )
     iterations = IterationTrailSerializer(
         many=True,
         read_only=True,
@@ -1201,6 +1325,8 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "iteration_count",
             "best_holdout_score",
             "summary",
+            "reader_summary",
+            "next_steps",
             "iterations",
             "error",
             "started_at",
@@ -1227,6 +1353,11 @@ class AutoresearchIterationSerializer(DataclassSerializer):
     holdout_score = serializers.FloatField(required=False, allow_null=True)
     status = serializers.ChoiceField(choices=ITERATION_STATUS_CHOICES)
     agent_description = serializers.CharField(required=False, allow_blank=True)
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Plain-language sentence on what this experiment tried and what happened, for people.",
+    )
     agent_confidence = serializers.FloatField(
         required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -1251,6 +1382,7 @@ class AutoresearchIterationSerializer(DataclassSerializer):
             "holdout_score",
             "status",
             "agent_description",
+            "summary",
             "agent_confidence",
             "parent_suggestion",
             "created_at",
@@ -1453,13 +1585,13 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     likely_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
-            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed."
         )
     )
     possible_threshold = serializers.FloatField(
         help_text=(
             "Users with a score at or above this probability and below likely_threshold are in the Possible "
-            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed."
         )
     )
     likely_lift = serializers.FloatField(
@@ -1468,11 +1600,20 @@ class PredictionSegmentThresholdsSerializer(serializers.Serializer):
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
-            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+            "The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored "
+            "users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the "
+            "fraction of the champion's training population that did it. Null when base_rate_source is fixed."
         ),
     )
     base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    base_rate_source = serializers.ChoiceField(
+        choices=BASE_RATE_SOURCE_CHOICES,
+        help_text=(
+            "Where the cut points come from. realized: the checked dates hold enough positives. training: no "
+            "realized base rate yet, so the champion's training population sets it. fixed: neither is available, "
+            "so fixed cut points apply."
+        ),
+    )
     champion_mean_p_y = serializers.FloatField(
         allow_null=True,
         help_text=(
@@ -1743,6 +1884,16 @@ class RecordIterationSerializer(serializers.Serializer):
         max_length=AGENT_DESCRIPTION_MAX_LENGTH,
         help_text=f"Agent's plain-English rationale for this iteration. Max {AGENT_DESCRIPTION_MAX_LENGTH} characters.",
     )
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=ITERATION_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "One plain sentence for people on what this experiment tried and what happened. "
+            f"Max {ITERATION_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
     agent_confidence = FiniteFloatField(
         required=False,
         allow_null=True,
@@ -1826,6 +1977,26 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the "
             "dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters."
+        ),
+    )
+    reader_summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=RUN_READER_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "One or two plain sentences for people on what this run learned. "
+            f"Max {RUN_READER_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    next_steps = serializers.ListField(
+        child=serializers.CharField(max_length=NEXT_STEP_MAX_LENGTH),
+        required=False,
+        allow_null=True,
+        max_length=NEXT_STEPS_MAX_ITEMS,
+        help_text=(
+            f"Short next steps for people, at most {NEXT_STEPS_MAX_ITEMS} items of a few words each "
+            f"(max {NEXT_STEP_MAX_LENGTH} characters per item)."
         ),
     )
     report_notebook_short_id = serializers.CharField(
