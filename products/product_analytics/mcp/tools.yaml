@@ -62,21 +62,8 @@ tools:
 
             ```
 
-            ```json
-
-            { "name": "Recent pageviews", "query": { "kind": "DataTableNode", "source": { "kind": "EventsQuery",
-            "select": ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "orderBy": ["timestamp
-            DESC"], "limit": 100 } } }
-
-            ```
-
-
-            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
-
+            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are
             wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
-            A bare `{ "kind": "EventsQuery", "select": ["event", "timestamp"], "limit": 100 }` is wrapped in a
-            `DataTableNode`. Use `source.select` for event columns, `source.properties` for property filters, and
-            `source.after` / `source.before` for timestamp bounds. Use `offset` and `limit` for pagination.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
@@ -242,17 +229,8 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results. For an events table, use
-            `DataTableNode` with an `EventsQuery` source:
-
-            ```json
-
-            { "id": "AaVQ8Ijw", "query": { "kind": "DataTableNode", "source": { "kind": "EventsQuery", "select":
-            ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "limit": 100 } } }
-
-            ```
-
-            A bare `EventsQuery` is wrapped automatically. When replacing a query, include all filters and table
+            tool with the same identifier if you want to see the recomputed results. Query uses the same format as
+            insight-create. Replacing query replaces the entire definition; include all filters and visualization
             settings you want to retain.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
