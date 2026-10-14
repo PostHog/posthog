@@ -18,6 +18,17 @@ describe('error tracking routes', () => {
         expect(routes.indexOf(alertsNewRoute)).toBeLessThan(routes.indexOf(alertsIdRoute))
     })
 
+    // The `/error_tracking/:id` catch-all also matches single-segment legacy slugs, so it must come last.
+    it.each(['configuration', 'settings', 'symbol_sets', 'symbol-sets'])(
+        'registers the legacy /error_tracking/%s redirect before the catch-all',
+        (slug) => {
+            const redirects = Object.keys(manifest.redirects!)
+
+            expect(redirects.indexOf(`/error_tracking/${slug}`)).toBeGreaterThanOrEqual(0)
+            expect(redirects.indexOf(`/error_tracking/${slug}`)).toBeLessThan(redirects.indexOf('/error_tracking/:id'))
+        }
+    )
+
     it('opens fingerprint management from the legacy fingerprints route', () => {
         const redirect = manifest.redirects!['/error_tracking/:id/fingerprints'] as RedirectFn
 
@@ -60,6 +71,7 @@ describe('error tracking routes', () => {
         const redirect = manifest.redirects![path] as RedirectFn
         const url = redirect(params as Record<string, string>, searchParams as Record<string, string>, {})
 
+        expect(url).toMatch(/^\/error-tracking\?/)
         expect(url).toContain('activeTab=configuration')
         expect(url).toContain(`selectedSetting=${settingId}`)
     })

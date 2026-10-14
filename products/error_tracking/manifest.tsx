@@ -59,10 +59,9 @@ export const manifest: ProductManifest = {
             combineUrl('/error-tracking', searchParams, hashParams).url,
         // kea-router decodeURI()s the wildcard capture, so rebuild the fingerprint from the raw pathname.
         '/error_tracking/fingerprint/*': (_params, searchParams, hashParams) => {
-            const rawFingerprint = router.values.location.pathname.match(
-                /\/error_tracking\/fingerprint\/([^/]+)\/?$/
-            )?.[1]
-            return combineUrl(`/error-tracking/fingerprint/${rawFingerprint ?? ''}`, searchParams, hashParams).url
+            const [, rawFingerprint = ''] =
+                router.values.location.pathname.match(/\/error_tracking\/fingerprint\/([^/]+)\/?$/) ?? []
+            return combineUrl(`/error-tracking/fingerprint/${rawFingerprint}`, searchParams, hashParams).url
         },
         '/error_tracking/alerts/new/:templateId': ({ templateId }, searchParams, hashParams) =>
             combineUrl(`/error-tracking/alerts/new/${templateId}`, searchParams, hashParams).url,
