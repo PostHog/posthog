@@ -91,6 +91,26 @@ const counterAwaitedStepResumedWithWarnings = new Counter({
     help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
 })
 
+// The product that ran the job reports what went wrong short of failing it, such as
+// an agent whose output misses a field. The step continues; the author reads the log.
+const logStepWarnings = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    action: Action,
+    stepResult: unknown
+): void => {
+    const warnings = readWarnings(stepResult)
+    if (warnings.length > 0) {
+        counterAwaitedStepResumedWithWarnings.inc()
+    }
+    for (const warning of warnings) {
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${warning}`,
+        })
+    }
+}
+
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
@@ -237,6 +257,8 @@ export class HogFunctionHandler implements ActionHandler {
         }
         if (awaitRequest?.settled) {
             const { await: _await, ...dispatch } = functionResult.execResult as Record<string, unknown>
+            // Read before sizing, which can drop the warnings themselves.
+            logStepWarnings(result, action, awaitRequest.settled)
             // Sized like a woken step's answer, so it fits the variables the run already holds.
             return {
                 nextAction: findContinueAction(invocation),
@@ -330,19 +352,7 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
-            // The product that ran the job reports what went wrong short of failing it, such as
-            // an agent whose output misses a field. The step continues; the author reads the log.
-            const warnings = readWarnings(resume.result)
-            if (warnings.length > 0) {
-                counterAwaitedStepResumedWithWarnings.inc()
-            }
-            for (const warning of warnings) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `${actionIdForLogging(action)} ${warning}`,
-                })
-            }
+            logStepWarnings(result, action, resume.result)
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,

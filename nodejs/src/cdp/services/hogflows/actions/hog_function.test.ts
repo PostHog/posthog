@@ -958,7 +958,11 @@ describe('HogFunctionHandler', () => {
                 finished: true,
                 execResult: {
                     request_id: 'r1',
-                    await: { max_wait: '8h', label: 'scan', result: { state: 'succeeded', output: 'x'.repeat(3000) } },
+                    await: {
+                        max_wait: '8h',
+                        label: 'scan',
+                        result: { state: 'succeeded', output: 'x'.repeat(3000), warnings: ['The answer was cut.'] },
+                    },
                 },
                 invocation: invocation as any,
                 logs: [],
@@ -975,6 +979,9 @@ describe('HogFunctionHandler', () => {
             expect(handlerResult.nextAction?.id).toBe('exit')
             expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
             expect(stored).toMatchObject({ request_id: 'r1', status: 'completed', state: 'succeeded' })
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('The answer was cut.')
+            )
             expect(
                 Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, answer: stored }))
             ).toBeLessThanOrEqual(5120)
