@@ -9,21 +9,24 @@ import { ExecOptions } from '../types'
 describe('sha1 and sha1HmacChain', () => {
     const options: ExecOptions = { external: { crypto } }
 
-    describe('SHA1', () => {
+    describe('sha1 bytecode', () => {
         test.each([
-            ['abc', 'A9993E364706816ABA3E25717850C26C9CD0D89D'],
-            ['', 'DA39A3EE5E6B4B0D3255BFEF95601890AFD80709'],
-            ['🦔', 'B1495135295AC36752F6579E93BA02140604590F'],
+            ['abc', 'a9993e364706816aba3e25717850c26c9cd0d89d'],
+            ['', 'da39a3ee5e6b4b0d3255bfef95601890afd80709'],
+            ['🦔', 'b1495135295ac36752f6579e93ba02140604590f'],
             [null, null],
-        ])('SHA1(%p) returns uppercase hex', (value, expected) => {
+        ])('sha1(%p) returns lowercase hex', (value, expected) => {
             const argument = value === null ? [op.NULL] : [op.STRING, value]
-            expect(execSync(['_H', 1, ...argument, op.CALL_GLOBAL, 'SHA1', 1], options)).toBe(expected)
+            expect(execSync(['_H', 1, ...argument, op.CALL_GLOBAL, 'sha1', 1], options)).toBe(expected)
         })
 
-        test.each([[[]], [['abc', 'def']]])('rejects argument list %p', (values) => {
+        test.each([
+            [[], 'Function sha1 requires at least 1 arguments'],
+            [['abc', 'hex', 'extra'], 'Function sha1 requires at most 2 arguments'],
+        ] as const)('rejects argument list %p', (values, expectedError) => {
             const args = values.flatMap((value) => [op.STRING, value])
-            expect(() => execSync(['_H', 1, ...args, op.CALL_GLOBAL, 'SHA1', values.length], options)).toThrow(
-                'Function SHA1 requires'
+            expect(() => execSync(['_H', 1, ...args, op.CALL_GLOBAL, 'sha1', values.length], options)).toThrow(
+                new Error(expectedError)
             )
         })
     })

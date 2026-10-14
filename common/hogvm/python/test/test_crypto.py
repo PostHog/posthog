@@ -99,18 +99,24 @@ class TestStlRegistration:
 class TestHogQLSha1:
     @parameterized.expand(
         [
-            ("abc", "abc", "A9993E364706816ABA3E25717850C26C9CD0D89D"),
-            ("empty", "", "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"),
-            ("unicode", "🦔", "B1495135295AC36752F6579E93BA02140604590F"),
+            ("abc", "abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+            ("empty", "", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+            ("unicode", "🦔", "b1495135295ac36752f6579e93ba02140604590f"),
             ("null", None, None),
         ]
     )
-    def test_uppercase_hex(self, _name: str, value: str | None, expected: str | None) -> None:
+    def test_lowercase_hex(self, _name: str, value: str | None, expected: str | None) -> None:
         argument = [op.NULL] if value is None else [op.STRING, value]
-        assert execute_bytecode(["_H", 1, *argument, op.CALL_GLOBAL, "SHA1", 1]).result == expected
+        assert execute_bytecode(["_H", 1, *argument, op.CALL_GLOBAL, "sha1", 1]).result == expected
 
-    @parameterized.expand([("missing", []), ("extra", ["abc", "def"])])
-    def test_argument_count(self, _name: str, values: list[str]) -> None:
+    @parameterized.expand(
+        [
+            ("missing", [], "Function sha1 requires at least 1 arguments"),
+            ("extra", ["abc", "hex", "extra"], "Function sha1 requires at most 2 arguments"),
+        ]
+    )
+    def test_argument_count(self, _name: str, values: list[str], expected_error: str) -> None:
         arguments = [item for value in values for item in [op.STRING, value]]
-        with pytest.raises(HogVMException, match="Function SHA1 requires"):
-            execute_bytecode(["_H", 1, *arguments, op.CALL_GLOBAL, "SHA1", len(values)])
+        with pytest.raises(HogVMException) as exc:
+            execute_bytecode(["_H", 1, *arguments, op.CALL_GLOBAL, "sha1", len(values)])
+        assert str(exc.value) == expected_error

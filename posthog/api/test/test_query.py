@@ -103,15 +103,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_hogql_sha1_results_are_json_safe_and_cached(self, _name: str, value: str) -> None:
         query = HogQLQuery(
             query="""
-                SELECT SHA1({value}), [SHA1({value})], tuple(SHA1({value}), 'plain text'),
-                    map('digest', SHA1({value})), map(SHA1({value}), 'digest'),
-                    length(SHA1({value})), SHA1(NULL), SHA1(toNullableString({value})),
-                    toTypeName(SHA1({value})),
+                SELECT sha1({value}), [sha1({value})], tuple(sha1({value}), 'plain text'),
+                    map('digest', sha1({value})), map(sha1({value}), 'digest'),
+                    length(sha1({value})), sha1(NULL), sha1(toNullableString({value})),
+                    toTypeName(sha1({value})),
                     accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
             """,
             values={"value": value},
         )
-        digest = hashlib.sha1(value.encode()).hexdigest().upper()
+        digest = hashlib.sha1(value.encode()).hexdigest()
         expected = [
             [
                 digest,

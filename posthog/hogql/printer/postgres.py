@@ -119,7 +119,8 @@ class PostgresPrinter(BasePrinter):
         if node.name.lower() == "sha1":
             if self.DIALECT_NAME == "postgres":
                 raise QueryError(
-                    "SHA1 is not supported in the Postgres dialect because it requires the optional pgcrypto extension."
+                    "Function 'sha1' is not supported in the Postgres dialect. "
+                    "SHA-1 requires pgcrypto, and HogQL does not detect installed extensions."
                 )
             validate_function_args(node.args, 1, 1, node.name)
 

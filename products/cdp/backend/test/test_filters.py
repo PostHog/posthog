@@ -443,7 +443,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         compiled = compile_filters_bytecode(
             {
                 "properties": [
-                    {"type": "hogql", "key": "SHA1(properties.value) = 'A9993E364706816ABA3E25717850C26C9CD0D89D'"}
+                    {"type": "hogql", "key": "sha1(properties.value) = 'a9993e364706816aba3e25717850c26c9cd0d89d'"}
                 ]
             },
             self.team,

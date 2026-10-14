@@ -31,7 +31,7 @@ export function md5(
     return crypto.createHash('md5').update(data).digest(encoding)
 }
 
-// SHA-1 supports existing hashes and signatures. Do not use it for new security designs.
+// SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
 export function sha1(
     data: string | null,
     encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',

@@ -121,7 +121,7 @@ class TestMySQLPrinter(BaseTest):
         self.assertEqual(self._expr(expr), expected)
 
     def test_sha1_converts_column_text_to_utf8(self):
-        self.assertEqual(self._expr("SHA1(event)"), "upper(sha1(CONVERT(events.event USING utf8mb4)))")
+        self.assertEqual(self._expr("sha1(event)"), "sha1(CONVERT(events.event USING utf8mb4))")
 
     def test_mysql_unsupported_function_raises(self):
         with self.assertRaisesMessage(QueryError, "is not supported in the MySQL dialect"):

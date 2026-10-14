@@ -4,8 +4,8 @@ Hog checks standard library argument counts for direct calls and functions store
 The Python and TypeScript native function registries define the minimum and maximum accepted counts.
 The HogQL parity test checks both bounds against shared HogQL function names in these registries.
 
-`SHA1(data)` takes exactly one argument and returns uppercase hex, matching HogQL.
-`sha1(data, encoding)` takes one or two arguments; its default hex output and `sha1Hex(data)` are lowercase.
+`sha1(data)` returns lowercase hex in HogQL and Hog. Hog also accepts an optional encoding argument;
+HogQL takes exactly one argument.
 
 `JSONHas(json)` accepts no path components and returns `true`, preserving Hog's existing empty-path behavior.
 

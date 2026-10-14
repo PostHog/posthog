@@ -1146,21 +1146,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 hash_optional_encoding(vm, &args, "sha256", |data| Sha256::digest(data).to_vec())
             }),
         ),
-        // SHA-1 supports existing hashes and signatures. Do not use it for new security designs.
-        (
-            "SHA1",
-            native_func(|vm, args| {
-                assert_argc(&args, 1, "SHA1")?;
-                let digest = hash_with_encoding(vm, &args, |data| Sha1::digest(data).to_vec(), "hex")?;
-                match digest.deref(&vm.heap)? {
-                    HogLiteral::Null => Ok(digest),
-                    lit => {
-                        let digest: &str = lit.try_as()?;
-                        Ok(HogLiteral::from(digest.to_ascii_uppercase()).into())
-                    }
-                }
-            }),
-        ),
+        // SHA-1 is only here because vendors sign webhooks with it. Never pick it for new work.
         (
             "sha1Hex",
             native_func(|vm, args| {

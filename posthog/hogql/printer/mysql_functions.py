@@ -219,7 +219,7 @@ def _handle_json_extract_bool(args: list[str]) -> str:
 # is consulted (dateDiff needs the unparameterized unit constant).
 MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Hash UTF-8 bytes even when the column uses another character set.
-    "sha1": lambda args: f"upper(sha1(CONVERT({args[0]} USING utf8mb4)))",
+    "sha1": lambda args: f"sha1(CONVERT({args[0]} USING utf8mb4))",
     # Type conversions — MySQL CAST never raises; invalid input becomes 0/NULL, which also
     # covers the *OrZero variants faithfully.
     "toDate": _make_cast_handler("DATE"),

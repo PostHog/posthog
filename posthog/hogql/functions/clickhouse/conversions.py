@@ -142,7 +142,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "MD5": HogQLFunctionMeta("MD5", 1, 1),
     # ClickHouse SHA1 returns a binary digest. Hex keeps API responses and cached results JSON-safe.
-    "SHA1": HogQLFunctionMeta("hex(SHA1({}))", 1, 1, using_placeholder_arguments=True),
+    "sha1": HogQLFunctionMeta("lower(hex(SHA1({})))", 1, 1, using_placeholder_arguments=True),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
 }
 

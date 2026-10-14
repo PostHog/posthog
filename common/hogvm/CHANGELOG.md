@@ -1,11 +1,5 @@
 # HogQL bytecode changelog
 
-## 2026-10-13 - 1.0.72
-
-Added `SHA1(data)` to the Python, TypeScript, and Rust standard libraries. It returns 40 uppercase
-hexadecimal characters, or null for null input, matching HogQL. The existing `sha1` and `sha1Hex`
-functions keep their lowercase output. No bytecode operations changed.
-
 ## 2026-09-28 - 1.0.71
 
 `range` checks the requested length against the memory limit before it builds the array, as the

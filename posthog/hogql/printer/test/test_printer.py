@@ -1892,13 +1892,13 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("hogql", "SHA1('abc')"),
-            ("clickhouse", "hex(SHA1(%(hogql_val_0)s))"),
-            ("duckdb", "upper(sha1(%(hogql_val_0)s))"),
-            ("mysql", "upper(sha1(CONVERT(%(hogql_val_0)s USING utf8mb4)))"),
-            ("snowflake", "upper(sha1(%(hogql_val_0)s))"),
-            ("redshift", "upper(sha1(%(hogql_val_0)s))"),
-            ("trino", "upper(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
+            ("hogql", "sha1('abc')"),
+            ("clickhouse", "lower(hex(SHA1(%(hogql_val_0)s)))"),
+            ("duckdb", "sha1(%(hogql_val_0)s)"),
+            ("mysql", "sha1(CONVERT(%(hogql_val_0)s USING utf8mb4))"),
+            ("snowflake", "sha1(%(hogql_val_0)s)"),
+            ("redshift", "sha1(%(hogql_val_0)s)"),
+            ("trino", "lower(to_hex(sha1(to_utf8(CAST(%(hogql_val_0)s AS VARCHAR)))))"),
         ]
     )
     def test_sha1_dialects(self, dialect: HogQLDialect, expected: str) -> None:
@@ -1911,19 +1911,27 @@ class TestPrinter(BaseTest):
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        query = parse_select("SELECT SHA1('abc')")
+        query = parse_select("SELECT sha1('abc')")
         prepared = prepare_ast_for_printing(query, context=context, dialect=dialect)
         assert isinstance(prepared, ast.SelectQuery)
         assert print_prepared_ast(prepared.select[0], context=context, dialect=dialect, stack=[prepared]) == expected
 
     @parameterized.expand(
         [
-            (f"{dialect}_{count}", dialect, arguments)
-            for dialect in ("hogql", "clickhouse", "duckdb", "mysql", "snowflake", "redshift", "trino")
+            (f"{dialect}_{count}", dialect, arguments, error.format(count=count))
+            for dialect, error in (
+                ("hogql", "Function 'sha1' expects 1 argument, found {count}"),
+                ("clickhouse", "Function 'sha1' requires exactly 1 argument"),
+                ("duckdb", "Function 'sha1' expects 1 argument, found {count}"),
+                ("mysql", "Function 'sha1' expects 1 argument, found {count}"),
+                ("snowflake", "Function 'sha1' expects 1 argument, found {count}"),
+                ("redshift", "Function 'sha1' expects 1 argument, found {count}"),
+                ("trino", "[TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED] sha1 expects exactly 1 argument in Trino mode."),
+            )
             for count, arguments in ((0, ""), (2, "'abc', 'def'"))
         ]
     )
-    def test_sha1_argument_count(self, _name: str, dialect: HogQLDialect, arguments: str) -> None:
+    def test_sha1_argument_count(self, _name: str, dialect: HogQLDialect, arguments: str, expected_error: str) -> None:
         context = HogQLContext(
             team_id=self.team.pk,
             database=Database(),
@@ -1933,19 +1941,24 @@ class TestPrinter(BaseTest):
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        with pytest.raises(QueryError, match="SHA1.*1 argument"):
-            prepare_and_print_ast(parse_select(f"SELECT SHA1({arguments}) AS digest"), context, dialect)
+        with pytest.raises(QueryError) as exc:
+            prepare_and_print_ast(parse_select(f"SELECT sha1({arguments}) AS digest"), context, dialect)
+        assert str(exc.value) == expected_error
 
     def test_sha1_postgres_requires_optional_extension(self) -> None:
         context = HogQLContext(database=Database(), restricted_properties=set(), enable_select_queries=True)
-        with pytest.raises(QueryError, match="SHA1.*Postgres.*pgcrypto"):
-            prepare_and_print_ast(parse_select("SELECT SHA1('abc')"), context, "postgres")
+        with pytest.raises(QueryError) as exc:
+            prepare_and_print_ast(parse_select("SELECT sha1('abc')"), context, "postgres")
+        assert str(exc.value) == (
+            "Function 'sha1' is not supported in the Postgres dialect. "
+            "SHA-1 requires pgcrypto, and HogQL does not detect installed extensions."
+        )
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
 
         self.assertEqual(self._expr("abs(1)"), "abs(1)")
-        self.assertEqual(self._expr("SHA1(event)"), "hex(SHA1(events.event))")
+        self.assertEqual(self._expr("sha1(event)"), "lower(hex(SHA1(events.event)))")
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
@@ -2019,8 +2032,8 @@ class TestPrinter(BaseTest):
             "Aggregation 'quantile' expects 1 parameter, found 2",
         )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
-        self._assert_expr_error("SHA1()", "Function 'SHA1' expects 1 argument, found 0")
-        self._assert_expr_error("SHA1('a', 'b')", "Function 'SHA1' expects 1 argument, found 2")
+        self._assert_expr_error("sha1()", "Function 'sha1' expects 1 argument, found 0")
+        self._assert_expr_error("sha1('a', 'b')", "Function 'sha1' expects 1 argument, found 2")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error(
