@@ -336,6 +336,17 @@ def replace_incoming_edges(
     return unresolved
 
 
+def lineage_database(team: "Team") -> Database:
+    """The HogQL database a DAG sync resolves dependencies against."""
+    # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
+    # sees every referenced table/view.
+    return Database.create_for(
+        team=team,
+        bypass_warehouse_access_control=True,
+        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+    )
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
@@ -379,14 +390,8 @@ def sync_saved_query_to_dag(
 
     node_type = node_type_for(saved_query)
 
-    # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
-    # sees every referenced table/view.
     if database is None:
-        database = Database.create_for(
-            team=team,
-            bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
-        )
+        database = lineage_database(team)
     # parsed before the node exists, so a query that cannot be parsed leaves nothing to undo
     model_name = saved_query.name
     dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
@@ -440,6 +445,7 @@ def adopt_saved_query_without_edges(team_id: int, saved_query_id: UUID, error: s
             dag=dag,
             defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
         )
+        node = Node.objects.select_for_update().get(pk=node.pk)
         node.mark_lineage_sync_failed(error)
         node.save(update_fields=["properties"])
 
