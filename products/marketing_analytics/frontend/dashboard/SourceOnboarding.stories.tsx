@@ -20,15 +20,15 @@ import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceOnboardingScan } from './SourceOnboardingScan'
 
-const suggestion = (kind: string, integration: string): SuggestionApi => ({
+const suggestion = (kind: string, integration: string, label: string): SuggestionApi => ({
     id: `connect_source:${integration}`,
     kind: 'connect_source',
     integration,
     severity: 'warning',
     confidence: 1,
     source: 'deterministic',
-    title: `Connect ${kind}`,
-    evidence: `Events include campaign tracking from ${kind}.`,
+    title: `Connect ${label}`,
+    evidence: `Events include campaign tracking from ${label}.`,
     unlocks: ['cost'],
     apply: { op: 'open_source_wizard', kind },
     also_recommended: [],
@@ -41,18 +41,7 @@ const suggestion = (kind: string, integration: string): SuggestionApi => ({
 })
 
 const plan = {
-    suggestions: [
-        {
-            ...suggestion('GoogleAds', 'google_ads'),
-            title: 'Connect Google Ads',
-            evidence: 'Events include campaign tracking from Google Ads.',
-        },
-        {
-            ...suggestion('MetaAds', 'meta_ads'),
-            title: 'Connect Meta Ads',
-            evidence: 'Events include campaign tracking from Meta Ads.',
-        },
-    ],
+    suggestions: [suggestion('GoogleAds', 'google_ads', 'Google Ads'), suggestion('MetaAds', 'meta_ads', 'Meta Ads')],
     readiness: [],
     degraded: [],
     truncated: false,
@@ -293,18 +282,6 @@ function useDashboardWithoutSourcesMocks(
                 if (query.kind === NodeKind.DatabaseSchemaQuery) {
                     return [200, { tables: {} }]
                 }
-                if (query.kind === NodeKind.WebOverviewQuery) {
-                    return [
-                        200,
-                        {
-                            results: [
-                                { key: 'visitors', kind: 'unit', value: 128, previous: null },
-                                { key: 'views', kind: 'unit', value: 240, previous: null },
-                                { key: 'sessions', kind: 'unit', value: 156, previous: null },
-                            ],
-                        },
-                    ]
-                }
                 if (query.kind === NodeKind.TrendsQuery) {
                     return [
                         200,
@@ -326,20 +303,6 @@ function useDashboardWithoutSourcesMocks(
                                         : [18, 17, 20, 19, 16, 18, 20],
                                 },
                             ],
-                        },
-                    ]
-                }
-                if (query.kind === NodeKind.WebStatsTableQuery) {
-                    return [
-                        200,
-                        {
-                            columns: [
-                                'context.columns.breakdown_value',
-                                'context.columns.visitors',
-                                'context.columns.views',
-                                'context.columns.sessions',
-                            ],
-                            results: [['Direct', [128, 100], [240, 200], [156, 120]]],
                         },
                     ]
                 }
