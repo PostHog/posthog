@@ -1,7 +1,6 @@
 import { IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { genericSignalLink } from '../../utils/signalLinks'
@@ -10,12 +9,10 @@ import type { SignalCardProps } from './types'
 
 /**
  * Fallback card for a source without a dedicated renderer, or a payload that doesn't satisfy its
- * renderer's guard. Under the redesign it still links out to the underlying object whenever the
- * signal identifies it.
+ * renderer's guard. It still links out to the underlying object whenever the signal identifies it.
  */
 export function GenericSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const link = redesign ? genericSignalLink(signal) : null
+    const link = genericSignalLink(signal)
     return (
         <SignalCardShell signal={signal}>
             {signal.content && (

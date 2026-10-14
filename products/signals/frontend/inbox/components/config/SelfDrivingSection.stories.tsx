@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { SettingsSection } from '../tabs/SettingsSection'
@@ -124,23 +122,18 @@ export default meta
 
 type Story = StoryObj
 
-const REDESIGN = { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] }
-
 // The Settings tab at full width: controls sit right of their labels.
 export const SettingsTab: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" dailyLimit={10} reportsToday={3} />,
 }
 
 // The Settings tab in a narrow scene: wide controls wrap below their labels, nothing clips.
 export const SettingsTabNarrow: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="narrow" dailyLimit={10} reportsToday={3} />,
 }
 
 // A repository that branches from `develop`: the override list and the Add override button render under Base branches.
 export const SettingsTabBaseBranches: Story = {
-    parameters: REDESIGN,
     render: () => (
         <SettingsCard
             width="wide"
@@ -152,13 +145,11 @@ export const SettingsTabBaseBranches: Story = {
 
 // GitHub disconnected after an override was saved: the override stays readable and removable, the picker hides.
 export const SettingsTabBaseBranchesWithoutGitHub: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
 }
 
 // A Jira tracker with a saved project: the target reads as text with a Change button, and no picker mounts.
 export const SettingsTabIssueTrackerJira: Story = {
-    parameters: REDESIGN,
     render: () => (
         <SettingsCard
             width="wide"
@@ -173,13 +164,11 @@ export const SettingsTabIssueTrackerJira: Story = {
 
 // The PR label turned on with a name of the team's own: the name input renders under the row.
 export const SettingsTabPullRequestLabel: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" prLabelEnabled prLabel="agent-pr" />,
 }
 
 // Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.
 export const SettingsTabDisabled: Story = {
-    parameters: REDESIGN,
     render: () => <SettingsCard width="wide" enabled={false} />,
 }
 

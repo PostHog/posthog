@@ -8,10 +8,8 @@ import { initKeaTests } from '~/test/init'
 import { mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { SCOUT_CHAT_TEMPLATES } from './ScoutChatModal'
-import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutsRosterActions } from './ScoutsRosterActions'
-import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     ...jest.requireActual('lib/utils/accessControlUtils'),
@@ -79,27 +77,6 @@ describe('scout creation buttons', () => {
     })
 
     afterEach(cleanup)
-
-    it('opens a prefilled form without starting a task', async () => {
-        const { findByText, getByText } = render(
-            <ScoutCreateButton initialValues={{ name: 'signals-scout-daily-digest' }} />
-        )
-
-        fireEvent.click(getByText('Create scout'))
-
-        expect(await findByText('Manual scout form')).toBeTruthy()
-        expect(await findByText('signals-scout-daily-digest')).toBeTruthy()
-        expect(startedChatTypes).toEqual([])
-    })
-
-    it('starts the authoring task from the suggest button', async () => {
-        const { getByText, queryByText } = render(<ScoutSuggestButton />)
-
-        fireEvent.click(getByText('Suggest a scout'))
-
-        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
-        expect(queryByText('Manual scout form')).toBeNull()
-    })
 
     // Closing the strip must not strand the picks: the header button reopens it in place of a chat.
     it('reopens the closed strip from the header without starting a task', async () => {
@@ -222,18 +199,17 @@ describe('scout creation buttons', () => {
         expect(startedChatTypes).toEqual([])
     })
 
-    it.each([
-        ['ScoutCreateButton', <ScoutCreateButton key="create" />, 'Create scout'],
-        ['ScoutSuggestButton', <ScoutSuggestButton key="suggest" />, 'Suggest a scout'],
-        ['ScoutNewButton', <ScoutNewButton key="new" surface="fleet_list" />, 'New scout'],
-    ])('disables %s without skill editor access', (_name, element, label) => {
-        mockGetAccessControlDisabledReason.mockReturnValue('Requires editor access')
-        const { getByText } = render(element)
+    it.each([['ScoutNewButton', <ScoutNewButton key="new" surface="fleet_list" />, 'New scout']])(
+        'disables %s without skill editor access',
+        (_name, element, label) => {
+            mockGetAccessControlDisabledReason.mockReturnValue('Requires editor access')
+            const { getByText } = render(element)
 
-        const button = getByText(label).closest<HTMLButtonElement>('button')
+            const button = getByText(label).closest<HTMLButtonElement>('button')
 
-        expect(button?.getAttribute('aria-disabled')).toBe('true')
-        fireEvent.click(button!)
-        expect(startedChatTypes).toEqual([])
-    })
+            expect(button?.getAttribute('aria-disabled')).toBe('true')
+            fireEvent.click(button!)
+            expect(startedChatTypes).toEqual([])
+        }
+    )
 })

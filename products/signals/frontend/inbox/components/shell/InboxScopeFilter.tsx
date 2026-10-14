@@ -39,8 +39,7 @@ function getReviewerOptions(
  * Single-dropdown reviewer scope for the flat Reports list: one trigger that names the current
  * scope and opens the shared people picker with "Entire project" and each teammate. Selecting
  * yourself uses the "For you" scope. A user with no reports suggested to them is
- * auto-switched to "Entire project" (see `shouldDefaultToEntireProject`). The legacy layout keeps
- * the two-segment `InboxScopeSelect` until the redesign flag replaces it. Scope is persisted via
+ * auto-switched to "Entire project" (see `shouldDefaultToEntireProject`). Scope is persisted via
  * `inboxFiltersLogic`; teammates come from its shared `availableReviewers` loader.
  */
 export function InboxScopeFilter(): JSX.Element {

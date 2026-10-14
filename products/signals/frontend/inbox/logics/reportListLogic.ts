@@ -23,19 +23,15 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 import { createdAfterForWindow } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
-    INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
-    INBOX_LEGACY_TAB_SECTION,
-    InboxFlatListTabKey,
     InboxReportSectionKey,
     InboxScope,
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
-import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -105,21 +101,6 @@ export function sectionListLogicProps(sectionKey: InboxReportSectionKey): Report
     return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
 }
 
-/**
- * The keyed list instance behind a legacy tab (redesign flag off). Every tab shows one section with
- * that section's filter, except Archive, which lists resolved and dismissed reports together. It
- * reuses the `resolved` instance with a wider filter instead of adding a section key, because the
- * section keys drive analytics, `data-attr` values, and persisted collapsed state that the legacy
- * tab must not extend, and the two layouts are never mounted together.
- */
-export function legacyTabListLogicProps(tabKey: InboxFlatListTabKey): ReportListLogicProps {
-    const sectionKey = INBOX_LEGACY_TAB_SECTION[tabKey]
-    if (tabKey === 'archived') {
-        return { sectionKey, listParams: { status: 'suppressed,resolved' } }
-    }
-    return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
-}
-
 function teammateUuidFromScope(scope: string): string | undefined {
     return scope.startsWith('teammate:') ? scope.slice('teammate:'.length).trim() || undefined : undefined
 }
@@ -151,21 +132,20 @@ function requestContextFromValues(values: {
 
 /**
  * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
- * primary section (Needs decision under the redesign, the Pull requests list with the flag off) when
+ * primary section (Needs decision) when
  * the user is still on the (default) For-you scope, hasn't chosen a scope themselves, has resolved
  * to a real user, and has zero reports suggested to them — so a user with nothing assigned doesn't
  * land on an empty inbox. Pure so the branching is unit-testable without mounting the logic.
  */
 export function shouldDefaultToEntireProject(input: {
     sectionKey: InboxReportSectionKey
-    primarySectionKey: InboxReportSectionKey
     scope: InboxScope
     hasUserChosenScope: boolean
     hasResolvedUser: boolean
     count: number | null
 }): boolean {
     return (
-        input.sectionKey === input.primarySectionKey &&
+        input.sectionKey === INBOX_PRIMARY_REPORT_SECTION_KEY &&
         input.scope === INBOX_SCOPE_FOR_YOU &&
         !input.hasUserChosenScope &&
         input.hasResolvedUser &&
@@ -197,7 +177,6 @@ export interface reportListLogicValues {
     loadedContext: ReportListRequestContext | null
     loadedQueryKey: string | null
     pageLoadFailed: boolean
-    primarySectionKey: InboxReportSectionKey
     reportSourceMeta: Record<string, ReportSourceMeta>
     reports: SignalReport[]
     reportsLoadFailed: boolean
@@ -373,7 +352,6 @@ export interface reportListLogicActions {
 export interface reportListLogicMeta {
     key: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
-        primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
         scopeReviewerUuid: (scope: InboxScope, user: UserType | null) => string | undefined
         listApiParams: (
             searchQuery: string,
@@ -413,7 +391,7 @@ export type reportListLogicType = MakeLogicType<
  * its own filtered request with its own accurate `count` and its own pagination. The shared user
  * chrome (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and
  * applied on top, so one filter row drives all of them. The flat Reports list merges the loaded
- * rows of the states the user selected; the legacy tabs render one instance each.
+ * rows of the states the user selected.
  *
  * `count` loads on mount (cheap `limit=1`) so state counts are available before any rows are. The
  * rows load lazily (`ensureLoaded`) only once a surface actually renders the state.
@@ -625,15 +603,6 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     selectors({
-        // The section whose For-you count decides the default scope: Needs decision under the redesign,
-        // the Pull requests list with the flag off (see `shouldDefaultToEntireProject`).
-        primarySectionKey: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): InboxReportSectionKey =>
-                isInboxRedesignEnabled(featureFlags)
-                    ? INBOX_PRIMARY_REPORT_SECTION_KEY
-                    : INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
-        ],
         // The PostHog user the reviewer scope narrows the list to. Undefined for Entire project.
         scopeReviewerUuid: [
             (s) => [s.scope, s.user],
@@ -824,7 +793,6 @@ export const reportListLogic = kea<reportListLogicType>([
             if (
                 shouldDefaultToEntireProject({
                     sectionKey: props.sectionKey,
-                    primarySectionKey: values.primarySectionKey,
                     scope: values.scope,
                     hasUserChosenScope: values.hasUserChosenScope,
                     hasResolvedUser: !!values.user?.uuid,
