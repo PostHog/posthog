@@ -64,6 +64,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
+    MyTickets: sceneImport,
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
@@ -288,11 +290,14 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
     })
 
-    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
-        router.actions.push('/data-warehouse/new')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
-    })
+    it.each(['/data-warehouse/new', '/data-management/sources/new'])(
+        'redirects %s to the new-source wizard instead of a 404',
+        async (path) => {
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+        }
+    )
 
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
@@ -809,6 +814,48 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a project pending deletion', () => {
+        it.each([
+            [
+                'locks out a page reached by a client-side link',
+                urls.eventDefinitions(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            [
+                'locks out an unknown path reached by a client-side link',
+                '/no-such-page',
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
+            [
+                'keeps my tickets open when the project has not finished onboarding',
+                urls.myTickets(),
+                urls.myTickets(),
+                'MyTickets',
+                { ingested_event: false, completed_snippet_onboarding: false, has_completed_onboarding_for: {} },
+            ],
+        ])('%s', async (_name, target, expectedRoute, expectedScene, team: Partial<TeamType> = {}) => {
+            logic.unmount()
+            initKeaTests(
+                true,
+                { ...MOCK_DEFAULT_TEAM, ...team },
+                { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true }
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
     })
 
     describe('a blocked organization', () => {

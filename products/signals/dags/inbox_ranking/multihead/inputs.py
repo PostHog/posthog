@@ -5,6 +5,10 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+# The exported graph's names. A network without context takes only the first input.
+ONNX_INPUTS = ("report", "project", "has_history")
+ONNX_OUTPUT = "probabilities"
+
 
 @frozen
 class NetworkConfig:

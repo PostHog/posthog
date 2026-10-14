@@ -45,6 +45,8 @@ Only use the self-closing pattern when you need full control over the element an
 
 Base UI automatically merges event handlers, aria attributes, and `data-*` state onto the rendered element.
 
+The `Tooltip`, `DropdownMenu`, `Popover`, `Dialog` and `Drawer` triggers forward refs, so one can render another: `<TooltipTrigger render={<DropdownMenuTrigger render={<Button />} />}>` works in either order.
+
 ---
 
 ## Choosing a component

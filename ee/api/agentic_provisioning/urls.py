@@ -43,16 +43,6 @@ urlpatterns = [
         name="agentic_provisioning_resource_remove",
     ),
     path(
-        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
-        csrf_exempt(views.GitHubIntegrationView.as_view()),
-        name="agentic_provisioning_github_integration",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
-        csrf_exempt(views.WizardRunsView.as_view()),
-        name="agentic_provisioning_wizard_runs",
-    ),
-    path(
         "api/agentic/provisioning/resources/<str:resource_id>",
         csrf_exempt(views.ResourceDetailView.as_view()),
         name="agentic_provisioning_resource_detail",
@@ -66,16 +56,6 @@ urlpatterns = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(views.DeepLinksView.as_view()),
         name="agentic_provisioning_deep_links",
-    ),
-    path(
-        "api/agentic/provisioning/github/grants",
-        csrf_exempt(views.GitHubGrantsCreateView.as_view()),
-        name="agentic_provisioning_github_grants_create",
-    ),
-    path(
-        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
-        csrf_exempt(views.GitHubGrantRepositoriesView.as_view()),
-        name="agentic_provisioning_github_grant_repositories",
     ),
     path("api/agentic/authorize", views.agentic_authorize, name="agentic_authorize"),
     path("api/agentic/authorize/pending/", views.AuthorizePendingView.as_view(), name="agentic_authorize_pending"),
