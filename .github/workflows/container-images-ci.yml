@@ -27,7 +27,9 @@ jobs:
                     steps.filter.outputs.hobby == 'true'
                     || (startsWith(github.head_ref, 'trunk-merge/') && steps.filter.outputs.build_inputs == 'true')
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+                    || steps.filter.outputs.dagster_ml == 'true'
                 }}
+            dagster_ml_changed: ${{ steps.filter.outputs.dagster_ml }}
             dockerignore_changed: ${{ steps.filter.outputs.dockerignore }}
             # Drives the Dockerfile lint job: a boolean plus the shell-escaped, space-separated
             # list of changed Dockerfiles to hand straight to hadolint.
@@ -113,6 +115,12 @@ jobs:
                         - '!frontend/src/**/*.test.*'
                         - '!frontend/src/**/*.spec.*'
                         - '!frontend/src/**/*.stories.*'
+                      # The Dagster ML image is the main image plus the inbox-ranking group, so
+                      # validating it needs the main image build of this PR too.
+                      dagster_ml:
+                        - Dockerfile
+                        - Dockerfile.dagster-ml
+                        - uv.lock
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:
@@ -191,6 +199,46 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+
+    # Validates Dockerfile.dagster-ml on the image this PR built. It builds but never pushes, and
+    # skips in the merge queue, where posthog_build pushes no image to build from.
+    dagster_ml_build:
+        needs: [changes, posthog_build]
+        name: Build Dagster ML image
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+        if: needs.changes.outputs.dagster_ml_changed == 'true' && needs.posthog_build.outputs.digest != '' && !startsWith(github.head_ref, 'trunk-merge/')
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            # Pull-only use of the PR role: the base image lives in posthog-cloud-prs.
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build Dagster ML image
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: .
+                  file: ./Dockerfile.dagster-ml
+                  buildx-fallback: false
+                  push: false
+                  platforms: linux/amd64,linux/arm64
+                  build-args: |
+                      BASE_IMAGE=${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ needs.posthog_build.outputs.digest }}
 
     lint:
         needs: changes
