@@ -38,7 +38,8 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import { track } from "@posthog/ui/shell/analytics";
+import { captureException, track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
 import { isMac, isWindows } from "@posthog/ui/utils/platform";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -46,6 +47,28 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { ProjectSelectStep } from "./ProjectSelectStep";
 
 const IS_DEV = import.meta.env.DEV;
+
+const log = logger.scope("onboarding-flow");
+
+function reportCompletionError(stage: string, error: unknown): void {
+  log.error("Onboarding completion step failed", { stage, error });
+  try {
+    captureException(
+      error instanceof Error ? error : new Error(String(error)),
+      { scope: "onboarding_completion", stage },
+    );
+  } catch {
+    // Error tracking must not block the person from leaving onboarding.
+  }
+}
+
+function runAfterCompletion(stage: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (error) {
+    reportCompletionError(stage, error);
+  }
+}
 
 const stepVariants = {
   enter: (dir: number) => ({ opacity: 0, x: dir * 20 }),
@@ -313,26 +336,40 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
       if (isCompleting || completionStartedRef.current) return;
       completionStartedRef.current = true;
       setIsCompleting(true);
+      // The store flag is the only step that takes the person out of
+      // onboarding, so it runs first, and a failure releases the guard so
+      // Continue works again.
+      try {
+        completeOnboarding();
+      } catch (error) {
+        completionStartedRef.current = false;
+        setIsCompleting(false);
+        reportCompletionError("complete_onboarding", error);
+        return;
+      }
       const githubConnected =
         context?.github_connected === true || githubUserIntegrations.length > 0;
-      if (includeStepCompletion) {
-        recordStepViewed();
-        trackStepCompleted(context);
-      }
-      track(
-        ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
-        buildCompletedProps({
-          flowStartedAtMs: flowStartedAtRef.current,
-          nowMs: Date.now(),
-          githubConnected,
-        }),
-      );
+      runAfterCompletion("analytics", () => {
+        if (includeStepCompletion) {
+          recordStepViewed();
+          trackStepCompleted(context);
+        }
+        track(
+          ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
+          buildCompletedProps({
+            flowStartedAtMs: flowStartedAtRef.current,
+            nowMs: Date.now(),
+            githubConnected,
+          }),
+        );
+      });
       if (githubConnected) {
-        setLastUsedWorkspaceMode("cloud");
+        runAfterCompletion("workspace_mode", () =>
+          setLastUsedWorkspaceMode("cloud"),
+        );
       }
-      shipIt();
-      completeOnboarding();
-      openTaskInput();
+      runAfterCompletion("confetti", shipIt);
+      runAfterCompletion("open_task_input", () => openTaskInput());
     },
     [
       completeOnboarding,
