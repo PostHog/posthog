@@ -1,6 +1,7 @@
 from rest_framework.request import Request
 
 from posthog.oauth_provenance import (
+    get_oauth_access_token as get_oauth_access_token,
     get_oauth_client_id,
     is_interactive_desktop_grant,
     is_sandbox_oauth_request as is_sandbox_oauth_request,
