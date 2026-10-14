@@ -98,7 +98,8 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["id"], str(expected_node.id))
 
     def test_soft_deleting_a_saved_query_deletes_its_node_and_unread_parents(self):
-        self.saved_query.soft_delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.saved_query.soft_delete()
 
         self.assertFalse(Node.objects.filter(id__in=[self.view_node.id, self.table_node.id]).exists())
 

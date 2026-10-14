@@ -472,18 +472,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def soft_delete(self) -> None:
-        from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes_and_reconcile
-        from products.data_modeling.backend.models.node import Node
-
         self.deleted = True
         self.deleted_at = datetime.now()
         self.deleted_name = self.name
         self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
 
-        with transaction.atomic():
-            DataWarehouseSavedQuery.objects.select_for_update().get(team_id=self.team_id, pk=self.pk)
-            delete_nodes_and_reconcile(self.team_id, Node.objects.filter(team_id=self.team_id, saved_query=self))
-            self.save()
+        self.save()
+        transaction.on_commit(self._delete_dag_nodes, robust=True)
+
+    def _delete_dag_nodes(self) -> None:
+        from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes_and_reconcile
+        from products.data_modeling.backend.models.node import Node
+
+        delete_nodes_and_reconcile(self.team_id, Node.objects.filter(team_id=self.team_id, saved_query=self))
 
     def set_columns(self, columns: dict[str, Any]) -> None:
         """Assign ``columns`` and record its SELECT order together.
