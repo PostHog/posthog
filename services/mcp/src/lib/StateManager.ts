@@ -5,8 +5,8 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
-    MissingOrganizationContextError,
     hasTimeoutCause,
+    MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
     wrapError,
