@@ -185,7 +185,7 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 `app/views/chart/[shortId].tsx` renders `FullScreenChart`. Open it with `useOpenFullScreen()`, which sends `mobile_chart_fullscreen_opened` (`entry`: `button`, `legend_more`, `rows_more` or `accessibility`; `display`: `chart`, `funnel`, `retention` or `bars`) and pushes `chartHref(shortId, queryKey)`.
 
 - Entries: the tile head button, the insight screen's caption row, the legend "+N" pill, the bar list "+N more" row, and the VoiceOver action "Open full screen".
-- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. Without `key`, it reads the insight's own entry.
+- `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
 - A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods) and bar lists (all rows) show in a card.
 - Charts on this screen send the usual chart events with `context: fullscreen`.

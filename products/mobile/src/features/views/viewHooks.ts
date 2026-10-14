@@ -303,9 +303,12 @@ export interface InsightScreenState {
     /** True while `insight` still shows the previous range because the new one has not loaded. */
     rangeLoading: boolean
     refresh: ViewRefresh
-    /** The cache entry of the shown snapshot, so a sheet can follow it while open. */
+    /**
+     * The cache entry of the shown snapshot, so a sheet or full screen can follow it while open. While a new range
+     * loads, it is the previous range's entry.
+     */
     queryKey: QueryKey | null
-    /** The shown snapshot's freshness key, for `refresh.refreshItem`. */
+    /** The current range's freshness key, for `refresh.refreshItem`. */
     itemKey: string | null
 }
 
@@ -382,18 +385,21 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     useViewOpenedEvent('insight', options, () => [base])
 
     const comparing = Boolean(compareSnapshot && compareBody)
-    const shown = useHeldWhileLoading(comparing ? compareSnapshot : base, error)
+    const current = comparing ? compareSnapshot : base
+    const currentKey = comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
+    // The key travels with the held snapshot, so full screen and the Point sheet open the entry that is on screen.
+    const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
     const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        insight: viewState(shown.value, error, context.ready, reload),
+        insight: viewState(shown.value?.snapshot, error, context.ready, reload),
         error,
         range,
         compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
         comparing,
         rangeLoading: shown.held,
         refresh,
-        queryKey: comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target),
+        queryKey: shown.value?.queryKey ?? currentKey,
         itemKey,
     }
 }
