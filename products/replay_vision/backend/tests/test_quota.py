@@ -504,17 +504,18 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
 
     @parameterized.expand(
         [
-            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False),
-            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False),
-            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False),
-            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False),
-            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False),
+            ("no_own_cap_free_credits_bind", None, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("larger_own_cap_free_credits_bind", 100_000, 1_000_000, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("tighter_own_cap_binds", 5, 1_000_000, 5, True, False, False),
+            ("no_org_limit_free_credits_still_bind", None, None, FREE_TIER_MONTHLY_CREDITS, True, False, True),
+            ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False, True),
             # In-flight work fills the own cap, but only the free credits are full of posted spend.
             (
                 "settled_free_credits_still_block_under_in_flight_own_cap",
                 "one_observation",
                 1_000_000,
                 "one_observation",
+                True,
                 True,
                 True,
             ),
@@ -528,6 +529,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         expected_limit: int | str,
         expected_blocked: bool,
         in_flight: bool,
+        expected_free_credits_copy: bool,
     ) -> None:
         cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
         own_cap = cost if own_cap == "one_observation" else own_cap
@@ -554,11 +556,12 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             )
         with patch.object(quota, "MONTHLY_CREDIT_QUOTA", org_limit):
             budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
-        assert (budget.credit_limit, budget.blocked, budget.blocked_by_settled_spend) == (
-            expected_limit,
-            expected_blocked,
-            True,
-        )
+        assert (
+            budget.credit_limit,
+            budget.blocked,
+            budget.blocked_by_settled_spend,
+            budget.settled_block_from_free_credits,
+        ) == (expected_limit, expected_blocked, True, expected_free_credits_copy)
 
     def test_free_only_scanner_keeps_the_tighter_headroom_when_its_own_cap_is_settled_full(self) -> None:
         cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
@@ -586,7 +589,12 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         reserved = observation_credits_for_model(self.scanner.model)
         with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
             budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
-        assert (budget.remaining, budget.blocked_by_settled_spend) == (max(0, cost - reserved), True)
+        # The own cap is what posted spend fills, so the notification must not blame the free credits.
+        assert (budget.remaining, budget.blocked_by_settled_spend, budget.settled_block_from_free_credits) == (
+            max(0, cost - reserved),
+            True,
+            False,
+        )
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):

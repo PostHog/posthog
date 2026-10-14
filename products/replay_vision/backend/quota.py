@@ -1,6 +1,8 @@
 import json
 import math
+import functools
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
@@ -302,6 +304,14 @@ class ScannerBudget(QuotaState):
         """
         return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
+    @property
+    def settled_block_from_free_credits(self) -> bool:
+        """Whether the org's free credits, rather than the scanner's own limit, are the ceiling posted spend fills."""
+        if replace(self, credits_used=self.credits_settled).blocked:
+            return self.free_credits_bound
+        # The other ceiling of a free-only scanner is the own limit when this one is the free credits, and back.
+        return self.other_ceiling_settled_blocked and not self.free_credits_bound
+
 
 def _scanner_in_flight_credits(
     organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod
@@ -418,7 +428,10 @@ def compute_scanner_budget(
 
 
 def _sum_enabled_scanner_estimated_credits(
-    organization_id: UUID, exclude_scanner_id: UUID | None = None, free_credits_claimed: int = 0
+    organization_id: UUID,
+    free_budget: Callable[[], ScannerBudget],
+    exclude_scanner_id: UUID | None = None,
+    free_credits_claimed: int = 0,
 ) -> int:
     """Projected monthly credit spend of the org's enabled scanners' cached estimates.
 
@@ -456,7 +469,7 @@ def _sum_enabled_scanner_estimated_credits(
             total += rate
     if has_free_only and period is not None:
         # Free-only backfills already claim part of the pool, so the sweep rate gets only the rest.
-        free = _free_credits_budget(organization_id, period)
+        free = free_budget()
         total += capped_rate(free_only_total, replace(free, credits_used=free.credits_used + free_credits_claimed))
     return round(total)
 
@@ -518,21 +531,30 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     return False, None
 
 
-def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> SpendProjection:
+def spend_projection(
+    organization_id: UUID, exclude_scanner_id: UUID | None = None, *, org_state: QuotaState | None = None
+) -> SpendProjection:
     """The org's rest-of-period commitments, priced.
 
-    `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus this
-    proposal" forecast. Callers never touch the underlying scanner or backfill rows.
+    `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus
+    proposal" forecast. `org_state` is the org's spend when the caller already read it. Callers
+    never touch the underlying scanner or backfill rows.
     """
+
+    @functools.cache
+    def free_budget() -> ScannerBudget:
+        state = org_state or quota_state(organization_id)
+        return _free_credits_budget_from_state(state)
+
     backfills = _sum_active_backfill_remaining_credits(organization_id)
     free_only_backfills = backfills.free_only
     if free_only_backfills:
         # A free-only backfill pauses when the free credits run out, so it commits only what is left of them.
-        free_left = _free_credits_budget(organization_id, current_period_bounds(organization_id)).remaining
+        free_left = free_budget().remaining
         free_only_backfills = min(free_only_backfills, free_left if free_left is not None else free_only_backfills)
     return SpendProjection(
         scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(
-            organization_id, exclude_scanner_id, free_credits_claimed=free_only_backfills
+            organization_id, free_budget, exclude_scanner_id, free_credits_claimed=free_only_backfills
         ),
         backfills_committed_credits=backfills.paid + free_only_backfills,
     )
@@ -617,14 +639,19 @@ def free_credits_ceiling(cap: OrgCreditCap) -> int:
 
 def _free_credits_budget(organization_id: UUID, period: BillingPeriod) -> ScannerBudget:
     cap = replace(org_credit_cap(organization_id), period=period)
-    quota = quota_state_for_cap(organization_id, cap)
+    return _free_credits_budget_from_state(quota_state_for_cap(organization_id, cap))
+
+
+def _free_credits_budget_from_state(state: QuotaState) -> ScannerBudget:
     return ScannerBudget(
-        credit_limit=free_credits_ceiling(cap),
-        credits_used=quota.credits_used,
-        period_start=period.start,
-        period_end=period.end,
-        credits_settled=quota.credits_settled,
-        credits_reserved=quota.credits_reserved,
+        credit_limit=FREE_TIER_MONTHLY_CREDITS
+        if state.credit_limit is None
+        else min(state.credit_limit, FREE_TIER_MONTHLY_CREDITS),
+        credits_used=state.credits_used,
+        period_start=state.period_start,
+        period_end=state.period_end,
+        credits_settled=state.credits_settled,
+        credits_reserved=state.credits_reserved,
         free_credits_bound=True,
     )
 
@@ -635,7 +662,7 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
     Prefer `quota_state` wherever only the caps matter: this pays for two aggregates no gate reads.
     """
     state = quota_state(organization_id)
-    projection = spend_projection(organization_id)
+    projection = spend_projection(organization_id, org_state=state)
     return QuotaSnapshot(
         credit_limit=state.credit_limit,
         credits_used=state.credits_used,

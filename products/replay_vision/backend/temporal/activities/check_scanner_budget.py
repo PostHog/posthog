@@ -163,7 +163,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         },
     )
     # Sent only after the stamp commits: a push can't be un-sent, so it must never precede its record.
-    if stamped and not _notify_limit_reached(scanner, budget.free_credits_bound):
+    if stamped and not _notify_limit_reached(scanner, budget.settled_block_from_free_credits):
         # Hand the claim back so a transient outage delays the notification instead of consuming it.
         ReplayScanner.objects.filter(pk=scanner.pk, limit_notified_period_start=period.start).update(
             limit_notified_period_start=None
