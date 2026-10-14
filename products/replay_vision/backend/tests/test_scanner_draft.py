@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -553,6 +555,20 @@ class TestRunConcurrently:
         get = _start_in_background(lambda: 42)
 
         assert get() == 42
+
+    @override_settings(TEST=False)
+    def test_with_no_free_worker_the_estimate_runs_only_when_asked_for(self):
+        ran: list[int] = []
+
+        def work() -> int:
+            ran.append(1)
+            return 42
+
+        with patch(f"{_MODULE}._BACKGROUND_SLOTS", threading.BoundedSemaphore(1)) as slots:
+            slots.acquire()
+            get = _start_in_background(work)
+            assert ran == []
+            assert get() == 42
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):

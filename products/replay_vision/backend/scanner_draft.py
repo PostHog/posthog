@@ -14,6 +14,7 @@ import time
 import uuid
 import functools
 import itertools
+import threading
 from collections.abc import Callable, Collection, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
@@ -83,7 +84,10 @@ _MAX_RETRYABLE_FAILURE_S = 10
 CAPPED_THINKING_FLAG = "vision-draft-capped-thinking"
 _CAPPED_THINKING_BUDGET = 1_024
 # Runs estimates a draft may not wait for, so they never hold a request's own threads.
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="vision-draft-background")
+_BACKGROUND_WORKERS = 8
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS, thread_name_prefix="vision-draft-background")
+# Work starts only on a free worker, so a draft never waits behind other drafts' discarded estimates.
+_BACKGROUND_SLOTS = threading.BoundedSemaphore(_BACKGROUND_WORKERS)
 _T = TypeVar("_T")
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
@@ -1889,14 +1893,20 @@ def _run_concurrently(work: Sequence[Callable[[], None]], *, thread_name_prefix:
 
 
 def _start_in_background(work: Callable[[], _T]) -> Callable[[], _T]:
-    """Start `work` now and return a getter that waits for its result. A caller that never asks never waits."""
-    if settings.TEST:
+    """Start `work` now and return a getter that waits for its result. A caller that never asks never waits.
+
+    With no free worker, the getter runs `work` itself on first call instead.
+    """
+    if settings.TEST or not _BACKGROUND_SLOTS.acquire(blocking=False):
         return functools.cache(work)
 
     def run() -> _T:
-        # A private copy, so the worker cannot change the caller's query tags in place.
-        query_tags.set(get_query_tags().model_copy())
-        return _closing(work)()
+        try:
+            # A private copy, so the worker cannot change the caller's query tags in place.
+            query_tags.set(get_query_tags().model_copy())
+            return _closing(work)()
+        finally:
+            _BACKGROUND_SLOTS.release()
 
     context = copy_context()
     future: Future[_T] = _BACKGROUND_EXECUTOR.submit(lambda: context.run(run))
@@ -1911,6 +1921,8 @@ def _capped_thinking(team: Team, user: User) -> bool:
             groups={"organization": str(team.organization_id), "project": str(team.id)},
             person_properties={"email": user.email},
             group_properties={"organization": {"id": str(team.organization_id)}},
+            # A remote evaluation would put a network call in front of every draft.
+            only_evaluate_locally=True,
         )
         is True
     )
