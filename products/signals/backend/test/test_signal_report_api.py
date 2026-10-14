@@ -2789,7 +2789,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
             assert rejected.status_code == status.HTTP_400_BAD_REQUEST
-            report.save(update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()))
+            report.save(
+                update_fields=report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
+            )
         report.refresh_from_db()
         original_start = report.monitoring_started_at
         with patch(

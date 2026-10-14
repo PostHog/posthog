@@ -48,7 +48,7 @@ class TestReportMonitoringLifecycle(SimpleTestCase):
         assert report.monitoring_started_at == merged_at
 
         report.transition_to(SignalReport.Status(reopened_status))
-        assert report.monitoring_started_at is None
+        self.assertIsNone(report.monitoring_started_at)
         if reopened_status == SignalReport.Status.READY:
             report.transition_to(SignalReport.Status.MONITORING, monitoring_started_at=retry_at)
             assert report.monitoring_started_at == retry_at

@@ -84,4 +84,3 @@ class TestReportContentGates(SimpleTestCase):
 
         team_lookup.assert_not_called()
         evaluate.assert_not_called()
-
