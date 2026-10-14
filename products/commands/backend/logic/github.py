@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 Reaction = Literal["eyes", "rocket"]
 
-_SOURCE = "github_commands"
+_SOURCE = "commands"
 
 # The branch name goes into an agent prompt and a loop payload, so only a plain identifier passes.
 _BRANCH_NAME_RE = re.compile(r"[A-Za-z0-9._/-]{1,255}")

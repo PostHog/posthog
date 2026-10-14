@@ -1,4 +1,4 @@
-# GitHub commands
+# Commands
 
 People with write access to a repository can ask PostHog to do something on a pull request by commenting a command on it:
 
@@ -29,7 +29,7 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 
 ## How a comment becomes a command
 
-1. `backend/webhook_consumers.py` registers the `github_commands` consumer for `issue_comment` on the customer-facing GitHub App endpoint.
+1. `backend/webhook_consumers.py` registers the `commands` consumer for `issue_comment` on the customer-facing GitHub App endpoint.
 2. `logic/intake.py` reads the payload inside the webhook request, with no database and no API call. It drops everything that is not a new command comment and queues a task for the rest. `logic/parsing.py` finds the command: the CommonMark reference parser gives the comment's block structure, and a command fires only from a top-level paragraph.
 3. `logic/dispatch.py` runs in the task. It applies every check (listed in its module docstring), then calls the command's handler.
 4. `logic/handlers.py` calls the target product's facade and returns the text of the reply.

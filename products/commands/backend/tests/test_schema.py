@@ -4,7 +4,7 @@ import pytest
 
 from posthog.dataclasses import frozen
 
-from products.github_commands.backend.logic.schema import (
+from products.commands.backend.logic.schema import (
     COMMAND_DECLARATIONS,
     HELP,
     LOOP,

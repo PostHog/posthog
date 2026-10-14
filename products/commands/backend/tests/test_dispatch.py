@@ -26,12 +26,12 @@ from posthog.models.user_integration import UserIntegration
 from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.github_commands.backend.logic.commands import CommandContext, ProjectMember, PullRequestFacts
-from products.github_commands.backend.logic.dispatch import dispatch_comment_command
-from products.github_commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
-from products.github_commands.backend.logic.handlers import handle_loop, handle_qa, handle_review
-from products.github_commands.backend.logic.intake import CommentCommandRequest
-from products.github_commands.backend.logic.schema import LoopArgs, QaArgs, ReviewArgs
+from products.commands.backend.logic.commands import CommandContext, ProjectMember, PullRequestFacts
+from products.commands.backend.logic.dispatch import dispatch_comment_command
+from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
+from products.commands.backend.logic.handlers import handle_loop, handle_qa, handle_review
+from products.commands.backend.logic.intake import CommentCommandRequest
+from products.commands.backend.logic.schema import LoopArgs, QaArgs, ReviewArgs
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -43,16 +43,16 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
-FLAG = "products.github_commands.backend.logic.dispatch.posthog_feature_flag_enabled"
-REQUEST_STAMPHOG_REVIEW = "products.github_commands.backend.logic.handlers.stamphog_requests.request_review"
-DESKTOP_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
-CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.create_and_run_task"
-USAGE_LIMITED = "products.github_commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
-REQUEST_PR_REVIEW = "products.github_commands.backend.logic.handlers.review_hog_facade.request_pr_review"
-OWNING_TEAM_ID = "products.github_commands.backend.logic.handlers.review_hog_github.owning_team_id"
-CLAIM_CACHE = "products.github_commands.backend.logic.dispatch.cache"
-CONSUME_BUDGET = "products.github_commands.backend.logic.dispatch.consume"
-RUN_COMMENT_COMMAND = "products.github_commands.backend.tasks.tasks.run_comment_command.delay"
+FLAG = "products.commands.backend.logic.dispatch.posthog_feature_flag_enabled"
+REQUEST_STAMPHOG_REVIEW = "products.commands.backend.logic.handlers.stamphog_requests.request_review"
+DESKTOP_ACCESS = "products.commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
+CREATE_TASK = "products.commands.backend.logic.handlers.tasks_facade.create_and_run_task"
+USAGE_LIMITED = "products.commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
+REQUEST_PR_REVIEW = "products.commands.backend.logic.handlers.review_hog_facade.request_pr_review"
+OWNING_TEAM_ID = "products.commands.backend.logic.handlers.review_hog_github.owning_team_id"
+CLAIM_CACHE = "products.commands.backend.logic.dispatch.cache"
+CONSUME_BUDGET = "products.commands.backend.logic.dispatch.consume"
+RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -189,7 +189,7 @@ class TestDispatchCommentCommand(BaseTest):
         github = FakeGitHub()
 
         with (
-            patch("products.github_commands.backend.logic.identity.access_refused", return_value=True),
+            patch("products.commands.backend.logic.identity.access_refused", return_value=True),
             patch(REQUEST_STAMPHOG_REVIEW) as request_review,
         ):
             outcome = dispatch_comment_command(self._request(), github=github)
@@ -233,7 +233,7 @@ class TestDispatchCommentCommand(BaseTest):
 
         with (
             patch(
-                "products.github_commands.backend.logic.identity.access_refused",
+                "products.commands.backend.logic.identity.access_refused",
                 side_effect=lambda subject, *_args, **_kwargs: second_refused and subject.email == second_user.email,
             ),
             patch(OWNING_TEAM_ID, return_value=owner_team.id),

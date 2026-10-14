@@ -1,4 +1,4 @@
-"""Celery tasks for github_commands."""
+"""Celery tasks for commands."""
 
 from celery import shared_task
 
