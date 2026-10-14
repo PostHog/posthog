@@ -154,6 +154,29 @@ describe('logsViewerDataLogic', () => {
         })
 
         it.each([
+            ['a string', 'Query exploded', 'Query exploded'],
+            ['an object without a message', { status: 502 }, 'Unknown error'],
+        ])('sets a readable logsError when the query throws %s', async (_, thrown, expectedError) => {
+            const create = api.create.bind(api)
+            const createSpy = jest
+                .spyOn(api, 'create')
+                .mockImplementation(((url: string, ...rest: any[]) =>
+                    url.includes('/logs/query/') ? Promise.reject(thrown) : create(url, ...rest)) as typeof api.create)
+
+            try {
+                await logic.asyncActions.fetchLogs().catch(() => {})
+            } finally {
+                createSpy.mockRestore()
+            }
+
+            expect(logic.values.logsError).toBe(expectedError)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'logs query failed',
+                expect.objectContaining({ query_type: 'logs', error_message: expectedError })
+            )
+        })
+
+        it.each([
             ['Fetch is aborted', 'Safari abort message'],
             ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
         ])('suppresses fetchNextLogsPage error "%s" (%s)', async (error) => {
