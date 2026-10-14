@@ -334,7 +334,8 @@ Every token must match, and the text between two tokens must be byte-identical u
 Where a comment sits, both versions must agree on whether a line break separates the tokens.
 A block comment that holds a line break counts as one for automatic semicolon insertion: `return /*` on one line and `*/ x` on the next returns `undefined`.
 A tree with a syntax error is `logic`, because tree-sitter recovers from errors instead of failing.
-The TypeScript directives are `@ts-` comments, triple-slash references, `@jsx` pragmas, lint and formatter directives (ESLint, oxlint, Biome, Prettier, dprint), coverage directives, bundler comments, `#__PURE__`-style annotations, source map comments, test environment pragmas and `/*!` or `@license` banners.
+The TypeScript directives are `@ts-` comments, triple-slash references, `@jsx` pragmas, Semgrep and Trunk suppressions, lint and formatter directives (ESLint, oxlint, Biome, Stylelint, Prettier, dprint), coverage directives, bundler comments, `#__PURE__`-style annotations, source map comments, test environment pragmas and `/*!` or `@license` banners.
+A next-line directive applies to one physical line, so a change in the number of lines between a directive and the next token makes the file `logic` too.
 JavaScript stays `logic`, because a JSDoc comment there can carry types that the compiler checks.
 
 A PR has an approvable shape when every changed file is one of the first four shapes.

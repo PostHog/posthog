@@ -144,6 +144,13 @@ export function total(values: number[]): number {
             _TS_BASE, _TS_BASE.replace(b"// accumulate", b"// eslint-disable-line"), "logic", id="lint-directive"
         ),
         pytest.param(b"const x = make()\n", b"const x = /*#__PURE__*/ make()\n", "logic", id="pure-annotation-added"),
+        pytest.param(b"run(input)\n", b"// nosemgrep: some-rule\nrun(input)\n", "logic", id="nosemgrep-added"),
+        pytest.param(
+            b"// eslint-disable-next-line no-alert\nalert(1)\n",
+            b"// eslint-disable-next-line no-alert\n\nalert(1)\n",
+            "logic",
+            id="next-line-directive-moved-off-its-line",
+        ),
         pytest.param(_TS_BASE, b'/// <reference types="node" />\n' + _TS_BASE, "logic", id="triple-slash-reference"),
         pytest.param(
             b"// @ts-ignore\nconst a = f()\nconst b = f()\n",

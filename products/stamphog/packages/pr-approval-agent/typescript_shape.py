@@ -13,8 +13,10 @@ module compares the token stream, which fixes the program, and not tree-sitter's
 - tree-sitter recovers from a syntax error instead of raising, so a tree with an error node is
   `logic`.
 
-A comment that a tool reads is code, as in Python: a compiler, linter, bundler, test runner or
-coverage directive, a triple-slash reference, or a pure annotation that changes tree shaking.
+A comment that a tool reads is code, as in Python: a compiler, linter, security scanner, bundler,
+test runner or coverage directive, a triple-slash reference, or a pure annotation that changes tree
+shaking. A change to its text, to the token it precedes, or to the number of line breaks between it
+and that token makes the file `logic`, because a next-line directive applies to one physical line.
 """
 
 import re
@@ -28,10 +30,11 @@ from tree_sitter import Language, Node, Parser
 _TYPESCRIPT_PARSER = Parser(Language(tree_sitter_typescript.language_typescript()))
 _TSX_PARSER = Parser(Language(tree_sitter_typescript.language_tsx()))
 
-_LINE_TERMINATORS = (b"\n", b"\r", " ".encode(), " ".encode())
+_LINE_BREAK_RE = re.compile(rb"\r\n|[\n\r]|\xe2\x80[\xa8\xa9]")
 
 _DIRECTIVE_COMMENT_RE = re.compile(
     rb"^///\s*<|^/\*!|@ts-|@jsx|@internal|@license|@preserve|[#@]__[A-Z_]+__|"
+    rb"nosemgrep|nosec|trunk-ignore|stylelint|"
     rb"eslint|oxlint|biome-|prettier-ignore|dprint-ignore|istanbul|\bc8\b|\bv8\s+ignore|"
     rb"webpack|vite-ignore|@vite-|source(?:Mapping)?URL=|@(?:vitest|jest)-environment",
     re.IGNORECASE,
@@ -52,6 +55,7 @@ class _DirectiveComment:
     text: bytes
     tokens_before: int
     inline: bool
+    line_breaks_to_next_token: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -71,7 +75,7 @@ def _leaves(root: Node) -> Iterator[Node]:
 
 
 def _has_line_break(text: bytes) -> bool:
-    return any(terminator in text for terminator in _LINE_TERMINATORS)
+    return _LINE_BREAK_RE.search(text) is not None
 
 
 def _lex(source: bytes, *, tsx: bool) -> _LexedSource | None:
@@ -81,6 +85,7 @@ def _lex(source: bytes, *, tsx: bool) -> _LexedSource | None:
         return None
     tokens: list[_Token] = []
     directives: list[_DirectiveComment] = []
+    awaiting_next_token: list[tuple[bytes, int, bool, int]] = []
     separator_start = 0
     previous_end = 0
     separator_has_comment = False
@@ -91,16 +96,21 @@ def _lex(source: bytes, *, tsx: bool) -> _LexedSource | None:
         if leaf is not None and leaf.type == "comment":
             text = source[leaf.start_byte : leaf.end_byte]
             if _DIRECTIVE_COMMENT_RE.search(text):
-                directives.append(
-                    _DirectiveComment(
-                        text=text,
-                        tokens_before=len(tokens),
-                        inline=bool(tokens) and not _has_line_break(source[separator_start:start]),
-                    )
-                )
+                inline = bool(tokens) and not _has_line_break(source[separator_start:start])
+                awaiting_next_token.append((text, len(tokens), inline, leaf.end_byte))
             separator_has_comment = True
             previous_end = leaf.end_byte
             continue
+        directives.extend(
+            _DirectiveComment(
+                text=text,
+                tokens_before=tokens_before,
+                inline=inline,
+                line_breaks_to_next_token=len(_LINE_BREAK_RE.findall(source[end:start])),
+            )
+            for text, tokens_before, inline, end in awaiting_next_token
+        )
+        awaiting_next_token.clear()
         tokens.append(
             _Token(
                 kind="end" if leaf is None else leaf.type,
