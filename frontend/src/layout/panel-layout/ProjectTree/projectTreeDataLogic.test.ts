@@ -103,12 +103,12 @@ describe('projectTreeDataLogic', () => {
     it.each([false, true])('shows a starred flagged product only while its flag is on (%s)', (flagOn) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]: flagOn })
         logic.actions.loadShortcutsSuccess([
-            { id: 'star-etl', path: 'ETL', type: 'product', href: urls.etlOverview() },
+            { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
             { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
         ])
 
         expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(
-            flagOn ? ['ETL', 'SQL editor'] : ['SQL editor']
+            flagOn ? ['ELT', 'SQL editor'] : ['SQL editor']
         )
         expect(logic.values.shortcutData).toHaveLength(2)
     })
