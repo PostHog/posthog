@@ -33,7 +33,7 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import DestinationEligibility
+from .contracts import DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -240,3 +240,8 @@ def classify_alert_destinations(
 def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
     """Enabled functions that take a source's alert events without being bound to one alert."""
     return destination_eligibility.unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    return destination_eligibility.bucket_for(eligibility)

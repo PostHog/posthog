@@ -15,15 +15,17 @@ later edit can still be customized.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
-from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.logic.destination_configs import (
     SPEC_BY_TEMPLATE_ID,
     WEBHOOK_HEADERS,
+    SlackDestination,
     WebhookDestination,
     added_webhook_headers,
     input_value,
@@ -44,7 +46,20 @@ _WEBHOOK_INPUT_HOLD_BACKS: Final = {
     "method": DestinationHoldBack.WEBHOOK_METHOD,
 }
 
+_SLACK_COSMETIC_INPUTS: Final = frozenset({"icon_emoji", "username"})
+
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
+
+
+_BUCKET_BY_HOLD_BACK: Final = {
+    DestinationHoldBack.REFUSED_ADDRESS: DestinationBucket.REFUSED_ADDRESS,
+    DestinationHoldBack.NO_TEMPLATE: DestinationBucket.CODE,
+    DestinationHoldBack.CODE: DestinationBucket.CODE,
+    DestinationHoldBack.MESSAGE_COSMETIC: DestinationBucket.COSMETIC,
+    DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER: DestinationBucket.TEMPLATED_HEADERS,
+    DestinationHoldBack.WEBHOOK_HEADERS: DestinationBucket.STATIC_HEADERS,
+}
+_BUCKET_ORDER: Final = tuple(DestinationBucket)
 
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
@@ -75,9 +90,16 @@ def classify_alert_destinations(
             hog_function_id=function.id,
             template_id=function.template_id,
             hold_backs=_hold_backs(function, first_revisions.get(function.id)),
+            code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
     )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    buckets = {_BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs}
+    return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
 
 
 def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
@@ -116,9 +138,14 @@ def _bound_to_one_alert(filters: Any) -> bool:
 
 def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
     template_id = function.template_id or ""
+    if not template_id:
+        return (DestinationHoldBack.NO_TEMPLATE,)
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
-        return (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
+        # The code still says whether the template's stock behavior is what it sends.
+        if first_revision is not None and function.hog != first_revision.content.get("hog"):
+            return (DestinationHoldBack.OTHER_TEMPLATE, DestinationHoldBack.CODE)
+        return (DestinationHoldBack.OTHER_TEMPLATE,)
 
     found: list[DestinationHoldBack] = []
     if function.masking:
@@ -179,6 +206,8 @@ def _input_hold_backs(
             continue
         if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
             found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
+        elif template_id == SlackDestination.template_id and key in _SLACK_COSMETIC_INPUTS:
+            found.append(DestinationHoldBack.MESSAGE_COSMETIC)
         else:
             found.append(DestinationHoldBack.MESSAGE)
     return found
