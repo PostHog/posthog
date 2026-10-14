@@ -19,6 +19,7 @@ import {
     ErrorTrackingOrderBy,
     ErrorTrackingQueryStatus,
     EventsNode,
+    EventsQuery,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
     InsightNodeKind,
@@ -1864,9 +1865,7 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
     /**
-     * Override how this individual series is rendered, independent of the chart-level `display` type.
-     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
-     * `auto` follows the chart-level display type.
+     * Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.
      */
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
@@ -2018,19 +2017,7 @@ export interface AssistantDataVisualizationNode {
     /** HogQL query object that produces the rows to visualize. */
     source: Record<string, any>
     /**
-     * Visualization type. Defaults to `ActionsTable` when omitted.
-     *
-     * Guidance:
-     * - Single-value result (one numeric column, one row) → `BoldNumber`.
-     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
-     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.
-     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
-     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
-     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
-     * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
-     * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
-     * - Otherwise → `ActionsTable`.
+     * SQL chart type. Defaults to `ActionsTable`. See insight-create for chart selection guidance.
      */
     display?: AssistantDataVisualizationDisplayType
     /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
@@ -2055,8 +2042,24 @@ export interface AssistantBareHogQLQuery {
     [key: string]: unknown
 }
 
+export interface AssistantEventsQuery {
+    kind: NodeKind.EventsQuery
+    /** Event columns as HogQL expressions. */
+    select: EventsQuery['select']
+    // The backend validates EventsQuery fields. Preserve filters and options without expanding the tool schema.
+    [key: string]: unknown
+}
+
+export interface AssistantDataTableNode {
+    kind: NodeKind.DataTableNode
+    source: AssistantEventsQuery
+    [key: string]: unknown
+}
+
 export type InsightQuery =
     | AssistantInsightVizNode
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
+    | AssistantDataTableNode
+    | AssistantEventsQuery
