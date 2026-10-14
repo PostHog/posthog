@@ -1,5 +1,17 @@
-import { Host, Picker, Text as SwiftText } from "@expo/ui/swift-ui";
-import { pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import {
+  Button,
+  Host,
+  Image,
+  Menu,
+  Picker,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import {
+  frame,
+  glassEffect,
+  pickerStyle,
+  tag,
+} from "@expo/ui/swift-ui/modifiers";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
@@ -20,6 +32,7 @@ import { MenuIcon } from "@/components/Icons";
 import { PriorityChip } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
 import { REPORT_FILTERS, type ReportFilter } from "@/lib/reportFilters";
+import { REPORT_SCOPES, useReportScope } from "@/lib/reportScope";
 import {
   useDismissReport,
   useMarkReportRead,
@@ -35,14 +48,22 @@ const EMPTY: Record<ReportFilter, string> = {
   dismissed: "Nothing dismissed",
 };
 
+const EMPTY_FOR_YOU: Record<ReportFilter, string> = {
+  attention: "Nothing for you right now.",
+  "pull-requests": "No pull requests ready for you.",
+  dismissed: "Nothing dismissed for you.",
+};
+
 export default function SelfDrivingScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<ReportFilter>("attention");
+  const scope = useReportScope((s) => s.scope);
+  const setScope = useReportScope((s) => s.setScope);
   // The deck always works on the reports that need attention.
-  const reports = useReports();
-  const listed = useReports("", filter);
+  const reports = useReports("", "attention", { scope });
+  const listed = useReports("", filter, { scope });
   const markRead = useMarkReportRead();
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
@@ -147,7 +168,39 @@ export default function SelfDrivingScreen() {
           </GlassCircleButton>
         )}
         <Text style={styles.title}>{showDeck ? "Triage" : "Reports"}</Text>
-        <View style={{ width: 46 }} />
+        {showDeck ? (
+          <View style={{ width: 46 }} />
+        ) : (
+          <Host matchContents>
+            <Menu
+              label={
+                <Image
+                  systemName="slider.horizontal.3"
+                  size={18}
+                  color={colors.ink}
+                />
+              }
+              modifiers={[
+                frame({ width: 46, height: 46 }),
+                glassEffect({
+                  glass: { variant: "regular", interactive: true },
+                  shape: "circle",
+                }),
+              ]}
+            >
+              {REPORT_SCOPES.map((option) => (
+                <Button
+                  key={option.value}
+                  label={option.label}
+                  systemImage={
+                    scope === option.value ? "checkmark" : option.icon
+                  }
+                  onPress={() => setScope(option.value)}
+                />
+              ))}
+            </Menu>
+          </Host>
+        )}
       </View>
 
       {showDeck ? (
@@ -198,7 +251,15 @@ export default function SelfDrivingScreen() {
             </Pressable>
           ) : null}
           {rows.length === 0 && !listed.isLoading && !listFailed ? (
-            <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
+            scope === "for-you" ? (
+              <Pressable onPress={() => setScope("entire-project")}>
+                <Text style={styles.muted}>
+                  {EMPTY_FOR_YOU[filter]} Tap to show the entire project.
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
+            )
           ) : null}
           {rows.map((report) => (
             <Pressable
