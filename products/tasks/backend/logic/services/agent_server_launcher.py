@@ -335,6 +335,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -361,6 +362,7 @@ class AgentServerLaunchMixin(SandboxBase):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
@@ -701,6 +703,7 @@ class AgentServerLaunchMixin(SandboxBase):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
@@ -787,6 +790,7 @@ class AgentServerLaunchMixin(SandboxBase):
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
+                pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
                 codex_model_access=codex_model_access,

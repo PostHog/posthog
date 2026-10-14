@@ -23,7 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.activity_logging import installation_account_name
 from products.review_hog.backend.automatic_review_rules import (
@@ -113,7 +113,7 @@ class ReviewRepositoryPersonSerializer(serializers.ModelSerializer):
     kind = serializers.ChoiceField(
         choices=ReviewRepositoryPerson.Kind.choices,
         read_only=True,
-        help_text="Which list: 'listed' (gets Flash when the rule reviews only listed people) or "
+        help_text="Which list: 'listed' (gets automatic reviews when the rule reviews only listed people) or "
         "'excepted' (skipped when the rule reviews everyone).",
     )
 
@@ -132,7 +132,7 @@ class ReviewRepositoryPersonRequestSerializer(serializers.Serializer):
 
 class AutomaticReviewDecisionSerializer(serializers.Serializer):
     flash = serializers.BooleanField(
-        help_text="Whether the requesting user's own pull requests get automatic Flash reviews in this repository."
+        help_text="Whether the requesting user's own pull requests get automatic Standard reviews in this repository."
     )
     reason = serializers.ChoiceField(
         choices=AutomaticReviewReason.choices,
@@ -234,7 +234,7 @@ class ReviewInstallationSerializer(serializers.Serializer):
     account_name = serializers.CharField(help_text="The GitHub account (organization or user) of the installation.")
     connected_by = UserBasicSerializer(
         allow_null=True,
-        help_text="Who connected the installation to this project. Automatic Flash reviews of bot pull requests "
+        help_text="Who connected the installation to this project. Automatic Standard reviews of bot pull requests "
         "run as this user.",
     )
     claim_id = serializers.UUIDField(
@@ -373,6 +373,11 @@ class EffectiveTeamStrictManagementPermission(BasePermission):
 
     def has_permission(self, request: Request, view: Any) -> bool:
         if not isinstance(view, ReviewHogProjectViewSetMixin):
+            return False
+        # The API scope check covers only the URL project, so a key scoped to an environment must not
+        # reach its parent project.
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_teams is not None and view.effective_team_id not in scoped_teams:
             return False
         if request.method in SAFE_METHODS:
             return view.user_permissions.team(view.effective_team).effective_membership_level is not None

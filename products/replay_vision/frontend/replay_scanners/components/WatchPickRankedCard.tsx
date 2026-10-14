@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -13,7 +14,7 @@ import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchReasonCopy } from './WatchFeedCard'
+import { watchFeedRowWhy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -27,6 +28,7 @@ interface WatchPickRankedCardProps {
 const SCORE_DOTS = 5
 
 export function WatchPickRankedCard({ item, position, surface, rank }: WatchPickRankedCardProps): JSX.Element {
+    const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
     const { watchPick } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName, scannerType } = watchPickSummary(observation)
@@ -34,7 +36,12 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
     const notability = typeof reason.notability === 'number' ? reason.notability : null
 
     return (
-        <div className="group relative" data-attr="vision-watch-ranked-card">
+        <div
+            className="group relative"
+            data-attr="vision-watch-ranked-card"
+            onMouseEnter={() => setHasOpenedPreview(true)}
+            onFocusCapture={() => setHasOpenedPreview(true)}
+        >
             <LemonButton
                 noPadding
                 fullWidth
@@ -46,7 +53,7 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                     <span className={cn('relative block overflow-hidden rounded', observation.viewed && 'opacity-60')}>
                         <ObservationThumbnail observation={observation} className="w-full rounded-none border-0">
                             <span className="sr-only">
-                                {title}. {citedTextToPlainText(watchReasonCopy(reason), undefined)}
+                                {title}. {citedTextToPlainText(watchFeedRowWhy(reason), undefined)}
                             </span>
                         </ObservationThumbnail>
                         {rank !== undefined && <WatchPickRankBadge rank={rank} />}
@@ -109,7 +116,7 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                     'group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100'
                 )}
             >
-                <WatchPickPreview item={item} className="w-full" />
+                {hasOpenedPreview && <WatchPickPreview item={item} className="w-full" />}
             </div>
         </div>
     )

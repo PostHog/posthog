@@ -58,7 +58,13 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_thread_verdict,
     upsert_review_report,
 )
-from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, resolution_states
+from products.review_hog.backend.reviewer.progress import (
+    RESOLUTION_RUN_NOTE_AUTHOR,
+    RUN_OUTCOME_SKIPPED,
+    RUN_STAGE_RESOLUTION,
+    record_run_outcome,
+    resolution_states,
+)
 from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
     continue_sandbox_session,
@@ -67,10 +73,10 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 )
 from products.review_hog.backend.reviewer.skill_loader import load_resolution_skill_for_run
 from products.review_hog.backend.reviewer.status_comment import (
-    render_resolution_failed_section,
-    render_resolution_final_section,
-    render_resolution_held_section,
-    render_resolution_progress_section,
+    render_resolution_failed_row,
+    render_resolution_final_row,
+    render_resolution_held_row,
+    render_resolution_progress_row,
     update_resolution_status_comment,
 )
 from products.review_hog.backend.reviewer.tools.github_client import github_api_request
@@ -281,6 +287,31 @@ def _commit_hold_for_run(input: ResolveThreadsInput, prepared: "_PreparedRun") -
     )
 
 
+def _record_resolution_skip(
+    input: ResolveThreadsInput, reason: str, *, head_sha: str | None, report_id: str | None = None
+) -> None:
+    """Record why the run did nothing, so a status reader sees it ended instead of waiting forever."""
+    if report_id is None:
+        report = (
+            ReviewReport.objects.for_team(input.team_id)
+            .filter(repository__iexact=f"{input.owner}/{input.repo}", pr_number=input.pr_number)
+            .only("id")
+            .first()
+        )
+        # The gates run before the report upsert, so a PR that has no report yet has nowhere to record the skip.
+        if report is None:
+            return
+        report_id = str(report.id)
+    record_run_outcome(
+        input.team_id,
+        report_id,
+        stage=RUN_STAGE_RESOLUTION,
+        outcome=RUN_OUTCOME_SKIPPED,
+        reason=reason,
+        head_sha=head_sha,
+    )
+
+
 def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResult:
     """Fetch + gate + pre-filter; returns the prepared work-list, or the run result for a clean no-op."""
     # The run's one installation-selection probe — it doubles as the access gate. Deliveries reuse
@@ -297,6 +328,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
             non_retryable=True,
         )
     if pr_metadata.state != "open":
+        _record_resolution_skip(input, "pr_not_open", head_sha=pr_metadata.head_sha)
         return ResolutionRunResult(skipped_reason="pr_not_open")
     # Every trigger reaches this gate, so no path writes to a branch whose owner did not opt in. The
     # fork check above makes the head branch the base repository's, which the Inbox link needs.
@@ -312,6 +344,9 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
             input.owner,
             input.repo,
             input.pr_number,
+        )
+        _record_resolution_skip(
+            input, ReviewRequestRefusal.RESOLUTION_NOT_OPTED_IN.value, head_sha=pr_metadata.head_sha
         )
         return ResolutionRunResult(skipped_reason=ReviewRequestRefusal.RESOLUTION_NOT_OPTED_IN.value)
 
@@ -354,15 +389,15 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         update_resolution_status_comment(
             input.team_id,
             report_id,
-            render_resolution_held_section(hold),
+            render_resolution_held_row(hold),
             integration_row_id=github.integration.id,
         )
         triage, overflow = [], 0
     if not triage and not redeliver:
-        result = ResolutionRunResult(
-            report_id=report_id, skipped_reason=hold.value if hold else "no_unresolved_threads", skipped=skipped
-        )
+        skipped_reason = hold.value if hold else "no_unresolved_threads"
+        result = ResolutionRunResult(report_id=report_id, skipped_reason=skipped_reason, skipped=skipped)
         _append_run_note(input, report_id, result)
+        _record_resolution_skip(input, skipped_reason, head_sha=pr_metadata.head_sha, report_id=report_id)
         _idle_report(input.team_id, report_id)
         return result
 
@@ -732,7 +767,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_progress_section(
+            render_resolution_progress_row(
                 done=sum(result.delivered_outcomes.values()),
                 total=total_queued,
                 fixed=result.delivered_outcomes.get(ThreadOutcome.FIXED.value, 0),
@@ -873,7 +908,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
                     input.team_id,
                     prepared.report_id,
-                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
+                    render_resolution_failed_row(done=sum(result.delivered_outcomes.values()), total=total_queued),
                     integration_row_id=prepared.integration_row_id,
                 )
         raise
@@ -890,13 +925,13 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_held_section(
+            render_resolution_held_row(
                 result.stopped_reason, done=sum(result.delivered_outcomes.values()), total=total_queued
             )
             if result.stopped_reason
             # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
             # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
-            else render_resolution_final_section(
+            else render_resolution_final_row(
                 outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
             ),
             integration_row_id=prepared.integration_row_id,
@@ -950,7 +985,7 @@ def _fail_resolution(input: FailResolutionInput) -> None:
     update_resolution_status_comment(
         input.team_id,
         str(report.id),
-        render_resolution_failed_section(done=state.done, total=state.total),
+        render_resolution_failed_row(done=state.done, total=state.total),
     )
 
 

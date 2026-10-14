@@ -10,10 +10,6 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
-from posthog.cdp.templates.fixtures import template_slack
-from posthog.cdp.templates.helpers import mock_transpile
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.integration import Integration
 
 from products.actions.backend.models.action import Action
@@ -24,8 +20,12 @@ from products.cdp.backend.api.hog_function import (
     comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.helpers import mock_transpile
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
@@ -2177,7 +2177,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["filters"]["source"] == "data-warehouse-view"
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_app_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2192,7 +2192,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["bytecode"] is None
         assert "Hello, site_app" in response.json()["transpiled"]
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_destination_type(self, mock_transpile_fn):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -2331,7 +2331,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "detail" in response.json()
         assert "Error in TypeScript code" in response.json()["detail"]
 
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_create_typescript_destination_with_inputs(self, mock_transpile_fn):
         payload = {
             "name": "TypeScript Destination Function",

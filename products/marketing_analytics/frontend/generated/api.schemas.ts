@@ -1808,6 +1808,8 @@ export interface DataWarehouseSourceUsageApi {
 }
 
 export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
     /** Human-readable warning shown to the user */
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -2284,6 +2286,11 @@ export interface CapabilityReadinessApi {
 }
 
 export interface SetupPlanResponseApi {
+    /**
+     * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+     * @nullable
+     */
+    readonly source_scanned_at: string | null
     /** Ranked suggestions, most important first */
     suggestions: SuggestionApi[]
     /** Per-capability readiness, with the suggestions blocking each */

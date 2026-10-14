@@ -396,7 +396,15 @@ const TEAM_PROPERTIES_MAPPING: Record<
 
         if (before?.appearance?.displayThankYouMessage !== after?.appearance?.displayThankYouMessage) {
             descriptions.push(
-                `${preamble} displayThankYouMessage was ${after?.appearance?.whiteLabel ? 'enabled' : 'disabled'}`
+                `${preamble} displayThankYouMessage was ${
+                    after?.appearance?.displayThankYouMessage ? 'enabled' : 'disabled'
+                }`
+            )
+        }
+
+        if (before?.appearance?.displayIntroScreen !== after?.appearance?.displayIntroScreen) {
+            descriptions.push(
+                `${preamble} Survey intro screen was ${after?.appearance?.displayIntroScreen ? 'enabled' : 'disabled'}`
             )
         }
 
@@ -408,6 +416,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
         propertyChangeDesc('borderColor', (c) => c?.appearance?.borderColor)
         propertyChangeDesc('placeholder', (c) => c?.appearance?.placeholder)
         propertyChangeDesc('thankYouMessageHeader', (c) => c?.appearance?.thankYouMessageHeader)
+        propertyChangeDesc('intro screen header', (c) => c?.appearance?.introScreenHeader)
         propertyChangeDesc('position', (c) => c?.appearance?.position)
 
         return { description: descriptions }

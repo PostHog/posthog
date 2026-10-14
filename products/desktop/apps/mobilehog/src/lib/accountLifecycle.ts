@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { resetSentPhotos } from "@/lib/attachments";
 import { sessionIdentity, useAuth } from "@/lib/auth";
 import {
   CACHE_MAX_AGE,
@@ -43,6 +44,7 @@ useAuth.subscribe((state, previous) => {
   useRepo.setState({ repository: undefined });
   useSeenReports.setState({ seen: new Set(), hydrated: false });
   resetUnstartedReportTasks();
+  resetSentPhotos();
 });
 
 export function getAccountQueryClient(): QueryClient {

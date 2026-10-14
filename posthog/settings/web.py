@@ -98,6 +98,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.github_commands.backend.apps.GithubCommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
@@ -126,6 +127,7 @@ PRODUCTS_APPS = [
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
+    "products.groups.backend.apps.GroupsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -295,7 +297,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
-CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -349,6 +351,13 @@ SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+
+# Kill switch for legacy Team.secret_api_token auth (#66179). When False, the legacy
+# verifiers (TeamSecretTokenAuthentication, the conversations/customer-analytics external
+# team-token branches, the widget identity-verification legacy fallback) all go inert, and
+# ProjectSecretAPIKeyAuthentication stops deferring tokens that match a team's legacy
+# token — migrated tokens then authenticate via their backfilled PSAK mirror rows.
+ACCEPT_TEAM_SECRET_TOKENS = get_from_env("ACCEPT_TEAM_SECRET_TOKENS", True, type_cast=str_to_bool)
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_ENGINE = "posthog.session.backend"
@@ -1292,8 +1301,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:write",
     "element:read",
     "uploaded_media:write",
-    "survey:read",
-    "survey:write",
     "field_note:read",
     "field_note:write",
 ]

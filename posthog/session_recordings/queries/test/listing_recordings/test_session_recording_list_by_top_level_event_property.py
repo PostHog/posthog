@@ -10,7 +10,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import EventProperty
+from posthog.models import Element, EventProperty
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
@@ -480,4 +480,36 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
                 ]
             },
             [paul_google_session, no_email_session],
+        )
+
+    @parameterized.expand(
+        [
+            ("icontains", "icontains", ["chat_session"]),
+            ("not_icontains", "not_icontains", ["other_session"]),
+        ]
+    )
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
+    def test_can_filter_by_top_level_element_text(self, _name: str, operator: str, expected: list[str]) -> None:
+        sessions = {"chat_session": str(uuid7()), "other_session": str(uuid7())}
+        texts = {"chat_session": "Open chat", "other_session": "Cancel"}
+        for label, session_id in sessions.items():
+            produce_replay_summary(
+                distinct_id="user",
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                team=self.team,
+                distinct_id="user",
+                timestamp=self.an_hour_ago + timedelta(minutes=1),
+                event_name="$autocapture",
+                properties={"$session_id": session_id, "$window_id": str(uuid7())},
+                elements=[Element(tag_name="button", text=texts[label], nth_child=0, nth_of_type=0)],
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"type": "element", "key": "text", "operator": operator, "value": "chat"}]},
+            [sessions[label] for label in expected],
         )

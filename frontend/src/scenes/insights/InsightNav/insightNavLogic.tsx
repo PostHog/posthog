@@ -6,6 +6,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
 import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import { actorsOnlyMathTypes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
     FLAG_EVALUATIONS_SERIES_FIELDS,
     withFlagCallsAggregationTarget,
@@ -15,7 +16,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
-import { actorsOnlyMathTypes, expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
+import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {

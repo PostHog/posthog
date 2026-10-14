@@ -1,5 +1,9 @@
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
     ENTITIES_ENDPOINT,
@@ -34,14 +38,16 @@ class TestMem0SourceSchemas:
 
 
 class TestMem0SourceCredentials:
-    @patch(f"{_SOURCE_MODULE}.validate_mem0_credentials", return_value=True)
-    def test_valid_key(self, mock_validate):
-        assert Mem0Source().validate_credentials(_config(), team_id=1) == (True, None)
-        mock_validate.assert_called_once_with("m0-test")
+    def test_valid_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert Mem0Source().validate_credentials(_config(), team_id=1) == (True, None)
 
-    @patch(f"{_SOURCE_MODULE}.validate_mem0_credentials", return_value=False)
-    def test_invalid_key_returns_actionable_error(self, mock_validate):
-        ok, error = Mem0Source().validate_credentials(_config(), team_id=1)
+        assert network.requests_log[0].path == "/v1/ping/"
+        assert network.requests_log[0].headers["authorization"] == "Token m0-test"
+
+    def test_invalid_key_returns_actionable_error(self) -> None:
+        with scripted_network([ScriptedResponse(status=401)]):
+            ok, error = Mem0Source().validate_credentials(_config(), team_id=1)
 
         assert ok is False
         assert error == "Invalid Mem0 API key"

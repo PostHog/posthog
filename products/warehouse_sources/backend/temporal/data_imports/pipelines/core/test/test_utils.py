@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
+    append_cursor_partition_keys,
     append_partition_key_to_table,
     setup_partitioning,
 )
@@ -1536,6 +1537,9 @@ def _mock_schema(**overrides: Any) -> MagicMock:
     schema.partition_mode_override = overrides.get("partition_mode_override")
     schema.partitioning_keys_override = overrides.get("partitioning_keys_override")
     schema.partitioning_enabled = overrides.get("partitioning_enabled", True)
+    schema.is_append = overrides.get("is_append", False)
+    schema.incremental_field = overrides.get("incremental_field")
+    schema.incremental_field_type = overrides.get("incremental_field_type")
     schema.set_partitioning_enabled = MagicMock()
     return schema
 
@@ -1629,6 +1633,91 @@ async def test_setup_partitioning_no_delta_table_no_partition_keys_returns_uncha
 
     assert result.equals(pa_table)
     assert PARTITION_KEY not in result.column_names
+
+
+@pytest.mark.parametrize(
+    "schema_kwargs, expected",
+    [
+        ({"is_append": True, "incremental_field": "ts", "incremental_field_type": "timestamp"}, ["ts"]),
+        ({"is_append": True, "incremental_field": "day", "incremental_field_type": "date"}, ["day"]),
+        ({"is_append": False, "incremental_field": "ts", "incremental_field_type": "timestamp"}, None),
+        ({"is_append": True, "incremental_field": "seq", "incremental_field_type": "integer"}, None),
+        ({"is_append": True, "incremental_field": None, "incremental_field_type": None}, None),
+        (
+            {
+                "is_append": True,
+                "incremental_field": "ts",
+                "incremental_field_type": "timestamp",
+                "partitioning_keys": ["id"],
+            },
+            None,
+        ),
+    ],
+    ids=[
+        "append_timestamp_cursor",
+        "append_date_cursor",
+        "incremental_sync_can_merge_so_keeps_its_keys",
+        "integer_cursor_is_not_a_date",
+        "no_cursor",
+        "table_already_has_partitioning_keys",
+    ],
+)
+def test_append_cursor_partition_keys(schema_kwargs: dict[str, Any], expected: list[str] | None):
+    assert append_cursor_partition_keys(_mock_schema(**schema_kwargs)) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_mode, expected_partitions, expected_mode",
+    [
+        (None, ["2026-w02", "2026-w02", "2026-w07"], "datetime"),
+        ("md5", None, "md5"),
+    ],
+    ids=["no_mode_from_the_source_uses_the_cursor", "a_mode_from_the_source_wins"],
+)
+async def test_setup_partitioning_new_append_table_is_partitioned_by_its_cursor(
+    source_mode: str | None, expected_partitions: list[str] | None, expected_mode: str
+):
+    logger: FilteringBoundLogger = structlog.get_logger()
+    pa_table = pa.table(
+        {
+            "id": [1, 2, 3],
+            "ts": pa.array(
+                [
+                    datetime.datetime(2026, 1, 5, 9),
+                    datetime.datetime(2026, 1, 6, 23),
+                    datetime.datetime(2026, 2, 10, 1),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    schema = _mock_schema(
+        is_append=True, incremental_field="ts", incremental_field_type="timestamp", partitioning_enabled=False
+    )
+
+    result = await setup_partitioning(
+        pa_table=pa_table,
+        existing_delta_table=None,
+        schema=schema,
+        resource=_mock_resource(primary_keys=["id"], partition_count=4, partition_mode=source_mode),
+        logger=logger,
+    )
+
+    assert schema.set_partitioning_enabled.call_args.args[3] == expected_mode
+    if expected_partitions is not None:
+        assert result.column(PARTITION_KEY).to_pylist() == expected_partitions
+        assert schema.set_partitioning_enabled.call_args.args[0] == ["ts"]
+
+
+def test_datetime_partitioning_of_an_integer_that_is_not_seconds_does_not_raise():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    table = pa.table({"ts": [1_760_000_000, 1_760_000_000_000_000_000]})
+
+    result = append_partition_key_to_table(table, None, None, ["ts"], "datetime", "month", logger)
+
+    assert result is not None
+    assert result.table.column(PARTITION_KEY).to_pylist() == ["2025-10", "1970-01"]
 
 
 @pytest.mark.asyncio

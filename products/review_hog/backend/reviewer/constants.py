@@ -114,12 +114,12 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
     (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 4),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 4),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 3),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-3`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
@@ -153,7 +153,7 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 # Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
 # so the resolution stage can recognize its own threads by content. Installation bot logins vary per
 # deployment, so there is no stable login to match on; this marker is the reliable signal. Same
-# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+# HTML-comment style as the review-body and status markers, invisible in rendered markdown.
 REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
 
 # A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
@@ -209,6 +209,10 @@ FLASH_LENSES: dict[str, FlashLens] = {
         source="flash-lens-contracts-security",
     ),
 }
+
+# One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
+# at once by default, so a larger PR would lose the lenses past that.
+COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
 
 
 def is_single_agent_pass(pass_number: int) -> bool:

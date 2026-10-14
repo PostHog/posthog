@@ -216,13 +216,25 @@ def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
     return (reset_at - datetime.now(UTC)).total_seconds()
 
 
+def _seconds_until_anthropic_replenish(value: str) -> Optional[float]:
+    # Anthropic documents this instant as the time when the request budget is fully replenished,
+    # not the time when the next request is allowed. The bucket refills continuously, so a request
+    # usually succeeds long before the instant. An uncapped value of up to an hour made the client
+    # fail every 429 at once, so the value is capped at the longest wait the client honors. The
+    # client then waits and retries instead.
+    seconds = _seconds_from_rfc3339_reset(value)
+    if seconds is None:
+        return None
+    return min(seconds, max_retry_after_seconds())
+
+
 # Rate-limit reset headers to fall back on when a 429 carries no ``Retry-After``, each paired with
 # the parser that turns its value into "seconds from now until the budget replenishes".
 _RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], ...] = (
     # Anthropic rate limits per organization and documents this RFC 3339 instant as when the request
     # budget replenishes. Its Admin API (the usage/cost report endpoints an Anthropic source pages
     # through) answers 429 without a ``Retry-After``, so this is the only delay it advertises.
-    ("anthropic-ratelimit-requests-reset", _seconds_from_rfc3339_reset),
+    ("anthropic-ratelimit-requests-reset", _seconds_until_anthropic_replenish),
     # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
     # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
     ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),

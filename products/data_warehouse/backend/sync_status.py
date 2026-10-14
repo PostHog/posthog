@@ -108,7 +108,7 @@ def _build_warning_for_schema(
     source_type = schema.source.source_type if schema.source_id else "unknown"
     source_id = str(schema.source_id) if schema.source_id else None
 
-    def build(*, status: str, message: str) -> DataWarehouseSyncWarning:
+    def build(*, status: str, message: str, data_is_current: bool = False) -> DataWarehouseSyncWarning:
         return DataWarehouseSyncWarning(
             table_name=table_name,
             schema_name=schema.name,
@@ -116,6 +116,7 @@ def _build_warning_for_schema(
             source_id=source_id,
             status=status,
             message=message,
+            data_is_current=data_is_current,
         )
 
     if schema_status == ExternalDataSchemaStatus.FAILED:
@@ -137,6 +138,8 @@ def _build_warning_for_schema(
         return build(
             status=ExternalDataSchemaStatus.PAUSED,
             message=_paused_sync_message(table_name, source_type, schema, now),
+            # A sync paused recently still serves current data. Surfaces that say "out of date" skip it.
+            data_is_current=schema.last_synced_at is not None and not _is_stale(schema, now),
         )
 
     # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).

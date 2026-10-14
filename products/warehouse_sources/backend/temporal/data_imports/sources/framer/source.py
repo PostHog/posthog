@@ -67,6 +67,10 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
             "Framer API error PROXY",
+            # The server also reports a dropped connection to its headless browser mid-navigation
+            # as a generic `INTERNAL` code, so this one is matched on message text rather than
+            # code — `INTERNAL` alone is too broad to classify as retryable.
+            "Navigation failed: connection",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

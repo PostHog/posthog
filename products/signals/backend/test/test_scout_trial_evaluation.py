@@ -75,6 +75,10 @@ from products.signals.backend.scout_harness.trial_launch import ScoutTrialLaunch
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutInput,
+    cancel_failed_scout_trial_activity,
+)
 from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     RunScoutTrialEvaluationWorkflow,
     RunScoutTrialJudgeWorkflow,
@@ -365,7 +369,7 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert snapshot.judge_prompt_version == JUDGE_PROMPT_VERSION
-        assert snapshot.judge_model == "gpt-6-astra"
+        assert snapshot.judge_model == "gpt-6.1-sol"
         saved = json.loads(
             self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"]
         )
@@ -562,23 +566,53 @@ class TestScoutTrialEvaluation(BaseTest):
         assert all(criterion.verdict == "unknown" for criterion in judgment.criteria)
         assert claim not in judgment.summary
 
-    @parameterized.expand([(None,), ("failed",), ("cancelled",)])
-    def test_invalidation_after_export_excludes_the_trial(self, task_status: str | None) -> None:
+    @parameterized.expand(
+        [
+            (None,),
+            ("failed",),
+            ("cancelled",),
+            (
+                "failed",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                "The scout timed out after about 30 minutes. This run was not judged.",
+            ),
+            (
+                "failed",
+                "Private task detail.",
+                "The trial did not complete successfully.",
+            ),
+            (
+                "cancelled",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                "The trial did not complete successfully.",
+            ),
+        ]
+    )
+    def test_invalidation_after_export_excludes_the_trial(
+        self, task_status: str | None, task_error: str | None = None, expected_reason: str | None = None
+    ) -> None:
         export_trial_result(self.scout_run, status="completed")
         if task_status is None:
             ScoutTrialStore(self.scout_run).invalidate("The runtime changed after export.", allow_terminal=True)
         else:
             self.scout_run.task_run.status = task_status
-            self.scout_run.task_run.save(update_fields=["status"])
+            self.scout_run.task_run.error_message = task_error or ""
+            self.scout_run.task_run.save(update_fields=["status", "error_message"])
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert snapshot.runs[0].exclusion_reason is not None
         assert snapshot.runs[0].execution_status == (task_status or "completed")
+        if expected_reason is not None:
+            assert snapshot.runs[0].exclusion_reason == expected_reason
         judge = AsyncMock()
         with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
         judge.assert_not_called()
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         assert report.runs[0].status == "excluded"
+        if expected_reason is not None:
+            assert report.runs[0].summary == expected_reason
+        if task_error is not None:
+            assert task_error not in report.model_dump_json()
 
     @parameterized.expand(
         ["user_id", "context_id", "model", "runtime_adapter", "reasoning_effort", "service_tier", "skill_body"]
@@ -607,6 +641,69 @@ class TestScoutTrialEvaluation(BaseTest):
         task.save(update_fields=["created_by"])
         with self.assertRaisesMessage(TrialEvaluationError, "private task and operator"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+
+    @parameterized.expand(
+        [
+            "active",
+            "terminal",
+            "no_bound_run",
+            "wrong_owner",
+            "wrong_origin",
+            "wrong_context",
+            "wrong_team",
+            "wrong_skill",
+            "wrong_version",
+            "unavailable",
+        ]
+    )
+    def test_failed_trial_cleanup_only_stops_its_owned_task(self, scenario: str) -> None:
+        self.trials_flag.return_value = False
+        run = self.scout_run
+        task = run.task_run.task
+        if scenario != "terminal":
+            run.task_run.status = "in_progress"
+            run.task_run.save(update_fields=["status"])
+        if scenario == "wrong_owner":
+            task.created_by = None
+            task.save(update_fields=["created_by"])
+        elif scenario == "wrong_origin":
+            task.origin_key = f"scout-trial:{uuid4()}"
+            task.save(update_fields=["origin_key"])
+        elif scenario in {"no_bound_run", "wrong_context"}:
+            field = "launch_id" if scenario == "no_bound_run" else "context_id"
+            assert run.metadata is not None
+            run.metadata["scout_trial"][field] = str(uuid4())
+            run.save(update_fields=["metadata"])
+        inputs = RunSignalsScoutInput(
+            team_id=self.team.id + 1 if scenario == "wrong_team" else self.team.id,
+            skill_name="signals-scout-different" if scenario == "wrong_skill" else self.skill.name,
+            skill_version=2 if scenario == "wrong_version" else 1,
+            trial_launch_id=str(self.launch.id),
+        )
+        outcomes = [("already_terminal" if scenario == "terminal" else "accepted", None)]
+        if scenario == "unavailable":
+            outcomes.insert(0, ("unavailable", None))
+        with patch("products.tasks.backend.facade.cancellation.cancel_task_run", side_effect=outcomes) as cancel:
+            if scenario.startswith("wrong_"):
+                error_type = ApplicationError if scenario in {"wrong_skill", "wrong_version"} else ScoutTrialLaunchError
+                with self.assertRaises(error_type):
+                    ActivityEnvironment().run(cancel_failed_scout_trial_activity, inputs)
+                cancel.assert_not_called()
+            else:
+                if scenario == "unavailable":
+                    with self.assertRaises(ApplicationError) as raised:
+                        ActivityEnvironment().run(cancel_failed_scout_trial_activity, inputs)
+                    assert not raised.exception.non_retryable
+                ActivityEnvironment().run(cancel_failed_scout_trial_activity, inputs)
+                if scenario == "no_bound_run":
+                    cancel.assert_not_called()
+                else:
+                    assert cancel.call_count == len(outcomes)
+                    for call in cancel.call_args_list:
+                        assert call.args == (run.task_run_id, task.id, self.team.id)
+                        assert call.kwargs["source"] == "scout_trial_worker_failure"
+        run.task_run.refresh_from_db()
+        assert run.task_run.status == ("completed" if scenario == "terminal" else "in_progress")
 
     @parameterized.expand(
         ["source_origin", "source_state", "excluded_evidence", "unfinished_evidence", "foreign_evidence"]
@@ -643,12 +740,14 @@ class TestScoutTrialEvaluation(BaseTest):
             for status in ("completed", "failed", "cancelled", "skipped")
             for task_status in ("not_started", "queued", "in_progress")
         ]
+        + [(True, status, "in_progress", False) for status in ("failed", "cancelled")]
     )
-    def test_launch_needs_finalized_scout_and_task_before_scoring(
+    def test_launch_readiness_distinguishes_scoring_from_exclusion(
         self,
         bound: bool,
         status: Literal["pending", "unknown", "not_started", "completed", "failed", "cancelled", "skipped"],
         task_status: str | None,
+        saved_result: bool = True,
     ) -> None:
         other = self.launch if bound else self.launch.model_copy(update={"id": uuid4()})
         self._save("launches", other.id, other)
@@ -657,16 +756,38 @@ class TestScoutTrialEvaluation(BaseTest):
         if task_status is not None:
             self.scout_run.task_run.status = task_status
             self.scout_run.task_run.save(update_fields=["status"])
-            if status != "skipped":
+            if saved_result and status != "skipped":
                 export_trial_result(self.scout_run, status=status)
         with patch(f"{MODULE}.get_trial_workflow_status", return_value=TrialWorkflowStatus(status=status)):
-            with self.assertRaisesMessage(
-                TrialEvaluationError, "task must finish" if task_status is not None else "known terminal state"
-            ):
-                prepare_trial_evaluation(config=self.config, user=self.user, request=request)
-        assert not any("/evaluations/" in key for key in self.documents)
-        if task_status is None:
-            assert not any("/results/" in key for key in self.documents)
+            if task_status is None or status == "completed":
+                with self.assertRaisesMessage(
+                    TrialEvaluationError, "task must finish" if task_status is not None else "known terminal state"
+                ):
+                    prepare_trial_evaluation(config=self.config, user=self.user, request=request)
+                assert not any("/evaluations/" in key for key in self.documents)
+                if task_status is None:
+                    assert not any("/results/" in key for key in self.documents)
+                return
+            snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=request)
+
+        evidence = snapshot.runs[0]
+        assert evidence.execution_status == status
+        assert evidence.exclusion_reason is not None
+        assert evidence.files == []
+        self.scout_run.task_run.refresh_from_db(fields=["status"])
+        assert self.scout_run.task_run.status == task_status
+        with patch(f"{JUDGE_MODULE}.tasks_facade.create_and_run_task") as start_judge:
+            assert async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, other.id)
+        start_judge.assert_not_called()
+        report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+        assert report.runs[0].status == "excluded"
+        assert report.runs[0].criteria == []
+        assert report.runs[0].score is None
+        assert report.variants[0].judged_runs == 0
+        assert report.outcome is not None
+        assert report.outcome.status == "inconclusive"
+        assert not report.outcome.variant_ids
+        assert self.scout_run.summary not in report.model_dump_json()
 
     @parameterized.expand(["foreign_chain", "oversized"])
     def test_trace_reads_reject_inherited_logs_and_fail_explicitly_above_sandbox_limit(self, scenario: str) -> None:
@@ -1170,8 +1291,15 @@ class TestScoutTrialEvaluation(BaseTest):
             ):
                 assert service.history(10).results[0].status == "failed"
                 self._save_judgments(snapshot)
-                finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
-                history = service.history(10)
+                report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+                with (
+                    patch(f"{module}.JUDGE_PROMPT_VERSION", "next-judge-version"),
+                    patch(f"{MODULE}.JUDGE_PROMPT_VERSION", "next-judge-version"),
+                ):
+                    result = service.result(service.read(request.comparison_id), inspect_workflow=False)
+                    assert result.status == "completed"
+                    assert result.evaluation is not None and result.evaluation.report == report
+                    history = service.history(10)
             assert history.results[0].status == "completed"
             assert history.results[0].error is None
             assert history.results[0].evaluation is None

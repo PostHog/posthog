@@ -214,9 +214,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/active_campaign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/active_campaign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/adjust.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adjust/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/adobe_analytics.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_analytics/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/adroll.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/adroll/settings.py
@@ -228,7 +226,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/aha.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/aha_ideas.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aha_ideas/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/airbrake.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/airbrake/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aircall/aircall.py
@@ -514,14 +511,10 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynatrace/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/e2b/e2b.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/e2b/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/e_conomic/e_conomic.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/e_conomic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypost/easypost.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypromos/easypromos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/easypromos/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticemail/elasticemail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticemail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elasticsearch/elasticsearch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elevenlabs/elevenlabs.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/elevenlabs/settings.py
@@ -704,8 +697,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/jenkins.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/jfrog_artifactory.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/jira.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/jobnimbus.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jotform/jotform.py
@@ -765,9 +756,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/linode.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/lob.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/logz_io.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py
@@ -776,13 +765,10 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/mailersend.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailersend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/mailgun.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailgun/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/mailjet.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/mailosaur.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/mailtrap.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketo/marketo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/marketstack.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/settings.py
@@ -800,12 +786,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metaplane/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/metorial.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/mistral_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/mollie.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/monday/settings.py
@@ -814,10 +795,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mux/mux.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mux/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/my_hours/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/n8n.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/n8n/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/nebius_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/nebius_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/netlify.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/new_relic/new_relic.py
@@ -972,7 +949,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/qualaroo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/qualys_vmdr.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/qualys_vmdr/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/railway.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/railway/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ramp/ramp.py
@@ -1297,7 +1273,7 @@
 1 products/web_analytics/backend/test/test_digest_notification_workflows.py
 1 products/web_analytics/backend/test/test_weekly_digest_workflows.py
 10 posthog/temporal/ai_observability/trace_summarization/models.py
-10 products/signals/backend/temporal/grouping.py
+9 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 104 posthog/hogql/ast.py
@@ -1437,7 +1413,7 @@
 3 ee/clickhouse/views/test/test_clickhouse_trends.py
 3 posthog/api/app_metrics2.py
 3 posthog/api/test/rust_integration/conftest.py
-3 posthog/cdp/internal_events.py
+3 products/cdp/backend/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
 3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py

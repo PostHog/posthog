@@ -14,7 +14,6 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
 from products.review_hog.backend.preferences import (
     PREFERENCE_KEYS,
@@ -39,6 +38,7 @@ def _source_field(key: str) -> serializers.ChoiceField:
 
 class ReviewPreferenceSourcesSerializer(serializers.Serializer):
     default_review_mode = _source_field("default_review_mode")
+    review_drafts = _source_field("review_drafts")
     resolve_comments = _source_field("resolve_comments")
     urgency_threshold = _source_field("urgency_threshold")
     celebrate_clean_reviews = _source_field("celebrate_clean_reviews")
@@ -49,10 +49,10 @@ class ReviewPreferenceSourcesSerializer(serializers.Serializer):
 class ReviewProjectDefaultsSerializer(serializers.Serializer):
     urgency_threshold = serializers.ChoiceField(
         choices=UrgencyThreshold.choices,
-        help_text="The project's default for the minimum priority a Full review publishes.",
+        help_text="The project's default for the minimum priority a Deep review publishes.",
     )
     celebrate_clean_reviews = serializers.BooleanField(
-        help_text="The project's default for the image in a Full review that finds nothing to raise.",
+        help_text="The project's default for the image in a Deep review that finds nothing to raise.",
     )
 
 
@@ -61,31 +61,37 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         required=False,
         choices=DefaultReviewMode.choices,
         help_text="Automatic reviews of the user's own pull requests in every repository this project reviews: "
-        "'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' "
-        "turns automatic Flash off everywhere. A choice for one repository wins over this default.",
+        "'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' "
+        "turns automatic reviews off everywhere. A choice for one repository wins over this default.",
+    )
+    review_drafts = serializers.BooleanField(
+        required=False,
+        help_text="Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets "
+        "its first automatic review when it is marked ready for review. Applies to automatic reviews only: the "
+        "posthog-review label, an @posthog review comment, and the Review button still review drafts.",
     )
     resolve_comments = serializers.BooleanField(
         required=False,
-        help_text="After a Full review of the user's pull requests is published, run the resolution stage: "
+        help_text="After a Deep review of the user's pull requests is published, run the resolution stage: "
         "triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and "
         "reply on every thread. Off by default. Personal only: no project default applies.",
     )
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=UrgencyThreshold.choices,
-        help_text="Minimum priority a validated Full review finding needs to be published: 'consider' "
+        help_text="Minimum priority a validated Deep review finding needs to be published: 'consider' "
         "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
         "blocking issues. Without the user's own value the project default applies.",
     )
     celebrate_clean_reviews = serializers.BooleanField(
         required=False,
-        help_text="Show a fun image in the review comment when a Full review of the user's pull requests "
+        help_text="Show a fun image in the review comment when a Deep review of the user's pull requests "
         "finds nothing to raise. Without the user's own value the project default applies.",
     )
     review_inbox_prs = serializers.BooleanField(
         required=False,
         help_text="Review the pull requests the agent opens for Inbox reports assigned to the user: "
-        "ReviewHog reviews each one and posts its findings to the pull request. Off by default.",
+        "PostHog Review reviews each one and posts its findings to the pull request. Off by default.",
     )
     stamphog_review_inbox_prs = serializers.BooleanField(
         required=False,
@@ -102,7 +108,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
     project_defaults = ReviewProjectDefaultsSerializer(
         read_only=True,
         source="project",
-        help_text="The project defaults the Full review preferences fall back to.",
+        help_text="The project defaults the Deep review preferences fall back to.",
     )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
@@ -115,8 +121,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:
-        if not has_internal_features(self._team_id()):
-            return False
         # This reads the stamphog product DB, which can fail fast on its own circuit breaker. An
         # informational UI flag must not fail the settings endpoint, so fall back to False.
         try:
@@ -127,7 +131,7 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's ReviewHog preferences for a project.
+    """The requesting user's PostHog Review preferences for a project.
 
     Sibling of the perspective/validator/blind-spots config viewsets: skills control *how* a review
     runs, these preferences control *what gets reviewed* and *how strict publishing is*. Only the
@@ -165,11 +169,11 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         methods=["GET"],
         responses={
             200: OpenApiResponse(
-                response=ReviewUserSettingsSerializer, description="The requesting user's ReviewHog preferences."
+                response=ReviewUserSettingsSerializer, description="The requesting user's code review preferences."
             ),
         },
-        summary="Get the user's ReviewHog settings",
-        description="Fetch the requesting user's effective ReviewHog preferences for this project, and where "
+        summary="Get the user's code review settings",
+        description="Fetch the requesting user's effective code review preferences for this project, and where "
         "each value comes from.",
     )
     @extend_schema(
@@ -179,8 +183,8 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             200: OpenApiResponse(response=ReviewUserSettingsSerializer, description="The updated settings."),
             400: OpenApiResponse(description="Invalid field value (e.g. unknown urgency threshold)."),
         },
-        summary="Update the user's ReviewHog settings",
-        description="Partially update the requesting user's ReviewHog preferences for this project. Only the "
+        summary="Update the user's code review settings",
+        description="Partially update the requesting user's code review preferences for this project. Only the "
         "provided fields change. A value equal to the inherited one clears the user's own value.",
     )
     # Not named `settings` — that would shadow DRF's `APIView.settings` (its APISettings object).

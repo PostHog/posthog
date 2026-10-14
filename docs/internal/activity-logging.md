@@ -133,6 +133,7 @@ Rows written before a field joined `field_with_masked_contents` still store its 
 Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
 The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+`python manage.py clean_destination_secrets --step activity-logs` rewrites them. It is a dry run until you pass `--commit`.
 These protections do not revoke exposed credentials.
 
 Destination mappings do not support secret inputs.

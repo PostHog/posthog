@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -51,7 +51,7 @@ FACADE_MODULES = [
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -1886,7 +1886,7 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.

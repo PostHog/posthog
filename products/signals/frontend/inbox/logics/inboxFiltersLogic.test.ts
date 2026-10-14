@@ -19,6 +19,7 @@ import {
     filterSearchParams,
     inboxFiltersLogic,
     InboxFilterState,
+    InboxSortField,
     parseFilterSearchParams,
 } from './inboxFiltersLogic'
 
@@ -56,9 +57,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_pr_merged', 'desc')).toBe(
-                '-ranking_pr_merged,status,-updated_at'
-            )
+            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
         })
     })
 
@@ -130,10 +129,17 @@ describe('inboxFiltersLogic', () => {
         })
 
         it.each([
-            ['keeps a model sort for a user who can use it', true, 'ranking_pr_merged', 'desc'],
-            ['falls back to the default sort for a user who cannot', false, 'priority', 'asc'],
-        ] as const)('%s', (_name, modelSortAvailable, sortField, sortDirection) => {
-            expect(parseFilterSearchParams({ sort: 'ranking_pr_merged:desc' }, { modelSortAvailable })).toEqual({
+            ['keeps a model sort for a user who can use it', 'ranking_action:desc', true, 'ranking_action', 'desc'],
+            ['falls back to the default sort for a user who cannot', 'ranking_action:desc', false, 'priority', 'asc'],
+            [
+                'falls back to the default sort for a head the menu no longer offers',
+                'ranking_pr_merged:desc',
+                true,
+                'priority',
+                'asc',
+            ],
+        ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
+            expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,
                 sortField,
                 sortDirection,
@@ -244,15 +250,31 @@ describe('inboxFiltersLogic', () => {
         })
 
         it.each([
-            ['keeps a stored model sort for staff with the flag', true, true, 'ranking_pr_merged', 'desc'],
-            ['falls back to the default once the flag is off', false, true, 'priority', 'asc'],
-            ['falls back to the default for a non-staff user', true, false, 'priority', 'asc'],
-        ] as const)('%s', (_name, flagOn, isStaff, activeSortField, activeSortDirection) => {
+            [
+                'keeps a stored model sort for staff with the flag',
+                'ranking_action',
+                true,
+                true,
+                'ranking_action',
+                'desc',
+            ],
+            ['falls back to the default once the flag is off', 'ranking_action', false, true, 'priority', 'asc'],
+            ['falls back to the default for a non-staff user', 'ranking_action', true, false, 'priority', 'asc'],
+            [
+                'falls back to the default for a stored head the menu no longer offers',
+                'ranking_pr_merged',
+                true,
+                true,
+                'priority',
+                'asc',
+            ],
+        ] as const)('%s', (_name, storedSortField, flagOn, isStaff, activeSortField, activeSortDirection) => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
                 [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
             })
             userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
-            logic.actions.setSort('ranking_pr_merged', 'desc')
+            // A sort persisted by an older build can name a head the type no longer lists.
+            logic.actions.setSort(storedSortField as InboxSortField, 'desc')
 
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
                 [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
@@ -260,7 +282,7 @@ describe('inboxFiltersLogic', () => {
             userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
 
             expect(logic.values).toMatchObject({
-                sortField: 'ranking_pr_merged',
+                sortField: storedSortField,
                 activeSortField,
                 activeSortDirection,
             })

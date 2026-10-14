@@ -68,6 +68,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
         }
@@ -621,6 +624,9 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles
         }
@@ -883,6 +889,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                created_by: params.created_by,
                 exclude_generated: params.exclude_generated,
                 folder: params.folder,
                 limit: params.limit,

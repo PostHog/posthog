@@ -1,22 +1,17 @@
 import json
 import datetime as dt
-from collections.abc import Callable
 from typing import Any, Optional
 
 import pytest
-from unittest import mock
 
 import requests
-import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations import aws_organizations
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.aws_organizations import (
     AwsOrganizationsClient,
     AwsOrganizationsError,
     AwsOrganizationsResumeConfig,
     AwsOrganizationsRetryableError,
     error_for_response,
-    get_rows,
     normalize_row,
     probe_endpoint_permissions,
     validate_credentials,
@@ -27,36 +22,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     ORGANIZATIONS_ENDPOINT_URL,
     POLICY_FILTERS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-LOGGER = structlog.get_logger()
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.source import (
+    AwsOrganizationsSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsorganizations import (
+    AwsOrganizationsSourceConfig,
+)
 
 ACCOUNTS = AWS_ORGANIZATIONS_ENDPOINTS["accounts"]
-ORGANIZATIONAL_UNITS = AWS_ORGANIZATIONS_ENDPOINTS["organizational_units"]
-POLICIES = AWS_ORGANIZATIONS_ENDPOINTS["policies"]
 
 JAN_2025 = 1735689600.0  # 2025-01-01T00:00:00Z
-
-Responder = Callable[[str, dict[str, Any]], dict[str, Any]]
-
-
-class FakeResumeManager(ResumableSourceManager[AwsOrganizationsResumeConfig]):
-    def __init__(self, state: Optional[AwsOrganizationsResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[AwsOrganizationsResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[AwsOrganizationsResumeConfig]:
-        return self.state
-
-    def save_state(self, data: AwsOrganizationsResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
 
 
 def make_response(
@@ -76,45 +58,19 @@ def page(key: str, items: list[dict[str, Any]], next_token: Optional[str] = None
     return body
 
 
-def install_api(responder: Responder) -> list[tuple[str, dict[str, Any]]]:
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    def request(self: AwsOrganizationsClient, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-        calls.append((operation, dict(payload)))
-        return responder(operation, dict(payload))
-
-    patcher = mock.patch.object(AwsOrganizationsClient, "request", request)
-    patcher.start()
-    return calls
-
-
-@pytest.fixture(autouse=True)
-def stop_patches():
-    yield
-    mock.patch.stopall()
-
-
-def run_endpoint(
-    endpoint: str, responder: Responder, manager: Optional[FakeResumeManager] = None
-) -> tuple[list[list[dict[str, Any]]], list[tuple[str, dict[str, Any]]], FakeResumeManager]:
-    calls = install_api(responder)
-    resume_manager = manager if manager is not None else FakeResumeManager()
-    batches = list(
-        get_rows(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
-            endpoint=endpoint,
-            api_version=None,
-            resumable_source_manager=resume_manager,
-            logger=LOGGER,
-        )
+def driver() -> SourceDriver:
+    return SourceDriver(
+        AwsOrganizationsSource(),
+        AwsOrganizationsSourceConfig(aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"),
     )
-    return batches, calls, resume_manager
 
 
-def flatten(batches: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    return [row for batch in batches for row in batch]
+def request_operation(request: RecordedRequest) -> str:
+    return request.headers["x-amz-target"].rsplit(".", 1)[-1]
+
+
+def aws_error(code: str, message: str, status: int = 400) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"__type": f"com.amazonaws.organizations#{code}", "message": message})
 
 
 class TestNormalizeRow:
@@ -148,30 +104,20 @@ class TestNormalizeRow:
 
 class TestSignedRequest:
     def test_request_is_signed_for_the_global_endpoint_and_names_the_operation(self) -> None:
-        sent: list[dict[str, Any]] = []
-
-        class FakeSession:
-            def post(
-                self,
-                url: str,
-                data: Optional[bytes] = None,
-                headers: Optional[dict[str, str]] = None,
-                timeout: Optional[int] = None,
-            ) -> requests.Response:
-                sent.append({"url": url, "data": data, "headers": headers or {}})
-                return make_response(200, {"Organization": {"Id": "o-example"}})
-
-        with mock.patch.object(aws_organizations, "make_tracked_session", return_value=FakeSession()):
+        with scripted_network([ScriptedResponse(json={"Organization": {"Id": "o-example"}})]) as network:
             client = AwsOrganizationsClient("AKIAEXAMPLE", "secret", None)
             body = client.send("DescribeOrganization", {})
 
         assert body == {"Organization": {"Id": "o-example"}}
-        assert sent[0]["url"] == ORGANIZATIONS_ENDPOINT_URL
-        assert sent[0]["headers"]["X-Amz-Target"] == "AWSOrganizationsV20161128.DescribeOrganization"
-        assert sent[0]["headers"]["Content-Type"] == "application/x-amz-json-1.1"
+        request = network.requests_log[0]
+        assert request.url == ORGANIZATIONS_ENDPOINT_URL
+        assert request.method == "POST"
+        assert request.json() == {}
+        assert request.headers["x-amz-target"] == "AWSOrganizationsV20161128.DescribeOrganization"
+        assert request.headers["content-type"] == "application/x-amz-json-1.1"
         # Organizations is global: a signature scoped anywhere but us-east-1/organizations is
         # rejected as SignatureDoesNotMatch, which reads to the user as a bad key.
-        assert "/us-east-1/organizations/aws4_request" in sent[0]["headers"]["Authorization"]
+        assert "/us-east-1/organizations/aws4_request" in request.headers["authorization"]
 
     @pytest.mark.parametrize(
         "status_code,code,retryable",
@@ -219,20 +165,23 @@ class TestPagination:
     def test_max_results_is_sent_only_where_the_operation_accepts_it(
         self, endpoint: str, operation: str, expects_max_results: bool
     ) -> None:
-        def responder(called_operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if called_operation == "ListAccounts":
-                return page("Accounts", [{"Id": "111111111111"}])
-            if called_operation == "ListRoots":
-                return page("Roots", [{"Id": "r-exam"}])
-            if called_operation == "ListOrganizationalUnitsForParent":
-                return page("OrganizationalUnits", [])
-            if called_operation == "ListPolicies":
-                return page("Policies", [])
-            return page("Tags", [{"Key": "team", "Value": "growth"}])
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            match request_operation(request):
+                case "ListAccounts":
+                    return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
+                case "ListRoots":
+                    return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
+                case "ListOrganizationalUnitsForParent":
+                    return ScriptedResponse(json=page("OrganizationalUnits", []))
+                case "ListPolicies":
+                    return ScriptedResponse(json=page("Policies", []))
+                case _:
+                    return ScriptedResponse(json=page("Tags", [{"Key": "team", "Value": "growth"}]))
 
-        _, calls, _ = run_endpoint(endpoint, responder)
+        result = driver().run(endpoint, responder)
 
-        payloads = [payload for called_operation, payload in calls if called_operation == operation]
+        assert result.raised is None
+        payloads = [request.json() for request in result.requests if request_operation(request) == operation]
         assert payloads
         for payload in payloads:
             assert ("MaxResults" in payload) is expects_max_results
@@ -240,13 +189,15 @@ class TestPagination:
                 assert payload["MaxResults"] == MAX_RESULTS
 
     def test_single_object_endpoint_issues_one_call_and_one_row(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            return {"Organization": {"Id": "o-example", "FeatureSet": "ALL"}}
+        result = driver().run(
+            "organization", [ScriptedResponse(json={"Organization": {"Id": "o-example", "FeatureSet": "ALL"}})]
+        )
 
-        batches, calls, _ = run_endpoint("organization", responder)
-
-        assert calls == [("DescribeOrganization", {})]
-        assert flatten(batches) == [{"id": "o-example", "feature_set": "ALL"}]
+        assert result.raised is None
+        assert [(request_operation(request), request.json()) for request in result.requests] == [
+            ("DescribeOrganization", {})
+        ]
+        assert result.rows == [{"id": "o-example", "feature_set": "ALL"}]
 
 
 class TestPolicies:
@@ -258,66 +209,75 @@ class TestPolicies:
         ],
     )
     def test_a_policy_type_this_organization_does_not_offer_is_skipped(self, code: str, message: str) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if payload["Filter"] == "SERVICE_CONTROL_POLICY":
-                raise AwsOrganizationsError(code, message)
-            return page("Policies", [{"Id": "p-example", "Type": payload["Filter"]}])
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            policy_filter = request.json()["Filter"]
+            if policy_filter == "SERVICE_CONTROL_POLICY":
+                return aws_error(code, message)
+            return ScriptedResponse(json=page("Policies", [{"Id": "p-example", "Type": policy_filter}]))
 
-        batches, _, _ = run_endpoint("policies", responder)
+        result = driver().run("policies", responder)
 
-        assert len(flatten(batches)) == len(POLICY_FILTERS) - 1
+        assert result.raised is None
+        assert len(result.rows) == len(POLICY_FILTERS) - 1
 
     def test_a_denied_policy_type_fails_the_sync(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            raise AwsOrganizationsError("AccessDeniedException", "not authorized for organizations:ListPolicies")
+        result = driver().run(
+            "policies", always(aws_error("AccessDeniedException", "not authorized for organizations:ListPolicies"))
+        )
 
-        with pytest.raises(AwsOrganizationsError, match="AccessDeniedException"):
-            run_endpoint("policies", responder)
+        assert isinstance(result.raised, AwsOrganizationsError)
+        assert "AccessDeniedException" in str(result.raised)
 
 
 class TestOrganizationalUnits:
     def test_a_unit_returned_twice_does_not_walk_the_same_subtree_forever(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if operation == "ListRoots":
-                return page("Roots", [{"Id": "r-exam"}])
-            if payload["ParentId"] == "r-exam":
-                return page("OrganizationalUnits", [{"Id": "ou-exam-aaaaaaaa"}, {"Id": "ou-exam-aaaaaaaa"}])
-            return page("OrganizationalUnits", [])
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            if request_operation(request) == "ListRoots":
+                return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
+            if request.json()["ParentId"] == "r-exam":
+                return ScriptedResponse(
+                    json=page("OrganizationalUnits", [{"Id": "ou-exam-aaaaaaaa"}, {"Id": "ou-exam-aaaaaaaa"}])
+                )
+            return ScriptedResponse(json=page("OrganizationalUnits", []))
 
-        batches, calls, _ = run_endpoint("organizational_units", responder)
+        result = driver().run("organizational_units", responder)
 
-        assert len(flatten(batches)) == 2
-        assert [payload["ParentId"] for operation, payload in calls if operation.startswith("ListOrg")] == [
+        assert result.raised is None
+        assert len(result.rows) == 2
+        assert [
+            request.json()["ParentId"]
+            for request in result.requests
+            if request_operation(request).startswith("ListOrg")
+        ] == [
             "r-exam",
             "ou-exam-aaaaaaaa",
         ]
 
 
 class TestResourceTags:
-    def _responder(self, missing: Optional[str] = None) -> Responder:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if operation == "ListAccounts":
-                return page("Accounts", [{"Id": "111111111111"}])
-            if operation == "ListRoots":
-                return page("Roots", [{"Id": "r-exam"}])
-            if operation == "ListOrganizationalUnitsForParent":
-                if payload["ParentId"] == "r-exam":
-                    return page("OrganizationalUnits", [{"Id": "ou-exam-aaaaaaaa"}])
-                return page("OrganizationalUnits", [])
-            if operation == "ListPolicies":
-                if payload["Filter"] == "SERVICE_CONTROL_POLICY":
-                    return page("Policies", [{"Id": "p-example"}])
-                return page("Policies", [])
-            if payload["ResourceId"] == missing:
-                raise AwsOrganizationsError("TargetNotFoundException", "We can't find that target.")
-            return page("Tags", [{"Key": "team", "Value": payload["ResourceId"]}])
-
-        return responder
-
     def test_a_resource_deleted_mid_sync_is_skipped(self) -> None:
-        batches, _, _ = run_endpoint("resource_tags", self._responder(missing="r-exam"))
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            payload = request.json()
+            match request_operation(request):
+                case "ListAccounts":
+                    return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
+                case "ListRoots":
+                    return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
+                case "ListOrganizationalUnitsForParent":
+                    units = [{"Id": "ou-exam-aaaaaaaa"}] if payload["ParentId"] == "r-exam" else []
+                    return ScriptedResponse(json=page("OrganizationalUnits", units))
+                case "ListPolicies":
+                    policies = [{"Id": "p-example"}] if payload["Filter"] == "SERVICE_CONTROL_POLICY" else []
+                    return ScriptedResponse(json=page("Policies", policies))
+                case _:
+                    if payload["ResourceId"] == "r-exam":
+                        return aws_error("TargetNotFoundException", "We can't find that target.")
+                    return ScriptedResponse(json=page("Tags", [{"Key": "team", "Value": payload["ResourceId"]}]))
 
-        assert [row["resource_id"] for row in flatten(batches)] == [
+        result = driver().run("resource_tags", responder)
+
+        assert result.raised is None
+        assert [row["resource_id"] for row in result.rows] == [
             "111111111111",
             "ou-exam-aaaaaaaa",
             "p-example",
@@ -326,40 +286,43 @@ class TestResourceTags:
 
 class TestResume:
     def test_an_expired_saved_token_restarts_the_walk_instead_of_failing(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if payload.get("NextToken") == "stale":
-                raise AwsOrganizationsError(
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            if request.json().get("NextToken") == "stale":
+                return aws_error(
                     "InvalidInputException", "INVALID_PAGINATION_TOKEN: Get the value for the NextToken parameter"
                 )
-            return page("Accounts", [{"Id": "111111111111"}])
+            return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
 
-        manager = FakeResumeManager(AwsOrganizationsResumeConfig(next_token="stale"))
-        batches, calls, _ = run_endpoint("accounts", responder, manager=manager)
+        result = driver().run("accounts", responder, resume_state=AwsOrganizationsResumeConfig(next_token="stale"))
 
-        assert [payload.get("NextToken") for _, payload in calls] == ["stale", None]
-        assert [row["id"] for row in flatten(batches)] == ["111111111111"]
+        assert result.raised is None
+        assert [request.json().get("NextToken") for request in result.requests] == ["stale", None]
+        assert [row["id"] for row in result.rows] == ["111111111111"]
 
     def test_policies_resume_picks_up_at_the_policy_type_after_the_completed_one(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            return page("Policies", [{"Id": f"p-{payload['Filter'].lower()}"}])
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(json=page("Policies", [{"Id": f"p-{request.json()['Filter'].lower()}"}]))
 
-        manager = FakeResumeManager(AwsOrganizationsResumeConfig(work_key=POLICY_FILTERS[0]))
-        _, calls, _ = run_endpoint("policies", responder, manager=manager)
+        result = driver().run(
+            "policies", responder, resume_state=AwsOrganizationsResumeConfig(work_key=POLICY_FILTERS[0])
+        )
 
-        assert [payload["Filter"] for _, payload in calls] == list(POLICY_FILTERS[1:])
+        assert result.raised is None
+        assert [request.json()["Filter"] for request in result.requests] == list(POLICY_FILTERS[1:])
 
     def test_policies_resume_continues_a_half_walked_policy_type(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            return page("Policies", [{"Id": "p-example"}])
+        result = driver().run(
+            "policies",
+            always(ScriptedResponse(json=page("Policies", [{"Id": "p-example"}]))),
+            resume_state=AwsOrganizationsResumeConfig(next_token="page-two", work_key=POLICY_FILTERS[1]),
+        )
 
-        manager = FakeResumeManager(AwsOrganizationsResumeConfig(next_token="page-two", work_key=POLICY_FILTERS[1]))
-        _, calls, _ = run_endpoint("policies", responder, manager=manager)
-
-        assert calls[0] == (
+        assert result.raised is None
+        assert (request_operation(result.requests[0]), result.requests[0].json()) == (
             "ListPolicies",
             {"Filter": POLICY_FILTERS[1], "MaxResults": MAX_RESULTS, "NextToken": "page-two"},
         )
-        assert [payload["Filter"] for _, payload in calls] == list(POLICY_FILTERS[1:])
+        assert [request.json()["Filter"] for request in result.requests] == list(POLICY_FILTERS[1:])
 
 
 class TestValidateCredentials:
@@ -376,23 +339,18 @@ class TestValidateCredentials:
     def test_only_a_bad_key_or_a_missing_organization_blocks_source_creation(
         self, code: str, expected_valid: bool
     ) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            raise AwsOrganizationsError(code, "message")
-
-        install_api(responder)
-        valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None)
+        with scripted_network([aws_error(code, "message")]) as network:
+            valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None)
 
         assert valid is expected_valid
         assert (reason is None) is expected_valid
+        assert [request_operation(request) for request in network.requests_log] == ["DescribeOrganization"]
 
     def test_a_reachable_organization_validates(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            assert operation == "DescribeOrganization"
-            return {"Organization": {"Id": "o-example"}}
+        with scripted_network([ScriptedResponse(json={"Organization": {"Id": "o-example"}})]) as network:
+            assert validate_credentials("AKIAEXAMPLE", "secret", None) == (True, None)
 
-        install_api(responder)
-
-        assert validate_credentials("AKIAEXAMPLE", "secret", None) == (True, None)
+        assert [request_operation(request) for request in network.requests_log] == ["DescribeOrganization"]
 
     @pytest.mark.parametrize(
         "access_key_id,secret_access_key",
@@ -401,63 +359,62 @@ class TestValidateCredentials:
     def test_missing_credentials_are_rejected_without_a_request(
         self, access_key_id: str, secret_access_key: str
     ) -> None:
-        calls = install_api(lambda operation, payload: {})
-
-        valid, reason = validate_credentials(access_key_id, secret_access_key, None)
+        with scripted_network([]) as network:
+            valid, reason = validate_credentials(access_key_id, secret_access_key, None)
 
         assert valid is False
         assert reason == "AWS access key ID and secret access key are required"
-        assert calls == []
+        assert network.requests_log == []
 
     def test_a_schema_name_probes_that_table_rather_than_the_organization(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if operation == "ListAccounts":
-                raise AwsOrganizationsError(
-                    "AccessDeniedException", "not authorized to perform organizations:ListAccounts"
-                )
-            return page("Accounts", [])
-
-        install_api(responder)
-        valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None, schema_name="accounts")
+        with scripted_network(
+            [aws_error("AccessDeniedException", "not authorized to perform organizations:ListAccounts")]
+        ) as network:
+            valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None, schema_name="accounts")
 
         assert valid is False
         assert reason is not None
         assert "organizations:ListAccounts" in reason
+        assert [request_operation(request) for request in network.requests_log] == ["ListAccounts"]
 
 
 class TestProbeEndpointPermissions:
     def test_a_denied_table_names_the_missing_action_and_the_rest_stay_reachable(self) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            if operation == "ListPolicies":
-                raise AwsOrganizationsError(
-                    "AccessDeniedException", "not authorized to perform organizations:ListPolicies"
-                )
-            if operation == "ListAccounts":
-                return page("Accounts", [{"Id": "111111111111"}])
-            if operation == "ListRoots":
-                return page("Roots", [{"Id": "r-exam"}])
-            if operation == "ListTagsForResource":
-                return page("Tags", [])
-            if operation == "ListOrganizationalUnitsForParent":
-                return page("OrganizationalUnits", [])
-            return {"Organization": {"Id": "o-example"}}
+        def responder(request: RecordedRequest) -> ScriptedResponse:
+            match request_operation(request):
+                case "ListPolicies":
+                    return aws_error("AccessDeniedException", "not authorized to perform organizations:ListPolicies")
+                case "ListAccounts":
+                    return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
+                case "ListRoots":
+                    return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
+                case "ListOrganizationalUnitsForParent":
+                    return ScriptedResponse(json=page("OrganizationalUnits", []))
+                case _:
+                    return ScriptedResponse(json={"Organization": {"Id": "o-example"}})
 
-        install_api(responder)
-        reasons = probe_endpoint_permissions(
-            "AKIAEXAMPLE", "secret", None, ["accounts", "organization", "organizational_units", "policies"]
-        )
+        with scripted_network(responder) as network:
+            reasons = probe_endpoint_permissions(
+                "AKIAEXAMPLE", "secret", None, ["accounts", "organization", "organizational_units", "policies"]
+            )
 
         assert reasons["accounts"] is None
         assert reasons["organization"] is None
         assert reasons["organizational_units"] is None
         assert reasons["policies"] is not None
         assert "organizations:ListPolicies" in reasons["policies"]
+        assert [request_operation(request) for request in network.requests_log] == [
+            "ListAccounts",
+            "DescribeOrganization",
+            "ListRoots",
+            "ListOrganizationalUnitsForParent",
+            "ListPolicies",
+        ]
 
     @pytest.mark.parametrize("error", [AwsOrganizationsRetryableError("TooManyRequestsException", "slow down")])
     def test_a_transient_failure_is_not_reported_as_a_permission_problem(self, error: Exception) -> None:
-        def responder(operation: str, payload: dict[str, Any]) -> dict[str, Any]:
-            raise error
+        assert isinstance(error, AwsOrganizationsRetryableError)
+        with scripted_network(always(aws_error(error.code, error.message))) as network:
+            assert probe_endpoint_permissions("AKIAEXAMPLE", "secret", None, ["accounts"]) == {"accounts": None}
 
-        install_api(responder)
-
-        assert probe_endpoint_permissions("AKIAEXAMPLE", "secret", None, ["accounts"]) == {"accounts": None}
+        assert {request_operation(request) for request in network.requests_log} == {"ListAccounts"}

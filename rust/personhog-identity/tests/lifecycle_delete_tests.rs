@@ -973,6 +973,12 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("resolve succeeds");
     assert_eq!(resolved.get(&key).map(|p| p.id), Some(person_id));
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve succeeds");
+    assert_eq!(resolved_ids.get(&key), Some(&person_id));
 
     // Distinct id expansion must read the configured mapping table too.
     let mappings = ctx
@@ -1048,6 +1054,15 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("resolve after delete succeeds");
     assert!(resolved.is_empty(), "tombstoned person must not resolve");
+    let resolved_ids = ctx
+        .storage
+        .resolve_person_ids(std::slice::from_ref(&key))
+        .await
+        .expect("ids-only resolve after delete succeeds");
+    assert!(
+        resolved_ids.is_empty(),
+        "a tombstoned mapping must not resolve"
+    );
 
     // The tmp mapping row tombstoned; the colliding real one untouched.
     let tmp_mapping_deleted: bool = sqlx::query_scalar(

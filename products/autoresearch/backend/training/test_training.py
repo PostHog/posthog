@@ -36,6 +36,8 @@ from products.autoresearch.backend.training.runner import (
     run_training,
 )
 
+_UNSCORABLE = UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))
+
 
 class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
     def _make_pipeline(self) -> AutoresearchPipeline:
@@ -52,13 +54,14 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("without_notebook", False, None),
-            ("with_notebook", True, None),
-            ("unscorable_champion", False, UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))),
+            ("without_notebook", False, None, False),
+            ("with_notebook", True, None, False),
+            ("unscorable_champion", False, _UNSCORABLE, False),
+            ("rescue", False, _UNSCORABLE, True),
         ]
     )
     def test_prompt_renders_without_unresolved_placeholders(
-        self, _name: str, report_notebook: bool, unscorable: UnscorableChampion | None
+        self, _name: str, report_notebook: bool, unscorable: UnscorableChampion | None, rescue: bool
     ) -> None:
         pipeline = self._make_pipeline()
         prompt = build_agent_description(
@@ -67,10 +70,12 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
             training_run_id="run-123",
             report_notebook=report_notebook,
             unscorable_champion=unscorable,
+            rescue=rescue,
         )
         if unscorable is not None:
             assert "**The current champion cannot score.**" in prompt
             assert "`limit_exceeded` since 2026-09-02" in prompt
+        assert ("**This is a rescue run.**" in prompt) is rescue
         # `{anchors}` and `{lookback_days}` are intentional — they are documented
         # placeholders the agent is taught to use inside its own SQL, and `{init}`
         # is the literal mermaid `%%{init}%%` directive the report section forbids.
