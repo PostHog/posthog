@@ -43,7 +43,8 @@ describe('tracingSceneLogic', () => {
     }
 
     it.each([
-        ['a hex trace id', '4bf92f3577b34da6a3ce929d0e0e4736', '4bf92f3577b34da6a3ce929d0e0e4736'],
+        ['an uppercase hex trace id', '4BF92F3577B34DA6A3CE929D0E0E4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
+        ['a lowercase hex trace id', '4bf92f3577b34da6a3ce929d0e0e4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
         ['a trace id with path characters', 'a/b', null],
     ])('opens the trace drawer from the URL only for %s', (_name, traceId, expected) => {
         jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })

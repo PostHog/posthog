@@ -709,7 +709,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
 
             // Drawer params. Guarded on a state/URL mismatch so the actionToUrl writes below don't
             // loop back through here, and so back/forward opens/closes the drawer correctly.
-            const traceFromUrl = usableId(typeof searchParams.trace === 'string' ? searchParams.trace : null)
+            // Uppercase, because the trace API returns ids that way and the viewer matches them exactly.
+            const traceFromUrl =
+                usableId(typeof searchParams.trace === 'string' ? searchParams.trace : null)?.toUpperCase() ?? null
             const spanFromUrl = typeof searchParams.span === 'string' ? searchParams.span : null
             if (traceFromUrl && traceFromUrl !== values.selectedTraceId) {
                 actions.openTrace(traceFromUrl, {
