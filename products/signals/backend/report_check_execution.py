@@ -22,7 +22,7 @@ from functools import partial
 from typing import cast
 
 from django.db import transaction
-from django.db.models import F, Window
+from django.db.models import Exists, F, OuterRef, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -685,13 +685,17 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 def _arm_disabled_monitoring_checks(now: datetime) -> None:
     from products.signals.backend.report_check_authoring import arm_pending_checks
 
+    pending_checks = SignalReportCheck.all_teams.filter(
+        team_id=OuterRef("team_id"),
+        report_id=OuterRef("id"),
+        status=SignalReportCheck.Status.PENDING,
+        expires_at__gt=now,
+    )
     reports = (
         SignalReport.objects.filter(
             report_status_filter([SignalReport.Status.RESOLVED]),
+            Exists(pending_checks),
             status=SignalReport.Status.MONITORING,
-            id__in=SignalReportCheck.all_teams.filter(
-                status=SignalReportCheck.Status.PENDING, expires_at__gt=now
-            ).values("report_id"),
         )
         .only("id", "status", "team_id")
         .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
