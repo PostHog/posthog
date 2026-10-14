@@ -418,6 +418,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+                stickyHeader={!!props.embedded}
             />
         </>
     )

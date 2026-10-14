@@ -236,7 +236,11 @@ describe('LemonTable', () => {
     })
 
     describe('sticky header', () => {
-        const renderWithWidths = (props: { stickyHeader?: boolean }, tableWidth: number, viewportWidth = 500): void => {
+        const renderWithWidths = (
+            props: { stickyHeader?: boolean; allowContentScroll?: boolean },
+            tableWidth: number,
+            viewportWidth = 500
+        ): void => {
             jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
                 return this.tagName === 'TABLE' ? tableWidth : 0
             })
@@ -290,6 +294,13 @@ describe('LemonTable', () => {
         it('does not pin the header by default', () => {
             renderWithWidths({}, 400)
             expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('pins the header inside its own scroll container when content scrolls', () => {
+            renderWithWidths({ stickyHeader: true, allowContentScroll: true }, 800)
+            const table = document.querySelector('.LemonTable')
+            expect(table).toHaveClass('LemonTable--sticky-content-header')
+            expect(table).not.toHaveClass('LemonTable--sticky-header')
         })
     })
 })

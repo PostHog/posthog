@@ -454,3 +454,22 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
         }
     }
 }
+
+// Sticky header inside the table's own scroll container, for tables with `allowContentScroll`.
+// The scroll viewport is the nearest scroll container, so the header pins to its top edge.
+body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-content-header {
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 7; // Above sticky and pinned cells (6), below the scrollable shadows (8)
+
+        > tr > th {
+            background: var(--lemon-table-background-color);
+        }
+    }
+
+    // Keep the loading overlay above the sticky header, so the header cannot be used while the table loads.
+    &.LemonTable--loading .LemonTable__overlay {
+        z-index: 7;
+    }
+}
