@@ -136,16 +136,17 @@ class AlertRollback:
 
 def roll_back_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertRollback, ...]:
     """Hands every logs alert of one team back from the platform, or says why one stays."""
-    at = now or timezone.now()
     return tuple(
-        AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(alert_id, at))
+        AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(alert_id, now))
         for alert_id in _team_alert_ids(team_id)
     )
 
 
-def _roll_back_alert(alert_id: UUID, at: datetime) -> RollbackSkip | None:
+def _roll_back_alert(alert_id: UUID, now: datetime | None) -> RollbackSkip | None:
     with transaction.atomic():
         alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
+        # Read after the lock, for the same reason as the cutover.
+        at = now or timezone.now()
         if not alert.platform_owned:
             return RollbackSkip.NOT_MOVED
         if _logs_check_owed(alert.id, at):
