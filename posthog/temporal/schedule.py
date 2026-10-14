@@ -166,6 +166,12 @@ async def create_run_quota_limiting_schedule(client: Client):
 
     This schedule runs every 15 minutes.
     """
+    # Quota limiting queries AI credit usage, which requires a cloud region.
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV"):
+        if await a_schedule_exists(client, "run-quota-limiting-schedule"):
+            await a_delete_schedule(client, "run-quota-limiting-schedule")
+        return
+
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "run-quota-limiting",

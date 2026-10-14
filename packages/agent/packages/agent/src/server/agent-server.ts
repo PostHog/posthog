@@ -2161,6 +2161,7 @@ export class AgentServer {
         : null,
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
+      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
     });
 
     // Only that stamped header makes the run id a trace the generations land

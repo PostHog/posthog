@@ -22,7 +22,7 @@ Design notes:
 
 from collections.abc import Mapping
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -54,7 +54,7 @@ def _sitemap_index_xml(children: list[str]) -> str:
     )
 
 
-class TestDiscoverSitemap(BaseTest):
+class TestDiscoverSitemap(SimpleTestCase):
     def test_parses_flat_sitemap(self) -> None:
         sitemap = _sitemap_xml(
             [
@@ -255,7 +255,7 @@ def _no_robots(url: str, max_bytes: int = 0) -> str:
     raise AssertionError(f"unexpected metadata fetch: {url}")
 
 
-class TestDiscoverSameOrigin(BaseTest):
+class TestDiscoverSameOrigin(SimpleTestCase):
     def test_stays_on_origin_and_respects_depth(self) -> None:
         pages = {
             "https://ex.com/a": '<a href="/b">b</a><a href="https://other.com/x">external</a>',
@@ -879,7 +879,7 @@ class TestChunkIdIsolation(APIBaseTest):
         assert a_chunks.isdisjoint(b_chunks), "chunk UUIDs must not collide across sources"
 
 
-class TestDiscoverSSRF(BaseTest):
+class TestDiscoverSSRF(SimpleTestCase):
     """
     Regression: `discover._http_get_text` used to auto-follow redirects
     (`allow_redirects=True`), so a sitemap or link page could 302 to

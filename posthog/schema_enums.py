@@ -262,6 +262,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
