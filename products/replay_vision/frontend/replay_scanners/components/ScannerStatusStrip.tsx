@@ -182,7 +182,10 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                     <div className="text-xs text-muted pl-4">
                         {detail}
                         {pausedByFreeCredits && quotaState.kind === 'exhausted' && (
-                            <> Your organization's spend limit is used up too, so raise it in billing as well.</>
+                            <span>
+                                {' '}
+                                Your organization's spend limit is used up too, so raise it in billing as well.
+                            </span>
                         )}
                         {status.kind === 'no_matches' && (
                             <>
