@@ -109,6 +109,10 @@ Grant these permissions for the tables you select:
 - `compute-optimizer:GetECSServiceRecommendations`
 - `compute-optimizer:GetEBSVolumeRecommendations`
 - `compute-optimizer:GetRecommendationSummaries`
+- `compute-optimizer:GetRDSDatabaseRecommendations`
+- `compute-optimizer:GetIdleRecommendations`
+- `compute-optimizer:GetEC2RecommendationProjectedMetrics` (also needs `GetEC2InstanceRecommendations`)
+- `compute-optimizer:GetECSServiceRecommendationProjectedMetrics` (also needs `GetECSServiceRecommendations`)
 
 Each sync replaces the current recommendations. This source does not keep recommendation history.""",
             iconPath="/static/services/aws_compute_optimizer.png",
