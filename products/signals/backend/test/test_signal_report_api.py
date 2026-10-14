@@ -1673,8 +1673,12 @@ class TestSignalReportListAPI(APIBaseTest):
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
         assert body["next"] is not None
-        next_page = self.client.get(body["next"]).json()
+        next_response = self.client.get(body["next"])
+        assert next_response.status_code == status.HTTP_200_OK
+        next_page = next_response.json()
         assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
+        assert next_page["count"] == 2
+        assert next_page["next"] is None
 
         without_shown = self.client.get(
             self._list_url(view="for_you", sort="priority", exclude=str(reviewing.id), offset=0)
