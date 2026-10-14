@@ -31,7 +31,7 @@ UPPROMOTE_OBJECT_TYPE_TO_EVENTS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class UpPromoteEndpointConfig:
     name: str
     path: str
