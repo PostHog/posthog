@@ -27,9 +27,9 @@ from products.product_analytics.backend.facade.enums import (
 
 # Each check is a share of the events, so a sample this large gives the same answer as every event.
 MAX_CHECKED_EVENTS = 1_000_000
-# The first sample is sized from a count of the chart's event names and dates, which reads only the sort key. A
-# count after the chart's filters reads those filters for every event in the range, so the checks run it only when
-# the filters keep fewer than this many of the sampled events, and then size the sample from it.
+# The first sample is sized from a count of the chart's event names and dates, which reads only the sort key. It picks
+# whole distinct IDs, so a narrow filter can keep none of it. Below this many kept events, the checks count the chart's
+# own events, which reads its filters for every event in the range, and size the sample from that count.
 MIN_CHECKED_EVENTS = 10_000
 MAX_EXECUTION_SECONDS = 20
 
@@ -159,8 +159,6 @@ def _sampled_counts(events: ChartEvents, reader: _EventReader, *, total_before_f
     counts = _query_counts(events, reader, total=total_before_filters)
     if counts.sample_rate == 1 or counts.events >= MIN_CHECKED_EVENTS:
         return counts
-    # Sampling picks whole distinct IDs, so a filter that keeps the events of a few people can leave none in the
-    # first sample although the chart has events.
     total = _count_events(events, reader, where=events.where, query_type="insight_data_checks_filtered_total")
     if total == 0:
         return counts
