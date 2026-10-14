@@ -417,7 +417,11 @@ describe("PiChats", () => {
         latest_run: {
           ...base.latest_run,
           runtime_adapter: "claude",
-          state: { ...base.latest_run?.state, claude_model_access: access },
+          state: {
+            ...base.latest_run?.state,
+            claude_model_access: access,
+            model: "claude-opus-5-5",
+          },
         },
       } as unknown as Task;
     };
@@ -473,9 +477,11 @@ describe("PiChats", () => {
         expect.any(Number),
       );
 
+      // The server requires a model on a run with an adapter; the new run stays on the one the chat was on.
       expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
         adapter: "claude",
         claudeModelAccess: "own-subscription",
+        model: "claude-opus-5-5",
         resumeFromRunId: "r1",
         pendingUserMessage: "Keep going",
       });
@@ -488,6 +494,7 @@ describe("PiChats", () => {
 
       expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
         adapter: "claude",
+        model: "claude-opus-5-5",
         resumeFromRunId: "r1",
         pendingUserMessage: "Keep going",
       });

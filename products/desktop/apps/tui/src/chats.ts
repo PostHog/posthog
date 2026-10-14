@@ -47,12 +47,16 @@ const runOptions = (
 ): object => {
   if (harness === "pi") return { piRuntime: true };
   const state = run?.state as
-    | Partial<Record<`${CloudHarness}_model_access`, ModelAccess>>
+    | (Partial<Record<`${CloudHarness}_model_access`, ModelAccess>> & {
+        model?: string;
+      })
     | undefined;
   const access = run ? state?.[`${harness}_model_access`] : "own-subscription";
   return {
     adapter: harness,
     ...(access === "own-subscription" && { [`${harness}ModelAccess`]: access }),
+    // The server requires a model on a run with an adapter; a continued run stays on the one the chat was on.
+    ...(state?.model && { model: state.model }),
   };
 };
 
