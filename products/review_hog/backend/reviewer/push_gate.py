@@ -16,7 +16,11 @@ The rules, in order. The first rule that matches gives the reason:
 6. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
    ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
    so a draft decision keeps the System One answer and the push size for calibration.
-7. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
+7. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
+   follow-up is likely to come. Skipped changes add up and the next review covers them. The chance
+   comes from a table fitted offline on the follow-up number and the PR size. Every decision on a
+   PR that is not a draft records the chance, also when another rule decided.
+8. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
    `PUSH_BUDGET.burst` reviews and gets one back every `3600 / PUSH_BUDGET.per_hour` seconds. A push
    that every rule above lets through takes a token, and a push that finds the bucket empty waits:
    the next turn that runs reviews everything since the last reviewed head. This caps bursts of
@@ -32,6 +36,7 @@ in `review-eval/production/push-gate`. The threshold is only valid for the state
 
 import re
 import logging
+from dataclasses import replace
 from typing import Any, Literal
 
 import requests
@@ -57,8 +62,12 @@ SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
 SKIP_DRAFT = True
+# Before this goes on, `next_push_likely` must defer only once per reviewed head. A skip does not
+# advance run_index, so the same chance would match every later push and no review would run.
+SKIP_NEXT_PUSH = False
 SKIP_THROTTLED = True
 
+NEXT_PUSH_SKIP_AT = 0.85
 # Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
 PUSH_BUDGET = Budget(burst=2, per_hour=2)
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
@@ -75,6 +84,57 @@ SYSTEM_ONE_TIMEOUT_SECONDS = 15.0
 MAX_OWN_COMMITS = 20
 # GitHub's compare endpoint pages its commit list at this size.
 _COMPARE_COMMITS_PER_PAGE = 100
+
+SizeBand = Literal["<=200", "201-1000", ">1000"]
+
+
+@frozen
+class _NextPushCell:
+    probability: float
+    prs: int
+
+
+# The chance that another automatic follow-up comes after follow-up number k, from review-eval
+# experiments/2026-10-14-draft-deferral (NextPushLookup), fitted on closed PostHog/posthog PRs from
+# Oct 8-14 2026. A refit updates these tables by hand. Key 8 holds every follow-up from the eighth on.
+_NEXT_PUSH_LAST_FOLLOW_UP = 8
+_NEXT_PUSH_MIN_CELL_PRS = 10
+_NEXT_PUSH_BY_FOLLOW_UP: dict[int, float] = {
+    1: 0.629,
+    2: 0.625,
+    3: 0.740,
+    4: 0.812,
+    5: 0.710,
+    6: 0.731,
+    7: 0.842,
+    8: 0.783,
+}
+_NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE: dict[tuple[int, SizeBand], _NextPushCell] = {
+    (1, "<=200"): _NextPushCell(probability=0.559, prs=111),
+    (1, "201-1000"): _NextPushCell(probability=0.652, prs=69),
+    (1, ">1000"): _NextPushCell(probability=1.000, prs=17),
+    (2, "<=200"): _NextPushCell(probability=0.542, prs=72),
+    (2, "201-1000"): _NextPushCell(probability=0.667, prs=60),
+    (2, ">1000"): _NextPushCell(probability=0.800, prs=20),
+    (3, "<=200"): _NextPushCell(probability=0.722, prs=36),
+    (3, "201-1000"): _NextPushCell(probability=0.735, prs=49),
+    (3, ">1000"): _NextPushCell(probability=0.800, prs=15),
+    (4, "<=200"): _NextPushCell(probability=0.667, prs=27),
+    (4, "201-1000"): _NextPushCell(probability=0.824, prs=34),
+    (4, ">1000"): _NextPushCell(probability=1.000, prs=19),
+    (5, "<=200"): _NextPushCell(probability=0.706, prs=17),
+    (5, "201-1000"): _NextPushCell(probability=0.606, prs=33),
+    (5, ">1000"): _NextPushCell(probability=0.895, prs=19),
+    (6, "<=200"): _NextPushCell(probability=0.833, prs=12),
+    (6, "201-1000"): _NextPushCell(probability=0.524, prs=21),
+    (6, ">1000"): _NextPushCell(probability=0.895, prs=19),
+    (7, "<=200"): _NextPushCell(probability=0.900, prs=10),
+    (7, "201-1000"): _NextPushCell(probability=0.909, prs=11),
+    (7, ">1000"): _NextPushCell(probability=0.765, prs=17),
+    (8, "<=200"): _NextPushCell(probability=0.643, prs=28),
+    (8, "201-1000"): _NextPushCell(probability=0.719, prs=32),
+    (8, ">1000"): _NextPushCell(probability=0.842, prs=101),
+}
 
 _QUESTION_ID = "alters"
 # The commits stay in the state, so text from the pull request can never become an instruction.
@@ -114,6 +174,7 @@ SkipReason = Literal[
     "docs_only",
     "system_one_below_threshold",
     "draft",
+    "next_push_likely",
     "throttled",
 ]
 RunReason = Literal[
@@ -137,6 +198,7 @@ class PushGateDecision:
     own_commits: int | None = None
     # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
     own_code_lines: int | None = None
+    next_push_probability: float | None = None
 
 
 @frozen
@@ -180,9 +242,33 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_DOCS_ONLY
     if reason == "draft":
         return SKIP_DRAFT
+    if reason == "next_push_likely":
+        return SKIP_NEXT_PUSH
     if reason == "throttled":
         return SKIP_THROTTLED
     return SKIP_SYSTEM_ONE
+
+
+def _size_band(pr_lines: int) -> SizeBand:
+    if pr_lines <= 200:
+        return "<=200"
+    if pr_lines <= 1000:
+        return "201-1000"
+    return ">1000"
+
+
+def next_push_probability(*, follow_up: int, pr_lines: int) -> float | None:
+    """The chance that another automatic follow-up comes after follow-up number `follow_up` (1-based).
+
+    `pr_lines` is the PR's additions plus deletions.
+    """
+    if follow_up < 1:
+        return None
+    follow_up = min(follow_up, _NEXT_PUSH_LAST_FOLLOW_UP)
+    cell = _NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE.get((follow_up, _size_band(pr_lines)))
+    if cell is not None and cell.prs >= _NEXT_PUSH_MIN_CELL_PRS:
+        return cell.probability
+    return _NEXT_PUSH_BY_FOLLOW_UP[follow_up]
 
 
 def _matched(
@@ -401,8 +487,30 @@ def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDeci
     )
 
 
+def apply_next_push_rule(
+    decision: PushGateDecision, *, follow_up: int | None, pr_lines: int | None
+) -> PushGateDecision:
+    """Rule 7, only for a PR that is not a draft. It records the chance also when another rule decided.
+
+    `follow_up` is the number of this automatic follow-up (1-based) and `pr_lines` is the PR's
+    additions plus deletions. Both are None when they are unknown.
+    """
+    probability = None
+    if follow_up is not None and pr_lines is not None:
+        probability = next_push_probability(follow_up=follow_up, pr_lines=pr_lines)
+    if probability is not None and probability >= NEXT_PUSH_SKIP_AT and not decision.would_skip:
+        decision = _matched(
+            "next_push_likely",
+            own_commits=decision.own_commits,
+            probability=decision.probability,
+            model=decision.model,
+            own_code_lines=decision.own_code_lines,
+        )
+    return replace(decision, next_push_probability=probability)
+
+
 def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str) -> PushGateDecision:
-    """Rule 7, last: a push that the rules before it skip takes no token. Without Redis the push runs.
+    """Rule 8, last: a push that the rules before it skip takes no token. Without Redis the push runs.
 
     A head pays once. A failed turn runs again as a new activity or a new child workflow, and a
     retry that charged again could find the bucket empty and drop a review that passed the budget.
@@ -421,10 +529,4 @@ def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str)
     if isinstance(bucket, BucketUnavailable) or bucket.allowed:
         return decision
     client.delete(paid_key)
-    return _matched(
-        "throttled",
-        own_commits=decision.own_commits,
-        probability=decision.probability,
-        model=decision.model,
-        own_code_lines=decision.own_code_lines,
-    )
+    return replace(decision, skip=_rule_enabled("throttled"), would_skip=True, reason="throttled")

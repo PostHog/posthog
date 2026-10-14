@@ -345,23 +345,23 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
-            for head_sha in ("sha1", "sha2"):
-                assert (
-                    _gate_push(
-                        GatePushInput(
-                            team_id=self.team.id,
-                            report_id=report_id,
-                            repository="o/r",
-                            previous_head_sha="sha0",
-                            head_sha=head_sha,
-                            run_index=2,
-                            review_mode=REVIEW_MODE_FLASH,
-                        )
+            results = [
+                _gate_push(
+                    GatePushInput(
+                        team_id=self.team.id,
+                        report_id=report_id,
+                        repository="o/r",
+                        previous_head_sha="sha0",
+                        head_sha=head_sha,
+                        run_index=2,
+                        review_mode=REVIEW_MODE_FLASH,
                     )
-                    == decision
                 )
+                for head_sha in ("sha1", "sha2")
+            ]
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
@@ -372,8 +372,9 @@ class TestTrackReviewCompleted(BaseTest):
             14,
         )
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
-        # Each push reports the draft state of its own head.
+        # Each push reports the draft state of its own head, and only a ready PR gets a next push chance.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
+        assert (props["next_push_probability"], second.kwargs["properties"]["next_push_probability"]) == (None, 0.559)
 
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
