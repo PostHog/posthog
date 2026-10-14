@@ -117,14 +117,14 @@ export const MetricsViewer = (): JSX.Element => {
             : traceExemplars.map((exemplar) => ({
                   timeMs: dayjs(exemplar.timestamp).valueOf(),
                   tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).tz(timezone).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                  onClick: () => {
+                  onClick: (event) => {
                       exemplarDotClicked(!!exemplar.spanId)
                       const trace = {
                           traceId: exemplar.traceId,
                           spanId: exemplar.spanId || null,
                           ts: exemplar.timestamp,
                       }
-                      if (!openTraceDialog(null, trace, { entryPoint: 'metric_exemplar' })) {
+                      if (!openTraceDialog(event, trace, { entryPoint: 'metric_exemplar' })) {
                           router.actions.push(traceUrl(trace))
                       }
                   },
