@@ -325,6 +325,16 @@ describe('translation validation', () => {
         expect(payload.appearance?.introScreenButtonText).toBe(expected)
     })
 
+    it.each([
+        ['back enabled with no button text', { allowGoBack: true }, 'Back'],
+        ['back enabled with button text', { allowGoBack: true, backButtonText: 'Go back' }, 'Go back'],
+        ['back disabled', { allowGoBack: false, backButtonText: 'Go back' }, undefined],
+    ] as const)('sends the effective back button text to AI translation for %s', (_name, appearance, expected) => {
+        const payload = getSurveyTranslationDraftPayload({ ...createPersistedSurvey(), appearance } as Survey)
+
+        expect(payload.appearance?.backButtonText).toBe(expected)
+    })
+
     it('does not validate survey root description translations', async () => {
         const survey = {
             ...createPersistedSurvey(),
