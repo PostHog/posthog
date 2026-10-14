@@ -5718,7 +5718,10 @@ describe("AgentServer HTTP Mode", () => {
             contextSelection: ContextSelection;
             clientConnection: { prompt: typeof prompt };
           };
-          createContextSelection(runId: string): ContextSelection;
+          createContextSelection(
+            runId: string,
+            history: string,
+          ): ContextSelection;
           resumeState: ResumeState | null;
           nativeResume: { sessionId: string; warm: boolean } | null;
           prewarmedRun: boolean;
@@ -5752,6 +5755,7 @@ describe("AgentServer HTTP Mode", () => {
         };
         internals.session.contextSelection = internals.createContextSelection(
           payload.run_id,
+          formatConversationForResume(internals.resumeState.conversation),
         );
         internals.nativeResume =
           resumeKind === "native"

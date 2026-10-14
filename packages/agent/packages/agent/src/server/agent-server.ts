@@ -1972,7 +1972,10 @@ export class AgentServer {
     return result;
   }
 
-  private createContextSelection(runId: string): ContextSelection {
+  private createContextSelection(
+    runId: string,
+    history: string,
+  ): ContextSelection {
     return new ContextSelection(
       this.contextSelectionAPI,
       runId,
@@ -1984,9 +1987,7 @@ export class AgentServer {
           event,
         ),
       this.config.version ?? packageJson.version,
-      this.resumeState
-        ? formatConversationForResume(this.resumeState.conversation)
-        : "",
+      history,
     );
   }
 
@@ -2629,8 +2630,14 @@ export class AgentServer {
 
     this.shutdownController.signal.throwIfAborted();
     this.initializingConnection = null;
+    const resumeState = this.resumeState as ResumeState | null;
     this.session = {
-      contextSelection: this.createContextSelection(payload.run_id),
+      contextSelection: this.createContextSelection(
+        payload.run_id,
+        resumeState
+          ? formatConversationForResume(resumeState.conversation)
+          : "",
+      ),
       cancellationVersion: 0,
       payload,
       acpSessionId,
