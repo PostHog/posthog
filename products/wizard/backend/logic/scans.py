@@ -2,11 +2,40 @@ from datetime import datetime
 
 from django.db import connection, transaction
 
+from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_or_team_action
+from posthog.models import Team, User
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
+from products.wizard.backend.observability.config import (
+    WIZARD_COMPETITOR_DETECTED_EVENT,
+    WIZARD_COMPETITOR_REMOVED_EVENT,
+)
 from products.wizard.backend.tool_catalog.catalog import classify_tool
+
+
+@frozen
+class _CompetitorSighting:
+    kind: str
+    competes_with: tuple[str, ...]
+    first_detection: bool
+    # Seen again after a scan of the workspace no longer found it.
+    returned: bool
+    signal_sources: tuple[str, ...]
+
+
+@frozen
+class _CompetitorRemoval:
+    kind: str
+    competes_with: tuple[str, ...]
+
+
+@frozen
+class _ScanChanges:
+    sightings: tuple[_CompetitorSighting, ...]
+    removals: tuple[_CompetitorRemoval, ...]
 
 
 def _signals_json(tool: WizardScanTool) -> list[dict[str, str | None]]:
@@ -62,7 +91,11 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
                 .using("default")
                 .filter(workspace_fingerprint=params.workspace_fingerprint)
             }
-            _apply_scan(scan, tools, existing, complete=params.complete)
+            changes = _apply_scan(scan, tools, existing, complete=params.complete)
+            # robust: the scan is already stored, so an analytics failure must not turn the request into a 500.
+            # A lambda rather than functools.partial, because Django logs a robust callback's failure through
+            # its __qualname__, which a partial does not have.
+            transaction.on_commit(lambda: _report_competitor_changes(scan, changes), robust=True)
 
     return WizardScanResult(id=scan.id, created=True)
 
@@ -79,13 +112,16 @@ def _lock_workspace(team_id: int, workspace_fingerprint: str) -> None:
 
 def _apply_scan(
     scan: WizardScan, tools: dict[str, WizardScanTool], existing: dict[str, WizardDetectedTool], *, complete: bool
-) -> None:
+) -> _ScanChanges:
     scanned_at: datetime = scan.scanned_at
     to_create: list[WizardDetectedTool] = []
     to_update: list[WizardDetectedTool] = []
+    sightings: list[_CompetitorSighting] = []
+    removals: list[_CompetitorRemoval] = []
 
     for kind, tool in tools.items():
         row = existing.get(kind)
+        returned = row is not None and row.removed_at is not None
         if row is None:
             row = WizardDetectedTool(
                 team_id=scan.team_id,
@@ -103,12 +139,29 @@ def _apply_scan(
         row.removed_in_scan = None
         row.removed_at = None
         _classify(row)
+        if row.competes_with:
+            sightings.append(
+                _CompetitorSighting(
+                    kind=kind,
+                    competes_with=tuple(row.competes_with),
+                    first_detection=kind not in existing,
+                    returned=returned,
+                    signal_sources=tuple(sorted({signal.source for signal in tool.signals})),
+                )
+            )
 
     for kind, row in existing.items():
         if complete and kind not in tools and row.removed_at is None:
             row.removed_in_scan = scan
             row.removed_at = scanned_at
             to_update.append(row)
+            if row.competes_with:
+                removals.append(
+                    _CompetitorRemoval(
+                        kind=kind,
+                        competes_with=tuple(row.competes_with),
+                    )
+                )
 
     # Scoped explicitly, because the ambient team context is not always the scanned team.
     tools_of_team = WizardDetectedTool.objects.for_team(scan.team_id)
@@ -125,3 +178,47 @@ def _apply_scan(
             "removed_at",
         ],
     )
+    return _ScanChanges(sightings=tuple(sightings), removals=tuple(removals))
+
+
+def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
+    if not changes.sightings and not changes.removals:
+        return
+    team = Team.objects.select_related("organization").get(id=scan.team_id)
+    user = User.objects.filter(id=scan.created_by_id).first() if scan.created_by_id else None
+    scan_properties = {
+        "program": scan.program,
+        "wizard_version": scan.wizard_version,
+        "wizard_session_id": scan.session_id,
+        "workspace_fingerprint": scan.workspace_fingerprint,
+    }
+
+    def report(event: str, properties: dict[str, object]) -> None:
+        report_user_or_team_action(
+            event,
+            {**scan_properties, **properties},
+            user=user,
+            team=team,
+            # The user's current organization can differ from the scanned project's.
+            organization=team.organization,
+        )
+
+    for sighting in changes.sightings:
+        report(
+            WIZARD_COMPETITOR_DETECTED_EVENT,
+            {
+                "kind": sighting.kind,
+                "competes_with": list(sighting.competes_with),
+                "first_detection": sighting.first_detection,
+                "returned": sighting.returned,
+                "signal_sources": list(sighting.signal_sources),
+            },
+        )
+    for removal in changes.removals:
+        report(
+            WIZARD_COMPETITOR_REMOVED_EVENT,
+            {
+                "kind": removal.kind,
+                "competes_with": list(removal.competes_with),
+            },
+        )

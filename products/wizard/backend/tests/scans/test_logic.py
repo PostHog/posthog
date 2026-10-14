@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from unittest.mock import patch
 
-from posthog.models import Team
+from posthog.models import Organization, Team, User
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
@@ -19,12 +20,18 @@ START = datetime(2026, 5, 19, 10, 0, tzinfo=UTC)
 
 
 def _scan(
-    team: Team, session_id: str, hours: int, kinds: list[str], workspace: str = WORKSPACE, complete: bool = True
+    team: Team,
+    session_id: str,
+    hours: int,
+    kinds: list[str],
+    workspace: str = WORKSPACE,
+    created_by_id: int | None = None,
+    complete: bool = True,
 ) -> WizardScanResult:
     return wizard_facade.record_scan(
         RecordWizardScanInput(
             team_id=team.id,
-            created_by_id=None,
+            created_by_id=created_by_id,
             session_id=session_id,
             program="posthog-integration",
             wizard_version="2.0.0",
@@ -125,3 +132,63 @@ def test_partial_scan_adds_what_it_saw_and_removes_nothing(team: Team) -> None:
 
     tools = _tools(team)
     assert {kind for kind, row in tools.items() if row.removed_at is None} == {"Stripe", "Amplitude", "Sentry"}
+
+
+@pytest.mark.django_db
+def test_reports_competitor_changes_once_per_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+    scans = [
+        ("s1", 0, ["Amplitude", "Stripe"]),
+        ("s2", 1, []),
+        ("s2", 2, ["Amplitude"]),
+        ("s3", 3, ["Amplitude"]),
+        ("s4", 4, []),
+    ]
+    with patch("posthoganalytics.capture") as capture:
+        for session_id, hours, kinds in scans:
+            with django_capture_on_commit_callbacks(execute=True):
+                _scan(team, session_id, hours, kinds)
+
+    events = [
+        (
+            call.kwargs["event"],
+            call.kwargs["properties"]["kind"],
+            call.kwargs["properties"].get("first_detection"),
+            call.kwargs["properties"].get("returned"),
+        )
+        for call in capture.call_args_list
+    ]
+    assert events == [
+        ("wizard competitor detected", "Amplitude", True, False),
+        ("wizard competitor removed", "Amplitude", None, None),
+        ("wizard competitor detected", "Amplitude", False, True),
+        ("wizard competitor removed", "Amplitude", None, None),
+    ]
+    first_properties = capture.call_args_list[0].kwargs["properties"]
+    assert (first_properties["competes_with"], first_properties["wizard_version"]) == (["product_analytics"], "2.0.0")
+
+
+@pytest.mark.django_db
+def test_failing_competitor_report_keeps_the_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+    with (
+        patch("products.wizard.backend.logic.scans.report_user_or_team_action", side_effect=RuntimeError),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        result = _scan(team, "s1", 0, ["Amplitude"])
+
+    assert result.created is True
+    assert set(_tools(team)) == {"Amplitude"}
+
+
+@pytest.mark.django_db
+def test_competitor_events_belong_to_the_scanned_projects_organization(
+    team: Team, django_capture_on_commit_callbacks
+) -> None:
+    other_organization = Organization.objects.create(name="Other organization")
+    user = User.objects.create_and_join(other_organization, "scanner@example.com", None)
+    user.organizations.add(team.organization)
+    assert user.current_organization == other_organization
+
+    with patch("posthoganalytics.capture") as capture, django_capture_on_commit_callbacks(execute=True):
+        _scan(team, "s1", 0, ["Amplitude"], created_by_id=user.id)
+
+    assert capture.call_args.kwargs["groups"]["organization"] == str(team.organization_id)
