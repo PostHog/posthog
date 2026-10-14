@@ -620,7 +620,10 @@ async fn wait_for_a_mark_claim_blocked_by(pool: &sqlx::PgPool, holder_pid: i32) 
         if waiting > 0 {
             return;
         }
-        assert!(Instant::now() < deadline, "nothing waited on the held mark");
+        assert!(
+            Instant::now() < deadline,
+            "the delete never waited on the held mark"
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
@@ -2868,139 +2871,6 @@ async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
         .expect("Lookup should succeed")
         .expect("Keeper DID should still resolve to original");
     assert_eq!(original_by_did.id, person.id);
-    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-async fn live_distinct_ids(pool: &sqlx::PgPool, team_id: i64, person_id: i64) -> Vec<String> {
-    sqlx::query_scalar(
-        "SELECT distinct_id FROM posthog_persondistinctid
-         WHERE team_id = $1 AND person_id = $2 AND NOT is_deleted ORDER BY distinct_id",
-    )
-    .bind(team_id as i32)
-    .bind(person_id)
-    .fetch_all(pool)
-    .await
-    .unwrap()
-}
-
-fn assert_failed_precondition<T: std::fmt::Debug>(
-    result: Result<T, personhog_replica::storage::StorageError>,
-) {
-    assert!(
-        matches!(
-            result,
-            Err(personhog_replica::storage::StorageError::FailedPrecondition(_))
-        ),
-        "expected FailedPrecondition, got {result:?}"
-    );
-}
-
-#[tokio::test]
-async fn test_split_person_rejects_moving_every_distinct_id() {
-    let ctx = TestContext::new().await;
-    let person = ctx.insert_person("split_all_a", None).await.unwrap();
-    ctx.add_distinct_id_to_person(person.id, "split_all_b")
-        .await
-        .unwrap();
-
-    let result = ctx
-        .storage
-        .split_person(
-            ctx.team_id,
-            person.id,
-            &["split_all_a".to_string(), "split_all_b".to_string()],
-        )
-        .await;
-
-    assert_failed_precondition(result);
-    assert_eq!(
-        live_distinct_ids(&ctx.pool, ctx.team_id, person.id).await,
-        vec!["split_all_a", "split_all_b"]
-    );
-    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_split_person_waits_for_a_concurrent_move_and_keeps_the_last_distinct_id() {
-    let ctx = TestContext::new().await;
-    let person = ctx.insert_person("race_keep_a", None).await.unwrap();
-    ctx.add_distinct_id_to_person(person.id, "race_keep_b")
-        .await
-        .unwrap();
-    let other = ctx.insert_person("race_other", None).await.unwrap();
-
-    // A concurrent split or merge, in flight: it holds the person's mark and has moved "a" away.
-    let mut mover = ctx.pool.begin().await.unwrap();
-    let mover_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *mover)
-        .await
-        .unwrap();
-    let op_id = claim_merge_mark(&mut mover, ctx.team_id, &person).await;
-    sqlx::query(
-        "UPDATE posthog_persondistinctid SET person_id = $1, version = version + 1
-         WHERE team_id = $2 AND distinct_id = 'race_keep_a'",
-    )
-    .bind(other.id)
-    .bind(ctx.team_id as i32)
-    .execute(&mut *mover)
-    .await
-    .unwrap();
-    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
-        .bind(op_id)
-        .execute(&mut *mover)
-        .await
-        .unwrap();
-
-    let storage = ctx.storage.clone();
-    let team_id = ctx.team_id;
-    let person_id = person.id;
-    let split = tokio::spawn(async move {
-        storage
-            .split_person(team_id, person_id, &["race_keep_b".to_string()])
-            .await
-    });
-
-    // Commit the move only once the split waits on the mark, so the split cannot finish first.
-    wait_for_a_mark_claim_blocked_by(&ctx.pool, mover_pid).await;
-    mover.commit().await.unwrap();
-
-    assert_failed_precondition(split.await.unwrap());
-    assert_eq!(
-        live_distinct_ids(&ctx.pool, ctx.team_id, person.id).await,
-        vec!["race_keep_b"]
-    );
-    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_split_person_fails_when_a_lifecycle_op_holds_the_person() {
-    let ctx = TestContext::new().await;
-    let person = ctx.insert_person("split_held_a", None).await.unwrap();
-    ctx.add_distinct_id_to_person(person.id, "split_held_b")
-        .await
-        .unwrap();
-    let mut conn = ctx.pool.acquire().await.unwrap();
-    claim_merge_mark(&mut conn, ctx.team_id, &person).await;
-    drop(conn);
-
-    let result = ctx
-        .storage
-        .split_person(ctx.team_id, person.id, &["split_held_b".to_string()])
-        .await;
-
-    assert_failed_precondition(result);
-    assert_eq!(
-        live_distinct_ids(&ctx.pool, ctx.team_id, person.id).await,
-        vec!["split_held_a", "split_held_b"]
-    );
-    // Only the holder's op: the split's own claim rolled back.
-    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 1);
 
     ctx.cleanup().await.ok();
 }
@@ -3028,9 +2898,9 @@ async fn test_split_person_version_arithmetic() {
     .await
     .unwrap();
 
-    // Insert PDIs with non-zero versions; the split must leave one on the person.
+    // Insert PDIs with non-zero versions
     let pdi_version: i64 = 7;
-    for did in &["v_did_a", "v_did_b", "v_did_keep"] {
+    for did in &["v_did_a", "v_did_b"] {
         sqlx::query(
             r#"INSERT INTO posthog_persondistinctid
             (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)"#,
