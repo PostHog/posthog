@@ -181,12 +181,29 @@ class TestSignalReportViewedEndpoint(APIBaseTest):
             if call.kwargs["event"] == "signals_background_report_dismissed"
         ]
 
-    def test_a_suppressed_report_still_records_its_view(self) -> None:
-        # The Dismissed tab renders the same detail view, so its opens must count too instead of
-        # 404ing like mutating-by-ID actions on suppressed reports do.
-        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+    @parameterized.expand(
+        [
+            ("suppressed", SignalReport.Status.SUPPRESSED, False, True),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, True),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, False),
+        ]
+    )
+    def test_visible_reports_record_their_views(
+        self, _name: str, report_status: str, flag_enabled: bool, visible: bool
+    ) -> None:
+        report = self._create_report(status=report_status)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled):
+            detail = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/{report.pk}/")
+            response = self.client.post(self._viewed_url(str(report.pk)))
 
-        response = self.client.post(self._viewed_url(str(report.pk)))
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user).exists()
+        assert detail.status_code == (status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        assert response.status_code == (status.HTTP_204_NO_CONTENT if visible else status.HTTP_404_NOT_FOUND)
+        actions = SignalReportAction.objects.for_team(self.team.id).filter(report=report, user=self.user)
+        if visible:
+            action = actions.get()
+            assert action.type == SignalReportAction.ActionType.VIEW
+            assert action.count == 1
+        else:
+            assert not actions.exists()
+        report.refresh_from_db()
+        assert report.status == report_status

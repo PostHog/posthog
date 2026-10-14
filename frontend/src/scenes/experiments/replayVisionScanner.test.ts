@@ -23,7 +23,7 @@ describe('replayVisionScanner', () => {
             },
             {
                 name: 'the experiment form checkbox',
-                build: (experiment: Experiment): unknown => experimentScannerBody(experiment, true).scanner_config,
+                build: (experiment: Experiment): unknown => experimentScannerBody(experiment).scanner_config,
             },
         ])('$name keeps the experiment hypothesis out of it', ({ build }) => {
             const experiment: Experiment = {
@@ -72,7 +72,7 @@ describe('replayVisionScanner', () => {
                     exposure_criteria,
                 }
 
-                const body = experimentScannerBody(experiment, true)
+                const body = experimentScannerBody(experiment)
 
                 expect(body).toMatchObject({
                     scanner_type: 'experiment',
@@ -97,24 +97,11 @@ describe('replayVisionScanner', () => {
                 true
             )
 
-            const body = experimentScannerBody(experiment, true)
+            const body = experimentScannerBody(experiment)
 
             expect(prefilled.scanner_type).toEqual(body.scanner_type)
             expect(prefilled.scanner_config).toMatchObject({ experiment_id: 123, variants: null })
             expect(body.query).toEqual(prefilled.query)
-        })
-
-        // Until the flag is on for a team, the checkbox keeps creating what it always has.
-        it('without the experiment type, saves an off classifier with legacy targeting', () => {
-            const experiment: Experiment = { ...NEW_EXPERIMENT, id: 123, name: 'Checkout redesign' }
-
-            const body = experimentScannerBody(experiment, false)
-
-            expect(body).toMatchObject({
-                scanner_type: 'classifier',
-                experiment_targeting: { experiment_id: 123, variant: null },
-                enabled: false,
-            })
         })
     })
 })

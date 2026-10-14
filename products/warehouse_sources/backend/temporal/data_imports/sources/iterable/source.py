@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]):
+    codebase_detection = detect(
+        env=("^ITERABLE_",),
+        npm=("@iterable/web-sdk", "@iterable/react-native-sdk"),
+        cocoapods=(
+            "Iterable-iOS-SDK",
+            "Iterable-iOS-AppExtensions",
+            "Iterable-iOS-Inboxless-SDK",
+            "IterableAppExtensions",
+            "IterableSDK",
+        ),
+        maven=(
+            "com.iterable:iterableapi",
+            "com.iterable:iterableapi-ui",
+            "com.iterable:iterableplayutils_2.10",
+            "com.iterable:iterableplayutils_2.11",
+            "com.iterable:iterableplayutils_2.12",
+            "com.iterable:iterableplayutils_2.13",
+        ),
+        swiftpm=("github.com/iterable/iterable-swift-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.iterable.com/api/docs"
 

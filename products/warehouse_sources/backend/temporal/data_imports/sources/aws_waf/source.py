@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_WAF|AWSWAF)_",),
+        npm=("@aws-sdk/client-wafv2", "@aws-sdk/client-waf"),
+        cargo=("aws-sdk-wafv2", "aws-sdk-waf"),
+        go=("github.com/aws/aws-sdk-go-v2/service/wafv2", "github.com/aws/aws-sdk-go-v2/service/waf"),
+        maven=(
+            "software.amazon.awssdk:wafv2",
+            "software.amazon.awssdk:waf",
+            "com.amazonaws:aws-java-sdk-wafv2",
+            "com.amazonaws:aws-java-sdk-waf",
+        ),
+        rubygems=("aws-sdk-wafv2", "aws-sdk-waf"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (WAF_API_VERSION,)
     default_version = WAF_API_VERSION

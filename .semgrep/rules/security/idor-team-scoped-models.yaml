@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountAuditAdmission
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipControl
@@ -459,8 +460,10 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardDetectedTool
                               |WizardRun
                               |WizardRunArtifact
+                              |WizardScan
                               |WizardSession
                               |WizardWorker
                               |WorkflowProposal
@@ -521,6 +524,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountAuditAdmission
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipControl
@@ -911,8 +915,10 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardDetectedTool
                         |WizardRun
                         |WizardRunArtifact
+                        |WizardScan
                         |WizardSession
                         |WizardWorker
                         |WorkflowProposal
@@ -1205,7 +1211,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CommunitySkillVote
+                              AccountAuditCredential
+                              |CommunitySkillVote
                               |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
@@ -1262,7 +1269,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CommunitySkillVote
+                        AccountAuditCredential
+                        |CommunitySkillVote
                         |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey

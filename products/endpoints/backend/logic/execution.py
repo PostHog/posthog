@@ -53,6 +53,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     is_api_key_access_method,
     tag_queries,
+    tags_context,
 )
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -801,52 +802,51 @@ class EndpointExecutionService(PydanticModelMixin):
                 "endpoint_materialized": True,
                 "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
-            tag_queries(
+            with tags_context(
                 workload=Workload.ENDPOINTS,
                 warehouse_query=True,
                 endpoint_version=version.version,
-            )
+            ):
+                # Compute dynamic cache TTL: time remaining until data_freshness window expires
+                cache_ttl = None
+                if materialized_at and version.data_freshness_seconds:
+                    remaining = (
+                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                    ).total_seconds()
+                    if remaining <= 0:
+                        logger.warning(
+                            "endpoint_materialization_behind_sla",
+                            endpoint_name=endpoint.name,
+                            team_id=self.team.pk,
+                            data_freshness_seconds=version.data_freshness_seconds,
+                            last_run_at=materialized_at.isoformat(),
+                            remaining_seconds=remaining,
+                        )
+                        tag_queries(endpoint_materialization_behind=True)
+                    cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
 
-            # Compute dynamic cache TTL: time remaining until data_freshness window expires
-            cache_ttl = None
-            if materialized_at and version.data_freshness_seconds:
-                remaining = (
-                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
-                ).total_seconds()
-                if remaining <= 0:
-                    logger.warning(
-                        "endpoint_materialization_behind_sla",
-                        endpoint_name=endpoint.name,
-                        team_id=self.team.pk,
-                        data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=materialized_at.isoformat(),
-                        remaining_seconds=remaining,
-                    )
-                    tag_queries(endpoint_materialization_behind=True)
-                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
-
-            result = self._execute_query_and_respond(
-                query_request_data,
-                data.client_query_id,
-                cache_age_seconds=cache_ttl,
-                extra_result_fields=extra_fields,
-                debug=debug,
-                headers=deprecation_headers,
-                pagination=pagination,
-                limit_context=strategy.materialized_limit_context,
-            )
-
-            if self._is_cache_stale(result, materialized_at):
-                query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
                     data.client_query_id,
+                    cache_age_seconds=cache_ttl,
                     extra_result_fields=extra_fields,
                     debug=debug,
                     headers=deprecation_headers,
                     pagination=pagination,
                     limit_context=strategy.materialized_limit_context,
                 )
+
+                if self._is_cache_stale(result, materialized_at):
+                    query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
+                    result = self._execute_query_and_respond(
+                        query_request_data,
+                        data.client_query_id,
+                        extra_result_fields=extra_fields,
+                        debug=debug,
+                        headers=deprecation_headers,
+                        pagination=pagination,
+                        limit_context=strategy.materialized_limit_context,
+                    )
 
             if isinstance(result.data, dict):
                 strategy.clean_response_sentinels(result.data)
