@@ -58,8 +58,8 @@ function busiestWindowIds(segments: RecordingSegment[], candidates: Set<number>,
 function hrefChanges(events: eventWithTime[]): HrefChange[] {
     const changes: HrefChange[] = []
     for (const event of events) {
-        const href = getHrefFromSnapshot(event)
-        if (href && href !== changes[changes.length - 1]?.href) {
+        const href: unknown = getHrefFromSnapshot(event)
+        if (typeof href === 'string' && href && href !== changes[changes.length - 1]?.href) {
             changes.push({ timestamp: event.timestamp, href })
         }
     }

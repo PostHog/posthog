@@ -9,6 +9,8 @@ const MAX_URL_LENGTH = 500
 /** Reads the state the footer draws, so it lists what the video shows rather than what analytics events claim. */
 export class NavigationTimeline {
     private samples: NavigationSample[] = []
+    private lastWindowUuid: string | null = null
+    private lastUrl: string | null = null
 
     constructor(
         private controller: PlaybackController,
@@ -30,20 +32,21 @@ export class NavigationTimeline {
         const windowUuid = this.windowUuidById.get(tab.windowId)
         const sessionMs = Math.round(this.controller.currentSessionMs())
         const windowNumber = this.labels.numberOf(tab.windowId)
-        const url = this.labels.urlAt(tab.windowId, sessionMs).slice(0, MAX_URL_LENGTH)
+        const url = this.labels.urlAt(tab.windowId, sessionMs)
         if (!windowUuid || windowNumber === undefined || !url) {
             return
         }
-        const last = this.samples[this.samples.length - 1]
-        if (last && last.window_id === windowUuid && last.url === url) {
+        if (windowUuid === this.lastWindowUuid && url === this.lastUrl) {
             return
         }
+        this.lastWindowUuid = windowUuid
+        this.lastUrl = url
         this.samples.push({
             sample,
             session_ms: sessionMs,
             window_id: windowUuid,
             window_number: windowNumber,
-            url,
+            url: url.slice(0, MAX_URL_LENGTH),
         })
     }
 }

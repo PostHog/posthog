@@ -118,6 +118,7 @@ export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityP
 
 export function navigationFromFrames(
     samples: NavigationSample[],
+    frameSessionMs: number[],
     videoDurationS: number,
     fps: number,
     preRollFrames: number
@@ -125,10 +126,19 @@ export function navigationFromFrames(
     if (fps <= 0) {
         return []
     }
+    // A change revealed by a skip is recorded on the skip frame, which the citation clock gives to the time before
+    // the skip. Place it on the first frame whose sample has reached the time the change shows.
+    const firstFrameShowing = (entry: NavigationSample): number => {
+        let frame = entry.sample
+        while (frame < frameSessionMs.length - 1 && frameSessionMs[frame] < entry.session_ms - 1) {
+            frame++
+        }
+        return frame
+    }
     return (
         samples
             .map((entry) => ({
-                video_s: (preRollFrames + entry.sample) / fps,
+                video_s: (preRollFrames + firstFrameShowing(entry)) / fps,
                 session_s: entry.session_ms / 1000,
                 window_id: entry.window_id,
                 window_number: entry.window_number,
@@ -158,6 +168,7 @@ export function renderOutputFields(
         ),
         navigation: navigationFromFrames(
             result.navigation_samples,
+            result.frame_session_ms,
             result.capture_duration_s,
             result.output_fps,
             result.pre_roll_frames
