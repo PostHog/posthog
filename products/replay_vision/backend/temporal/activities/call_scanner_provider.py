@@ -694,14 +694,17 @@ async def _run_mission(
 
 
 def _upload_route_gateway(via_gateway: bool, properties: dict[str, Any]) -> GatewayGeminiClient | None:
-    """The gateway client when the upload stored the file through it, else None for the direct route."""
+    """The gateway client when the upload stored the file through it, else None for the direct route.
+
+    A gateway upload passed the cleanup-key check, so the direct key reads the file when this worker has no gateway.
+    """
     if not via_gateway:
         return None
     gateway = replay_gateway_client(properties=properties)
     if gateway is None:
-        raise ScannerFailureError(
-            "The video was stored through the AI gateway, but REPLAY_VISION_AI_GATEWAY_API_KEY is unset or disabled on this worker",
-            kind=FailureKind.INTERNAL_ERROR,
+        logger.warning(
+            "replay_vision_gateway_upload_scanned_direct",
+            reason="REPLAY_VISION_AI_GATEWAY_API_KEY is unset or disabled on this worker",
         )
     return gateway
 

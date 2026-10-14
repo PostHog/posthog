@@ -11,7 +11,7 @@ from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
-from products.replay_vision.backend.gemini_client import GatewaySpendLimitError
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient, GatewaySpendLimitError
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -113,8 +113,6 @@ def _gateway_scan_snapshot() -> MagicMock:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fails", [None, "mission", "cache"])
 async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_it(fails: str | None) -> None:
-    from products.replay_vision.backend.gemini_client import GatewayGeminiClient
-
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
@@ -156,16 +154,19 @@ async def test_gateway_mode_runs_generate_and_caches_on_the_gateway_and_closes_i
 
 @pytest.mark.asyncio
 async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None:
-    # The upload fell back to direct on another pod; this pod still has the gateway on for the team.
+    # The upload fell back to direct on another pod; this pod has the gateway on and configured for the team.
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
     scanner.assemble.return_value = (MagicMock(), [])
     create_cache = AsyncMock(return_value=None)
     attempts = AsyncMock(return_value={})
+    gateway = MagicMock(spec=GatewayGeminiClient)
+    gateway.aclose = AsyncMock()
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
         patch("products.replay_vision.backend.gemini_client.replay_gateway_enabled", return_value=True),
-        patch(f"{module}.replay_gateway_client") as gateway_client,
+        patch("products.replay_vision.backend.gemini_client.replay_gateway_client", return_value=gateway),
+        patch(f"{module}.replay_gateway_client", return_value=gateway) as gateway_client,
         patch(f"{module}.genai.AsyncClient") as direct_cls,
         patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
         patch(f"{module}.gemini_api_key", return_value="direct-key"),
@@ -186,21 +187,29 @@ async def test_a_direct_upload_is_scanned_direct_even_with_the_flag_on() -> None
         )
 
     gateway_client.assert_not_called()
+    gateway.aclose.assert_not_awaited()
     assert create_cache.call_args.args[0] is direct_cache_cls.return_value
     assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
 
 
 @pytest.mark.asyncio
-async def test_a_gateway_upload_fails_the_scan_when_this_worker_has_no_gateway() -> None:
+async def test_a_gateway_upload_is_scanned_direct_when_this_worker_has_no_gateway() -> None:
+    # The upload's cleanup-key check proved the direct key reads gateway-stored files.
     scanner = MagicMock()
     scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    create_cache = AsyncMock(return_value=None)
+    attempts = AsyncMock(return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
         patch(f"{module}.replay_gateway_client", return_value=None),
         patch(f"{module}.genai.AsyncClient") as direct_cls,
         patch(f"{module}.GoogleGenAIClient") as direct_cache_cls,
+        patch(f"{module}.gemini_api_key", return_value="direct-key"),
+        patch(f"{module}._maybe_create_video_cache", new=create_cache),
+        patch(f"{module}._run_mission_attempts", new=attempts),
         patch(f"{module}.build_events_index", return_value={}),
-        pytest.raises(ScannerFailureError) as raised,
+        patch(f"{module}.logger") as log,
     ):
         await _run_mission(
             scanner=scanner,
@@ -214,10 +223,11 @@ async def test_a_gateway_upload_fails_the_scan_when_this_worker_has_no_gateway()
             via_gateway=True,
         )
 
-    assert raised.value.kind == FailureKind.INTERNAL_ERROR
-    assert "REPLAY_VISION_AI_GATEWAY_API_KEY" in str(raised.value)
-    direct_cls.assert_not_called()
-    direct_cache_cls.assert_not_called()
+    assert create_cache.call_args.args[0] is direct_cache_cls.return_value
+    assert attempts.call_args.kwargs["run"].keywords["client"] is direct_cls.return_value
+    warning = log.warning.call_args
+    assert warning.args[0] == "replay_vision_gateway_upload_scanned_direct"
+    assert "REPLAY_VISION_AI_GATEWAY_API_KEY" in warning.kwargs["reason"]
 
 
 def test_a_scan_payload_without_the_upload_route_reads_direct() -> None:
