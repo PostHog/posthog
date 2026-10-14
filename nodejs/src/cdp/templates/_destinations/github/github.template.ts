@@ -23,7 +23,7 @@ if (not repo) {
 
 let posthog_issue_url := inputs.posthog_issue_url
 if (empty(posthog_issue_url)) {
-    posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
+    posthog_issue_url := f'{project.url}/error-tracking/{inputs.posthog_issue_id}'
 }
 let payload := {
     'method': 'POST',
