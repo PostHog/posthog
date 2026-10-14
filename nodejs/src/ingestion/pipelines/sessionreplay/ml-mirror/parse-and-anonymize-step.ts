@@ -109,6 +109,13 @@ export function createParseAndAnonymizeMessageStep<
     imageCollection?: ImageCollectionConfig,
     producedRefs?: ProducedRefs
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+    // The addon rejects a bad cap on every call, which would drop every message while the consumer looks healthy.
+    if (
+        imageCollection &&
+        !(Number.isSafeInteger(imageCollection.maxImageBytes) && imageCollection.maxImageBytes > 0)
+    ) {
+        throw new Error(`maxImageBytes must be a positive integer, got ${imageCollection.maxImageBytes}`)
+    }
     const globalUrlKey =
         imageCollection?.collectUrls === true
             ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)

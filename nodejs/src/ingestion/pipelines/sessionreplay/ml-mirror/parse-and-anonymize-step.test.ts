@@ -312,6 +312,17 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
         }
     })
 
+    it.each([0, -1, 1.5, NaN])('refuses to build with maxImageBytes %p', (maxImageBytes) => {
+        expect(() =>
+            createParseAndAnonymizeMessageStep({
+                pseudonymSecret: secret,
+                collectImages: true,
+                maxImageBytes,
+                collectUrls: false,
+            })
+        ).toThrow('maxImageBytes')
+    })
+
     it('unpacks the packed image buffer into per-image produce records', async () => {
         const packed = Buffer.concat([Buffer.from('aaa'), Buffer.from('bb')])
         addonSuccessWithImages(packed, [

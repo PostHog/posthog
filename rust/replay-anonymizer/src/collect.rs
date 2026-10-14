@@ -337,10 +337,12 @@ mod tests {
     }
 
     #[test]
-    fn collect_rejects_oversized_image() {
+    fn collect_enforces_the_default_per_image_cap() {
         let mut c = collector();
         assert!(c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]).is_none());
-        assert!(c.into_images().is_empty());
+        // Above the old 900 KiB cap, so a revert of the 20 MiB default fails here.
+        assert!(c.collect(vec![1u8; 1024 * 1024]).is_some());
+        assert_eq!(c.into_images().len(), 1);
     }
 
     #[test]
