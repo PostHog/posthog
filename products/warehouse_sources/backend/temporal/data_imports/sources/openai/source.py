@@ -36,9 +36,6 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
     codebase_detection = detect(
         env=(
             "^OPENAI_",
-            "^AZURE_OPENAI_API_KEY$",
-            "^AZURE_OPENAI_ENDPOINT$",
-            "^AZURE_OPENAI_KEY$",
             "^CODEX_API_KEY$",
             "^NEXT_PUBLIC_CHATKIT_WORKFLOW_ID$",
         ),
@@ -57,7 +54,6 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
             "@openai/codex-sdk",
             "@openai/codex",
             "@openai/guardrails",
-            "@azure/openai",
             "@llamaindex/openai",
             "openai-edge",
         ),
@@ -76,7 +72,6 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
         go=(
             "github.com/openai/openai-go",
             "github.com/sashabaranov/go-openai",
-            "github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai",
         ),
         hex=("openai_ex", "openai"),
         maven=(
@@ -96,7 +91,6 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
             "dev.langchain4j:langchain4j-open-ai",
             "dev.langchain4j:langchain4j-open-ai-spring-boot-starter",
             "dev.langchain4j:langchain4j-open-ai-official",
-            "com.azure:azure-ai-openai",
             "io.cequence:openai-scala-client_2.13",
             "io.cequence:openai-scala-client_3",
         ),

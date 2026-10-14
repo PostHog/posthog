@@ -87,7 +87,6 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
     codebase_detection = detect(
         env=("^META_ADS_", "^FACEBOOK_ADS_", "^FACEBOOK_PIXEL_ID$", "^NEXT_PUBLIC_FACEBOOK_PIXEL_ID$"),
-        script_hosts=("connect.facebook.net",),
         npm=(
             "facebook-nodejs-business-sdk",
             "capi-param-builder-nodejs",

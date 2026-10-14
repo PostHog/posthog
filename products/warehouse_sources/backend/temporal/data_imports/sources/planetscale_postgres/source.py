@@ -1,6 +1,6 @@
 import re
 
-from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -76,9 +76,7 @@ class PlanetScalePostgresSource(PostgresSource):
     see `planetscale_mysql`.
     """
 
-    codebase_detection = detect(
-        env=("^PLANETSCALE_SERVICE_TOKEN$", "^PLANETSCALE_SERVICE_TOKEN_ID$", "^PLANETSCALE_ORG$")
-    )
+    codebase_detection = NOT_DETECTABLE
 
     api_docs_url = "https://planetscale.com/docs/postgres"
 
