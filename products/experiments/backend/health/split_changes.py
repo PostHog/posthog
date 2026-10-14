@@ -3,8 +3,9 @@ Changes of a flag's variant split, read from the flag's activity log. Pure funct
 
 The flag service draws a variant from a hash, and each variant is a slot of the split in stored order
 (`select_variant` in `rust/feature-flags/src/flags/v1_bucketing.rs`). A changed split moves the slot boundaries,
-so people whose hash lies between an old and a new boundary get another variant. A rollout or release-condition
-change moves people into or out of the flag, never to another variant, so only the split counts here.
+so people whose hash lies between an old and a new boundary get another variant. A rollout change, or a
+release-condition change without a variant override, moves people into or out of the flag, never to another
+variant, so only the split counts here.
 """
 
 from collections import Counter

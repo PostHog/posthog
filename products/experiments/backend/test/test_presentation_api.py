@@ -797,8 +797,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         [
             ("session", None, False, True),
             ("session_without_flag_access", None, True, False),
-            ("token_without_query_scope", ["experiment:read"], False, False),
-            ("token_with_query_scope", ["experiment:read", "query:read"], False, True),
+            ("token_without_query_scope", ["experiment:read", "activity_log:read"], False, False),
+            ("token_without_activity_scope", ["experiment:read", "query:read"], False, False),
+            (
+                "token_with_query_and_activity_scopes",
+                ["experiment:read", "query:read", "activity_log:read"],
+                False,
+                True,
+            ),
         ]
     )
     def test_health_reads_the_split_history_only_with_flag_and_query_access(

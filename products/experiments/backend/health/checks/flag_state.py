@@ -150,7 +150,7 @@ def _rollout_since(ctx: HealthContext) -> str:
     if history is None or effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return ""
     at = format_change_time(effect.last.changed_at, history.team_timezone)
-    return f"It has been at 100% since {at}, and the split was {describe_split(effect.from_split)} before. "
+    return f"It has been at 100% since {at}, and the split was {describe_split(effect.last.before)} before. "
 
 
 def _has_zero_rollout(flag: FlagState) -> bool:

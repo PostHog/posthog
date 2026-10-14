@@ -9,14 +9,17 @@ too large for a request runs at most once a day.
 
 import json
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Any
 
 from django.core.cache import cache
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.fields.json import KT
 from django.utils import timezone
+
+import pydantic
 
 from posthog.schema import ActionsNode
 
@@ -34,6 +37,7 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.health.context import SplitChange, SplitHistory
@@ -42,6 +46,7 @@ from products.experiments.backend.health.split_changes import (
     split_change_from_activity,
     split_variant_keys,
 )
+from products.experiments.backend.hogql_queries.error_handling import classify_experiment_query_error
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
@@ -66,9 +71,13 @@ _AFTER_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").after.multivariate
 _SETTLED_AFTER = timedelta(hours=1)
 # A recent "nobody" is kept briefly, so page loads in that hour do not each run the scan again.
 _RECENT_NOBODY_CACHE_SECONDS = int(timedelta(minutes=5).total_seconds())
-# A cohort recalculates, so an old window's "nobody" can turn into a yes when the cohort takes in people
-# exposed in it.
-_COHORT_NOBODY_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
+# Some filters match other events over time without an edit: a cohort recalculates, a relative date moves
+# with the clock, a person or group property can be read as it is now, and HogQL can do any of these. The
+# answer for an old window can then change.
+_MOVING_FILTER_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
+_MOVING_FILTER_TYPES = frozenset({"cohort", "hogql", "person", "group"})
+# Filters of these types can read warehouse tables, which each reader may or may not be allowed to read.
+_WAREHOUSE_FILTER_TYPES = frozenset({"hogql", "data_warehouse", "data_warehouse_person_property"})
 # The scan is too large for a request. These are expected, so they are not reported.
 _TOO_EXPENSIVE_ERRORS = (
     ClickHouseQueryTimeOut,
@@ -77,13 +86,14 @@ _TOO_EXPENSIVE_ERRORS = (
 )
 
 
-def load_split_history(experiment: Experiment) -> SplitHistory | None:
+def load_split_history(experiment: Experiment, *, reader: User) -> SplitHistory | None:
     """
     The split history of a running, not archived experiment whose flag exists and is not deleted, or None.
-    Never raises: the health endpoint serves the other findings when this fails.
+    The exposure queries run as `reader`. Never raises: the health endpoint serves the other findings when
+    this fails.
     """
     try:
-        return _load_split_history(experiment)
+        return _load_split_history(experiment, reader)
     except Exception as error:
         capture_exception(error)
         return None
@@ -96,6 +106,7 @@ def query_any_exposure(
     window_end: datetime,
     variant_keys: Sequence[str],
     default_exposure_event: str,
+    user: User,
 ) -> bool:
     """Whether anyone was exposed to one of the variant keys in `[window_start, window_end)`."""
     team = experiment.team
@@ -128,6 +139,7 @@ def query_any_exposure(
         response = execute_hogql_query(
             query,
             team=team,
+            user=user,
             # A profile that breaks on timeout returns no rows, which would read as "nobody exposed".
             settings=HogQLGlobalSettings(
                 max_execution_time=EXPOSURE_QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"
@@ -142,17 +154,19 @@ class _ExposureGate:
     that start within REQUEST_BUDGET_SECONDS.
     """
 
-    def __init__(self, experiment: Experiment, launched_at: datetime) -> None:
+    def __init__(self, experiment: Experiment, launched_at: datetime, reader: User) -> None:
         self._experiment = experiment
         self._launched_at = launched_at
+        self._reader = reader
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
         action = _exposure_action(experiment)
         self._exposure_action_version = action.updated_at.isoformat() if action else None
-        self._settled_nobody_cache_seconds = (
-            _COHORT_NOBODY_CACHE_SECONDS
-            if _mentions_cohort([experiment.exposure_criteria, action.steps_json if action else None])
-            else _ANSWER_CACHE_SECONDS
+        filters = [experiment.exposure_criteria, action.steps_json if action else None]
+        self._answer_cache_seconds = (
+            _MOVING_FILTER_CACHE_SECONDS if _has_moving_filter(filters) else _ANSWER_CACHE_SECONDS
         )
+        # A cached answer must not cross from a reader who can read a warehouse table to one who cannot.
+        self._reader_scope = str(reader.pk) if _has_filter_of_type(filters, _WAREHOUSE_FILTER_TYPES) else None
         self._started_at = monotonic()
         self._query_count = 0
         self._stopped = False
@@ -181,24 +195,25 @@ class _ExposureGate:
                 window_end=window_end,
                 variant_keys=variant_keys,
                 default_exposure_event=self._default_exposure_event,
+                user=self._reader,
             )
         except Exception as error:
             # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
             # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
             transient = isinstance(error, CH_TRANSIENT_ERRORS)
             too_expensive = not transient and isinstance(error, _TOO_EXPENSIVE_ERRORS)
-            if not transient and not too_expensive:
+            # An error in the experiment's own setup, such as a table this reader may not query, is not a bug.
+            setup_error = (
+                isinstance(error, pydantic.ValidationError)
+                or classify_experiment_query_error(error) == "validation_error"
+            )
+            if not transient and not too_expensive and not setup_error:
                 capture_exception(error)
             cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
             self._stopped = True
             return None
-        if answer:
-            cache_seconds = _ANSWER_CACHE_SECONDS
-        elif timezone.now() - window_end > _SETTLED_AFTER:
-            cache_seconds = self._settled_nobody_cache_seconds
-        else:
-            cache_seconds = _RECENT_NOBODY_CACHE_SECONDS
-        cache.set(cache_key, answer, cache_seconds)
+        settled = answer or timezone.now() - window_end > _SETTLED_AFTER
+        cache.set(cache_key, answer, self._answer_cache_seconds if settled else _RECENT_NOBODY_CACHE_SECONDS)
         return answer
 
     def _cache_key(self, window_start: datetime, window_end: datetime, variant_keys: Sequence[str]) -> str:
@@ -216,6 +231,7 @@ class _ExposureGate:
                 experiment.exposure_criteria,
                 self._default_exposure_event,
                 self._exposure_action_version,
+                self._reader_scope,
             ],
             sort_keys=True,
             default=str,
@@ -225,22 +241,36 @@ class _ExposureGate:
 
 
 def _exposure_action(experiment: Experiment) -> Action | None:
-    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    try:
+        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    except pydantic.ValidationError:
+        # The exposure query fails on the same criteria, and caches that answer as unknown.
+        return None
     config = criteria.exposure_config if criteria else None
     if not isinstance(config, ActionsNode):
         return None
     return Action.objects.filter(team_id=experiment.team_id, id=int(config.id)).only("updated_at", "steps_json").first()
 
 
-def _mentions_cohort(value: object) -> bool:
+def _has_moving_filter(value: object) -> bool:
+    return _has_filter_of_type(value, _MOVING_FILTER_TYPES) or _any_filter(
+        value, lambda prop: str(prop.get("operator", "")).startswith("is_date")
+    )
+
+
+def _has_filter_of_type(value: object, types: frozenset[str]) -> bool:
+    return _any_filter(value, lambda prop: prop.get("type") in types)
+
+
+def _any_filter(value: object, matches: Callable[[dict[str, Any]], bool]) -> bool:
     if isinstance(value, dict):
-        return value.get("type") == "cohort" or any(_mentions_cohort(item) for item in value.values())
+        return matches(value) or any(_any_filter(item, matches) for item in value.values())
     if isinstance(value, list):
-        return any(_mentions_cohort(item) for item in value)
+        return any(_any_filter(item, matches) for item in value)
     return False
 
 
-def _load_split_history(experiment: Experiment) -> SplitHistory | None:
+def _load_split_history(experiment: Experiment, reader: User) -> SplitHistory | None:
     launched_at = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
@@ -250,31 +280,33 @@ def _load_split_history(experiment: Experiment) -> SplitHistory | None:
         return None
 
     changes = _split_changes_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
-    gate = _ExposureGate(experiment, launched_at)
-    window_start = launched_at
-    for index, change in enumerate(changes):
-        exposed_before = gate.exposed(
-            window_start=window_start,
-            window_end=change.changed_at,
-            variant_keys=split_variant_keys(change.before),
-        )
-        if exposed_before is not False:
-            counted = tuple(changes[index:])
-            return SplitHistory(
-                launched_at=launched_at,
-                team_timezone=experiment.team.timezone,
-                counted_changes=counted,
-                exposed_before_first=exposed_before,
-                exposed_between=_exposed_between(gate, counted),
+    counted: tuple[SplitChange, ...] = ()
+    exposed_before_first: bool | None = False
+    exposed_between: bool | None = None
+    # Most flags never change after launch, and the gate reads the exposure action and resolves the exposure
+    # event, so it is built only when there is a change to ask about.
+    if changes:
+        gate = _ExposureGate(experiment, launched_at, reader)
+        window_start = launched_at
+        for index, change in enumerate(changes):
+            exposed_before = gate.exposed(
+                window_start=window_start,
+                window_end=change.changed_at,
+                variant_keys=split_variant_keys(change.before),
             )
-        window_start = change.changed_at
+            if exposed_before is not False:
+                counted = tuple(changes[index:])
+                exposed_before_first = exposed_before
+                exposed_between = _exposed_between(gate, counted)
+                break
+            window_start = change.changed_at
 
     return SplitHistory(
         launched_at=launched_at,
         team_timezone=experiment.team.timezone,
-        counted_changes=(),
-        exposed_before_first=False,
-        exposed_between=None,
+        counted_changes=counted,
+        exposed_before_first=exposed_before_first,
+        exposed_between=exposed_between,
     )
 
 

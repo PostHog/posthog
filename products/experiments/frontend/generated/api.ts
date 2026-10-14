@@ -703,7 +703,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * The checks here read the experiment, its flag, its linked metrics, and the changes of the
  * flag's variant split since launch. The checks that read exposure counts come with the
  * exposure query. The split-change check runs only for callers who can view the linked flag
- * and, with an API key, hold `query:read`.
+ * and, with an API key, hold `query:read` and `activity_log:read`.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

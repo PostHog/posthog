@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -33,6 +35,34 @@ _BY_COHORT: dict[str, Any] = {
         "kind": "ExperimentEventExposureConfig",
         "event": "$feature_flag_called",
         "properties": [{"key": "id", "value": 1, "type": "cohort"}],
+    }
+}
+_BY_RELATIVE_DATE: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "signup_date", "value": "-7d", "operator": "is_date_after", "type": "person"}],
+    }
+}
+_BY_HOGQL: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
+    }
+}
+_BY_PERSON_PROPERTY: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+    }
+}
+_BY_EVENT_PROPERTY: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
     }
 }
 
@@ -91,11 +121,13 @@ class TestLoadSplitHistory(BaseTest):
             )
         return changed_at
 
-    def _load(self, answers: list[bool | Exception] | Callable[..., bool]) -> tuple[SplitHistory | None, MagicMock]:
+    def _load(
+        self, answers: list[bool | Exception] | Callable[..., bool], *, reader: User | None = None
+    ) -> tuple[SplitHistory | None, MagicMock]:
         with patch(
             "products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers
         ) as query:
-            history = load_split_history(self.experiment)
+            history = load_split_history(self.experiment, reader=reader or self.user)
         return history, query
 
     def test_changes_before_the_first_exposure_do_not_count(self) -> None:
@@ -141,6 +173,7 @@ class TestLoadSplitHistory(BaseTest):
                 "window_end": changed_at[1],
                 "variant_keys": ["control", "test"],
                 "default_exposure_event": ANY,
+                "user": self.user,
             },
         )
 
@@ -148,6 +181,7 @@ class TestLoadSplitHistory(BaseTest):
         [
             ("scan_too_expensive", ClickHouseQueryTimeOut(), False, 0),
             ("transient_memory_pressure", ClickHouseClusterMemoryLimitExceeded(), False, 1),
+            ("table_the_reader_may_not_query", TableAccessDeniedError("events"), False, 1),
             ("unexpected_error", RuntimeError("unexpected"), True, 1),
         ]
     )
@@ -214,7 +248,10 @@ class TestLoadSplitHistory(BaseTest):
             ("nobody_in_a_recent_window_minutes_later", False, timedelta(minutes=10), {}, timedelta(minutes=1), 0),
             ("nobody_in_a_recent_window_later", False, timedelta(minutes=10), {}, timedelta(minutes=10), 1),
             ("nobody_with_a_cohort_filter", False, timedelta(hours=2), _BY_COHORT, timedelta(hours=2), 1),
-            ("exposed_with_a_cohort_filter", True, timedelta(hours=2), _BY_COHORT, timedelta(days=2), 0),
+            ("exposed_with_a_cohort_filter", True, timedelta(hours=2), _BY_COHORT, timedelta(hours=2), 1),
+            ("nobody_with_a_relative_date_filter", False, timedelta(hours=2), _BY_RELATIVE_DATE, timedelta(hours=2), 1),
+            ("nobody_with_a_hogql_filter", False, timedelta(hours=2), _BY_HOGQL, timedelta(hours=2), 1),
+            ("nobody_with_a_person_filter", False, timedelta(hours=2), _BY_PERSON_PROPERTY, timedelta(hours=2), 1),
         ]
     )
     def test_answer_cache(
@@ -235,6 +272,32 @@ class TestLoadSplitHistory(BaseTest):
             _, query = self._load([answer])
 
         self.assertEqual(query.call_count, expected_queries)
+
+    @parameterized.expand([("event_property_filter", _BY_EVENT_PROPERTY, 0), ("hogql_filter", _BY_HOGQL, 1)])
+    def test_answers_are_shared_between_readers_unless_a_filter_can_read_the_warehouse(
+        self, _name: str, exposure_criteria: dict[str, Any], expected_queries: int
+    ) -> None:
+        self.experiment.exposure_criteria = exposure_criteria
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([True])
+        other_reader = User.objects.create_and_join(self.organization, "other-reader@example.com", None)
+
+        _, query = self._load([True], reader=other_reader)
+
+        self.assertEqual(query.call_count, expected_queries)
+
+    def test_criteria_the_schema_rejects_still_load_the_history(self) -> None:
+        self.experiment.exposure_criteria = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+
+        with patch("products.experiments.backend.health.exposure_gate.capture_exception") as capture:
+            history, _ = self._load([True])
+
+        assert history is not None
+        self.assertIs(history.exposed_before_first, True)
+        capture.assert_not_called()
 
     def test_revert_through_a_flag_without_variants_leaves_in_between_unknown(self) -> None:
         self._log_split_changes([_split(50, 50), [], _split(50, 50)])
@@ -301,6 +364,7 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
             window_end=now - timedelta(days=1),
             variant_keys=["control", "test"],
             default_exposure_event=DEFAULT_EXPOSURE_EVENT,
+            user=self.user,
         )
 
         self.assertIs(exposed, expected)

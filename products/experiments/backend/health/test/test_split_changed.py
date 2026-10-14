@@ -153,9 +153,9 @@ class TestSplitChangedMidRun(TestCase):
                 "variant_rolled_out_inside_targeted_conditions",
                 _context(EVEN, SHIPPED, groups=TARGETED),
                 ("variant_rolled_out", ExperimentHealthFindingSeverity.WARNING, "E3"),
-                f'Variant "test" was rolled out to 100% of the people the flag targets on {FIRST_CHANGE}, while the '
-                'experiment is still running. Since then, everyone the flag targets gets variant "test". '
-                f"End the experiment with a conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
+                f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
+                'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
+                f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
             ),
             (
                 "several_changes_days_after_launch",
@@ -250,9 +250,20 @@ class TestSplitChangedMidRun(TestCase):
     def test_no_finding(self, _name: str, ctx: HealthContext) -> None:
         self.assertIsNone(split_changed_mid_run(ctx))
 
-    def test_shipped_finding_reports_a_rollout_to_everyone(self) -> None:
-        ctx = _context(EVEN, SHIPPED, groups=EVERYONE)
-
+    @parameterized.expand(
+        [
+            ("one_change", _context(EVEN, SHIPPED), FIRST_CHANGE, "control 50% / test 50%"),
+            (
+                "rollout_after_a_rebalance",
+                _context(EVEN, _split(("control", 70), ("test", 30)), SHIPPED),
+                SECOND_CHANGE,
+                "control 70% / test 30%",
+            ),
+        ]
+    )
+    def test_shipped_finding_reports_a_rollout_to_everyone(
+        self, _name: str, ctx: HealthContext, rolled_out_at: str, split_before: str
+    ) -> None:
         shipped = flag_state(ctx)
 
         self.assertIsNone(split_changed_mid_run(ctx))
@@ -260,8 +271,8 @@ class TestSplitChangedMidRun(TestCase):
         self.assertEqual(shipped.code, ExperimentHealthFindingCode.VARIANT_SHIPPED_WHILE_RUNNING)
         self.assertEqual(
             shipped.detail,
-            f'Variant "test" is rolled out to 100% of users. It has been at 100% since {FIRST_CHANGE}, and the '
-            "split was control 50% / test 50% before. The experiment is not comparing variants. End the experiment "
+            f'Variant "test" is rolled out to 100% of users. It has been at 100% since {rolled_out_at}, and the '
+            f"split was {split_before} before. The experiment is not comparing variants. End the experiment "
             "with a conclusion, or adjust the variant distribution of the linked feature flag to resume proper A/B "
             "testing.",
         )

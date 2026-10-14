@@ -910,21 +910,23 @@ class EnterpriseExperimentsViewSet(
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
         exposure query. The split-change check runs only for callers who can view the linked flag
-        and, with an API key, hold `query:read`.
+        and, with an API key, hold `query:read` and `activity_log:read`.
         """
         experiment: Experiment = self.get_object()
         findings = get_experiment_health_findings(
             team_id=self.team_id,
             experiment_id=experiment.id,
-            with_split_history=self._may_read_split_history(request, experiment),
+            split_history_reader=cast(User, request.user)
+            if self._may_read_split_history(request, experiment)
+            else None,
         )
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
     def _may_read_split_history(self, request: Request, experiment: Experiment) -> bool:
-        # The split history shows the flag's past splits, which `activity` keeps behind the flag's own access
-        # controls. It also queries events, which a scoped token reaches only with `query:read`.
+        # The split history is flag history, which `activity` keeps behind the flag's own access controls and
+        # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
         scopes = get_authenticator_scopes(request.successful_authenticator)
-        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
+        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read", "activity_log:read"]):
             return False
         return experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"

@@ -99,10 +99,7 @@ def _what_changed(history: SplitHistory, effect: SplitNetEffect) -> str:
     match effect.shape:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
             variant = _rolled_out_variant(effect, starts_sentence=True)
-            return (
-                f"{variant} was rolled out to 100% of the people the flag targets on {at}, "
-                "while the experiment is still running."
-            )
+            return f"{variant} was set to 100% of the split on {at}, while the experiment is still running."
         case SplitChangeShape.VARIANT_REMOVED:
             keys = removed_variant_keys(effect.from_split, effect.to_split)
             return f"{_variants(keys)} {_was(keys)} removed on {at} (from {from_split} to {to_split})."
@@ -125,7 +122,7 @@ def _consequence(history: SplitHistory, effect: SplitNetEffect) -> list[str]:
         case SplitChangeShape.VARIANT_ROLLED_OUT:
             variant = _rolled_out_variant(effect, starts_sentence=False)
             return [
-                f"Since then, everyone the flag targets gets {variant}.",
+                f"From then on, the split assigns everyone to {variant}.",
                 "End the experiment with a conclusion, or restore the split.",
             ]
         case SplitChangeShape.VARIANT_REMOVED:
