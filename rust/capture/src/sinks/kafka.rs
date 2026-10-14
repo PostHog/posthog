@@ -27,6 +27,7 @@ use bytes::Bytes;
 use common_types::CapturedEventHeaders;
 use futures::future::join_all;
 use metrics::{counter, gauge, histogram};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::task::JoinSet;
@@ -511,7 +512,7 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
         let mut results: Vec<SinkResult> = Vec::with_capacity(payloads.len());
 
         let enqueue_start = Instant::now();
-        let mut ack_set = JoinSet::new();
+        let mut ack_set = AckSet::new();
         let mut payloads = payloads.into_iter();
         for payload in payloads.by_ref() {
             let uuid = payload.uuid;
@@ -521,9 +522,9 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
                     results.push(SinkResult::published(uuid));
                 }
                 Err(err) => {
+                    ack_set.cancel();
                     // Record enqueue duration on the error path too so slow-fail
                     // cases (e.g. QueueFull after a long stall) stay observable.
-                    // Dropping `ack_set` aborts any already spawned ack futures.
                     histogram!("capture_kafka_batch_enqueue_duration_seconds")
                         .record(enqueue_start.elapsed().as_secs_f64());
                     for result in &mut results {
@@ -538,7 +539,7 @@ impl<P: KafkaProducer + 'static> PublishPayloads for KafkaSinkBase<P> {
         histogram!("capture_kafka_batch_enqueue_duration_seconds")
             .record(enqueue_start.elapsed().as_secs_f64());
 
-        match drain_acks(ack_set).await {
+        match ack_set.wait().await {
             Ok(()) => results,
             Err(err) => {
                 for result in &mut results {
@@ -605,27 +606,49 @@ impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
     }
 }
 
-/// Concurrent ack drain for `PublishPayloads::publish`, fail-fast on first ack error.
-async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<(), CaptureError> {
-    async move {
-        while let Some(res) = ack_set.join_next().await {
-            match res {
-                Ok(Ok(_)) => {}
-                Ok(Err(err)) => {
-                    ack_set.abort_all();
-                    return Err(err);
-                }
-                Err(err) => {
-                    ack_set.abort_all();
-                    error!("join error while waiting on Kafka ACK: {err:#}");
-                    return Err(CaptureError::RetryableSinkError);
+/// The ack futures of one `PublishPayloads::publish` batch, awaited concurrently.
+struct AckSet(JoinSet<Result<(), CaptureError>>);
+
+impl AckSet {
+    fn new() -> Self {
+        Self(JoinSet::new())
+    }
+
+    fn spawn<F>(&mut self, ack: F)
+    where
+        F: Future<Output = Result<(), CaptureError>> + Send + 'static,
+    {
+        self.0.spawn(ack);
+    }
+
+    /// Waits for every ack. The first failure cancels the rest.
+    async fn wait(mut self) -> Result<(), CaptureError> {
+        async move {
+            while let Some(res) = self.0.join_next().await {
+                match res {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(err)) => {
+                        self.cancel();
+                        return Err(err);
+                    }
+                    Err(err) => {
+                        self.cancel();
+                        error!("join error while waiting on Kafka ACK: {err:#}");
+                        return Err(CaptureError::RetryableSinkError);
+                    }
                 }
             }
+            Ok(())
         }
-        Ok(())
+        .instrument(info_span!("ack_wait_many"))
+        .await
     }
-    .instrument(info_span!("ack_wait_many"))
-    .await
+
+    /// Cancels every unfinished ack. A cancelled `DeliveryAckFuture` records
+    /// its wait as outcome `dropped`.
+    fn cancel(mut self) {
+        self.0.abort_all();
+    }
 }
 
 #[cfg(test)]
