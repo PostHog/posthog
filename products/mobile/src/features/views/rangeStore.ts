@@ -1,0 +1,119 @@
+import { useCallback, useMemo } from 'react'
+import { create } from 'zustand'
+
+import { addSessionEndTask } from '@/auth/authStore'
+import { haptic } from '@/lib/haptics'
+import type { RangeChoice, SavedRange, ViewKind } from '@/model/views'
+
+import { type RangeMethod, trackDateRangeChanged, trackDateRangeCompared } from './analytics'
+import { type FiltersOverride, rangeOverride } from './rangeOverride'
+import { isSavedRange, rangeLabel } from './rangePresets'
+import { type StepContext, type StepDirection, stepRange } from './rangeStep'
+
+/** `dashboard:{id}`, `insight:{short_id}` or `web`. */
+export type ViewRangeKey = string
+
+export function dashboardRangeKey(dashboardId: number): ViewRangeKey {
+    return `dashboard:${dashboardId}`
+}
+
+export function insightRangeKey(shortId: string): ViewRangeKey {
+    return `insight:${shortId}`
+}
+
+export const WEB_ANALYTICS_RANGE_KEY: ViewRangeKey = 'web'
+
+interface ViewRangeStoreState {
+    ranges: Record<ViewRangeKey, RangeChoice>
+    compare: Record<ViewRangeKey, boolean>
+    setRange: (key: ViewRangeKey, choice: RangeChoice | null) => void
+    setCompare: (key: ViewRangeKey, on: boolean) => void
+    clear: () => void
+}
+
+// In memory only: a range lasts for the session, like the web's draft filters, and is never saved to the view.
+export const useViewRangeStore = create<ViewRangeStoreState>()((set) => ({
+    ranges: {},
+    compare: {},
+    setRange: (key, choice) =>
+        set((state) => {
+            const { [key]: _removed, ...rest } = state.ranges
+            return { ranges: choice ? { ...rest, [key]: choice } : rest }
+        }),
+    setCompare: (key, on) => set((state) => ({ compare: { ...state.compare, [key]: on } })),
+    clear: () => set({ ranges: {}, compare: {} }),
+}))
+
+addSessionEndTask(() => useViewRangeStore.getState().clear())
+
+export interface ViewRange {
+    /** Null: the view's saved range. */
+    choice: RangeChoice | null
+    /** The header label. Null when the saved range has no dates (each dashboard tile keeps its own). */
+    label: string | null
+    /** False shows "Not saved" and "Reset to saved range". */
+    isSaved: boolean
+    /** The `filters_override` for dashboards and insights. Null reads the saved range. */
+    override: FiltersOverride | null
+    compare: boolean
+    setChoice: (choice: RangeChoice, method: Exclude<RangeMethod, 'reset' | 'step'>) => void
+    reset: () => void
+    setCompare: (on: boolean) => void
+    canStep: (direction: StepDirection, context: StepContext) => boolean
+    /** Returns false when the step is not possible. */
+    step: (direction: StepDirection, context: StepContext) => boolean
+}
+
+/** The session range of one view. `savedCompare` is the view's own compare setting, used until the user toggles it. */
+export function useViewRange(
+    key: ViewRangeKey,
+    viewType: ViewKind,
+    saved: SavedRange,
+    savedCompare = false
+): ViewRange {
+    const choice = useViewRangeStore((state) => state.ranges[key] ?? null)
+    const compareChoice = useViewRangeStore((state) => state.compare[key])
+    const setRange = useViewRangeStore((state) => state.setRange)
+    const setCompareFor = useViewRangeStore((state) => state.setCompare)
+    const savedFrom = saved.dateFrom
+    const savedTo = saved.dateTo
+    const savedRange = useMemo<SavedRange>(() => ({ dateFrom: savedFrom, dateTo: savedTo }), [savedFrom, savedTo])
+    const label = rangeLabel(choice, savedRange)
+
+    const apply = useCallback(
+        (next: RangeChoice | null, method: RangeMethod) => {
+            trackDateRangeChanged({
+                viewType,
+                method,
+                range: rangeLabel(next, savedRange) ?? 'saved',
+                previousRange: rangeLabel(choice, savedRange) ?? 'saved',
+            })
+            setRange(key, next && !isSavedRange(next, savedRange) ? next : null)
+        },
+        [choice, key, savedRange, setRange, viewType]
+    )
+
+    return {
+        choice,
+        label,
+        isSaved: isSavedRange(choice, savedRange),
+        override: rangeOverride(choice),
+        compare: compareChoice ?? savedCompare,
+        setChoice: (next, method) => apply(next, method),
+        reset: () => apply(null, 'reset'),
+        setCompare: (on) => {
+            trackDateRangeCompared({ viewType, enabled: on })
+            setCompareFor(key, on)
+        },
+        canStep: (direction, context) => stepRange(choice, savedRange, direction, context) !== null,
+        step: (direction, context) => {
+            const next = stepRange(choice, savedRange, direction, context)
+            if (!next) {
+                return false
+            }
+            haptic('selection')
+            apply(next, 'step')
+            return true
+        },
+    }
+}
