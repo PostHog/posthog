@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
+    codebase_detection = detect(
+        env=("^DIXA_",),
+        script_hosts=("messenger.dixa.io",),
+        cocoapods=("DixaMessengerKit",),
+        swiftpm=("github.com/dixahq/ios-messenger",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.dixa.io"

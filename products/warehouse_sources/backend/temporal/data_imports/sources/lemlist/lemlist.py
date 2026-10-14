@@ -112,6 +112,10 @@ def _campaign_fanout_source(
     parent_config = LEMLIST_ENDPOINTS[config.fanout.parent_name]
     fanout = dataclasses.replace(config.fanout, parent_params=_request_params(parent_config, api_version))
 
+    parent_endpoint_extra: Endpoint = {"paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None)}
+    if parent_config.data_selector:
+        parent_endpoint_extra["data_selector"] = parent_config.data_selector
+
     child_endpoint_extra: Endpoint = {"paginator": SinglePagePaginator()}
     if config.data_selector:
         child_endpoint_extra["data_selector"] = config.data_selector
@@ -130,7 +134,7 @@ def _campaign_fanout_source(
             db_incremental_field_last_value=None,
             # The parent's OffsetPaginator sends `limit`; the child endpoints take no page size.
             page_size_param=None,
-            parent_endpoint_extra={"paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None)},
+            parent_endpoint_extra=parent_endpoint_extra,
             child_endpoint_extra=child_endpoint_extra,
         ),
     )

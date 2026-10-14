@@ -42,23 +42,32 @@ class FailMaterializationInputs:
     update_node: bool = True
 
 
+def _fail_node(inputs: FailMaterializationInputs, sanitized_error: str) -> Node | None:
+    with transaction.atomic():
+        node = (
+            Node.objects.select_for_update()
+            .filter(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            .first()
+        )
+        if node is None:
+            return None
+        status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+        update_node_system_properties(
+            node,
+            status=status,
+            job_id=inputs.job_id,
+            error=sanitized_error,
+        )
+        node.save()
+    return node
+
+
 @database_sync_to_async_pool
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
 
-    node = None
-    if inputs.update_node:
-        with transaction.atomic():
-            node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-            status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
-            update_node_system_properties(
-                node,
-                status=status,
-                job_id=inputs.job_id,
-                error=sanitized_error,
-            )
-            node.save()
+    node = _fail_node(inputs, sanitized_error) if inputs.update_node else None
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
 

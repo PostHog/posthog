@@ -4777,6 +4777,28 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_cannot_start_a_product_private_account_audit(self, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.origin_product = Task.OriginProduct.ACCOUNT_AUDIT
+        task.internal = True
+        task.save(update_fields=["origin_product", "internal"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch(
         "products.tasks.backend.facade.api.get_task_run_detail", side_effect=AssertionError("Run details not needed")
     )
@@ -7205,13 +7227,19 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_only_the_task_bound_sandbox_reads_a_product_private_task(self):
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
+            (Task.OriginProduct.ACCOUNT_AUDIT,),
+        ]
+    )
+    def test_only_the_task_bound_sandbox_reads_a_product_private_task(self, origin_product):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.user,
             title="Question",
             description="Answer from business knowledge",
-            origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE,
+            origin_product=origin_product,
         )
         other_task = self.create_task()
         own_sandbox = self._sandbox_oauth_client(private_task.id)
@@ -8655,6 +8683,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
             message_id=None,
             trace_id=expected_trace_id,
+            offer_reply_suggestions=True,
         )
 
     @parameterized.expand(
@@ -8709,6 +8738,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
             message_id=None,
             trace_id=None,
+            offer_reply_suggestions=True,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -16661,14 +16691,17 @@ class TestGetPosthogCodeUsage(TestCase):
         self.assertIsNone(get_posthog_code_usage(self.team.id + 10_000))
 
 
-class TestUsageLimitResponse(TestCase):
+class TestUsageLimitResponse(SimpleTestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_over_limit_response_is_structured(self, mock_usage):
         mock_usage.return_value = CodeUsageStatus(
             is_rate_limited=True, limit_type="burst", reset_at="2026-06-09T00:00:00Z", is_pro=False
         )
 
-        response = usage_limit_response(MagicMock(), 1)
+        with patch(
+            "products.tasks.backend.logic.services.code_usage_gate.organization_deactivated", return_value=False
+        ):
+            response = usage_limit_response(MagicMock(), 1)
 
         assert response is not None
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
