@@ -177,10 +177,11 @@ MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
 MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
-# insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The extra hour covers the time
-# that the task waits in the queue. calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV
-# import that runs longer than this. When that import finishes, it rewrites the history row that the sweep closed. It
-# also saves the cohort's calculation state again.
+# insert_cohort_from_feature_flag stops at the soft limit and records its own failure. The sweep measures a cohort with
+# no history row from created_at. The extra hour covers the time that the task of that cohort waits in the queue.
+# calculate_cohort_from_list has no time limit. The sweep therefore resets a CSV import that runs longer than this. When
+# that import finishes, it rewrites the history row that the sweep closed. It also saves the cohort's calculation state
+# again.
 SOURCELESS_STATIC_COHORT_STUCK_AFTER = timedelta(seconds=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS, hours=1)
 
 # The path lookup returns NULL for a missing path. IS NOT NULL turns that NULL into false. exclude() therefore selects
@@ -255,8 +256,9 @@ def get_stuck_sourceless_static_cohort_candidates_queryset(cutoff: datetime) -> 
             newest_attempt_finished_at=Subquery(newest_attempt.values("finished_at")[:1]),
         )
         .filter(
-            # A cohort is created when its first population is dispatched. A flag run writes its history row only when
-            # it ends. So created_at is the dispatch time of a cohort that was never populated and has no history row.
+            # A cohort is created when its first population is dispatched. Flag runs and CSV imports open a history row
+            # when their task starts. So a cohort that was never populated and has no history row still waits for its
+            # first task. Its created_at is the dispatch time of that task.
             # A cohort whose earlier population failed without a history row has errors_calculating above 0. A CSV
             # re-upload to that cohort writes no row until its task starts. This branch therefore skips that cohort.
             Q(
@@ -265,8 +267,9 @@ def get_stuck_sourceless_static_cohort_candidates_queryset(cutoff: datetime) -> 
                 errors_calculating=0,
                 created_at__lte=cutoff,
             )
-            # A CSV import opens its history row when it starts and closes the row on every exit except a kill. A
-            # re-upload that waits in the queue or in a retry backoff has a closed newest row. That row does not match.
+            # A flag run or a CSV import closes its history row on every exit except a kill. A CSV upload also closes
+            # the row that a killed attempt left open. So a re-upload that waits in the queue or in a retry backoff has
+            # a closed newest row. That row does not match.
             | Q(newest_attempt_started_at__lte=cutoff, newest_attempt_finished_at__isnull=True)
         )
     )
