@@ -31,7 +31,7 @@ Case names stay the same across trials.
 
 The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
 Other suites continue using Braintrust and the existing event reporting path.
-The publisher runs after scoring and uses the same per-case results; it does not execute another agent run or judge call.
+After scoring, the harness saves the completed results and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 `no_send_logs=True` suppresses this upload too.
 
 Configure the destination through the environment before running the SQL suite:
@@ -79,14 +79,19 @@ Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain 
 Both `false` and numeric zero have status `ok`: this status means scoring produced a value, not that the agent passed.
 A `None` score becomes `skipped`; a task error or missing scorer result becomes `error`, with no score value.
 The judges' existing error fallback of zero remains zero, matching Braintrust's score.
-Successful scorer reasoning is not available in the engine's returned results and is not uploaded by this pilot.
+Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
+Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
+Application and dataset revisions use the commit captured at run start.
 
 Items include available input, output, expected output, and case metadata.
 The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
 Fields that exceed payload limits are omitted, with omission details recorded in metadata.
 
-The publisher saves the exact create and upload requests in `posthog-offline-upload.json` inside the experiment's agent-log directory before sending them.
-Transient failures receive at most three attempts with the same experiment and item identities.
+The publisher atomically saves a versioned, credential-free `posthog-offline-upload.json` in the experiment's agent-log directory before sending anything.
+The file retains the original experiment declaration, item identities, scorer versions, and result payloads. Saving and replay use the same JSON representation, including large integer payload values.
+The SDK owns request validation, batching, acknowledgements, and retries. Transient failures receive up to three retries with the same experiment and item identities.
+Local case exports finish before delivery is queued. Up to two uploads run concurrently, with at most 32 queued or active uploads and a 60-second deadline per active upload.
+After suites finish, the harness tears down shared infrastructure and waits up to 30 seconds for remaining uploads. Timeout, cancellation, a full queue, or a rejected request leaves the saved upload available for replay and does not change the score gate.
 After correcting a configuration or connectivity problem, replay the saved requests without rerunning the eval:
 
 ```bash
@@ -95,6 +100,33 @@ python -m products.posthog_ai.eval_harness.offline_results PATH_TO_posthog-offli
 
 Replay uses the API key, host, and project environment settings for the original destination.
 It retains the saved scorer version UUIDs regardless of the current `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` mapping, then completes the experiment after all uploads succeed.
+Replay also accepts files produced by the earlier HTTP publisher. Exact retries remain safe after partial acceptance or a lost completion response.
+
+### Enrolling other suites and richer results
+
+Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
+Each suite selects its scorer kinds and uses the corresponding entries from `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS`; the shared mapping may include metrics used by other suites.
+Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
+
+`OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions`, including hosted dataset revisions, external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
+The harness owns the experiment ID, start time, suite key, and expected counts.
+Case metadata can supply `dataset_item_identifier`, `dataset_item_version_identifier`, or `dataset_item_version_id` for the SDK's item references.
+
+Ordinary scorers continue returning numeric `Score` values. A scorer can additionally return a typed `ScorerResult` through `Score.result` to publish categorical values or `not_applicable`, explicit errors, reasoning, metadata, timestamps, and evaluator trace references:
+
+```python
+from products.posthog_ai.eval_harness.engines.types import ScorerResult
+from products.posthog_ai.eval_harness.scorers.contract import Score
+
+result = Score(
+    name="answer_category",
+    score=None,
+    result=ScorerResult(status="ok", value=["correct"], reasoning="The answer matches the reference."),
+)
+```
+
+The numeric `score` still controls existing Braintrust and local aggregates; `result` describes the offline outcome. Configure this example's scorer kind as `categorical`.
+Scorer provisioning stays separate from uploading results, so publishing requires only the ingestion scope and does not create or modify scorer definitions.
 
 ## Postgres experiment ingestion
 

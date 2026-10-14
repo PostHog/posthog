@@ -303,12 +303,14 @@ See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-r
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
-It publishes the same completed case results and keeps sending to Braintrust and the existing `$ai_evaluation` event path.
+It publishes the same completed case results through the Python SDK and keeps sending to Braintrust and the existing `$ai_evaluation` event path.
 Other suites are unchanged, and `no_send_logs=True` suppresses the new upload too.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write`, `POSTHOG_OFFLINE_EVAL_PROJECT_ID` to the destination project/environment, and `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` to a JSON object mapping all seven SQL metric names to their immutable scorer version UUIDs.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
 The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
+Delivery runs in a bounded background queue after local results are saved. Shared infrastructure is torn down before the final bounded upload wait; failed or interrupted uploads remain available for replay.
+Both sandboxed and one-shot suites can opt in through `offline_suite`. The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, dataset references, version fields, and shared scorer mappings.
 
 ```bash
 hogli evals sql/eval_sql::eval_sql
@@ -319,7 +321,7 @@ Partial or invalid configuration and upload failures produce warnings while Brai
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
 Raw agent logs stay in the existing local and Braintrust outputs; oversized fields are omitted from the new API payload with omission metadata.
 
-The experiment's agent-log directory contains `posthog-offline-upload.json` with the exact requests prepared for upload.
+The experiment's agent-log directory contains `posthog-offline-upload.json` with the experiment and result declarations prepared for upload.
 To retry without rerunning the agent or scorers, use the original destination's API key, host, and project environment settings:
 
 ```bash

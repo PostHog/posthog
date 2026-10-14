@@ -15,6 +15,7 @@ import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 
@@ -95,7 +96,21 @@ class ExperimentSpec:
     metadata: dict[str, Any]
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ScorerResult:
+    """A scorer outcome for reporting, independent of its normalized aggregate score."""
+
+    status: Literal["ok", "error", "skipped", "not_applicable"]
+    value: float | int | bool | list[str] | None = None
+    reasoning: str | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+    evaluator_trace_id: str | None = None
+    evaluated_at: datetime | None = None
+
+
+@dataclass(frozen=False)
 class CaseResult:
     """One scored case (or case × trial): the engine-neutral ``EvalResult``.
 
@@ -111,6 +126,8 @@ class CaseResult:
     expected: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    scorer_results: dict[str, ScorerResult] = field(default_factory=dict)
+    trial_index: int | None = None
 
 
 @dataclass(frozen=True)

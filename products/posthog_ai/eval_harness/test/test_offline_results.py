@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import cast
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import UUID
 
 import pytest
@@ -14,13 +16,15 @@ import httpx
 from parameterized import parameterized
 from pydantic import SecretStr
 
-from products.posthog_ai.eval_harness.engines.types import CaseResult, EvalSummary, ExperimentResult
+from products.posthog_ai.eval_harness.engines.types import CaseResult, EvalSummary, ExperimentResult, ScorerResult
 from products.posthog_ai.eval_harness.offline_results import (
     OfflineEvalPublisher,
     OfflineEvalSettings,
     OfflineEvalSuite,
+    OfflineEvalUpload,
     OfflineUploadError,
 )
+from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 
 EXPERIMENT_ID = "00000000-0000-4000-8000-000000000001"
 SCORER_VERSIONS = {
@@ -28,12 +32,14 @@ SCORER_VERSIONS = {
     "numeric_metric": UUID("00000000-0000-4000-8000-000000000003"),
 }
 SUITE = OfflineEvalSuite(key="sql/test", scorer_kinds={"boolean_metric": "boolean", "numeric_metric": "numeric"})
+STARTED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _publisher() -> OfflineEvalPublisher:
+def _publisher(*, link_traces: bool = False) -> OfflineEvalPublisher:
     return OfflineEvalPublisher(
         OfflineEvalSettings(project_id=123, api_key=SecretStr("test-only-token"), scorer_versions=SCORER_VERSIONS),
         SUITE,
+        application_trace_ids_enabled=link_traces,
     )
 
 
@@ -43,29 +49,22 @@ def _case(name: str = "query") -> CaseResult:
     )
 
 
-def _prepare(publisher: OfflineEvalPublisher, cases: list[CaseResult]) -> dict[str, object]:
-    with patch(
-        "products.posthog_ai.eval_harness.offline_results.subprocess.check_output", return_value="test-revision\n"
-    ):
-        return publisher.prepare(
-            experiment_id=EXPERIMENT_ID,
-            experiment_name="sql-test",
-            started_at=datetime(2026, 1, 1, tzinfo=UTC),
-            result=ExperimentResult(
-                summary=EvalSummary(
-                    engine_name="braintrust",
-                    experiment_name="sql-test",
-                    scores={},
-                    experiment_url="https://braintrust.example.com/experiment/test",
-                ),
-                results=cases,
+def _prepare(publisher: OfflineEvalPublisher, cases: list[CaseResult]) -> OfflineEvalUpload:
+    return publisher.prepare(
+        experiment_id=EXPERIMENT_ID,
+        experiment_name="sql-test",
+        started_at=STARTED_AT,
+        result=ExperimentResult(
+            summary=EvalSummary(
+                engine_name="braintrust",
+                experiment_name="sql-test",
+                scores={},
+                experiment_url="https://braintrust.example.com/experiment/test",
             ),
-            metadata={"agent_model": "test-model"},
-        )
-
-
-def _batches(upload: dict[str, object]) -> list[dict[str, list[dict[str, object]]]]:
-    return cast(list[dict[str, list[dict[str, object]]]], upload["batches"])
+            results=cases,
+        ),
+        metadata={"agent_model": "test-model", "git_sha": "captured-revision"},
+    )
 
 
 @parameterized.expand(
@@ -82,7 +81,6 @@ def _batches(upload: dict[str, object]) -> list[dict[str, list[dict[str, object]
             "error",
             "invalid_score",
         ),
-        ("out_of_range", {"boolean_metric": 0.5, "numeric_metric": -0.1}, None, "error", "invalid_score"),
     ]
 )
 def test_prepare_preserves_score_types_and_distinguishes_missing_from_skipped(
@@ -93,7 +91,7 @@ def test_prepare_preserves_score_types_and_distinguishes_missing_from_skipped(
     case.error = error
     case.metadata = {"scorer_errors": {"boolean_metric": "Judge failed"}}
 
-    results = _batches(_prepare(_publisher(), [case]))[0]["results"]
+    results = [result.to_dict() for result in _prepare(_publisher(), [case]).results]
 
     assert [result["scorer_version_id"] for result in results] == [str(version) for version in SCORER_VERSIONS.values()]
     assert [result["status"] for result in results] == [status, status]
@@ -106,165 +104,298 @@ def test_prepare_preserves_score_types_and_distinguishes_missing_from_skipped(
     if error_code is not None:
         assert [result["error_code"] for result in results] == [error_code, error_code]
     if error_code == "missing_score":
-        assert results[0]["payload"] == {"error_message": "Judge failed"}
+        assert results[0]["payload"]["error_message"] == "Judge failed"
 
 
-def test_prepare_assigns_stable_distinct_items_for_repeated_trials_and_counts_every_score() -> None:
+def test_prepare_assigns_stable_trial_ids_and_uses_captured_revision() -> None:
     publisher = _publisher()
     cases = [_case("query-a"), _case("query-b"), _case("query-a")]
+    cases[0].trial_index = 1
+    cases[2].trial_index = 0
     cases[1].scores = {"boolean_metric": None}
 
     upload = _prepare(publisher, cases)
-    items = _batches(upload)[0]["items"]
-    results = _batches(upload)[0]["results"]
+    reordered = _prepare(publisher, list(reversed(cases)))
+    items = [item.to_dict() for item in upload.items]
 
-    assert upload == _prepare(publisher, cases)
-    assert len({item["id"] for item in items}) == 3
+    assert {item.id for item in upload.items} == {item.id for item in reordered.items}
     assert [(item["case_key"], item["trial"]) for item in items] == [
-        ("query-a", "0"),
-        ("query-b", "0"),
         ("query-a", "1"),
+        ("query-b", "0"),
+        ("query-a", "0"),
     ]
-    assert {result["item_id"] for result in results} == {item["id"] for item in items}
-    assert [sum(result["item_id"] == item["id"] for result in results) for item in items] == [2, 2, 2]
-    experiment = cast(dict[str, object], upload["experiment"])
-    assert experiment["expected_item_count"] == 3
-    assert experiment["expected_result_count"] == 6
-    payload = cast(dict[str, object], items[0]["payload"])
-    assert (
-        cast(dict[str, object], payload["metadata"])["braintrust_url"]
-        == "https://braintrust.example.com/experiment/test"
-    )
+    assert {result.item_id for result in upload.results} == {item.id for item in upload.items}
+    assert upload.experiment["expected_item_count"] == 3
+    assert upload.experiment["expected_result_count"] == 6
+    assert upload.experiment["application_version"] == "captured-revision"
+    assert upload.experiment["dataset_revision_identifier"] == "captured-revision"
+    assert items[0]["payload"]["metadata"]["braintrust_url"] == "https://braintrust.example.com/experiment/test"
 
 
-def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_braintrust_results() -> None:
+def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_results() -> None:
     case = _case()
-    original_output = {"raw_log": "local trace", "tool_result": "x" * (300 * 1024), "answer": "There are 3 events"}
+    original_output = {"raw_log": "local trace", "tool_result": "x" * (1100 * 1024), "answer": "There are 3 events"}
     case.output = original_output.copy()
     case.expected = {"large_fixture": "x" * (300 * 1024)}
+    case.metadata["not_json"] = object()
 
-    item = _batches(_prepare(_publisher(), [case]))[0]["items"][0]
+    payload = _prepare(_publisher(), [case]).items[0].to_dict()["payload"]
 
-    payload = cast(dict[str, object], item["payload"])
     assert payload["output"] == {"answer": "There are 3 events"}
     assert "expected_output" not in payload
-    metadata = cast(dict[str, object], payload["metadata"])
-    assert set(cast(dict[str, object], metadata["omitted_fields"])) == {
+    assert set(payload["metadata"]["omitted_fields"]) == {
         "output.raw_log",
         "output.tool_result",
         "expected_output",
+        "metadata.case",
     }
     assert case.output == original_output
 
 
-@parameterized.expand([("result_count", 501, 0), ("encoded_bytes", 30, 100 * 1024)])
-def test_prepare_batches_under_both_api_limits_without_losing_items(_name: str, count: int, output_length: int) -> None:
-    cases = [_case(f"query-{index}") for index in range(count)]
-    for case in cases:
-        case.output = {"answer": "é" * output_length}
+@parameterized.expand([("linked", True), ("unlinked", False)])
+def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_traces: bool) -> None:
+    publisher = _publisher(link_traces=link_traces)
+    publisher.suite = OfflineEvalSuite(
+        key="sql/rich",
+        scorer_kinds={"boolean_metric": "categorical", "numeric_metric": "numeric"},
+        experiment_options={
+            "dataset_revision_id": EXPERIMENT_ID,
+            "prompt_version": "prompt-2",
+            "run_source": "scheduled",
+        },
+    )
+    case = _case()
+    case.metadata.update(
+        trace_id="application-trace", dataset_item_identifier="case-1", dataset_item_version_identifier="v2"
+    )
+    case.scorer_results = {
+        "boolean_metric": ScorerResult(
+            status="ok",
+            value=["correct"],
+            reasoning="Matches expected answer",
+            metadata={"confidence": 0.9},
+            evaluator_trace_id="judge-trace",
+            evaluated_at=STARTED_AT,
+        ),
+        "numeric_metric": ScorerResult(status="ok", value=35.0),
+    }
+    upload = _prepare(publisher, [case])
+    item = upload.items[0].to_dict()
+    outcome = upload.results[0].to_dict()
+    assert item.get("application_trace_id") == ("application-trace" if link_traces else None)
+    assert item["dataset_item_identifier"] == "case-1"
+    assert item["dataset_item_version_identifier"] == "v2"
+    assert outcome["value"] == ["correct"]
+    assert outcome["payload"]["reasoning"] == "Matches expected answer"
+    assert outcome["payload"]["metadata"] == {"confidence": 0.9}
+    assert outcome.get("evaluator_trace_id") == ("judge-trace" if link_traces else None)
+    assert outcome["evaluated_at"] == STARTED_AT.isoformat()
+    assert upload.results[1].to_dict()["value"] == 35.0
+    assert upload.experiment["dataset_revision_id"] == EXPERIMENT_ID
+    assert "dataset_source" not in upload.experiment
+    assert "dataset_identifier" not in upload.experiment
+    assert "dataset_revision_identifier" not in upload.experiment
+    assert upload.experiment["prompt_version"] == "prompt-2"
+    assert upload.experiment["run_source"] == "scheduled"
 
-    batches = _batches(_prepare(_publisher(), cases))
-
-    assert len(batches) > 1
-    assert sum(len(batch["items"]) for batch in batches) == count
-    assert sum(len(batch["results"]) for batch in batches) == 2 * count
-    for batch in batches:
-        assert len(batch["results"]) <= 1000
-        assert len(json.dumps(batch, ensure_ascii=False, separators=(",", ":")).encode()) <= 4 * 1024 * 1024
-        assert {result["item_id"] for result in batch["results"]} == {item["id"] for item in batch["items"]}
+    case.scorer_results["numeric_metric"] = ScorerResult(status="not_applicable", reasoning="No applicable operation")
+    assert _prepare(publisher, [case]).results[1].to_dict()["status"] == "not_applicable"
 
 
-@parameterized.expand([("rate_limit", 429), ("server_error", 503), ("network_error", None)])
-def test_publish_retries_identical_batches_and_only_completes_after_all_are_accepted(
+@parameterized.expand(
+    [
+        (
+            "oversized_metadata",
+            ScorerResult(status="ok", value=0.75, metadata={"details": "x" * (256 * 1024)}),
+            "metadata",
+        ),
+        ("unsupported_metadata", ScorerResult(status="ok", value=0.75, metadata={"details": object()}), "metadata"),
+        ("unsupported_reasoning", ScorerResult(status="ok", value=0.75, reasoning="\ud800"), "reasoning"),
+        (
+            "invalid_trace",
+            ScorerResult(status="ok", value=0.75, evaluator_trace_id="invalid\x00trace"),
+            "evaluator_trace_id",
+        ),
+        (
+            "naive_time",
+            ScorerResult(status="ok", value=0.75, evaluated_at=STARTED_AT.replace(tzinfo=None)),
+            "evaluated_at",
+        ),
+        (
+            "diagnostic_room",
+            ScorerResult(status="ok", value=0.75, reasoning="x" * (256 * 1024 - 40), metadata={"details": object()}),
+            "metadata",
+        ),
+    ]
+)
+def test_prepare_preserves_valid_scores_when_optional_details_cannot_be_uploaded(
+    _name: str, scorer_result: ScorerResult, omitted_field: str
+) -> None:
+    case = _case()
+    case.scorer_results["numeric_metric"] = scorer_result
+
+    result = _prepare(_publisher(link_traces=True), [case]).results[1].to_dict()
+
+    assert result["status"] == "ok"
+    assert result["value"] == 0.75
+    assert "error_code" not in result
+    assert omitted_field in result["payload"]["metadata"]["omitted_fields"]
+
+
+@parameterized.expand([("rate_limit", 429), ("server_error", 503), ("timeout", 408), ("network_error", None)])
+def test_publish_retries_identical_batches_and_completes_after_all_acknowledgments(
     _name: str, failure_status: int | None
 ) -> None:
     publisher = _publisher()
     upload = _prepare(publisher, [_case(f"query-{index}") for index in range(501)])
-    requests: list[httpx.Request] = []
+    server = OfflineServer()
+    attempts: list[httpx.Request] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        if len(requests) == 2:
+        attempts.append(request)
+        if len(attempts) == 2:
             if failure_status is None:
                 raise httpx.ConnectError("connection lost", request=request)
             return httpx.Response(failure_status, headers={"Retry-After": "0"})
-        return httpx.Response(202)
+        return server.respond(request)
 
-    client_factory = partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))
     with (
-        patch("products.posthog_ai.eval_harness.offline_results.httpx.AsyncClient", new=client_factory),
-        patch("products.posthog_ai.eval_harness.offline_results.asyncio.sleep", new_callable=AsyncMock),
+        patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))),
+        patch("posthoganalytics.ai.evaluations._transport.asyncio.sleep", new_callable=AsyncMock),
     ):
         url = asyncio.run(publisher.publish(upload))
 
-    base = f"/api/projects/123/ai_observability/offline_experiments/{EXPERIMENT_ID}"
-    assert [request.url.path for request in requests] == [
-        "/api/projects/123/ai_observability/offline_experiments/",
-        f"{base}/upload/",
-        f"{base}/upload/",
-        f"{base}/upload/",
-        f"{base}/complete/",
-    ]
-    assert requests[1].content == requests[2].content
-    assert requests[2].content != requests[3].content
-    assert requests[0].headers["Authorization"] == "Bearer test-only-token"
+    assert len(attempts) == 5
+    assert attempts[1].content == attempts[2].content
+    assert attempts[2].content != attempts[3].content
+    assert attempts[-1].url.path.endswith("/complete/")
+    assert attempts[0].headers["Authorization"] == "Bearer test-only-token"
+    assert len(server.items) == 501
+    assert len(server.results) == 1002
     assert url.endswith(f"/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}")
 
 
-@parameterized.expand([("bad_request", 400), ("forbidden", 403), ("retry_exhausted", 503)])
-def test_publish_does_not_complete_when_a_batch_is_rejected(_name: str, failure_status: int) -> None:
+@parameterized.expand([("bad_request", 400), ("forbidden", 403), ("retry_exhausted", 503), ("invalid_ack", 200)])
+def test_publish_does_not_complete_without_confirmed_persistence(_name: str, failure_status: int) -> None:
     publisher = _publisher()
     upload = _prepare(publisher, [_case()])
-    requests: list[httpx.Request] = []
+    server = OfflineServer()
+    attempts: list[httpx.Request] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(201 if len(requests) == 1 else failure_status, headers={"Retry-After": "0"})
+        attempts.append(request)
+        if len(attempts) == 1:
+            return server.respond(request)
+        return httpx.Response(failure_status, json={}, headers={"Retry-After": "0"})
 
-    client_factory = partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))
     with (
-        patch("products.posthog_ai.eval_harness.offline_results.httpx.AsyncClient", new=client_factory),
-        patch("products.posthog_ai.eval_harness.offline_results.asyncio.sleep", new_callable=AsyncMock),
-        pytest.raises(OfflineUploadError, match=f"HTTP {failure_status}"),
+        patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))),
+        patch("posthoganalytics.ai.evaluations._transport.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(OfflineUploadError),
     ):
         asyncio.run(publisher.publish(upload))
+    assert len(attempts) == (5 if failure_status == 503 else 2)
+    assert all(request.url.path.endswith("/upload/") for request in attempts[1:])
 
-    assert len(requests) == (4 if failure_status == 503 else 2)
-    assert all(request.url.path.endswith("/upload/") for request in requests[1:])
-    assert len({request.content for request in requests[1:]}) == 1
+
+def test_saved_upload_replays_partial_success_without_duplicate_results_or_integer_loss(tmp_path: Path) -> None:
+    publisher = _publisher()
+    cases = [_case(f"query-{index}") for index in range(501)]
+    cases[0].output = {"large_integer": 2**80}
+    upload = _prepare(publisher, cases)
+    path = tmp_path / "upload.json"
+    upload.save(path)
+    assert "test-only-token" not in path.read_text()
+    server = OfflineServer()
+    attempts: list[httpx.Request] = []
+    reject = True
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
+        if reject and request.url.path.endswith("/upload/") and server.results:
+            return httpx.Response(400)
+        return server.respond(request)
+
+    with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))):
+        with pytest.raises(OfflineUploadError):
+            asyncio.run(publisher.publish(upload))
+        assert len(server.results) == 1000
+        reject = False
+        replay = OfflineEvalUpload.load(path)
+        asyncio.run(publisher.publish(replay))
+    assert len(server.results) == 1002
+    assert len(server.items) == 501
+    first_item = json.loads(attempts[1].content)["items"][0]
+    assert first_item["payload"]["output"]["large_integer"] == 2**80
+    assert replay.to_dict() == upload.to_dict()
+    assert attempts[0].content == attempts[3].content
+    assert attempts[1].content == attempts[4].content
+
+
+def test_atomic_save_preserves_previous_upload_when_replace_fails(tmp_path: Path) -> None:
+    path = tmp_path / "upload.json"
+    upload = _prepare(_publisher(), [_case()])
+    upload.save(path)
+    previous = path.read_bytes()
+    with patch.object(Path, "replace", side_effect=OSError("disk unavailable")), pytest.raises(OSError):
+        replace(upload, experiment_name="new-name").save(path)
+    assert path.read_bytes() == previous
+    assert list(tmp_path.iterdir()) == [path]
 
 
 @parameterized.expand([("original_destination", "123"), ("changed_destination", "456")])
-def test_replay_uses_saved_versions_and_refuses_a_different_destination(_name: str, project_id: str) -> None:
-    upload = json.loads(json.dumps(_prepare(_publisher(), [_case()])))
-    requests: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200)
-
+def test_legacy_replay_uses_saved_versions_and_refuses_a_different_destination(_name: str, project_id: str) -> None:
+    prepared = _prepare(_publisher(), [_case()]).to_dict()
+    legacy = {
+        "host": prepared["host"],
+        "project_id": prepared["project_id"],
+        "experiment": prepared["experiment"],
+        "batches": [{"items": prepared["items"], "results": prepared["results"]}],
+    }
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "legacy.json"
+        path.write_text(json.dumps(legacy))
+        upload = OfflineEvalUpload.load(path)
+    server = OfflineServer()
     environment = {
         "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
         "POSTHOG_OFFLINE_EVAL_PROJECT_ID": project_id,
         "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": "ignored-during-replay",
     }
-    client_factory = partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))
     with (
         patch.dict("os.environ", environment, clear=True),
-        patch("products.posthog_ai.eval_harness.offline_results.httpx.AsyncClient", new=client_factory),
+        patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(server.respond))),
     ):
         settings = OfflineEvalSettings.from_env()
         assert settings is not None
         publisher = OfflineEvalPublisher(settings, OfflineEvalSuite(key="replay", scorer_kinds={}))
         if project_id == "123":
             asyncio.run(publisher.publish(upload))
-            assert json.loads(requests[0].content) == upload["experiment"]
-            assert json.loads(requests[1].content) == upload["batches"][0]
-            assert requests[2].url.path.endswith("/complete/")
+            assert json.loads(server.requests[0].content) == legacy["experiment"]
+            assert json.loads(server.requests[1].content) == {
+                "items": prepared["items"],
+                "results": prepared["results"],
+            }
         else:
             with pytest.raises(OfflineUploadError, match="destination differs"):
                 asyncio.run(publisher.publish(upload))
-            assert requests == []
+            assert server.requests == []
+
+
+def test_settings_accept_a_shared_scorer_map_for_multiple_suites() -> None:
+    environment = {
+        "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
+        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": "123",
+        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
+            {metric: str(version) for metric, version in SCORER_VERSIONS.items()}
+        ),
+    }
+    with patch.dict("os.environ", environment, clear=True):
+        for metric, version in SCORER_VERSIONS.items():
+            suite = OfflineEvalSuite(key=metric, scorer_kinds={metric: "numeric"})
+            settings = OfflineEvalSettings.from_env(suite)
+            assert settings is not None
+            assert settings.scorer_versions[metric] == version
 
 
 @parameterized.expand(

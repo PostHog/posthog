@@ -15,14 +15,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from django.db import OperationalError
 
+import httpx
 from botocore.exceptions import ClientError
 from clickhouse_driver.errors import ErrorCodes, NetworkError, ServerException
 from psycopg import OperationalError as PsycopgOperationalError
 from psycopg.errors import AdminShutdown, InvalidPassword
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
-
-import httpx
 
 from products.posthog_ai.eval_harness import base, log_sink
 from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog
@@ -35,11 +34,14 @@ from products.posthog_ai.eval_harness.engines.types import (
     NullCaseHooks,
 )
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
+from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 from products.posthog_ai.evals.sql import eval_sql as sql_eval
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
@@ -330,14 +332,15 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize(
-    "enrolled,no_send_logs,configuration,http_status",
+    "suite_kind,enrolled,no_send_logs,configuration,http_status",
     [
-        (True, False, "valid", 200),
-        (True, False, "valid", 403),
-        (True, False, "partial", 200),
-        (True, False, "absent", 200),
-        (True, True, "valid", 200),
-        (False, False, "valid", 200),
+        ("sandboxed", True, False, "valid", 200),
+        ("sandboxed", True, False, "valid", 403),
+        ("sandboxed", True, False, "partial", 200),
+        ("sandboxed", True, False, "absent", 200),
+        ("sandboxed", True, True, "valid", 200),
+        ("sandboxed", False, False, "valid", 200),
+        ("one-shot", True, False, "valid", 200),
     ],
 )
 @pytest.mark.asyncio
@@ -345,6 +348,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    suite_kind: Literal["sandboxed", "one-shot"],
     enrolled: bool,
     no_send_logs: bool,
     configuration: Literal["valid", "partial", "absent"],
@@ -352,7 +356,8 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
 ) -> None:
     for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
-    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+    monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(log_sink, "LOGS_ROOT", tmp_path)
     monkeypatch.setattr(log_sink, "INDEX_FILE", tmp_path / "runs.jsonl")
     version_id = "00000000-0000-4000-8000-000000000001"
@@ -364,10 +369,13 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         monkeypatch.setenv("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS", json.dumps({"exit_code_zero": version_id}))
 
     requests: list[httpx.Request] = []
+    server = OfflineServer()
+    release_upload = asyncio.Event()
 
-    def respond(request: httpx.Request) -> httpx.Response:
+    async def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        return httpx.Response(http_status, json={})
+        await release_upload.wait()
+        return server.respond(request) if http_status == 200 else httpx.Response(http_status, json={})
 
     client_type = httpx.AsyncClient
     monkeypatch.setattr(
@@ -383,7 +391,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         results=[
             CaseResult(
                 input={"name": "example-case", "prompt": "Run the task"},
-                output={"last_message": "Done"},
+                output={"last_message": "Done", "large_integer": 2**64},
                 scores={"exit_code_zero": 1.0},
             )
         ],
@@ -391,6 +399,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     engine = MagicMock(run_experiment=AsyncMock(return_value=result))
     event_client = MagicMock()
     reporter = ProgressReporter(total_suites=1)
+    delivery = OfflineEvalDelivery(reporter)
     ctx = MagicMock(
         posthog_client=None,
         posthog_evaluation_client=event_client,
@@ -404,21 +413,31 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         git_dirty=False,
         engine=engine,
         reporter=reporter,
+        offline_delivery=delivery,
     )
 
-    returned = await base.SandboxedEval(
-        experiment_name="offline-pilot",
-        cases=[SandboxedEvalCase(name="example-case", prompt="Run the task")],
-        scorers=[],
-        ctx=ctx,
-        is_public=not no_send_logs,
-        no_send_logs=no_send_logs,
-        offline_suite=OfflineEvalSuite(key="example/suite", scorer_kinds={"exit_code_zero": "boolean"})
-        if enrolled
-        else None,
+    run_eval = base.SandboxedEval if suite_kind == "sandboxed" else partial(OneShotEval, task=AsyncMock())
+    returned = await asyncio.wait_for(
+        run_eval(
+            experiment_name="offline-pilot",
+            cases=[SandboxedEvalCase(name="example-case", prompt="Run the task")],
+            scorers=[],
+            ctx=ctx,
+            is_public=not no_send_logs,
+            no_send_logs=no_send_logs,
+            offline_suite=OfflineEvalSuite(key="example/suite", scorer_kinds={"exit_code_zero": "boolean"})
+            if enrolled
+            else None,
+        ),
+        timeout=5,
     )
 
     assert returned is result
+    export_path = tmp_path / "offline-pilot" / "latest" / "case_results.jsonl"
+    assert json.loads(export_path.read_text())["scores"] == {"exit_code_zero": 1.0}
+    assert not release_upload.is_set()
+    release_upload.set()
+    await delivery.drain()
     engine.run_experiment.assert_awaited_once()
     engine_spec = engine.run_experiment.call_args.args[0]
     assert engine_spec.no_send_logs is no_send_logs
@@ -440,16 +459,18 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     if enrolled and not no_send_logs and configuration == "valid":
         saved = json.loads(saved_path.read_text())
         assert json.loads(requests[0].content) == saved["experiment"]
-        assert saved["batches"][0]["results"][0]["scorer_version_id"] == version_id
-        assert saved["batches"][0]["results"][0]["value"] is True
+        assert saved["results"][0]["scorer_version_id"] == version_id
+        assert saved["results"][0]["value"] is True
+        assert saved["items"][0]["payload"]["output"]["large_integer"] == 2**64
         if http_status == 200:
             assert len(requests) == 3
-            assert json.loads(requests[1].content) == saved["batches"][0]
+            assert json.loads(requests[1].content) == {"items": saved["items"], "results": saved["results"]}
             assert requests[2].url.path.endswith("/complete/")
             assert "PostHog: https://posthog.example.com/project/123/" in output
         else:
             assert len(requests) == 1
-            assert "upload failed: PostHog upload returned HTTP 403" in output
+            assert "upload pending:" in output
+            assert "403" in output
             assert "Saved requests:" in output
     else:
         assert requests == []

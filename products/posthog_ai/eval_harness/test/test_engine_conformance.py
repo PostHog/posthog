@@ -5,11 +5,24 @@ from typing import Any
 
 import pytest
 
+from autoevals.score import Score as AutoevalsScore
 from braintrust import Score
 from braintrust_core.score import Scorer
 
 from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine
-from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec
+from products.posthog_ai.eval_harness.engines.types import (
+    CaseHooks,
+    CaseSpec,
+    ExperimentResult,
+    ExperimentSpec,
+    ScorerResult,
+)
+from products.posthog_ai.eval_harness.scorers.contract import (
+    AsyncOnlyScorerMixin,
+    Score as HarnessScore,
+    Scorer as HarnessScorer,
+)
+from products.posthog_ai.eval_harness.scorers.tracing import TracedClients, TracedScorer, _build_posthog_kwargs
 
 # Every ``EvalEngine`` must satisfy these obligations; a future ``PostHogEvalsEngine``
 # joins this parameter list and must pass the same suite unchanged.
@@ -33,7 +46,7 @@ class _MaybeNoneScorer(Scorer):
 
     def _run_eval_sync(self, output: dict[str, Any] | None, expected: Any = None, **kwargs: Any) -> Score:
         if output and output.get("skip"):
-            return Score(name="maybe", score=None)
+            return Score(name="maybe", score=None, metadata={"reason": "Does not apply"})
         return Score(name="maybe", score=1.0 if (output and output.get("good")) else 0.0)
 
 
@@ -68,6 +81,9 @@ def test_one_result_per_case_and_trial(engine: BraintrustEngine) -> None:
     result = _run(engine, _spec(task, cases, trial_count=2))
 
     assert len(result.results) == 6
+    assert [(case.input["name"], case.trial_index) for case in result.results] == [
+        (name, index) for name in ("a", "b", "c") for index in (0, 1)
+    ]
 
 
 def test_input_round_trips(engine: BraintrustEngine) -> None:
@@ -118,8 +134,132 @@ def test_none_score_preserved_per_case_and_excluded_from_aggregate(engine: Brain
 
     by_name = {r.input["name"]: r for r in result.results}
     assert by_name["skip"].scores == {"maybe": None}
+    assert by_name["skip"].scorer_results["maybe"].status == "skipped"
+    assert by_name["skip"].scorer_results["maybe"].reasoning == "Does not apply"
     # None is excluded, so the mean is over hit (1.0) and miss (0.0).
     assert result.summary.scores["maybe"].score == 0.5
+
+
+def test_scorer_details_and_errors_stay_with_concurrent_trials(engine: BraintrustEngine) -> None:
+    started = 0
+    tasks = 0
+    all_started = asyncio.Event()
+
+    class _Judge(AsyncOnlyScorerMixin, HarnessScorer):
+        client = object()
+
+        def _name(self) -> str:
+            return "judge"
+
+        async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> AutoevalsScore:
+            nonlocal started
+            started += 1
+            if started == 3:
+                all_started.set()
+            await all_started.wait()
+            trace_id = _build_posthog_kwargs()["posthog_trace_id"]
+            if output["execution"] == 2:
+                raise ValueError("Judge unavailable")
+            return AutoevalsScore(
+                name="judge",
+                score=float(output["execution"]),
+                metadata={"rationale": f"Reason {output['execution']}", "observed_trace": trace_id},
+            )
+
+    async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
+        nonlocal tasks
+        execution = tasks
+        tasks += 1
+        hooks.metadata["trial_id"] = f"trial-{execution}"
+        return {"execution": execution}
+
+    scorer = TracedScorer(
+        _Judge(),
+        TracedClients(openai_llm_client=object(), anthropic_client=object()),
+        {"run_metadata": {}},
+        {},
+    )
+    result = _run(engine, _spec(task, [CaseSpec(input={"name": "same"})], scorers=[scorer], trial_count=3))
+
+    assert tasks == started == 3
+    assert result.summary.scores["judge"].score == 0.5
+    outcomes = [case.scorer_results["judge"] for case in result.results]
+    assert len({outcome.evaluator_trace_id for outcome in outcomes}) == 3
+    for case, outcome in zip(result.results, outcomes):
+        assert outcome.evaluator_trace_id == case.metadata["scorer_trace_ids"]["judge"]
+        assert outcome.evaluated_at is not None and outcome.evaluated_at.tzinfo is not None
+        if case.output["execution"] == 2:
+            assert outcome.status == "error"
+            assert outcome.error_message == "Judge unavailable"
+            assert "judge" not in case.scores
+        else:
+            assert outcome.status == "ok"
+            assert outcome.reasoning == f"Reason {case.output['execution']}"
+            assert outcome.metadata["observed_trace"] == outcome.evaluator_trace_id
+            assert outcome.value == case.scores["judge"]
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        ScorerResult(status="ok", value=["relevant"], reasoning="Matches the requested topic", metadata={"rubric": 2}),
+        ScorerResult(status="not_applicable", reasoning="No answer to classify"),
+    ],
+)
+def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
+    engine: BraintrustEngine, outcome: ScorerResult
+) -> None:
+    class _ReportingScorer(HarnessScorer):
+        def _name(self) -> str:
+            return "reporting"
+
+        def _run_eval_sync(self, output: Any, expected: Any = None, **kwargs: Any) -> HarnessScore:
+            return HarnessScore("reporting", None, metadata={"source": "classifier"}, result=outcome)
+
+    async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
+        return {}
+
+    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[_ReportingScorer()]))
+
+    actual = result.results[0].scorer_results["reporting"]
+    assert actual.status == outcome.status
+    assert actual.value == outcome.value
+    assert actual.reasoning == outcome.reasoning
+    assert actual.metadata == {"source": "classifier", **outcome.metadata}
+    assert result.results[0].scores == {"reporting": None}
+    assert "reporting" not in result.summary.scores
+
+
+@pytest.mark.parametrize(
+    "score_output, expected_scores",
+    [
+        (0.5, {"score": 0.5}),
+        ({"name": "metric", "score": 0.25, "metadata": {"reason": "Partial match"}}, {"metric": 0.25}),
+        ([Score(name="first", score=1.0), Score(name="second", score=None)], {"first": 1.0, "second": None}),
+    ],
+)
+@pytest.mark.parametrize("is_async", [False, True])
+def test_callable_scorers_keep_their_supported_return_shapes(
+    engine: BraintrustEngine, score_output: object, expected_scores: dict[str, float | None], is_async: bool
+) -> None:
+    async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
+        return {"answer": "match"}
+
+    def score(output: dict[str, Any]) -> object:
+        assert output == {"answer": "match"}
+        return score_output
+
+    async def async_score(output: dict[str, Any]) -> object:
+        return score(output)
+
+    scorer = async_score if is_async else score
+    expected_scores = {
+        "async_score" if name == "score" and is_async else name: value for name, value in expected_scores.items()
+    }
+    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
+
+    assert result.results[0].scores == expected_scores
+    assert {name: outcome.value for name, outcome in result.results[0].scorer_results.items()} == expected_scores
 
 
 def test_engine_does_not_throttle_concurrency(engine: BraintrustEngine) -> None:

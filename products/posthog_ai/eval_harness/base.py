@@ -361,31 +361,40 @@ class _BaseEvalRun:
             trial_stats=trial_stats(result.results, trials=self.ctx.trials),
         )
 
-        if self.offline_publisher is not None and not self.no_send_logs:
-            upload_path = self.run_log_dir / "posthog-offline-upload.json"
-            upload_saved = False
-            try:
-                upload = await asyncio.to_thread(
-                    self.offline_publisher.prepare,
-                    experiment_id=self.experiment_id,
-                    experiment_name=self.experiment_name,
-                    started_at=self.started_at,
-                    result=result,
-                    metadata=self._experiment_metadata(),
-                )
-                await asyncio.to_thread(upload_path.write_bytes, orjson.dumps(upload))
-                upload_saved = True
-                url = await self.offline_publisher.publish(upload)
-                await self.ctx.reporter.record_posthog_offline_result(self.experiment_name, "uploaded", url=url)
-            except Exception as error:
-                detail = str(error) if isinstance(error, OfflineUploadError) else type(error).__name__
-                recovery = f"Saved requests: {upload_path}" if upload_saved else "No retry file was written"
-                await self.ctx.reporter.record_posthog_offline_result(
-                    self.experiment_name, f"upload failed: {detail}. {recovery}"
-                )
-
         if os.getenv("EXPORT_EVAL_RESULTS"):
             self._export_case_results(result)
+
+        await self._enqueue_offline_upload(result)
+
+    async def _enqueue_offline_upload(self, result: ExperimentResult) -> None:
+        if self.offline_publisher is None or self.no_send_logs:
+            return
+        upload_path = self.run_log_dir / "posthog-offline-upload.json"
+        try:
+            upload = await asyncio.to_thread(
+                self.offline_publisher.prepare,
+                experiment_id=self.experiment_id,
+                experiment_name=self.experiment_name,
+                started_at=self.started_at,
+                result=result,
+                metadata=self._experiment_metadata(),
+            )
+            await asyncio.to_thread(upload.save, upload_path)
+        except Exception as error:
+            detail = str(error) if isinstance(error, OfflineUploadError) else type(error).__name__
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name, f"upload preparation failed: {detail}. No retry file was written"
+            )
+            return
+
+        await self.ctx.reporter.record_posthog_offline_result(
+            self.experiment_name, f"pending upload. Saved requests: {upload_path}"
+        )
+        delivery = self.ctx.offline_delivery
+        if delivery is not None and not delivery.submit(self.offline_publisher, upload_path, self.experiment_name):
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name, f"pending: upload queue is full. Saved requests: {upload_path}"
+            )
 
     def _export_case_results(self, result: ExperimentResult) -> None:
         """Write one JSONL row per case x trial to the run's local log dir.
@@ -431,7 +440,16 @@ class _BaseEvalRun:
             try:
                 settings = OfflineEvalSettings.from_env(self.offline_suite)
                 if settings is not None:
-                    self.offline_publisher = OfflineEvalPublisher(settings, self.offline_suite)
+                    self.offline_publisher = OfflineEvalPublisher(
+                        settings,
+                        self.offline_suite,
+                        application_trace_ids_enabled=(
+                            self.posthog_client is not None
+                            and not self.posthog_client.disabled
+                            and settings.host == self.ctx.posthog_trace_host
+                            and settings.project_id == self.ctx.posthog_trace_project_id
+                        ),
+                    )
                 else:
                     await self.ctx.reporter.record_posthog_offline_result(
                         self.experiment_name, "disabled: set POSTHOG_OFFLINE_EVAL_* to enable uploads"

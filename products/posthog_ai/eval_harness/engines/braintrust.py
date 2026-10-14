@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from braintrust import EvalAsync, EvalCase, EvalHooks
-from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
+from braintrust import EvalAsync, EvalCase, EvalHooks, Score
+from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef, _scorer_name, call_user_fn
+from braintrust.score import is_score, is_scorer
 
 # Imported for its side effect: braintrust's offline summary crashes on a skipped score.
 from . import braintrust_patches  # noqa: F401
-from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+from .types import (
+    AggregateScore,
+    CaseResult,
+    EnvVarSpec,
+    EvalSummary,
+    ExperimentResult,
+    ExperimentSpec,
+    ScorerResult,
+    SpanKind,
+)
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -54,6 +67,95 @@ class _BraintrustCaseHooks:
             yield span
 
 
+class _ScorerRecorder:
+    def __init__(self) -> None:
+        self.results: dict[int, dict[str, ScorerResult]] = {}
+        self.trial_indices: dict[int, int] = {}
+
+    def register(self, metadata: dict[str, Any], trial_index: int) -> None:
+        # Braintrust shares this dict between a trial's hooks, scorers and result.
+        self.results[id(metadata)] = {}
+        self.trial_indices[id(metadata)] = trial_index
+
+    def trace_id(self, metadata: dict[str, Any], name: str) -> str | None:
+        traces = metadata.get("scorer_trace_ids")
+        trace_id = traces.get(name) if isinstance(traces, dict) else None
+        return trace_id if isinstance(trace_id, str) else None
+
+    def record(self, metadata: dict[str, Any], score: object) -> None:
+        name = getattr(score, "name", None)
+        value = getattr(score, "score", None)
+        if not isinstance(name, str) or not isinstance(value, (float, int, type(None))):
+            return
+        score_metadata = getattr(score, "metadata", None)
+        score_metadata = dict(score_metadata) if isinstance(score_metadata, dict) else {}
+        explicit_result = getattr(score, "result", None)
+        if isinstance(explicit_result, ScorerResult):
+            outcome = replace(
+                explicit_result,
+                metadata={**score_metadata, **explicit_result.metadata},
+                evaluator_trace_id=explicit_result.evaluator_trace_id or self.trace_id(metadata, name),
+                evaluated_at=explicit_result.evaluated_at or datetime.now(UTC),
+            )
+        else:
+            reasoning = score_metadata.get("rationale") or score_metadata.get("reason")
+            outcome = ScorerResult(
+                status="skipped" if value is None else "ok",
+                value=value,
+                reasoning=reasoning if isinstance(reasoning, str) else None,
+                metadata=score_metadata,
+                evaluator_trace_id=self.trace_id(metadata, name),
+                evaluated_at=datetime.now(UTC),
+            )
+        self.results[id(metadata)][name] = outcome
+
+    def record_error(self, metadata: dict[str, Any], name: str, error: Exception) -> None:
+        self.results[id(metadata)][name] = ScorerResult(
+            status="error",
+            error_code="scorer_error",
+            error_message=str(error),
+            evaluator_trace_id=self.trace_id(metadata, name),
+            evaluated_at=datetime.now(UTC),
+        )
+
+
+class _RecordingScorer:
+    def __init__(self, scorer: Any, recorder: _ScorerRecorder, index: int) -> None:
+        self._scorer = scorer
+        self._recorder = recorder
+        self._scorer_name = _scorer_name(scorer, index)
+
+    def _name(self) -> str:
+        return self._scorer_name
+
+    async def eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> Score | list[Score]:
+        metadata = kwargs["metadata"]
+        try:
+            scorer = getattr(self._scorer, "eval_async", self._scorer)
+            result = await call_user_fn(
+                asyncio.get_running_loop(),
+                scorer,
+                input=kwargs["input"],
+                expected=expected,
+                metadata=metadata,
+                output=output,
+            )
+            if isinstance(result, dict):
+                result = Score.from_dict(result)
+            if isinstance(result, Iterable):
+                result = list(result)
+                if any(not is_score(score) for score in result):
+                    raise ValueError("A scorer returning multiple results must return Score objects")
+            elif not is_score(result):
+                result = Score(name=self._name(), score=result)
+            for score in result if isinstance(result, list) else [result]:
+                self._recorder.record(metadata, score)
+        except Exception as error:
+            self._recorder.record_error(metadata, self._name(), error)
+            raise
+        return result
+
+
 class BraintrustEngine:
     """Runs experiments on Braintrust and reports through it.
 
@@ -86,7 +188,10 @@ class BraintrustEngine:
         return (EnvVarSpec("BRAINTRUST_API_KEY", "records experiments and scores to Braintrust"),)
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
+        recorder = _ScorerRecorder()
+
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
+            recorder.register(hooks.metadata, hooks.trial_index)
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
             return await spec.task(input, _BraintrustCaseHooks(hooks))
 
@@ -95,7 +200,12 @@ class BraintrustEngine:
             spec.project_name,
             data=cases,
             task=bridged_task,
-            scores=list(spec.scorers),
+            scores=[
+                _RecordingScorer(
+                    scorer() if isinstance(scorer, type) and is_scorer(scorer) else scorer, recorder, index
+                )
+                for index, scorer in enumerate(spec.scorers)
+            ],
             trial_count=spec.trial_count,
             # Our global concurrency semaphores are the only limiters that should
             # bind. Braintrust's own per-suite limiter must never gate, so let it
@@ -116,9 +226,9 @@ class BraintrustEngine:
             # across runs; the metadata is what lets Braintrust filter or compare.
             metadata=spec.metadata,
         )
-        return self._translate(result)
+        return self._translate(result, recorder)
 
-    def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
+    def _translate(self, result: EvalResultWithSummary, recorder: _ScorerRecorder | None = None) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
 
         ``score=None`` is preserved per-case (the aggregate drops it, online
@@ -145,6 +255,8 @@ class BraintrustEngine:
                     expected=case.expected,
                     metadata=dict(case.metadata or {}),
                     error=None if case.error is None else str(case.error),
+                    scorer_results=recorder.results.get(id(case.metadata), {}) if recorder is not None else {},
+                    trial_index=recorder.trial_indices.get(id(case.metadata)) if recorder is not None else None,
                 )
                 for case in result.results
             ],
