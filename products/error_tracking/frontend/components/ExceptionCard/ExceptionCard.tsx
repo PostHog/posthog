@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 import { ViewTraceButton } from 'products/tracing/frontend/components/ViewTraceButton'
+import { usableId } from 'products/tracing/frontend/errorCorrelation'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -187,8 +188,8 @@ function ExceptionCardContent({
                         </TabsList>
                         <div className="flex justify-end gap-1">
                             <ViewTraceButton
-                                traceId={traceId}
-                                spanId={spanId}
+                                traceId={usableId(traceId)}
+                                spanId={usableId(spanId)}
                                 timestamp={timestamp}
                                 size="xsmall"
                                 data-attr="error-tracking-view-trace"
