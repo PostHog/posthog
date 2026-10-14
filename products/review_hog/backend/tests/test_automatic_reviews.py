@@ -13,6 +13,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -24,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.review_hog.backend.label_reviews import BOT_LABEL_COMMENT
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
@@ -489,6 +491,9 @@ class TestLabelReviewTask(BaseTest):
         self.github = self.enterContext(patch(_GITHUB))
         self.github_comments = self.enterContext(patch(_GITHUB_LIST, return_value=[]))
         self.enterContext(patch("products.review_hog.backend.label_reviews.GitHubIntegration.get_access_token"))
+        self.review_hog_flag = self.enterContext(
+            patch("products.review_hog.backend.label_reviews.posthog_feature_flag_enabled", return_value=True)
+        )
 
     def _queued_event(self, payload: dict[str, object]) -> Mapping[str, object]:
         with patch(_LABEL_QUEUE) as enqueue:
@@ -536,6 +541,24 @@ class TestLabelReviewTask(BaseTest):
         self._run(_label_payload(label=label))
 
         assert self.start.call_args.kwargs["review_mode"] == "full"
+
+    @parameterized.expand([("no_posthog_account",), ("review_hog_flag_off",), ("no_editor_access",)])
+    def test_a_full_label_without_review_access_runs_standard(self, case: str) -> None:
+        sender = "OctoCat"
+        if case == "no_posthog_account":
+            sender = "stranger"
+        elif case == "review_hog_flag_off":
+            self.review_hog_flag.return_value = False
+        else:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            create_access_control(team_id=self.team.id, resource="review_hog", access_level="none")
+
+        self._run(_label_payload(label="posthog-review-deep", sender=sender))
+
+        assert self.start.call_args.kwargs["review_mode"] == "flash"
 
     @parameterized.expand(
         [

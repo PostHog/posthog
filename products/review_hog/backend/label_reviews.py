@@ -1,6 +1,6 @@
 """The label trigger: the `posthog-review` label (or the legacy `reviewhog` label) on a pull request starts a
 Standard review, or a Deep one once the pull request has a published Deep review. The `posthog-review-deep`
-label always starts a Deep review.
+label starts a Deep review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -8,6 +8,8 @@ review again, and the workflow removes the label when the run ends.
 
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
+- The `posthog-review-deep` label needs the same access as `@posthog review --deep`: the labeler is an
+  active member with the PostHog Review flag and editor access. Anyone else gets the `posthog-review` review.
 - The review runs in the owning project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
@@ -21,9 +23,11 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.otel_metrics import OtelInstrumentFactory
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import UserAccessControl, posthog_feature_flag_enabled
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
@@ -53,6 +57,7 @@ BOT_LABEL_COMMENT = (
 # The rollout flag of `@posthog` pull request comments (products/commands). Read here by key,
 # because the commands product already depends on this product.
 COMMENT_COMMANDS_FLAG = "github-commands"
+REVIEW_HOG_FLAG = "review-hog"
 
 
 def comment_commands_enabled(team_id: int) -> bool:
@@ -130,6 +135,19 @@ class LabelReview:
     @property
     def labeler_allowed(self) -> bool:
         return not self.labeled_by_bot or self.labeler_login.lower() == STAMPHOG_BOT_LOGIN
+
+    def _labeler_may_request_full(self, team_id: int) -> bool:
+        labeler_id = PullRequestOwnerResolver.active_author_id(team_id, self.labeler_login)
+        if labeler_id is None:
+            return False
+        labeler = User.objects.get(id=labeler_id)
+        team = Team.objects.get(id=resolve_effective_team_id(team_id))
+        if not posthog_feature_flag_enabled(
+            REVIEW_HOG_FLAG, str(labeler.distinct_id), organization_id=team.organization_id, team_id=team_id
+        ):
+            return False
+        access_control = UserAccessControl(user=labeler, team=team, organization_id=str(team.organization_id))
+        return access_control.check_access_level_for_resource("review_hog", "editor")
 
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
@@ -222,7 +240,8 @@ class LabelReview:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
-        review_mode = REVIEW_MODE_FULL if self.full else trigger_review_mode(team_id, self.repository, self.pr_number)
+        full = self.full and self._labeler_may_request_full(team_id)
+        review_mode = REVIEW_MODE_FULL if full else trigger_review_mode(team_id, self.repository, self.pr_number)
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,

@@ -6,7 +6,7 @@
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
 The `posthog-review` label starts a review. The legacy `reviewhog` label still works as an alias.
-The `posthog-review-deep` label starts a Deep review.
+The `posthog-review-deep` label starts a Deep review when the labeler has the access `@posthog review --deep` needs.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
