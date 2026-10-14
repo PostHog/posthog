@@ -24,7 +24,7 @@ import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { useSnapshot } from '../viewsCache'
 import { recordingsWebUrl, viewWebUrl } from '../webLinks'
-import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, WebNote } from './BrowseEntryRow'
+import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, WebNote } from './BrowseEntryRow'
 import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
@@ -283,6 +283,21 @@ function ViewsBody(): ReactElement {
                       : null
                 add(key, title, note ? [note] : viewItems(rows, 'search', key))
             }
+            const browse = BROWSE_ENTRIES.filter((entry) =>
+                browseEntryLabel(entry).toLowerCase().includes(search.query.toLowerCase())
+            )
+            add(
+                'browse',
+                'Browse',
+                browse.map(
+                    (entry, position): ListItem => ({
+                        type: 'browse',
+                        key: `browse:${entry}`,
+                        entry,
+                        position: groupPosition(position, browse.length),
+                    })
+                )
+            )
             if (result.length === 0) {
                 result.push({
                     key: 'none',

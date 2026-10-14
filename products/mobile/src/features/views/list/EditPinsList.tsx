@@ -304,6 +304,7 @@ const styles = StyleSheet.create({
     },
     meta: {
         ...type.meta,
+        fontWeight: '600',
         color: colors.tertiary,
     },
     handle: {

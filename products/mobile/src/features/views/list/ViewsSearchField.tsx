@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useState } from 'react'
 import { StyleSheet, TextInput, View } from 'react-native'
 
 import { CloseIcon } from '@/ui/icons/CloseIcon'
@@ -14,38 +14,57 @@ interface ViewsSearchFieldProps {
 }
 
 export function ViewsSearchField({ value, onChangeText, placeholder, testID }: ViewsSearchFieldProps): ReactElement {
+    const [focused, setFocused] = useState(false)
     return (
-        <View style={styles.field}>
-            <SearchIcon size={18} color={colors.tertiary} />
-            <TextInput
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={placeholder}
-                placeholderTextColor={colors.tertiary}
-                style={styles.input}
-                returnKeyType="search"
-                autoCorrect={false}
-                autoCapitalize="none"
-                clearButtonMode="never"
-                accessibilityLabel={placeholder}
-                testID={testID}
-            />
-            {value ? (
-                <Pressable44
-                    onPress={() => onChangeText('')}
-                    accessibilityLabel="Clear search"
-                    pressedBackground={colors.sunken}
-                    style={styles.clear}
-                    testID={`${testID}-clear`}
-                >
-                    <CloseIcon size={12} color={colors.secondary} />
-                </Pressable44>
-            ) : null}
+        <View style={[styles.ring, focused && styles.ringFocused]}>
+            <View style={[styles.field, focused && styles.fieldFocused]}>
+                <SearchIcon size={18} color={colors.tertiary} />
+                <TextInput
+                    value={value}
+                    onChangeText={onChangeText}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    placeholder={placeholder}
+                    placeholderTextColor={colors.tertiary}
+                    style={styles.input}
+                    returnKeyType="search"
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    clearButtonMode="never"
+                    accessibilityLabel={placeholder}
+                    testID={testID}
+                />
+                {value ? (
+                    <Pressable44
+                        onPress={() => onChangeText('')}
+                        accessibilityLabel="Clear search"
+                        pressedBackground={colors.sunken}
+                        style={styles.clear}
+                        testID={`${testID}-clear`}
+                    >
+                        <CloseIcon size={12} color={colors.secondary} />
+                    </Pressable44>
+                ) : null}
+            </View>
         </View>
     )
 }
 
+const RING = 3
+
 const styles = StyleSheet.create({
+    // The focus ring draws outside the field, so focusing it moves nothing.
+    ring: {
+        margin: -RING,
+        padding: RING,
+        borderRadius: radii.card + RING,
+    },
+    ringFocused: {
+        backgroundColor: colors.blueHighlight,
+    },
+    fieldFocused: {
+        borderColor: colors.border,
+    },
     field: {
         height: 44,
         flexDirection: 'row',
