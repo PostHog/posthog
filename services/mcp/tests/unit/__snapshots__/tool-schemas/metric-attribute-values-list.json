@@ -1,0 +1,52 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateFrom": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago."
+        },
+        "dateTo": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Upper bound (exclusive) of the window. ISO 8601. Defaults to now."
+        },
+        "key": {
+            "description": "Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Max number of values to return. Defaults to 100; maximum 1000.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "value": {
+            "default": "",
+            "description": "Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.",
+            "maxLength": 1024,
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}

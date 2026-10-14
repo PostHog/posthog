@@ -44,15 +44,11 @@ from .enums import (
 MAX_CLAUSES_PER_QUERY = 10
 MAX_SPARKLINE_BATCH_SIZE = 20
 
-# Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
-# must check the same flag, or one of them becomes a bypass.
-METRICS_FEATURE_FLAG = "metrics"
-
-# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Gate for the error-spike overlay PoC.
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
-# Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
+# Gates the Grafana and screenshot dashboard import.
 METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.

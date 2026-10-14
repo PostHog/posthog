@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 100,
+            "description": "Max number of names to return. Defaults to 100; maximum 1000.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "service": {
+            "description": "Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.",
+            "maxLength": 1024,
+            "type": "string"
+        },
+        "value": {
+            "default": "",
+            "description": "Substring filter (case-insensitive) applied to metric names.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

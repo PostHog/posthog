@@ -720,10 +720,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (
-                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
-                    activeView === InsightType.METRICS
-                ) {
+                if (featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER] || activeView === InsightType.METRICS) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,

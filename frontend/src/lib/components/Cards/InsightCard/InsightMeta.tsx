@@ -294,9 +294,7 @@ export function InsightMeta({
         ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
-    })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
