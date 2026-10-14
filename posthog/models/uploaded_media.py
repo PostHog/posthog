@@ -7,8 +7,9 @@ from django.db import models
 from django.db.models import Q
 
 import structlog
-from PIL import Image
+from PIL import ExifTags, Image
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -72,13 +73,24 @@ def is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
+# EXIF orientations that rotate the image a quarter turn, so a browser shows it with width and
+# height swapped from the stored pixels.
+_QUARTER_TURN_ORIENTATIONS = frozenset({5, 6, 7, 8})
+
 # Guards against a decompression bomb: a small, highly-compressed file that decodes to an
 # enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
 _MAX_IMAGE_PIXELS = 50_000_000
 
 
-def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
-    """Determine an image's real content type from its bytes — never trust a caller's claim.
+@frozen
+class SniffedImage:
+    content_type: str
+    width: int
+    height: int
+
+
+def sniff_image(data: Optional[bytes]) -> Optional[SniffedImage]:
+    """Determine an image's real content type and pixel size from its bytes — never trust a caller's claim.
 
     Accepts only what `download` will serve inline: storing a format that always comes back
     as an attachment gives the caller a URL no image tag can render. Returns None for
@@ -94,9 +106,18 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
                 return None
             image.load()
             content_type = Image.MIME.get(image.format or "")
+            if image.getexif().get(ExifTags.Base.Orientation) in _QUARTER_TURN_ORIENTATIONS:
+                width, height = height, width
     except Exception:
         return None
-    return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
+    if content_type not in _INLINE_SAFE_CONTENT_TYPES:
+        return None
+    return SniffedImage(content_type=content_type, width=width, height=height)
+
+
+def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
+    sniffed = sniff_image(data)
+    return sniffed.content_type if sniffed else None
 
 
 class UploadedMedia(UUIDTModel, RootTeamMixin):
@@ -119,6 +140,12 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     # True from presigned upload start until the uploaded object is verified. A pending
     # row's bytes are unvetted, so it is never listed and never served.
     pending = models.BooleanField(default=False)
+    # Pixel size, recorded at upload so a library picker can lay out images without fetching each one.
+    width = models.IntegerField(null=True, blank=True)
+    height = models.IntegerField(null=True, blank=True)
+    # Set when a user removes the image from its library. The row and its bytes stay, because
+    # content that already embeds the URL (a sent email, a live template) must keep loading it.
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -133,7 +160,10 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         ]
 
     def get_absolute_url(self) -> str:
-        return absolute_uri(f"/uploaded_media/{self.id}")
+        path = f"/uploaded_media/{self.id}"
+        if settings.UPLOADED_MEDIA_PUBLIC_URL:
+            return f"{settings.UPLOADED_MEDIA_PUBLIC_URL}{path}"
+        return absolute_uri(path)
 
     @staticmethod
     def build_media_location(team_id: int, media_id) -> str:

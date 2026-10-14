@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -17,6 +17,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import OnboardingSkippedReason, User
@@ -258,13 +259,20 @@ def handle_new_user(
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=org_name,
-            email=email,
-            password=None,
-            first_name=first_name,
-            is_email_verified=False,
-        )
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=org_name,
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_email_verified=False,
+            )
+            TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=partner,
+            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
@@ -290,8 +298,6 @@ def handle_new_user(
         region=region,
         team_id=team.id,
     )
-
-    TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
 
     apply_provisioned_onboarding_flags(user, team)
 

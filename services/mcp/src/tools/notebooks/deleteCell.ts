@@ -4,7 +4,7 @@ import { withInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { directDependents, findCellTag, parseCellTags, removeCellTag } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook } from './markdownDoc'
+import { applyMarkdownEdit, fetchMarkdownNotebook, replaceMarkdownCell } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
 const DeleteCellInputSchema = z
@@ -28,7 +28,8 @@ export const deleteCellHandler: ToolBase<typeof NotebooksDeleteCellSchema, Delet
     const initial = await fetchMarkdownNotebook(context, params.notebook_id)
     const existing = findCellTag(initial.markdown, params.node_id)
     if (!existing) {
-        throw new Error(`No cell with node_id ${params.node_id} in notebook ${params.notebook_id}.`)
+        await replaceMarkdownCell(context, params.notebook_id, params.node_id, '')
+        return withInformationalResponse({ deleted: true as const, orphaned_dependents: [] }, 'notebook-cell-refs')
     }
     // Computed before the delete: dependents reference the doomed cell's dataframe and will
     // break (or silently run against its last result) until the agent rewrites or removes them.

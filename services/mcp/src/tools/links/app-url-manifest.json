@@ -1239,6 +1239,11 @@
         "params": [],
         "scope": "project"
     },
+    "metricsDashboardReview": {
+        "template": "/metrics/dashboard-review",
+        "params": [],
+        "scope": "project"
+    },
     "models": {
         "template": "/models",
         "params": [],
@@ -1835,38 +1840,48 @@
         "scope": "project"
     },
     "visualReviewFlakiness": {
-        "template": "/visual_review/repos/{repoId}/flakiness",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/flakiness",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "visualReviewRepoRun": {
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs/{runId}",
+        "params": ["repoOwner", "repoName", "runId"],
         "scope": "project"
     },
     "visualReviewRepoRuns": {
-        "template": "/visual_review/repos/{repoId}/runs",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs",
+        "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
     "visualReviewRun": {
-        "template": "/visual_review/runs/{runId}",
+        "template": "/visual-review/runs/{runId}",
         "params": ["runId"],
         "scope": "project"
     },
     "visualReviewRuns": {
-        "template": "/visual_review",
+        "template": "/visual-review",
         "params": [],
         "scope": "project"
     },
     "visualReviewSettings": {
-        "template": "/visual_review/settings",
+        "template": "/visual-review/settings",
         "params": [],
         "scope": "project"
     },
     "visualReviewSnapshotHistory": {
-        "template": "/visual_review/repos/{repoId}/{runType}/snapshots/{identifier}",
-        "params": ["repoId", "runType", "identifier"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/{runType}/snapshots/{identifier}",
+        "params": ["repoOwner", "repoName", "runType", "identifier"],
         "scope": "project"
     },
     "visualReviewSnapshotOverview": {
-        "template": "/visual_review/repos/{repoId}/snapshots",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/snapshots",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "warehouseDestination": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseDestinations": {

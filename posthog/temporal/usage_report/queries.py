@@ -264,7 +264,8 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_event_count_with_groups_in_period",
-        fn=get_teams_with_event_count_with_groups_in_period,
+        fn=lambda b, e: get_teams_with_event_count_with_groups_in_period(b, e, count_distinct=True),
+        timeout_minutes=30,
     ),
     QuerySpec(
         name="all_event_metrics",

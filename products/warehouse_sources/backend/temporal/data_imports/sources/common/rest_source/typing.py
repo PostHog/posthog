@@ -253,6 +253,7 @@ class IncrementalArgs(TypedDict, total=False):
 class IncrementalConfig(IncrementalArgs, total=False):
     start_param: str
     end_param: Optional[str]
+    param_location: Optional[str]  # "query" (default) or "json" (POST-body cursor)
 
 
 ParamBindType = Literal["resolve", "incremental"]

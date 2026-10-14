@@ -1,6 +1,6 @@
 from typing import ClassVar, Optional
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -16,7 +16,7 @@ DAY_EVENT_KEY = IncrementalConfig(incremental_key="day", unique_key=("day", "eve
 GROUPED = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 
 
-class TestIncrementalEligibility(BaseTest):
+class TestIncrementalEligibility(SimpleTestCase):
     @parameterized.expand(
         [
             ("grouped_by_key", GROUPED, DAY_KEY),
