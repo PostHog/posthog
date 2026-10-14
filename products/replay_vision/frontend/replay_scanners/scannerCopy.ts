@@ -9,11 +9,14 @@ const FREE_CREDITS_USED_TOOLTIP =
     'To keep scanning now, turn off "Free credits only" in its settings. ' +
     "If your organization's spend limit is used up too, raise it in billing as well."
 
-type LimitFields = { free_only?: boolean; credit_limit?: number | null } | null | undefined
+type LimitFields =
+    | { free_only?: boolean; credit_limit?: number | null; limit_from_free_credits?: boolean }
+    | null
+    | undefined
 
-// The API only says a scanner stopped, so the free-credits copy needs the free credits to be its only limit.
-function stoppedByFreeCredits(scanner: LimitFields): boolean {
-    return !!scanner?.free_only && scanner.credit_limit == null
+// The free credits stop a free-only scanner when it has no limit of its own, or when they leave less room than it.
+export function stoppedByFreeCredits(scanner: LimitFields): boolean {
+    return !!scanner?.free_only && (scanner.credit_limit == null || !!scanner.limit_from_free_credits)
 }
 
 export function limitReachedTooltip(scanner: LimitFields): string {

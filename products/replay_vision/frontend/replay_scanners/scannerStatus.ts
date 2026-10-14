@@ -14,7 +14,7 @@ const STARTING_MAX_AGE_MINUTES = 60
 
 export type ScannerStatus =
     | { kind: 'off'; reason: 'disabled' | 'no_sampling' }
-    | { kind: 'limit_reached'; free_only: boolean; credit_limit: number | null }
+    | { kind: 'limit_reached'; free_only: boolean; credit_limit: number | null; limit_from_free_credits: boolean }
     | { kind: 'quota_exhausted' }
     | { kind: 'starting' }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
@@ -29,6 +29,7 @@ export type ScannerStatusFields = Pick<
     | 'limit_reached'
     | 'free_only'
     | 'credit_limit'
+    | 'limit_from_free_credits'
     | 'sweep_throttle_factor'
     | 'created_at'
     | 'last_swept_at'
@@ -47,7 +48,12 @@ export function scannerStatus(
         return { kind: 'off', reason: 'no_sampling' }
     }
     if (scanner.limit_reached) {
-        return { kind: 'limit_reached', free_only: !!scanner.free_only, credit_limit: scanner.credit_limit ?? null }
+        return {
+            kind: 'limit_reached',
+            free_only: !!scanner.free_only,
+            credit_limit: scanner.credit_limit ?? null,
+            limit_from_free_credits: !!scanner.limit_from_free_credits,
+        }
     }
     if (options.quotaExhausted) {
         return { kind: 'quota_exhausted' }

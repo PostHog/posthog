@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../utils/quotaTestUtils'
+import { stoppedByFreeCredits } from './scannerCopy'
 import { ScannerStatusFields, scannerStatus, spendAgainstLimit } from './scannerStatus'
 
 const NOW = dayjs('2026-05-12T12:00:00Z')
@@ -11,6 +12,7 @@ const HEALTHY: ScannerStatusFields = {
     sampling_rate: 1,
     limit_reached: false,
     credit_limit: null,
+    limit_from_free_credits: false,
     sweep_throttle_factor: 1,
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
@@ -97,6 +99,22 @@ describe('scannerStatus', () => {
         expect(
             spendAgainstLimit({ credit_limit: null, credits_used_against_limit: 0, free_only: true }, quota)
         ).toEqual(expected)
+    })
+
+    test.each([
+        ['an own limit blames that limit', { credit_limit: 500 }, false],
+        ['no own limit blames the free credits', { credit_limit: null }, true],
+        [
+            'an own limit blames the free credits when they bind',
+            { credit_limit: 500, limit_from_free_credits: true },
+            true,
+        ],
+    ])('stopped free-only scanner with %s', (_name, overrides, expected) => {
+        const status = scannerStatus(
+            { ...HEALTHY, free_only: true, limit_reached: true, ...overrides },
+            { quotaExhausted: false, drought: null, now: NOW }
+        )
+        expect(status.kind === 'limit_reached' && stoppedByFreeCredits(status)).toBe(expected)
     })
 
     test.each([
