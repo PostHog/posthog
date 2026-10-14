@@ -398,6 +398,8 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
     const columnCount = config.columns.length
     const dimensionCount = rowCount + columnCount
     const hasDateDimension = [...config.rows, ...config.columns].some(isDateTimeBIField)
+    const numericColumnCount =
+        [...config.rows, ...config.columns].filter(isNumericBIField).length + Math.max(1, config.values.length)
 
     switch (chartType) {
         case ChartDisplayType.Auto:
@@ -408,6 +410,12 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
             }
         case ChartDisplayType.ActionsTable:
             return { fits: true, requirement: 'any combination of fields' }
+        case ChartDisplayType.ActionsProportionBar:
+            return { fits: numericColumnCount >= 1, requirement: 'at least 1 numeric column' }
+        case ChartDisplayType.ScatterPlot:
+            return { fits: numericColumnCount >= 2, requirement: 'at least 2 numeric columns, one for each axis' }
+        case ChartDisplayType.BoxPlot:
+            return { fits: numericColumnCount >= 6, requirement: '6 numeric summary columns' }
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsAreaGraph:
             return {
