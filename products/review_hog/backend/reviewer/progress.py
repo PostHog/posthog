@@ -37,6 +37,13 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import (
+    RESOLUTION_COMPLETED,
+    RESOLUTION_RESOLVING,
+    RESOLUTION_STOPPED,
+    ResolutionRunState,
+    ResolutionSummary,
+)
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
     RUN_OUTCOME_NOTE_AUTHOR,
@@ -59,27 +66,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
-REVIEW_STAGES = [
-    "fetching",
-    "chunking",
-    "selecting",
-    "reviewing",
-    "deduplicating",
-    "validating",
-    "finalizing",
-    # The single-agent design writes no chunk, selection, or validator state, so it has its own shorter sequence.
-    "single_agent_preparing",
-    "single_agent_reviewing",
-    "single_agent_finalizing",
-]
-
 # Artefacts and activity heartbeats keep active reviews fresh; stopped runs must age out so the UI
 # does not show a live spinner forever. A resolution run with no closing note then reads as stopped.
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
-RESOLUTION_RESOLVING = "resolving"
-RESOLUTION_STOPPED = "stopped"
-RESOLUTION_COMPLETED = "completed"
 # The `author` the resolution stage stamps on its closing run `note` — the completion marker the
 # state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
 # can't drift apart.
@@ -425,30 +415,6 @@ def run_outcome_markers(
             )
         )
     return markers
-
-
-@frozen
-class ResolutionRunState:
-    """The report's latest resolution run, as the list row and the drawer render it."""
-
-    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED
-    done: int = 0
-    total: int = 0
-    fixed: int = 0
-    needs_attention: int = 0
-
-
-@frozen
-class ResolutionSummary:
-    """The report's latest resolution run, completed runs included, as an API reader reports it."""
-
-    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED | RESOLUTION_COMPLETED
-    started_at: datetime
-    completed_at: datetime | None
-    total: int
-    fixed: int
-    needs_attention: int
-    commits: tuple[str, ...]
 
 
 @frozen
