@@ -4,11 +4,14 @@ import type { DragEvent } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton, type LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
+import { StepPickerModal } from '../stepPicker/StepPickerModal'
 import type { HogFlowEdge } from '../types'
 import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
 
@@ -38,6 +41,8 @@ export function HogFlowTreeDropzone({
     alwaysVisible?: boolean
 }): JSX.Element {
     const { workflow } = useValues(hogFlowEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const opensStepPicker = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_STEP_PICKER]
     const {
         moveNodeToEdge,
         onDragOver,
@@ -95,6 +100,32 @@ export function HogFlowTreeDropzone({
             onDrop(undefined, edge, joinEdges)
         }
     }
+    const insertButtonProps: LemonButtonProps = {
+        htmlType: 'button',
+        type: 'tertiary',
+        size: 'xsmall',
+        tooltip: insertionLabel ?? 'Insert step here',
+        className: alwaysVisible
+            ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
+            : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0',
+        'aria-label': insertionLabel ?? 'Insert step here',
+        'data-attr': 'workflow-tree-insert-action',
+    }
+    const insertButtonContent = alwaysVisible ? (
+        <>
+            <IconPlus className="size-3 shrink-0" />
+            <span className="truncate">{insertionLabel}</span>
+        </>
+    ) : (
+        <span
+            className={cn(
+                'flex size-4 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-0 transition-[opacity,box-shadow] group-hover:opacity-100 group-focus-within:opacity-100 group-hover:shadow-sm',
+                pickerOpen && 'opacity-100 shadow-sm'
+            )}
+        >
+            <IconPlus className="size-3" />
+        </span>
+    )
     return (
         <div
             className={cn(
@@ -118,44 +149,30 @@ export function HogFlowTreeDropzone({
                         (showConnector || insertionLabel) && 'group-hover:opacity-100 group-focus-within:opacity-100'
                     )}
                 />
-                <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                    <PopoverTrigger
-                        render={
-                            <LemonButton
-                                htmlType="button"
-                                type="tertiary"
-                                size="xsmall"
-                                tooltip={insertionLabel ?? 'Insert step here'}
-                                className={cn(
-                                    alwaysVisible
-                                        ? 'relative z-10 me-auto min-w-0 max-w-full bg-transparent text-muted-foreground'
-                                        : 'absolute -right-2 top-1/2 z-10 !size-4 -translate-y-1/2 border-0 !bg-transparent !p-0'
-                                )}
-                                aria-label={insertionLabel ?? 'Insert step here'}
-                                data-attr="workflow-tree-insert-action"
+                {opensStepPicker ? (
+                    <>
+                        <LemonButton {...insertButtonProps} onClick={() => setPickerOpen(true)}>
+                            {insertButtonContent}
+                        </LemonButton>
+                        {pickerOpen && (
+                            <StepPickerModal
+                                isOpen
+                                onClose={() => setPickerOpen(false)}
+                                surface="tree"
+                                onPick={handleInsertAction}
                             />
-                        }
-                    >
-                        {alwaysVisible ? (
-                            <>
-                                <IconPlus className="size-3 shrink-0" />
-                                <span className="truncate">{insertionLabel}</span>
-                            </>
-                        ) : (
-                            <span
-                                className={cn(
-                                    'flex size-4 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-0 transition-[opacity,box-shadow] group-hover:opacity-100 group-focus-within:opacity-100 group-hover:shadow-sm',
-                                    pickerOpen && 'opacity-100 shadow-sm'
-                                )}
-                            >
-                                <IconPlus className="size-3" />
-                            </span>
                         )}
-                    </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="w-72 max-h-96 overflow-hidden p-0">
-                        <HogFlowEditorPanelBuild className="max-h-96 p-2" onActionSelect={handleInsertAction} />
-                    </PopoverContent>
-                </Popover>
+                    </>
+                ) : (
+                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                        <PopoverTrigger render={<LemonButton {...insertButtonProps} />}>
+                            {insertButtonContent}
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="end" className="w-72 max-h-96 overflow-hidden p-0">
+                            <HogFlowEditorPanelBuild className="max-h-96 p-2" onActionSelect={handleInsertAction} />
+                        </PopoverContent>
+                    </Popover>
+                )}
             </div>
             <div
                 className={cn(
