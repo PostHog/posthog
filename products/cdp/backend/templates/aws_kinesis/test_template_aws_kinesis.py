@@ -1,8 +1,7 @@
 import time_machine
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.aws_kinesis.template_aws_kinesis import template as template_aws_kinesis
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):

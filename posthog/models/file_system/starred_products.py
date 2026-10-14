@@ -6,23 +6,23 @@ import posthoganalytics
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
+from posthog.models.user import User
 from posthog.products import Products
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
-    from posthog.models.user import User
 
 # pinned: feature flag key, must match FEATURE_FLAGS.SIMPLE_SIDEPANEL in frontend/src/lib/constants.tsx
 SIMPLE_SIDEPANEL_FLAG = "simple-sidepanel"
 
 
-def starred_products_setup_completed(user: "User") -> bool:
+def starred_products_setup_completed(user: User) -> bool:
     configuration = user.ui_configuration
     sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
     return isinstance(sidebar, dict) and bool(sidebar.get("starred_products_setup_completed"))
 
 
-def _simple_sidebar_enabled(user: "User", team: "Team") -> bool:
+def _simple_sidebar_enabled(user: User, team: "Team") -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             SIMPLE_SIDEPANEL_FLAG,
@@ -37,13 +37,12 @@ def _simple_sidebar_enabled(user: "User", team: "Team") -> bool:
     )
 
 
-def _mark_setup_completed(user: "User") -> None:
+def _mark_setup_completed(user: User) -> None:
     # Merge into the stored value under a short row lock, so a concurrent settings change is kept.
     # NO KEY UPDATE is the lock the UPDATE takes anyway, and it does not block inserts of child rows.
     with transaction.atomic():
-        stored = (
-            type(user).objects.select_for_update(no_key=True).only("ui_configuration").get(pk=user.pk).ui_configuration
-        )
+        # Not type(user): request.user is a SimpleLazyObject, which has no objects manager.
+        stored = User.objects.select_for_update(no_key=True).only("ui_configuration").get(pk=user.pk).ui_configuration
         configuration: dict[str, Any] = stored if isinstance(stored, dict) else {}
         sidebar = configuration.get("sidebar")
         user.ui_configuration = {
@@ -54,7 +53,7 @@ def _mark_setup_completed(user: "User") -> None:
         user.save(update_fields=["ui_configuration"])
 
 
-def star_custom_products(user: "User", team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
+def star_custom_products(user: User, team: "Team", product_paths: list[str], *, had_custom_products: bool) -> None:
     """Star products that were just added to a user's custom products, for simple sidebar users.
 
     The simple sidebar shows starred products instead of custom products, so every write that adds

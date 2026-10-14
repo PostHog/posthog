@@ -342,6 +342,7 @@ __all__ = [
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_conversation_logs",
     "read_task_run_logs",
     "record_comment_activity",
     "record_run_failure_cause",
@@ -2753,10 +2754,6 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
-        # Written once at loop fire time; seeding copies these storage paths into the
-        # run's artifact prefix, so a PATCHable value would be an arbitrary
-        # object-storage read (and write-location) primitive.
-        "skill_bundle_seeds",
         "cancel_requested_at",
         "cancel_requested_by_user_id",
         "cancel_source",
@@ -2786,14 +2783,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
-        # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
-        # terminal bookkeeping from running twice. A caller must not be able to forge either.
+        # Historical loop runs use this server stamp to keep owner credential revocation fail-closed.
         "loop_id",
-        "loop_trigger_id",
-        "trigger_context",
+        # Stamped at creation by workflow tasks: a PATCHable value would widen the run's connector allowlist.
         "config_snapshot",
-        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
@@ -3328,9 +3321,6 @@ def update_task_run(
     output/state merges take a row lock, terminal transitions signal Temporal + dispatch
     push/Slack updates after commit, and a cloud→local transition cancels the workflow.
     """
-    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
-        handle_loop_run_terminal,
-    )
     from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
         PullRequestReconciler,
     )
@@ -3476,10 +3466,6 @@ def update_task_run(
         PullRequestReconciler.schedule(run, previous_output=old_output, previous_branch=old_branch)
         run.publish_stream_state_event()
 
-    # Only on the actual transition: a repeat PATCH with the same terminal status, or an
-    # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
-    # (consecutive_failures would double-count). The workflow's status-update activity
-    # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         try:
             if run.environment == TaskRun.Environment.CLOUD:
@@ -3487,7 +3473,6 @@ def update_task_run(
                 run.refresh_from_db(fields=["state", "updated_at"])
         except Exception:
             logger.warning("task_run_cost_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
-        handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:
@@ -4863,6 +4848,28 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if log_urls is None:
         return None
     return read_task_run_log_content(log_urls)
+
+
+def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    chain = run.get_history_chain()
+    if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
+        return read_task_run_log_content([ancestor.log_url for ancestor in chain])
+
+    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log_url]), chain)
+    parts: list[str] = []
+    for ancestor, content in zip(chain, contents):
+        marker = {
+            "type": "pi_run_started",
+            "timestamp": ancestor.created_at.isoformat(),
+            "taskId": str(ancestor.task_id),
+            "runId": str(ancestor.id),
+        }
+        parts.append(json.dumps(marker) + "\n")
+        parts.append(content)
+    return "".join(parts)
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
@@ -8082,7 +8089,14 @@ def readonly_github_integration_id(team_id: int) -> int | None:
     return integration.integration.id if integration is not None else None
 
 
-def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
+def _with_ai_run_defaults(
+    data: dict,
+    *,
+    team_id: int,
+    acting_user_id: int | None,
+    internal: bool = False,
+    runtime: str = Task.Runtime.ACP,
+) -> dict:
     """A copy of ``data`` with the team/user default AI run triple filled in when it pins
     no runtime selection (see ``resolve_ai_run_selection``).
 
@@ -8098,7 +8112,7 @@ def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | Non
     )
 
     updated = dict(data)
-    apply_ai_run_defaults(updated, team_id, acting_user_id)
+    apply_ai_run_defaults(updated, team_id, acting_user_id, runtime=runtime)
     return updated
 
 
@@ -8976,6 +8990,7 @@ def run_task(
             team_id=task.team_id,
             acting_user_id=user_id if user_id is not None else task.created_by_id,
             internal=task.internal,
+            runtime=task.runtime,
         )
 
     access_state = {
@@ -9226,8 +9241,8 @@ def run_task(
         "fast_mode": fast_mode,
     }
     if is_pi_task:
-        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
-            run_state_values.pop(key)
+        run_state_values.pop("runtime_adapter")
+        run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
     for key, value in run_state_values.items():
@@ -10431,41 +10446,9 @@ def list_channel_instruction_versions(
     return [_instructions_to_dto(row) for row in versions]
 
 
-def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
-    task = Task.objects.filter(id=task_id, team_id=team_id).only("origin_product").first()
-    if task is None:
-        return False
-    if task.origin_product != Task.OriginProduct.LOOP:
-        return True
-
-    run_state = (
-        TaskRun.objects.filter(task_id=task.id, team_id=team_id)
-        .order_by("-created_at")
-        .values_list("state", flat=True)
-        .first()
-    )
-    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
-    outputs = context_target.get("outputs") or {}
-    return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
-
-
-def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
-    """The channel a loop run was configured to keep current, or None.
-
-    Scoped by task rather than by team, because the caller's authority here is a
-    run token minted for exactly this task. Returns None for anything that is
-    not a loop run configured to update its context, so callers fail closed.
-    """
-    task = Task.objects.filter(id=task_id).only("id", "origin_product").first()
-    if task is None or task.origin_product != Task.OriginProduct.LOOP:
-        return None
-
-    run_state = TaskRun.objects.filter(task_id=task.id).order_by("-created_at").values_list("state", flat=True).first()
-    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
-    if not (context_target.get("outputs") or {}).get("update_context"):
-        return None
-    channel_id = context_target.get("channel_id")
-    return str(channel_id) if channel_id else None
+def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int) -> bool:
+    # Legacy loop runs could only publish to the channel their loop targeted, and that config is gone.
+    return Task.objects.filter(id=task_id, team_id=team_id).exclude(origin_product=Task.OriginProduct.LOOP).exists()
 
 
 def capture_context_wiki_changed(
@@ -10474,7 +10457,7 @@ def capture_context_wiki_changed(
     channel_id: str | UUID,
     user_id: int | None,
     *,
-    actor_type: Literal["user_or_api", "task_agent", "loop_agent"],
+    actor_type: Literal["user_or_api", "task_agent"],
     is_first_version: bool,
     content_bytes: int,
     base_version_provided: bool,
@@ -11959,11 +11942,3 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
-
-
-def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
-    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
-    # Deferred to keep the Redis client off the facade import path.
-    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
-
-    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
