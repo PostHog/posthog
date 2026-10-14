@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdaptySource(ResumableSource[AdaptySourceConfig, AdaptyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ADAPTY_", "^EXPO_PUBLIC_ADAPTY_"),
+        npm=("react-native-adapty", "@adapty/capacitor", "@adapty/core", "adapty", "@adapty/react-native-ui"),
+        cocoapods=("Adapty", "AdaptyUI"),
+        maven=(
+            "io.adapty:android-sdk",
+            "io.adapty:android-ui",
+            "io.adapty:android-ui-video",
+            "io.adapty:adapty-kmp",
+            "io.adapty:adapty-kmp-ui",
+        ),
+        pub=("adapty_flutter", "adapty_ui_flutter"),
+        swiftpm=("github.com/adaptyteam/adaptysdk-ios",),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://adapty.io/docs/api-export-analytics"
 

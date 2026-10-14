@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AhrefsSource(SimpleSource[AhrefsSourceConfig]):
+    codebase_detection = detect(env=("^AHREFS_",), script_hosts=("analytics.ahrefs.com",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"

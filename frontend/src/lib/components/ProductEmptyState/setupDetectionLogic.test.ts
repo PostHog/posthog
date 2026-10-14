@@ -50,10 +50,11 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
-    // An outage answers null instead of failing, so a backend blip does not file an error
+    // An outage or a 403 answers null instead of failing, so it does not file an error
     // tracking issue per product. Other failures still reach the failure path.
     it.each([
         ['a 500', new ApiError('A server error occurred.', 500), 'detectStatusSuccess'],
+        ['a 403', new ApiError('You do not have permission.', 403), 'detectStatusSuccess'],
         ['a dropped connection', new TypeError('Failed to fetch'), 'detectStatusSuccess'],
         ['a 400', new ApiError('Bad request', 400), 'detectStatusFailure'],
         ['an application bug', new Error('x is not a function'), 'detectStatusFailure'],
@@ -132,21 +133,28 @@ describe('createSetupDetectionLogic', () => {
         expect(detect).toHaveBeenCalledTimes(2)
     })
 
-    it('stops polling once a request 404s on a deleted or inaccessible project', async () => {
+    it.each([
+        [
+            '404s on a deleted or inaccessible project',
+            new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }),
+        ],
+        ['403s on a resource the user cannot read', new ApiError('You do not have permission.', 403)],
+    ] as const)('stops polling once a request %s', async (_, error) => {
         jest.useFakeTimers()
         const detect = jest
             .fn<Promise<ProductSetupStatus>, []>()
             .mockResolvedValueOnce('needs-setup')
-            .mockRejectedValue(new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' }))
+            .mockRejectedValue(error)
         const logic = buildLogic(detect, 1000)
         logic.mount()
         await flushMicrotasks()
         expect(detect).toHaveBeenCalledTimes(1)
 
-        // The first poll tick 404s, which disposes the poll...
+        // The first poll tick fails, which disposes the poll...
         jest.advanceTimersByTime(1000)
         await flushMicrotasks()
         expect(detect).toHaveBeenCalledTimes(2)
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
 
         // ...so no later tick fires another doomed request.
         jest.advanceTimersByTime(5000)
