@@ -988,17 +988,19 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     { traceId, ts }: { traceId: string; ts?: string | null },
                     breakpoint
                 ): Promise<Span[]> => {
-                    // Filters can change while the request is in flight; the empty-result capture must describe these.
-                    cache.traceLoadFiltersActive =
-                        values.filters.serviceNames.length > 0 || hasFilterConditions(values.queryFilterGroup)
+                    // Filters can change while the request is in flight; both lookups and the empty-result
+                    // capture must use these.
+                    const serviceNames =
+                        values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined
+                    const filterGroup = values.queryFilterGroup
+                    cache.traceLoadFiltersActive = !!serviceNames || hasFilterConditions(filterGroup)
                     const lookUpTrace = (
                         dateRange: { date_from: string; date_to: string } | undefined
                     ): ReturnType<typeof api.tracing.getTrace> =>
                         api.tracing.getTrace(traceId, {
                             dateRange,
-                            serviceNames:
-                                values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
+                            serviceNames,
+                            filterGroup: filterGroup as PropertyGroupFilter,
                         })
                     const boundedRange = resolveTraceLookupRange(ts)
                     let response: Awaited<ReturnType<typeof api.tracing.getTrace>>

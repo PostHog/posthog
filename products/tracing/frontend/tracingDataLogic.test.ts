@@ -215,11 +215,22 @@ describe('tracingDataLogic', () => {
             expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: true })
         })
 
-        // Filters changing mid-flight must not relabel a request made under the old filters.
-        it('captures the filters active at request time, not at response time', () => {
-            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
+        // Filters changing mid-flight must not rescope or relabel a request made under the old filters.
+        it('keeps the filters active at request time through the widened lookup and the capture', async () => {
+            type TraceResponse = Awaited<ReturnType<typeof api.tracing.getTrace>>
+            const empty: TraceResponse = { results: [], hasMore: false, nextOffset: null }
+            let releaseBoundedLookup: (response: TraceResponse) => void = () => {}
+            const getTraceSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseBoundedLookup = resolve)))
+                .mockResolvedValueOnce(empty)
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-x', ts: '2024-01-01T00:00:00Z' })
             logic.actions.setServiceNames(['checkout-api'])
-            logic.actions.loadTraceSpansSuccess([])
+            releaseBoundedLookup(empty)
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            expect(getTraceSpy.mock.calls.map(([, params]) => params?.serviceNames)).toEqual([undefined, undefined])
             expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: false })
         })
     })
