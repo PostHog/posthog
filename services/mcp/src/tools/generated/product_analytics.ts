@@ -14,6 +14,22 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HogQLExpression = z.string()
+
+const AssistantEventsQuery = z
+    .object({
+        kind: z.literal('EventsQuery').default('EventsQuery'),
+        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+    })
+    .catchall(z.unknown())
+
+const AssistantDataTableNode = z
+    .object({
+        kind: z.literal('DataTableNode').default('DataTableNode'),
+        source: AssistantEventsQuery,
+    })
+    .catchall(z.unknown())
+
 const AssistantInsightVizNode = z.object({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
@@ -254,28 +270,12 @@ const AssistantBareHogQLQuery = z
     })
     .catchall(z.unknown())
 
-const HogQLExpression = z.string()
-
-const AssistantEventsQuery = z
-    .object({
-        kind: z.literal('EventsQuery').default('EventsQuery'),
-        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
-    })
-    .catchall(z.unknown())
-
-const AssistantDataTableNode = z
-    .object({
-        kind: z.literal('DataTableNode').default('DataTableNode'),
-        source: AssistantEventsQuery,
-    })
-    .catchall(z.unknown())
-
 const InsightQuery = z.union([
+    AssistantDataTableNode,
     AssistantInsightVizNode,
     AssistantDataVisualizationNode,
     AssistantBareInsightQuery,
     AssistantBareHogQLQuery,
-    AssistantDataTableNode,
     AssistantEventsQuery,
 ])
 

@@ -18951,20 +18951,20 @@ class InsightActorsQueryBase(BaseModel):
 
 class InsightQuery(
     RootModel[
-        AssistantInsightVizNode
+        AssistantDataTableNode
+        | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
-        | AssistantDataTableNode
         | AssistantEventsQuery
     ]
 ):
     root: (
-        AssistantInsightVizNode
+        AssistantDataTableNode
+        | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
-        | AssistantDataTableNode
         | AssistantEventsQuery
     )
 

@@ -48,6 +48,37 @@
         "query": {
             "anyOf": [
                 {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "DataTableNode",
+                            "default": "DataTableNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "properties": {
+                                "kind": {
+                                    "const": "EventsQuery",
+                                    "default": "EventsQuery",
+                                    "type": "string"
+                                },
+                                "select": {
+                                    "description": "Event columns as HogQL expressions.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["select"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                },
+                {
                     "properties": {
                         "kind": {
                             "const": "InsightVizNode",
@@ -582,37 +613,6 @@
                         }
                     },
                     "required": ["query"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": {},
-                    "properties": {
-                        "kind": {
-                            "const": "DataTableNode",
-                            "default": "DataTableNode",
-                            "type": "string"
-                        },
-                        "source": {
-                            "additionalProperties": {},
-                            "properties": {
-                                "kind": {
-                                    "const": "EventsQuery",
-                                    "default": "EventsQuery",
-                                    "type": "string"
-                                },
-                                "select": {
-                                    "description": "Event columns as HogQL expressions.",
-                                    "items": {
-                                        "type": "string"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["select"],
-                            "type": "object"
-                        }
-                    },
-                    "required": ["source"],
                     "type": "object"
                 },
                 {

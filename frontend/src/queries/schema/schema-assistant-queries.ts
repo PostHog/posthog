@@ -2056,10 +2056,12 @@ export interface AssistantDataTableNode {
     [key: string]: unknown
 }
 
+// Zod fills in omitted kinds and takes the first matching union branch. Match events sources
+// before the generic insight wrapper so inferred tables keep their kind and table settings.
 export type InsightQuery =
+    | AssistantDataTableNode
     | AssistantInsightVizNode
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
-    | AssistantDataTableNode
     | AssistantEventsQuery

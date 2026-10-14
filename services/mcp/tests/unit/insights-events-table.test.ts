@@ -45,12 +45,18 @@ describe('saving events tables', () => {
         const params = toolName === 'insight-create' ? { name: 'Example events' } : { id: 'AaVQ8Ijw' }
 
         it.each([
-            ['bare', source],
-            ['wrapped', table],
-        ])('preserves filters, columns and settings for a %s events query', (_name, query) => {
+            ['bare', source, source],
+            ['wrapped', table, table],
+            ['inferred wrapper', { ...table, kind: undefined }, table],
+            [
+                'minimal inferred wrapper',
+                { source: { kind: 'EventsQuery', select: ['event'] } },
+                { kind: 'DataTableNode', source: { kind: 'EventsQuery', select: ['event'] } },
+            ],
+        ])('preserves filters, columns and settings for a %s events query', (_name, query, expected) => {
             const parsed = schema.parse({ ...params, query }) as Record<string, unknown>
 
-            expect(parsed.query).toEqual(query)
+            expect(parsed.query).toEqual(expected)
         })
 
         it.each([

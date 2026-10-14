@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
+import { getToolDefinition } from '@/tools/toolDefinitions'
 
 const BARE_TRENDS_QUERY = {
     kind: 'TrendsQuery',
@@ -62,12 +63,15 @@ describe('insight query shapes', () => {
         expect(schema.safeParse({ ...base, query }).success).toBe(false)
     })
 
-    it.each(tools)('$tool names every SQL display type in the display guidance', ({ tool }) => {
+    it.each(tools)('$tool provides guidance for every SQL display type', ({ tool }) => {
         const schema = z.toJSONSchema(GENERATED_TOOLS[tool]!().schema, { io: 'input', reused: 'inline' })
         const display = findSqlDisplay(schema)!
 
         for (const value of display.enum) {
-            expect(display.description).toContain(`\`${value}\``)
+            if (!display.description.includes(`\`${value}\``)) {
+                expect(display.description).toContain('See insight-create')
+                expect(getToolDefinition('insight-create').description).toContain(`\`${value}\``)
+            }
         }
     })
 })

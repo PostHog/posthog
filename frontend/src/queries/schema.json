@@ -30883,6 +30883,9 @@
         "InsightQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/AssistantDataTableNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantInsightVizNode"
                 },
                 {
@@ -30893,9 +30896,6 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantBareHogQLQuery"
-                },
-                {
-                    "$ref": "#/definitions/AssistantDataTableNode"
                 },
                 {
                     "$ref": "#/definitions/AssistantEventsQuery"
