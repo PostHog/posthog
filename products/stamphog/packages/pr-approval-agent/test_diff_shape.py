@@ -49,10 +49,52 @@ def test_python_change_shape(head: bytes, expected: str) -> None:
     assert python_change_shape(_BASE, head) == expected
 
 
-def test_moving_a_directive_to_other_code_is_logic() -> None:
-    base = b"a = f()  # nosemgrep: rule\nb = g()\n"
-    head = b"a = f()\nb = g()  # nosemgrep: rule\n"
-    assert python_change_shape(base, head) == "logic"
+_DEEP_EXPRESSION = b"x = " + b" + ".join([b"1"] * 3000) + b"\n"
+_SCRIPT = b'# /// script\n# dependencies = ["requests==2.31.0"]\n# ///\nimport requests\n'
+
+
+@pytest.mark.parametrize(
+    "base, head, expected",
+    [
+        pytest.param(
+            b"a = f()  # nosemgrep: rule\nb = g()\n",
+            b"a = f()\nb = g()  # nosemgrep: rule\n",
+            "logic",
+            id="directive-moved-to-other-code",
+        ),
+        pytest.param(
+            b"# noqa: S602\nrun(x, shell=True)\n",
+            b"run(x, shell=True)  # noqa: S602\n",
+            "logic",
+            id="directive-moved-inline",
+        ),
+        pytest.param(
+            b"def a():\n    get(u)  # nosemgrep: rule\ndef b():\n    get(u)\n",
+            b"def a():\n    get(u)\ndef b():\n    get(u)  # nosemgrep: rule\n",
+            "logic",
+            id="directive-moved-between-identical-statements",
+        ),
+        pytest.param(
+            b"# fmt: off\nx = 1\n# fmt: on\ny = 2\n",
+            b"# fmt: on\nx = 1\n# fmt: off\ny = 2\n",
+            "logic",
+            id="directive-order-swapped",
+        ),
+        pytest.param(
+            b"#!/usr/bin/env python3\nx = 1\n", b"\n#!/usr/bin/env python3\nx = 1\n", "logic", id="shebang-moved"
+        ),
+        pytest.param(_SCRIPT, _SCRIPT.replace(b"2.31.0", b"2.32.0"), "logic", id="script-dependency-changed"),
+        pytest.param(
+            b"# noqa: S602\nrun(x, shell=True)\n",
+            b"# A note.\n# noqa: S602\nrun(x, shell=True)\n",
+            "comment",
+            id="comment-added-beside-unmoved-directive",
+        ),
+        pytest.param(_DEEP_EXPRESSION, _DEEP_EXPRESSION + b"# done\n", "logic", id="tree-too-deep-to-compare"),
+    ],
+)
+def test_python_change_shape_guards_tool_read_comments(base: bytes, head: bytes, expected: str) -> None:
+    assert python_change_shape(base, head) == expected
 
 
 def _modified(filename: str, **extra: object) -> dict:
@@ -71,6 +113,7 @@ def _modified(filename: str, **extra: object) -> dict:
             True,
             id="comment-and-test",
         ),
+        pytest.param([_modified("bin/insight.py")], "logic", False, id="mode-changed"),
         pytest.param(
             [_modified("posthog/api/insight.py"), _modified("frontend/src/insight.ts")],
             "logic",
@@ -89,15 +132,37 @@ def _modified(filename: str, **extra: object) -> dict:
 def test_classify_diff_shape(files: list[dict], expected_label: str, expected_approvable: bool) -> None:
     blobs = {
         "posthog/api/insight.py": (b"x = 1\n", b"x = 1  # one\n"),
+        "bin/insight.py": (b"x = 1\n", b"x = 1\n"),
     }
 
     shape = classify_diff_shape(
         files,
         read_base=lambda path: blobs[path][0] if path in blobs else None,
         read_head=lambda path: blobs[path][1] if path in blobs else None,
+        mode_changed_paths=frozenset({"bin/insight.py"}),
     )
 
     assert (shape.label, shape.approvable) == (expected_label, expected_approvable)
+
+
+@pytest.mark.parametrize(
+    "files, mode_changed_paths, expected_approvable, expected_waiver",
+    [
+        pytest.param([_modified("posthog/api/test/test_insight.py")], frozenset(), True, True, id="tests-waive"),
+        pytest.param(
+            [_modified("services/mcp/src/templates/prompt.md")], frozenset(), True, False, id="markdown-may-ship"
+        ),
+        pytest.param([_modified("posthog/api/test/test_insight.py")], None, False, False, id="modes-unknown"),
+    ],
+)
+def test_assurance_waiver_excludes_markdown_and_unknown_modes(
+    files: list[dict], mode_changed_paths: frozenset[str] | None, expected_approvable: bool, expected_waiver: bool
+) -> None:
+    shape = classify_diff_shape(
+        files, read_base=lambda path: None, read_head=lambda path: None, mode_changed_paths=mode_changed_paths
+    )
+
+    assert (shape.approvable, shape.waives_assurance) == (expected_approvable, expected_waiver)
 
 
 @pytest.mark.parametrize(

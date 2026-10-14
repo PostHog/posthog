@@ -69,6 +69,7 @@ from github import (
     diff_base_rev,
     fetch_pr,
     git_blob,
+    git_mode_changed_paths,
     is_in_flight_bot_eyes,
     pr_provenance,
     provenance_evidence,
@@ -527,6 +528,7 @@ class Pipeline:
             "is_test_only": is_test,
             "diff_shape": diff_shape.label if diff_shape else None,
             "diff_shape_approvable": diff_shape is not None and diff_shape.approvable,
+            "diff_shape_waives_assurance": diff_shape is not None and diff_shape.waives_assurance,
             "has_dep_changes": has_dependency_changes(file_paths),
             "dep_manifests_without_lockfile": dep_manifests,
             "manifest_script_changes": risky_manifests,
@@ -554,6 +556,7 @@ class Pipeline:
             pr.files,
             read_base=lambda path: git_blob(base_rev, path, REPO_ROOT) if base_rev else None,
             read_head=lambda path: git_blob(pr.head_sha, path, REPO_ROOT),
+            mode_changed_paths=git_mode_changed_paths(base_rev, pr.head_sha, REPO_ROOT) if base_rev else None,
         )
 
     def _author_on_team(self, team_slug: str) -> bool:

@@ -615,6 +615,35 @@ def git_blob(rev: str, path: str, repo_root: Path) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
+_ABSENT_MODE = "000000"
+
+
+def git_mode_changed_paths(base_rev: str, head_sha: str, repo_root: Path) -> frozenset[str] | None:
+    """Paths whose file mode differs between the two commits, or None when git cannot compare them.
+
+    ``--raw`` reads tree entries only, so it needs no blobs.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--raw", "--no-renames", "-z", base_rev, head_sha],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    records = result.stdout.split("\0")
+    changed: set[str] = set()
+    for meta, path in zip(records[0::2], records[1::2]):
+        old_mode, new_mode = meta.lstrip(":").split(" ")[:2]
+        if old_mode != new_mode and _ABSENT_MODE not in (old_mode, new_mode):
+            changed.add(path)
+    return frozenset(changed)
+
+
 def new_diff_file(directory: Path) -> Path:
     """Create a fresh, empty diff file under an unpredictable name inside ``directory``.
 

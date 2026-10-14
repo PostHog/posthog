@@ -16,6 +16,7 @@ from github import (
     _reaction_emoji,
     _trusted_reactor_predicate,
     ensure_commits,
+    git_mode_changed_paths,
     git_touched_paths,
     is_bot_author,
     parse_provenance_trailers,
@@ -182,6 +183,26 @@ def test_touched_paths_carry_both_rename_names_unquoted(
     exceptions = {"billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml",)),)}
     monkeypatch.setattr(gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(gates._DENY_PATTERN_DEFS, exceptions))
     assert gates.detect_deny_categories([*(f["filename"] for f in files), *touched]) == denied
+
+
+def test_mode_changed_paths_names_only_existing_files_whose_mode_moved(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "--quiet", "-b", "main", str(repo))
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "user.email", "t@example.com")
+    (repo / "script.py").write_text("x = 1\n")
+    (repo / "gone.py").write_text("x = 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "root")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "script.py").chmod(0o755)
+    (repo / "gone.py").unlink()
+    (repo / "added.py").write_text("x = 2\n")
+    _git(repo, "add", "--all")
+    _git(repo, "commit", "--quiet", "-m", "change")
+
+    assert git_mode_changed_paths(base, _git(repo, "rev-parse", "HEAD"), repo) == frozenset({"script.py"})
+    assert git_mode_changed_paths("missing", "HEAD", repo) is None
 
 
 def test_shallow_checkout_diffs_from_the_given_merge_base(tmp_path: Path) -> None:

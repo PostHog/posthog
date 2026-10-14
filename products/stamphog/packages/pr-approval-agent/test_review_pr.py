@@ -425,6 +425,7 @@ def test_diff_shape_tier_lifts_only_the_size_gate(
     monkeypatch.setattr(review_pr, "POLICY", dataclasses.replace(review_pr.POLICY, diff_shape_tier=tier_enabled))
     monkeypatch.setattr(review_pr, "diff_base_rev", lambda *a, **k: "base")
     monkeypatch.setattr(review_pr, "git_blob", lambda rev, path, root: _COMMENT_ONLY_BLOBS.get(rev))
+    monkeypatch.setattr(review_pr, "git_mode_changed_paths", lambda *a: frozenset())
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pr = _fake_pr(head_sha="head")

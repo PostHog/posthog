@@ -7,16 +7,19 @@ literal dressed up as a comment still counts as code. Every other file is `logic
 TypeScript and JavaScript, because the engine ships no parser for them.
 
 A comment can still change behavior when a tool reads it: `# noqa`, `# nosemgrep`, `# type:`,
-an encoding cookie. Any change to such a directive, or to the code it sits on, makes the file
-`logic`.
+an encoding cookie, a PEP 723 script metadata block. Any change to such a directive, to its order,
+to whether it sits inline or on its own line, or to the statement it applies to, makes the file
+`logic`. So does a file mode change.
+
+Markdown counts as `docs` for the size gate, but never waives the assurance rule, because some
+Markdown ships: prompt templates and tool descriptions are read at runtime.
 """
 
 import io
 import re
 import ast
 import tokenize
-from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -30,6 +33,8 @@ _DIRECTIVE_COMMENT_RE = re.compile(
     r"^#!|coding[:=]|\b(?:noqa|nosemgrep|nosec|pragma|type:|ty:|pyright:|mypy:|pylint:|ruff:|fmt:|isort:)",
     re.IGNORECASE,
 )
+_POSITIONAL_DIRECTIVE_RE = re.compile(r"^#!|coding[:=]", re.IGNORECASE)
+_SCRIPT_METADATA_RE = re.compile(r"^#\s*///")
 
 _LAYOUT_TOKENS = frozenset(
     {
@@ -55,6 +60,10 @@ class DiffShape:
     @property
     def approvable(self) -> bool:
         return bool(self.file_shapes) and all(shape != "logic" for _, shape in self.file_shapes)
+
+    @property
+    def waives_assurance(self) -> bool:
+        return self.approvable and all(shape != "docs" for _, shape in self.file_shapes)
 
     @property
     def label(self) -> str:
@@ -88,28 +97,44 @@ def could_be_approvable(files: Iterable[Mapping[str, object]]) -> bool:
 @dataclass(frozen=True, kw_only=True)
 class _DirectiveAnchor:
     comment: str
-    code: str
+    inline: bool
+    code_line_index: int | None
+    physical_line: int | None
 
 
-def _directive_anchors(source: bytes) -> Counter[_DirectiveAnchor]:
-    """Each directive comment with the code it applies to: its own line, or the next code line."""
-    code_by_line: dict[int, list[str]] = {}
-    comment_lines: list[int] = []
-    comment_texts: list[str] = []
+def _directive_anchors(source: bytes) -> tuple[_DirectiveAnchor, ...]:
+    """Each directive comment, in order, with where it sits and which code line it applies to.
+
+    The code line is its index among the lines that hold code, which a comment-only edit leaves
+    unchanged, so it identifies the statement even when two statements read the same.
+    """
+    code_lines: set[int] = set()
+    directives: list[tuple[int, str]] = []
+    in_script_metadata = False
     for token in tokenize.tokenize(io.BytesIO(source).readline):
         if token.type == tokenize.COMMENT:
-            if _DIRECTIVE_COMMENT_RE.search(token.string):
-                comment_lines.append(token.start[0])
-                comment_texts.append(token.string.strip())
+            text = token.string.strip()
+            opens_or_closes_metadata = bool(_SCRIPT_METADATA_RE.match(text))
+            if opens_or_closes_metadata or in_script_metadata or _DIRECTIVE_COMMENT_RE.search(text):
+                directives.append((token.start[0], text))
+            if opens_or_closes_metadata:
+                in_script_metadata = not in_script_metadata
         elif token.type not in _LAYOUT_TOKENS:
-            code_by_line.setdefault(token.start[0], []).append(token.string)
-    code_lines = sorted(code_by_line)
-    anchors: Counter[_DirectiveAnchor] = Counter()
-    for line, comment in zip(comment_lines, comment_texts):
-        anchor_line = line if line in code_by_line else next((n for n in code_lines if n > line), None)
-        code = " ".join(code_by_line[anchor_line]) if anchor_line is not None else ""
-        anchors[_DirectiveAnchor(comment=comment, code=code)] += 1
-    return anchors
+            code_lines.add(token.start[0])
+    ordered_code_lines = sorted(code_lines)
+    code_line_index = {line: index for index, line in enumerate(ordered_code_lines)}
+    anchors: list[_DirectiveAnchor] = []
+    for line, comment in directives:
+        anchor_line = line if line in code_lines else next((n for n in ordered_code_lines if n > line), None)
+        anchors.append(
+            _DirectiveAnchor(
+                comment=comment,
+                inline=line in code_lines,
+                code_line_index=code_line_index[anchor_line] if anchor_line is not None else None,
+                physical_line=line if _POSITIONAL_DIRECTIVE_RE.search(comment) else None,
+            )
+        )
+    return tuple(anchors)
 
 
 def _without_docstrings(tree: ast.Module) -> ast.Module:
@@ -125,29 +150,37 @@ def _without_docstrings(tree: ast.Module) -> ast.Module:
 def python_change_shape(base: bytes, head: bytes) -> FileShape:
     """`comment` when only comments or layout changed, `docstring` when docstrings did too, else `logic`."""
     try:
+        if _directive_anchors(base) != _directive_anchors(head):
+            return "logic"
         base_tree = ast.parse(base)
         head_tree = ast.parse(head)
-        directives_changed = _directive_anchors(base) != _directive_anchors(head)
-    except (SyntaxError, ValueError, tokenize.TokenError):
+        if ast.dump(base_tree) == ast.dump(head_tree):
+            return "comment"
+        if ast.dump(_without_docstrings(base_tree)) == ast.dump(_without_docstrings(head_tree)):
+            return "docstring"
+    except (SyntaxError, ValueError, tokenize.TokenError, RecursionError, MemoryError):
         return "logic"
-    if directives_changed:
-        return "logic"
-    if ast.dump(base_tree) == ast.dump(head_tree):
-        return "comment"
-    if ast.dump(_without_docstrings(base_tree)) == ast.dump(_without_docstrings(head_tree)):
-        return "docstring"
     return "logic"
 
 
 def classify_diff_shape(
-    files: Iterable[Mapping[str, object]], read_base: BlobReader, read_head: BlobReader
+    files: Iterable[Mapping[str, object]],
+    *,
+    read_base: BlobReader,
+    read_head: BlobReader,
+    mode_changed_paths: Collection[str] | None,
 ) -> DiffShape:
-    """Shape every changed file, stopping at the first `logic` file, since one decides the PR."""
+    """Shape every changed file, stopping at the first `logic` file, since one decides the PR.
+
+    ``mode_changed_paths`` is None when git could not report file modes, and every file is then `logic`.
+    """
     shapes: list[tuple[str, FileShape]] = []
     for file in files:
         path = str(file["filename"])
         shape = _path_shape(file)
-        if shape is None:
+        if mode_changed_paths is None or path in mode_changed_paths:
+            shape = "logic"
+        elif shape is None:
             base = read_base(path)
             head = read_head(path)
             shape = "logic" if base is None or head is None else python_change_shape(base, head)

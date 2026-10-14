@@ -308,7 +308,11 @@ _ON_OWNING_TEAM = {"ownership": {"teams": ["@PostHog/team-core"]}, "author_on_ow
             id="automated-review-skipped-any-file",
         ),
         pytest.param(
-            _RISKY_FACTS, {"diff_shape_approvable": True}, False, "APPROVE", id="approvable-shape-needs-no-assurance"
+            _RISKY_FACTS,
+            {"diff_shape_waives_assurance": True},
+            False,
+            "APPROVE",
+            id="approvable-shape-needs-no-assurance",
         ),
     ],
 )

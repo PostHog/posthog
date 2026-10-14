@@ -187,7 +187,7 @@ def _verdict_from_facts(output: dict, classification: dict, *, head_reviewed: bo
     try:
         ruled = derive_verdict(
             _cap_assurance_facts(ReviewFacts.from_output(output), classification, head_reviewed),
-            approvable_shape=classification.get("diff_shape_approvable") is True,
+            shape_waives_assurance=classification.get("diff_shape_waives_assurance") is True,
         )
     except InvalidFactsError as exc:
         return {
@@ -728,7 +728,7 @@ class Reviewer:
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
 
-        if cl.get("diff_shape_approvable") is True:
+        if cl.get("diff_shape_waives_assurance") is True:
             constraint += (
                 f"\nDiff shape: {cl['diff_shape']}. A parser confirmed that no changed file alters production "
                 "code, so risky territory needs no independent assurance here. Still report refusal grounds "

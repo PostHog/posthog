@@ -94,13 +94,13 @@ class RuledVerdict:
     issues: tuple[str, ...]
 
 
-def derive_verdict(facts: ReviewFacts, *, approvable_shape: bool = False) -> RuledVerdict:
+def derive_verdict(facts: ReviewFacts, *, shape_waives_assurance: bool = False) -> RuledVerdict:
     """Apply the review guidance's decision rule to the reported facts.
 
     Refusal grounds and unresolved concerns refuse anywhere. Risky territory needs
     independent assurance: a current-head review, or an author on the owning team or
     with STRONG familiarity. Without any of them the PR escalates to a human, unless
-    `approvable_shape` says no changed file touches production code (see diff_shape.py).
+    `shape_waives_assurance` says no changed file touches production code (see diff_shape.py).
     That fact comes from the pipeline's parser, never from the model.
     """
     issues = [*facts.unresolved_substantive_concerns, *facts.other_refusal_grounds]
@@ -109,7 +109,7 @@ def derive_verdict(facts: ReviewFacts, *, approvable_shape: bool = False) -> Rul
     verdict: Verdict
     if issues:
         verdict = "REFUSE"
-    elif facts.risky_areas and not assured and not approvable_shape:
+    elif facts.risky_areas and not assured and not shape_waives_assurance:
         verdict = "ESCALATE"
         issues.append("Risky territory without independent assurance: " + "; ".join(facts.risky_areas))
     else:
