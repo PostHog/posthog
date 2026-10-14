@@ -176,7 +176,6 @@ export function AppearanceStep(): JSX.Element {
                         onAppearanceChange={onAppearanceChange}
                         hasBranchingLogic={hasBranchingLogic}
                         deleteBranchingLogic={deleteBranchingLogic}
-                        onTranslationsChange={(translations) => setSurveyValue('translations', translations)}
                     />
                 </GuidedWizardSection>
 
