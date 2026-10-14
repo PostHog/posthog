@@ -88,4 +88,23 @@ describe('buildHogFunctionConfigDiff', () => {
         expect(diffs[0].currentText).toContain('https://old')
         expect(diffs[0].proposedText).toContain('https://new')
     })
+
+    it('shows a draft change that only touches input templating or a nested value key', () => {
+        const live = {
+            inputs: {
+                body: { value: '{event.event}', templating: 'hog' },
+                payload: { value: { value: 'a' } },
+            },
+        }
+        const draft = {
+            inputs: {
+                body: { value: '{event.event}', templating: 'liquid' },
+                payload: { value: { value: 'b' } },
+            },
+        }
+        const diffs = buildHogFunctionDraftDiff(live, draft)
+        expect(diffs.map((diff) => diff.field)).toEqual(['inputs'])
+        expect(diffs[0].proposedText).toContain('liquid')
+        expect(diffs[0].proposedText).toContain('"b"')
+    })
 })

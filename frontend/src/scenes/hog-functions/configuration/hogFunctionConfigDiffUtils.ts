@@ -141,10 +141,11 @@ function redactCurrentValue(field: string, current: Record<string, unknown>): un
  */
 export function buildHogFunctionConfigDiff(
     current: Record<string, unknown>,
-    proposed: Record<string, unknown>
+    proposed: Record<string, unknown>,
+    fields: DiffableField[] = DIFFABLE_FIELDS
 ): HogFunctionFieldDiff[] {
     const diffs: HogFunctionFieldDiff[] = []
-    for (const { field, label, kind, normalize } of DIFFABLE_FIELDS) {
+    for (const { field, label, kind, normalize } of fields) {
         if (!(field in proposed)) {
             continue
         }
@@ -184,6 +185,13 @@ export function hogFunctionFieldLabel(field: string): string {
 }
 
 const DERIVED_FILTER_KEYS = ['bytecode', 'bytecode_error', 'bytecode_contract', 'transpiled']
+const DERIVED_INPUT_KEYS = ['bytecode', 'bytecode_contract', 'transpiled', 'order']
+
+// Both sides of a draft diff come from the API, so `comparableContent` already strips derived input
+// keys. Value-only inputs would hide a templating change.
+const DRAFT_DIFFABLE_FIELDS: DiffableField[] = DIFFABLE_FIELDS.filter(({ field }) =>
+    HOG_FUNCTION_DRAFT_CONTENT_FIELDS.includes(field)
+).map((diffable) => ({ ...diffable, normalize: undefined }))
 
 function withoutKeys(value: unknown, keys: string[]): unknown {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -196,11 +204,12 @@ function comparableInputs(inputs: unknown, inputsSchema: unknown): unknown {
     if (!inputs || typeof inputs !== 'object') {
         return inputs
     }
-    return normalizeInputs(
-        redactSecretHogFunctionInputs(
-            inputs as Record<string, CyclotronJobInputType>,
-            (inputsSchema ?? []) as CyclotronJobInputSchemaType[]
-        )
+    const redacted = redactSecretHogFunctionInputs(
+        inputs as Record<string, CyclotronJobInputType>,
+        (inputsSchema ?? []) as CyclotronJobInputSchemaType[]
+    )
+    return Object.fromEntries(
+        Object.entries(redacted).map(([key, entry]) => [key, withoutKeys(entry, DERIVED_INPUT_KEYS)])
     )
 }
 
@@ -235,12 +244,5 @@ export function buildHogFunctionDraftDiff(
     live: Record<string, unknown>,
     draft: Record<string, unknown>
 ): HogFunctionFieldDiff[] {
-    const comparableDraft = comparableContent(draft)
-    const proposed = Object.fromEntries(
-        HOG_FUNCTION_DRAFT_CONTENT_FIELDS.filter((field) => field in draft).map((field) => [
-            field,
-            comparableDraft[field],
-        ])
-    )
-    return buildHogFunctionConfigDiff(comparableContent(live), proposed)
+    return buildHogFunctionConfigDiff(comparableContent(live), comparableContent(draft), DRAFT_DIFFABLE_FIELDS)
 }

@@ -2,16 +2,21 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
-import { hogFunctionsDiscardDraftCreate, hogFunctionsPublishCreate } from 'products/cdp/frontend/generated/api'
-import type { HogFunctionPublishResponseApi } from 'products/cdp/frontend/generated/api.schemas'
+import {
+    hogFunctionsDiscardDraftCreate,
+    hogFunctionsPublishCreate,
+    hogFunctionsRetrieve,
+} from 'products/cdp/frontend/generated/api'
+import type { HogFunctionApi, HogFunctionPublishResponseApi } from 'products/cdp/frontend/generated/api.schemas'
 
-import { HogFunctionFieldDiff, buildHogFunctionDraftDiff } from './hogFunctionConfigDiffUtils'
+import { buildHogFunctionDraftDiff } from './hogFunctionConfigDiffUtils'
 import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { openHogFunctionPublishDraftDialog } from './HogFunctionPublishDraftDialog'
 
@@ -25,7 +30,6 @@ export interface hogFunctionDraftLogicValues {
     type: HogFunctionTypeType // hogFunctionConfigurationLogic
     draftActionDisabledReason: string | undefined
     draftActionPending: HogFunctionDraftAction | null
-    draftDiffs: HogFunctionFieldDiff[]
     hasStagedDraft: boolean
 }
 
@@ -41,6 +45,20 @@ export interface hogFunctionDraftLogicActions {
         value: true
     }
     loadHogFunction: () => any // hogFunctionConfigurationLogic
+    loadHogFunctionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // hogFunctionConfigurationLogic
+    loadHogFunctionSuccess: (
+        hogFunction: HogFunctionType | null,
+        payload?: any
+    ) => {
+        hogFunction: HogFunctionType | null
+        payload?: any
+    } // hogFunctionConfigurationLogic
     publishDraft: () => {
         value: true
     }
@@ -54,7 +72,6 @@ export interface hogFunctionDraftLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasStagedDraft: (hogFunction: HogFunctionType | null) => boolean
-        draftDiffs: (hogFunction: HogFunctionType | null) => HogFunctionFieldDiff[]
         draftActionDisabledReason: (
             configurationChanged: boolean,
             draftActionPending: HogFunctionDraftAction | null
@@ -85,7 +102,10 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             hogFunctionConfigurationLogic(props),
             ['hogFunction', 'configurationChanged', 'type'],
         ],
-        actions: [hogFunctionConfigurationLogic(props), ['loadHogFunction']],
+        actions: [
+            hogFunctionConfigurationLogic(props),
+            ['loadHogFunction', 'loadHogFunctionSuccess', 'loadHogFunctionFailure'],
+        ],
     })),
     actions({
         publishDraft: true,
@@ -96,11 +116,14 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
     }),
     reducers({
         // Drives the buttons' loading and disabled state, so publish and discard can't race each other
-        // or double-submit.
+        // or double-submit. A publish or discard holds it until the reload that follows lands, because the
+        // configuration page locks the form while it is set.
         draftActionPending: [
             null as HogFunctionDraftAction | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+                loadHogFunctionSuccess: () => null,
+                loadHogFunctionFailure: () => null,
             },
         ],
     }),
@@ -108,11 +131,6 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         hasStagedDraft: [
             (s) => [s.hogFunction],
             (hogFunction: HogFunctionType | null): boolean => !!hogFunction?.draft,
-        ],
-        draftDiffs: [
-            (s) => [s.hogFunction],
-            (hogFunction: HogFunctionType | null): HogFunctionFieldDiff[] =>
-                hogFunction?.draft ? buildHogFunctionDraftDiff(hogFunction, hogFunction.draft) : [],
         ],
         draftActionDisabledReason: [
             (s) => [s.configurationChanged, s.draftActionPending],
@@ -132,22 +150,41 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 return
             }
             actions.setDraftActionPending('publish')
+            const projectId = String(values.currentTeamIdStrict)
             let preview: HogFunctionPublishResponseApi
+            let latest: HogFunctionApi
             try {
                 // Two-step publish: the unconfirmed call only previews what changes and mints the token
                 // a confirmed publish must return, so a draft that moved since can't go live blind.
-                preview = await hogFunctionsPublishCreate(String(values.currentTeamIdStrict), id, { confirm: false })
+                preview = await hogFunctionsPublishCreate(projectId, id, { confirm: false })
+                // Read after the preview, so the diff shows the draft the token signs. A draft edit in
+                // between fails the stamp check below, and a live edit fails the token on confirm.
+                latest = await hogFunctionsRetrieve(projectId, id)
             } catch {
                 lemonToast.error('Could not load the publish preview. Try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
             }
+            const { draft, draft_updated_at } = latest
+            if (
+                !draft ||
+                !draft_updated_at ||
+                !preview.draft_updated_at ||
+                !dayjs(draft_updated_at).isSame(preview.draft_updated_at)
+            ) {
+                lemonToast.warning('The draft changed while the preview loaded. Review it and publish again.')
+                actions.loadHogFunction()
+                return
+            }
             const changedFields = preview.changed_fields ?? []
             openHogFunctionPublishDraftDialog({
-                diffs: values.draftDiffs.filter((diff) => changedFields.includes(diff.field)),
+                diffs: buildHogFunctionDraftDiff(
+                    latest as unknown as Record<string, unknown>,
+                    draft as Record<string, unknown>
+                ).filter((diff) => changedFields.includes(diff.field)),
                 changedFields,
-                enabled: !!values.hogFunction?.enabled,
+                enabled: !!latest.enabled,
                 onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
             })
             // pinned: analytics event name
@@ -176,7 +213,6 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                         : 'Publishing failed. Review the staged changes and try again.'
                 )
             } finally {
-                actions.setDraftActionPending(null)
                 actions.loadHogFunction()
             }
         },
@@ -212,7 +248,6 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             } catch {
                 lemonToast.error('Could not discard the staged changes. Try again.')
             } finally {
-                actions.setDraftActionPending(null)
                 actions.loadHogFunction()
             }
         },
