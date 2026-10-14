@@ -217,6 +217,7 @@ class TestFieldCharsetResult:
         [
             (FIELD_TYPE.ENUM, 8, "ao\u00fbt".encode("latin1"), "ao\u00fbt"),
             (FIELD_TYPE.SET, 255, "co\u00fbt".encode(), "co\u00fbt"),
+            (FIELD_TYPE.ENUM, 33, b"ao\xfbt", "ao\ufffdt"),
             (242, 63, b"\x00\xfb", b"\x00\xfb"),
             (FIELD_TYPE.LONG, 63, b"42", 42),
             (FIELD_TYPE.NEWDECIMAL, 63, b"1.50", Decimal("1.50")),

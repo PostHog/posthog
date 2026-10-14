@@ -781,12 +781,25 @@ def _field_encoding(charset_id: int, connection_encoding: str) -> str | None:
         return connection_encoding
 
 
+def _lenient_decoder(encoding: str, converter: Callable[[Any], Any] | None) -> Callable[[bytes], Any]:
+    """Decode a value and replace the bytes that are not valid in `encoding`."""
+
+    def decode(data: bytes) -> Any:
+        text = data.decode(encoding, errors="replace")
+        return text if converter is None else converter(text)
+
+    return decode
+
+
 class _FieldCharsetResult(MySQLResult):
     """A result that decodes string-like columns by the charset the server reports for them.
 
     pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
     servers send ENUM and SET values under their own type codes, and newer servers add types
     pymysql predates, so one non-ASCII value in such a column fails the whole read.
+
+    These columns can also hold bytes that are not valid in the reported charset. pymysql has no
+    `errors=` option for its decode, so the converter decodes them instead and pymysql keeps bytes.
     """
 
     def _get_descriptions(self) -> None:
@@ -795,7 +808,10 @@ class _FieldCharsetResult(MySQLResult):
         for index, field in enumerate(self.fields):  # type: ignore[attr-defined]
             encoding, converter = self.converters[index]  # type: ignore[attr-defined]
             if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
-                self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
+                field_encoding = _field_encoding(field.charsetnr, connection_encoding)
+                if field_encoding is not None:
+                    converter = _lenient_decoder(field_encoding, converter)
+                self.converters[index] = (None, converter)  # type: ignore[attr-defined]
 
 
 def _set_tcp_liveness(sock: socket.socket) -> None:
