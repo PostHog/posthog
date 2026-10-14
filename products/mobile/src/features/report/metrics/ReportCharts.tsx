@@ -1,6 +1,7 @@
 import { type ReactElement, useMemo } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
+import { useChartPoints } from '@/features/metrics/useChartPoints'
 import { track } from '@/lib/analytics'
 import type { Accent, ReportChartView } from '@/model/types'
 import { CHART_DEFAULT_HEIGHT } from '@/ui/chart/chartMath'
@@ -11,7 +12,6 @@ import { colors, radii, type } from '@/ui/tokens'
 import { valueFormatter } from './metricFooter'
 import { OpenInsightLink } from './OpenInsightLink'
 import { insightUrl } from './openInsight'
-import { useChartPoints } from './useChartPoints'
 import { useScrubTracking } from './useScrubTracking'
 
 interface ReportChartsProps {

@@ -1,6 +1,9 @@
 import { type ReactElement, useMemo } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
+import { type MetricValueState, MISSING_VALUE } from '@/features/metrics/metricValue'
+import { useChartPoints } from '@/features/metrics/useChartPoints'
+import { useMetricValue } from '@/features/metrics/useMetricValue'
 import { track } from '@/lib/analytics'
 import type { Accent, MetricView } from '@/model/types'
 import { CHART_DEFAULT_HEIGHT } from '@/ui/chart/chartMath'
@@ -11,11 +14,8 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, fonts, lineHeight, radii, type } from '@/ui/tokens'
 
 import { metricSourceLabel, valueFormatter } from './metricFooter'
-import { type MetricValueState, MISSING_VALUE } from './metricValue'
 import { OpenInsightLink } from './OpenInsightLink'
 import { insightUrl } from './openInsight'
-import { useChartPoints } from './useChartPoints'
-import { useMetricValue } from './useMetricValue'
 import { useScrubTracking } from './useScrubTracking'
 
 interface ObservationCardProps {

@@ -1,13 +1,14 @@
 import type { ReactElement } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 
+import { MISSING_VALUE } from '@/features/metrics/metricValue'
+import { useMetricValue } from '@/features/metrics/useMetricValue'
 import type { MetricView } from '@/model/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, fonts, lineHeight, radii, type } from '@/ui/tokens'
-import { MISSING_VALUE } from './metricValue'
+
 import { insightUrl, openInsight } from './openInsight'
-import { useMetricValue } from './useMetricValue'
 
 interface ImpactMetricsProps {
     metrics: MetricView[]
