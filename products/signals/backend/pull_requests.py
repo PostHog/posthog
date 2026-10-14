@@ -95,7 +95,7 @@ def link_pull_request(
         link.save(update_fields=["pull_request"])
         if (
             state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
-            and report.status == SignalReport.Status.RESOLVED
+            and report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
             and pr.state not in {SignalReportPullRequest.State.MERGED, SignalReportPullRequest.State.CLOSED}
         ):
             report.save(update_fields=report.transition_to(SignalReport.Status.READY))
