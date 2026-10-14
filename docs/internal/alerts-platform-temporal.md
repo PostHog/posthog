@@ -230,6 +230,10 @@ Flooring to the minute loses nothing that load spreading provides: `compute_shar
 whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
 than within one.
 
+A source in `TEAM_BATCHED_SOURCES` spreads by team instead of by configuration, through `compute_team_shard_offset_seconds`.
+All of a team's alerts on one cadence then share one batch key, and logs answers each cohort in that key with one query.
+Production logs alerting uses the same offset, so both stacks check a team in the same minute.
+
 ## Source evaluation bindings
 
 `products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
