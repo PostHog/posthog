@@ -324,7 +324,6 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
-    DATA_WAREHOUSE_SCENE_TRINO: 'data-warehouse-scene-trino', // owner: #team-data-modeling
     DISCUSSIONS_SLACK_SYNC: 'discussions-slack-sync', // owner: #team-platform-features
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
@@ -416,6 +415,7 @@ export const FEATURE_FLAGS = {
     LOGS_TRANSFORMATIONS: 'logs-transformations', // owner: #team-logs
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
+    MANAGED_TRINO_QUERY: 'managed-warehouse-trino-query', // owner: #team-data-modeling
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_AMAZON_ADS: 'marketing-analytics-amazon-ads', // owner: @jabahamondes #team-web-analytics

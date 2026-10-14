@@ -503,6 +503,43 @@ class TestAppCspHeaderName(SimpleTestCase):
         assert app_csp_header_name(RequestFactory().get("/login")) == "Content-Security-Policy"
         assert app_csp_header_name(RequestFactory().get("/messaging-preferences/abc")) == "Content-Security-Policy"
 
+    @parameterized.expand(
+        [
+            # A prefix match on /exporter would include this route, which serves the shared page.
+            ("exporter_with_token", "/exporter/abc123"),
+            ("shared", "/shared/abc123"),
+            ("app_root", "/"),
+        ]
+    )
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        E2E_TESTING=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL=_US_BUNDLE,
+    )
+    def test_only_the_exporter_render_asks_for_script_samples(self, _name: str, path: str) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>page</body></html>", content_type="text/html; charset=utf-8")
+
+        def script_src(request_path: str) -> list[str]:
+            response = CSPMiddleware(view)(RequestFactory().get(request_path))
+            policies = _parse_policies(response.get("Content-Security-Policy", "")) + _parse_policies(
+                response.get("Content-Security-Policy-Report-Only", "")
+            )
+            (app_policy,) = [policy for policy in policies if "default-src" in policy]
+            # Each response carries its own nonce.
+            return [source for source in app_policy["script-src"] if not source.startswith("'nonce-")]
+
+        exporter, other = script_src("/exporter"), script_src(path)
+        # Without a sample, an eval report from a replay export render does not show which code ran.
+        assert "'report-sample'" in exporter
+        # A sample can carry page code to the report endpoint.
+        assert "'report-sample'" not in other
+        # Cloud rebuilds script-src when it narrows the wildcards, so the keyword must be the only difference.
+        assert [source for source in exporter if source != "'report-sample'"] == other
+
 
 class TestNarrowedAppPolicy(SimpleTestCase):
     def test_swaps_the_wildcards_and_keeps_every_other_source(self) -> None:

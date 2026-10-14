@@ -2,7 +2,7 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo, useState } from 'react'
+import { ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -68,6 +68,8 @@ export interface InsightsTableProps {
     isMainInsightView?: boolean
     /** Whether the insight is in edit mode. */
     editMode?: boolean
+    /** @default 'No insight results' */
+    emptyState?: ReactNode
 }
 
 export function InsightsTable({
@@ -79,6 +81,7 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
     editMode,
+    emptyState = 'No insight results',
 }: InsightsTableProps): JSX.Element {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const {
@@ -504,7 +507,7 @@ export function InsightsTable({
             rowKey="id"
             loading={insightDataLoading}
             disableTableWhileLoading={false}
-            emptyState="No insight results"
+            emptyState={emptyState}
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
             rowRibbonColor={
