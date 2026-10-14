@@ -78,6 +78,8 @@ def invoke_structured(
                 }
             },
             default_request_timeout=_TIMEOUT_SECONDS,
+            # Retries would outlast the three minutes the frontend polls for, so a failed call fails the run.
+            max_retries=0,
             posthog_properties=properties,
         )
         response = llm.invoke([("system", system), ("human", human)], config=RunnableConfig(callbacks=callbacks))
@@ -102,14 +104,12 @@ def strict_schema(
 ) -> dict[str, Any]:
     # The API's JSON schema output requires every object to forbid properties the schema does not list.
     # Removing a value from every enum means the model cannot pick a channel the team has not connected.
-    # A property in `allowed_values` only accepts those strings, so the model cannot make up an event name.
+    # A property in `allowed_values` only accepts those strings, so the model cannot make up an event name. It is
+    # restricted after the exclusions, so an event named like a channel stays available.
     def close_objects(node: Any) -> None:
         if isinstance(node, dict):
             if node.get("type") == "object":
                 node["additionalProperties"] = False
-                for name, values in allowed_values.items():
-                    if name in node.get("properties", {}):
-                        _restrict_strings(node["properties"][name], list(values))
             if isinstance(node.get("enum"), list):
                 node["enum"] = [value for value in node["enum"] if value not in excluded_values]
             for value in node.values():
@@ -118,8 +118,21 @@ def strict_schema(
             for value in node:
                 close_objects(value)
 
+    def restrict(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                for name, values in allowed_values.items():
+                    if name in node.get("properties", {}):
+                        _restrict_strings(node["properties"][name], list(values))
+            for value in node.values():
+                restrict(value)
+        elif isinstance(node, list):
+            for value in node:
+                restrict(value)
+
     json_schema = schema.model_json_schema()
     close_objects(json_schema)
+    restrict(json_schema)
     return json_schema
 
 

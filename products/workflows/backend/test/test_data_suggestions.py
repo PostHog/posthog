@@ -165,11 +165,13 @@ class TestDataSuggestions(SimpleTestCase):
                 ),
                 step("notify", type="function", template_id="template-webhook", setup_note="Add the endpoint URL"),
                 step("split", type="random_split", branches=[branch("A", "nudge", 50), branch("B", None, 50)]),
-                step("nudge", type="slack", slack_message="Trial user needs help"),
+                step("nudge", type="slack", slack_message="Trial user needs help", next="window"),
+                step("window", type="wait_until_time_window"),
             ),
-            context(),
+            context(once_per_person=True),
         )
         assert built is not None
+        assert built.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": None, "threshold": None}
         assert edges(built) == [
             ("trigger_node", "action_0_email", "continue", None),
             ("action_0_email", "action_1_wait_until_event", "continue", None),
@@ -179,7 +181,8 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_3_random_split", "action_4_slack", "branch", 0),
             ("action_3_random_split", "exit_node", "branch", 1),
             ("action_3_random_split", "exit_node", "continue", None),
-            ("action_4_slack", "exit_node", "continue", None),
+            ("action_4_slack", "action_5_wait_until_time_window", "continue", None),
+            ("action_5_wait_until_time_window", "exit_node", "continue", None),
         ]
         actions = {action["id"]: action for action in built.workflow["actions"]}
         wait_config = actions["action_1_wait_until_event"]["config"]
@@ -194,6 +197,7 @@ class TestDataSuggestions(SimpleTestCase):
         slack_inputs = actions["action_4_slack"]["config"]["inputs"]
         assert "slack_workspace" not in slack_inputs
         assert slack_inputs["text"]["value"] == "Trial user needs help"
+        assert actions["action_5_wait_until_time_window"]["config"]["day"] == "weekday"
 
     @patch("products.workflows.backend.services.data_suggestions.llm.logger")
     @patch("products.workflows.backend.services.data_suggestions.llm.is_privacy_mode_enabled", return_value=True)
@@ -220,9 +224,9 @@ class TestDataSuggestions(SimpleTestCase):
         assert "exc_info" not in logger.warning.call_args.kwargs
 
     def test_plan_schema_only_offers_connected_channels_and_project_events(self) -> None:
-        schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}), {"wait_event": ["trial_started"]})
+        schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}), {"wait_event": ["trial_started", "sms"]})
         wait_event = schema["$defs"]["PlannedStep"]["properties"]["wait_event"]["anyOf"]
-        assert {"type": "string", "enum": ["trial_started"]} in wait_event
+        assert {"type": "string", "enum": ["trial_started", "sms"]} in wait_event
         assert {"type": "null"} in wait_event
         step_types = schema["$defs"]["PlannedStep"]["properties"]["type"]["enum"]
         assert "email" in step_types

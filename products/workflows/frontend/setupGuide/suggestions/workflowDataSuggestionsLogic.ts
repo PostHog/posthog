@@ -34,6 +34,7 @@ import { SuggestionCard, cardFromSuggestion } from './suggestionCards'
 // A background run or build usually takes 10 to 30 seconds. Past the deadline it counts as failed.
 const POLL_INTERVAL_MS = 2000
 const POLL_DEADLINE_MS = 3 * 60 * 1000
+const SAVE_REQUEST_TIMEOUT_MS = 30 * 1000
 // A stalled request would otherwise keep the skeletons up past the deadline.
 const POLL_REQUEST_TIMEOUT_MS = 10_000
 const BUILD_FAILED_MESSAGE = "We couldn't build this workflow. Try again, or start from a template."
@@ -235,6 +236,8 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     listeners(({ actions, values, props, cache }) => {
         // Both the first call and every poll land here: keep polling while the background run goes on.
         const handleResult = (aiResult: DataSuggestionsResponseApi | null): void => {
+            // The manager reruns a registered timer when the tab becomes visible, so only a running generation keeps one.
+            cache.disposables.dispose('poll')
             // A response that lands after the lane was hidden neither polls nor counts as shown.
             if (values.hidden) {
                 return
@@ -305,10 +308,13 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     if (built.status !== 'ready') {
                         throw new Error(BUILD_FAILED_MESSAGE)
                     }
-                    const workflow = await hogFlowsCreate(projectId, {
-                        ...(built.workflow as Record<string, unknown>),
-                        status: 'draft',
-                    } as Parameters<typeof hogFlowsCreate>[1])
+                    const workflow = await hogFlowsCreate(
+                        projectId,
+                        { ...(built.workflow as Record<string, unknown>), status: 'draft' } as Parameters<
+                            typeof hogFlowsCreate
+                        >[1],
+                        { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
+                    )
                     breakpoint()
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestion built', {
