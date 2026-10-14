@@ -19,3 +19,8 @@ export function recordingsWebUrl(scope: ProjectScope | null): string | undefined
 export function recordingWebUrl(scope: ProjectScope | null, sessionId: string): string | undefined {
     return scope ? `${scope.host}/project/${scope.projectId}/replay/${encodeURIComponent(sessionId)}` : undefined
 }
+
+/** A person at a chart point, by the person's UUID, as the web's `urls.personByUUID` builds it. */
+export function personWebUrl(scope: ProjectScope | null, personId: string): string | undefined {
+    return scope ? `${scope.host}/project/${scope.projectId}/persons/${encodeURIComponent(personId)}` : undefined
+}

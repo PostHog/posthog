@@ -427,6 +427,8 @@ export interface DemoInsightRequest {
     refreshedAt?: number
 }
 
+const DEMO_AUTHOR = { first_name: 'Sam', last_name: 'Rivera', email: 'sam@example.com' }
+
 /** A demo `GET insights/{id}/` answer, or undefined for an id the demo does not have (a 404). */
 export function demoInsightResponse(request: DemoInsightRequest, anchor: number): InsightApi | undefined {
     const def = insightDef(request.shortId)
@@ -456,6 +458,8 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
         ...demoFreshness(anchor, request.refreshedAt),
         timezone: 'UTC',
         resolved_date_range: resolvedRange(window),
+        created_by: DEMO_AUTHOR,
+        created_at: '2026-03-03T10:00:00Z',
     }
 }
 
@@ -672,8 +676,13 @@ export const useDemoViews = create<DemoViewsState>()((set) => ({
     ...freshDemoViews(),
     addShortcut: (input) => {
         demoPinCounter += 1
+        // A pin from a dashboard screen names the dashboard by id, but demo dashboards open by ref.
+        const ref =
+            input.type === 'dashboard' && input.ref ? (demoDashboardRefFor(Number(input.ref)) ?? input.ref) : input.ref
         const row: FileSystemShortcutApi = {
             ...input,
+            ref,
+            href: ref === input.ref ? input.href : `/dashboard/${ref}`,
             id: `demo-pin-added-${demoPinCounter}`,
             order: DEFAULT_SHORTCUTS.length + demoPinCounter,
             created_at: new Date().toISOString(),

@@ -16,6 +16,8 @@ interface BottomSheetProps {
     children: ReactNode
     paddingHorizontal?: number
     scrollGesture?: NativeGesture
+    /** Defaults to white. Sheets that hold white cards use the screen background. */
+    backgroundColor?: string
     accessibilityLabel?: string
     testID?: string
 }
@@ -26,6 +28,7 @@ export function BottomSheet({
     children,
     paddingHorizontal = 16,
     scrollGesture,
+    backgroundColor = colors.white,
     accessibilityLabel,
     testID,
 }: BottomSheetProps): ReactElement | null {
@@ -56,7 +59,7 @@ export function BottomSheet({
                         style={[
                             styles.sheet,
                             shadows.bottomSheet,
-                            { paddingHorizontal, paddingBottom: bottomOffset(insets, 40) },
+                            { paddingHorizontal, paddingBottom: bottomOffset(insets, 40), backgroundColor },
                             sheetStyle,
                         ]}
                     >
@@ -80,7 +83,6 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     sheet: {
-        backgroundColor: colors.white,
         borderTopLeftRadius: radii.sheet,
         borderTopRightRadius: radii.sheet,
         paddingTop: 10,
