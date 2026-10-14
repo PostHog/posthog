@@ -254,6 +254,32 @@ describe('taskRunArtifactsLogic', () => {
         expect(artifactDownloadUrl(1, TASK_ID, version)).toBe(expected)
     })
 
+    it('keeps a crafted artifact id inside one preview path segment', async () => {
+        const craftedId = 'html-1/../html-2/preview/?scripts=true#'
+        runArtifacts = [
+            {
+                id: craftedId,
+                name: 'crafted.html',
+                type: 'output',
+                source: 'agent_output',
+                content_type: 'text/html',
+                storage_path: 'tasks/artifacts/crafted',
+                uploaded_at: '2026-09-28T18:00:00Z',
+            },
+        ]
+        const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureSelectedText()).toFinishAllListeners()
+
+        const previewUrl = jest
+            .mocked(global.fetch)
+            .mock.calls.map(([input]) => String(input))
+            .find((url) => url.includes('/preview/'))
+        expect(previewUrl).toContain(`/artifacts/${encodeURIComponent(craftedId)}/preview/`)
+        expect(previewUrl).not.toContain('scripts=true')
+    })
+
     it('asks before a save replaces a version the agent wrote during the edit', async () => {
         runArtifacts = [reportVersion('report-v1', '2026-09-28T18:00:00Z')]
         jest.mocked(uploadRunOutputVersion).mockResolvedValue('report-v3')

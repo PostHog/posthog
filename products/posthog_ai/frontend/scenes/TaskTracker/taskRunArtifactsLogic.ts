@@ -433,7 +433,7 @@ async function requestHtmlPreview(
             String(projectId),
             taskId,
             artifact.runId,
-            artifact.living?.artifactId ?? artifact.id,
+            encodeURIComponent(artifact.living?.artifactId ?? artifact.id),
             { ...(artifact.living ? { version: artifact.living.version } : {}), ...(scripts ? { scripts } : {}) }
         )
         return {
