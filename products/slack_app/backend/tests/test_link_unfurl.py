@@ -10,6 +10,9 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
+from slack_sdk.models.blocks import Block
+from slack_sdk.web.slack_response import SlackResponse
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
@@ -483,6 +486,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         unfurls = mock_client.chat_unfurl.call_args.kwargs["unfurls"]
         assert len(unfurls) == 2
+        for unfurl in unfurls.values():
+            self._assert_slack_accepts(unfurl)
         assert not [block for payload in unfurls.values() for block in payload["blocks"] if block["type"] == "actions"]
         assert len(self._invite_blocks(mock_client)) == 1
 
@@ -603,10 +608,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     type="popover",
                     questions=[{"type": "open", "question": "Why?"}],
                 )
-                return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "*Questions*\n1"]
+                return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
-                return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200"]
+                return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200 persons"]
             case "error":
                 issue_id = error_tracking_testing.create_issue(
                     team_id=self.team.pk, name="TypeError", description="Cannot read id"
@@ -635,7 +640,9 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         self._unfurl_links([url])
 
-        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
+        self._assert_slack_accepts(unfurl)
+        text = self._unfurl_text(unfurl)
         for snippet in expected:
             assert snippet in text
 
@@ -668,6 +675,42 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links([url])
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @staticmethod
+    def _assert_slack_accepts(unfurl: dict) -> None:
+        for block in unfurl["blocks"]:
+            parsed = Block.parse(block)
+            assert parsed is not None
+            parsed.validate_json()
+
+    @patch("products.slack_app.backend.slack_link_unfurl.capture_slack_event")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_rejected_card_falls_back_to_compact(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        rejection = SlackResponse(
+            client=None,
+            http_verb="POST",
+            api_url="https://slack.com/api/chat.unfurl",
+            req_args={},
+            data={"ok": False, "error": "cannot_parse_attachment"},
+            headers={},
+            status_code=200,
+        )
+        mock_client.chat_unfurl.side_effect = [SlackApiError("rejected", rejection), None]
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+
+        self._unfurl_links([url])
+
+        retried = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"]
+        assert mock_client.chat_unfurl.call_count == 2
+        assert [block["type"] for block in retried if block["type"] != "context"] == ["section"]
+        failure = next(c for c in mock_capture.call_args_list if c.args[1] == "slack app link unfurl failed")
+        assert failure.kwargs["error"] == "cannot_parse_attachment"
 
     @staticmethod
     def _unfurl_text(unfurl: dict) -> str:

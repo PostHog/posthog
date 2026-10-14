@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 
 import structlog
+from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
@@ -95,6 +96,10 @@ _KIND_EMOJI: dict[str, str] = {
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access"]
+
+_REJECTED_PAYLOAD_ERRORS = frozenset(
+    {"cannot_parse_attachment", "invalid_unfurls_format", "invalid_arguments", "invalid_array_arg", "invalid_blocks"}
+)
 
 _INVITE_UTM_TAGS = "utm_source=slack&utm_medium=unfurl&utm_campaign=link_unfurl_followup"
 # A channel that shares PostHog links all day would otherwise carry the invite on every unfurl,
@@ -489,6 +494,10 @@ class _UnfurlContext:
     owner_access_cache: dict[str, bool] = dataclasses.field(default_factory=dict)
 
 
+def _count(value: int, noun: str) -> str:
+    return f"{value:,} {noun}{'' if value == 1 else 's'}"
+
+
 def _humanize(value: str) -> str:
     return value.replace("_", " ").capitalize()
 
@@ -666,7 +675,7 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         label="Survey",
         title=survey.name,
         status=_survey_status(survey),
-        facts={"Questions": str(len(survey.questions or []))},
+        details=(_count(len(survey.questions or []), "question"),),
         body=survey.description,
         updated_at=survey.updated_at,
     )
@@ -681,7 +690,7 @@ def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     return _UnfurlCard(
         label="Static cohort" if cohort.is_static else "Cohort",
         title=cohort.name or "Untitled",
-        facts={"Persons": f"{cohort.count:,}"} if cohort.count is not None else {},
+        details=(_count(cohort.count, "person"),) if cohort.count is not None else (),
         body=cohort.description,
     )
 
@@ -732,6 +741,36 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "error": _error_card,
     "report": _report_card,
 }
+
+
+def _unfurls(cards: dict[str, tuple[str, _UnfurlCard]], *, compact: bool, invite: dict | None) -> dict[str, dict]:
+    unfurls = {
+        url: {"blocks": _card_blocks(card, kind=kind, url=url, compact=compact)} for url, (kind, card) in cards.items()
+    }
+    if invite:
+        next(iter(unfurls.values()))["blocks"].append(invite)
+    return unfurls
+
+
+def _post_unfurls(slack: SlackIntegration, event: dict, unfurls: dict[str, dict]) -> str | None:
+    try:
+        slack.client.chat_unfurl(
+            **chat_unfurl_kwargs(
+                channel=event["channel"],
+                ts=event["message_ts"],
+                unfurls=unfurls,
+                unfurl_id=event.get("unfurl_id"),
+                source=event.get("source"),
+            )
+        )
+    except SlackApiError as e:
+        error = (e.response.get("error") if e.response is not None else None) or "slack_api_error"
+        logger.warning("slack_link_unfurl_chat_unfurl_failed", channel=event["channel"], error=error)
+        return error
+    except Exception:
+        logger.exception("slack_link_unfurl_chat_unfurl_failed", channel=event["channel"])
+        return "unknown"
+    return None
 
 
 def start_unfurl_charts(
@@ -825,8 +864,6 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
     message_ts = event.get("message_ts")
     slack_user_id = event.get("user")
-    unfurl_id = event.get("unfurl_id")
-    source = event.get("source")
     links = event.get("links") or []
 
     if not channel or not message_ts or not slack_user_id or not links:
@@ -896,56 +933,70 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             continue
         cards[raw_url] = (ref.kind, card)
 
-    compact = len(cards) > 1
-    unfurls = {
-        url: {"blocks": _card_blocks(card, kind=kind, url=url, compact=compact)} for url, (kind, card) in cards.items()
-    }
-    chart_requests = [
-        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
-        for url, (_, card) in cards.items()
-        if card.chart_insight_id is not None and not compact
-    ]
-
     logger.info(
         "slack_app_link_unfurl_result",
         team_id=team.pk,
         integration_id=integration.id,
         channel=channel,
-        unfurled=len(unfurls),
+        unfurled=len(cards),
         skipped=skipped,
     )
 
-    if not unfurls:
+    if not cards:
         return
 
-    invite_url, (invite_kind, _) = next(iter(cards.items()))
+    invite_kind, _ = next(iter(cards.values()))
     invite = _build_unfurl_invite(integration, invite_kind, channel)
-    if invite:
-        unfurls[invite_url]["blocks"].append(invite)
-
-    try:
-        slack.client.chat_unfurl(
-            **chat_unfurl_kwargs(channel=channel, ts=message_ts, unfurls=unfurls, unfurl_id=unfurl_id, source=source)
-        )
-    except Exception:
-        logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
-    else:
-        charts_queued = bool(chart_requests) and _queue_unfurl_charts(
-            integration=integration,
-            user=user,
-            event=event,
-            unfurls=unfurls,
-            charts=chart_requests,
-        )
+    kinds = sorted({kind for kind, _ in cards.values()})
+    compact = len(cards) > 1
+    unfurls = _unfurls(cards, compact=compact, invite=invite)
+    error = _post_unfurls(slack, event, unfurls)
+    if error in _REJECTED_PAYLOAD_ERRORS and not compact:
         capture_slack_event(
             integration,
-            "slack app link unfurled",
+            "slack app link unfurl failed",
             slack_user_id=slack_user_id,
             posthog_user=user,
-            kinds=sorted({kind for kind, _ in cards.values()}),
-            unfurled_count=len(unfurls),
+            kinds=kinds,
             compact=compact,
-            skipped_count=len(skipped),
-            followup_invite_shown=invite is not None,
-            charts_queued=charts_queued,
+            error=error,
         )
+        compact = True
+        unfurls = _unfurls(cards, compact=compact, invite=invite)
+        error = _post_unfurls(slack, event, unfurls)
+    if error is not None:
+        capture_slack_event(
+            integration,
+            "slack app link unfurl failed",
+            slack_user_id=slack_user_id,
+            posthog_user=user,
+            kinds=kinds,
+            compact=compact,
+            error=error,
+        )
+        return
+
+    chart_requests = [
+        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        for url, (_, card) in cards.items()
+        if card.chart_insight_id is not None and not compact
+    ]
+    charts_queued = bool(chart_requests) and _queue_unfurl_charts(
+        integration=integration,
+        user=user,
+        event=event,
+        unfurls=unfurls,
+        charts=chart_requests,
+    )
+    capture_slack_event(
+        integration,
+        "slack app link unfurled",
+        slack_user_id=slack_user_id,
+        posthog_user=user,
+        kinds=kinds,
+        unfurled_count=len(unfurls),
+        compact=compact,
+        skipped_count=len(skipped),
+        followup_invite_shown=invite is not None,
+        charts_queued=charts_queued,
+    )
