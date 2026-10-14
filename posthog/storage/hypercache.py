@@ -612,11 +612,12 @@ class HyperCache:
         Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
 
-        With strict_mirror, a failed delete on the secondary cache raises after every other
-        tier was attempted. Otherwise the secondary delete is best-effort.
+        A failed Redis delete raises after the object-storage delete ran. With strict_mirror,
+        a failed delete on the secondary cache raises too. Otherwise the secondary delete is
+        best-effort.
         """
         kinds = kinds or ["redis", "s3"]
-        mirror_error: Exception | None = None
+        redis_error: Exception | None = None
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
@@ -639,11 +640,17 @@ class HyperCache:
 
                 # Mirror first so a primary failure cannot block the secondary.
                 mirror_error = self._mirror_to_secondary(delete_each)
-                delete_each(self.cache_client)
+                try:
+                    delete_each(self.cache_client)
+                except Exception as e:
+                    redis_error = e
+                else:
+                    redis_error = mirror_error if strict_mirror else None
+            # The object-storage copy has no TTL, so a Redis failure must not skip its delete.
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
-            if strict_mirror and mirror_error is not None:
-                raise mirror_error
+            if redis_error is not None:
+                raise redis_error
         finally:
             self._remove_expiry_tracking(key)
 
