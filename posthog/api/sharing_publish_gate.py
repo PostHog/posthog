@@ -15,6 +15,7 @@ from rest_framework import serializers
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
 
@@ -119,7 +120,7 @@ def _breakdown_as_hogql(breakdown_type: str, key: str) -> str | None:
         chain = ["person", *key.split(".")]
     else:
         return None
-    return ".".join(f"`{part}`" for part in chain)
+    return ".".join(escape_hogql_identifier(part) for part in chain)
 
 
 def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:

@@ -2230,9 +2230,10 @@ class TestSharingPublishGate(APIBaseTest):
                 "warehouse_person_chain",
                 "data_warehouse_person_property",
                 "allowed_join.denied_join.id",
-                "`person`.`allowed_join`.`denied_join`.`id`",
+                "person.allowed_join.denied_join.id",
             ),
-            ("warehouse_chain", "data_warehouse", "stripe.charges.amount", "`stripe`.`charges`.`amount`"),
+            ("warehouse_chain", "data_warehouse", "stripe.charges.amount", "stripe.charges.amount"),
+            ("escaped_chain", "data_warehouse", "odd`name.amount", "`odd``name`.amount"),
             ("event_metadata", "event_metadata", "(SELECT 1 FROM t)", "(SELECT 1 FROM t)"),
             ("person_property", "person", "email", None),
         ]
