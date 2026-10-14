@@ -6,6 +6,7 @@ can be verified without standing up real ClickHouse / Postgres / S3.
 """
 
 import uuid
+import asyncio
 import logging
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
@@ -107,7 +108,17 @@ async def test_workflow_rejects_negative_day_offset() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "report_behavior", ["disabled", "enabled", "activity_failure", "flag_failure", "partial", "pre_patch"]
+    "report_behavior",
+    [
+        "disabled",
+        "enabled",
+        "activity_failure",
+        "query_failure",
+        "flag_failure",
+        "partial",
+        "pre_patch",
+        "pre_patch_query_failure",
+    ],
 )
 async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger="temporalio.activity")
@@ -118,6 +129,11 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     pointer_payloads: list[EnqueuePointerInputs] = []
     plans: list[UsageCounterPlan] = []
     counter_contexts: list[WorkflowContext] = []
+    query_started = asyncio.Event()
+    counter_started = asyncio.Event()
+    release_queries = asyncio.Event()
+    fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure"}
+    pre_patch = report_behavior.startswith("pre_patch")
     expected_counter_report = RunQueryToS3Result(
         query_name="usage_counters", s3_key="queries/counters.json", duration_ms=1
     )
@@ -142,13 +158,24 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     @activity.defn(name="fetch-usage-counter-report")
     async def fetch_mock(ctx: WorkflowContext) -> RunQueryToS3Result:
         counter_contexts.append(ctx)
+        counter_started.set()
         if report_behavior == "activity_failure":
+            await query_started.wait()
             raise ApplicationError("unavailable", non_retryable=True)
+        if report_behavior == "query_failure":
+            await release_queries.wait()
         return expected_counter_report
 
     @activity.defn(name="run-usage-report-query")
     async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
         seen_query_names.append(inputs.query_name)
+        query_started.set()
+        if report_behavior == "activity_failure":
+            await release_queries.wait()
+        if report_behavior in {"query_failure", "pre_patch_query_failure"}:
+            if not pre_patch:
+                await counter_started.wait()
+            raise ApplicationError("query unavailable", non_retryable=True)
         return RunQueryToS3Result(
             query_name=inputs.query_name,
             s3_key=f"queries/{inputs.query_name}.json",
@@ -181,17 +208,23 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                     "temporalio.workflow.patched",
                     side_effect=lambda name: False if name == USAGE_COUNTER_SERVICE_PATCH_ID else patched(name),
                 )
-                if report_behavior == "pre_patch"
+                if pre_patch
                 else nullcontext()
             ):
-                with pytest.raises(WorkflowFailureError) if report_behavior == "activity_failure" else nullcontext():
-                    result = await env.client.execute_workflow(
-                        RunUsageReportsWorkflow.run,
-                        RunUsageReportsInputs(day_offset=0 if report_behavior == "partial" else 1),
-                        id=workflow_id,
-                        task_queue=task_queue,
-                        execution_timeout=timedelta(minutes=2),
-                    )
+                try:
+                    with pytest.raises(WorkflowFailureError) if fails else nullcontext():
+                        result = await asyncio.wait_for(
+                            env.client.execute_workflow(
+                                RunUsageReportsWorkflow.run,
+                                RunUsageReportsInputs(day_offset=0 if report_behavior == "partial" else 1),
+                                id=workflow_id,
+                                task_queue=task_queue,
+                                execution_timeout=timedelta(minutes=2),
+                            ),
+                            timeout=30 if fails else 120,
+                        )
+                finally:
+                    release_queries.set()
 
         # Verify the per-query activity scheduling carried `summary=spec.name`
         # so the Temporal UI shows which query is running.
@@ -210,21 +243,22 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
 
     counter_names = plans[0].query_names if plans else set()
     expected_names = [spec.name for spec in QUERIES if spec.name not in counter_names]
-    # Queries run with bounded concurrency, so completion order is not
-    # deterministic — only assert the set. Result ordering (passed to the
-    # aggregator) is preserved via `asyncio.gather`.
-    assert set(seen_query_names) == set(expected_names)
-    assert len(seen_query_names) == len(expected_names)
-
     await Replayer(
         workflows=[RunUsageReportsWorkflow],
         data_converter=pydantic_data_converter,
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
     ).replay_workflow(history)
-    if report_behavior == "activity_failure":
+    if fails:
+        assert set(seen_query_names) <= set(expected_names)
         assert aggregated_with == []
         assert pointer_payloads == []
         return
+
+    # Queries run with bounded concurrency, so completion order is not
+    # deterministic — only assert the set. Result ordering (passed to the
+    # aggregator) is preserved via `asyncio.gather`.
+    assert set(seen_query_names) == set(expected_names)
+    assert len(seen_query_names) == len(expected_names)
 
     assert len(aggregated_with) == 1
     assert aggregated_with[0] == expected_names

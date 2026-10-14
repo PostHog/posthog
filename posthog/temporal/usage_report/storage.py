@@ -17,11 +17,14 @@ from typing import Any
 from django.conf import settings
 
 import structlog
+from pydantic import TypeAdapter
 
 from posthog.storage import object_storage
 from posthog.temporal.usage_report.types import WorkflowContext
+from posthog.usage_counters import LegacyCounterQuery, UsageCounterCounts
 
 logger = structlog.get_logger(__name__)
+_COUNTER_COUNTS_ADAPTER = TypeAdapter(UsageCounterCounts)
 
 
 def bucket() -> str:
@@ -77,6 +80,16 @@ def read_json(key: str) -> Any:
     if raw is None:
         raise FileNotFoundError(f"S3 key not found: {key}")
     return json.loads(raw)
+
+
+def run_legacy_counter_query(ctx: WorkflowContext, query_name: str, query: LegacyCounterQuery) -> UsageCounterCounts:
+    key = queries_key(ctx, f"legacy_{query_name}")
+    raw = object_storage.read_bytes(key, bucket=bucket(), missing_ok=True)
+    if raw is not None:
+        return _COUNTER_COUNTS_ADAPTER.validate_json(raw)
+    result = query()
+    write_json(key, result)
+    return result
 
 
 def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:

@@ -17,10 +17,12 @@ from posthog.usage_counters import (
     UsageCounterComparisonRows,
     UsageCounterMode,
     UsageCounterPlan,
+    UsageCounterReport,
     UsageCounterService,
     UsageRecordTotal,
     UsageRecordTotals,
     _mode_cache,
+    log_usage_counter_comparisons,
     resolve_modes,
     validate_usage_record_window,
 )
@@ -32,12 +34,17 @@ SANDBOX_COMPUTE_RESOURCE_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
-# Removing a counter from RECORD_UNDERCOUNTS must fail these tests, so this set lists the counters by name.
+# Removing a counter from RECORD_REALTIME_BLOCKERS must fail these tests, so this set lists the counters by name.
 REALTIME_GUARDED_COUNTERS = {
+    UsageCounter.EVENTS,
+    UsageCounter.ENHANCED_PERSON_EVENTS,
     UsageCounter.RECORDINGS,
     UsageCounter.MOBILE_RECORDINGS,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS,
     UsageCounter.WORKFLOW_INVOCATIONS,
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+    UsageCounter.SURVEY_RESPONSES,
+    UsageCounter.AI_EVENTS,
 }
 
 
@@ -262,6 +269,37 @@ class TestUsageCounterReport(SimpleTestCase):
         self.records.assert_not_called()
         flag.assert_not_called()
 
+    def test_comparison_logs_expose_differences_when_totals_match(self) -> None:
+        report = UsageCounterReport(
+            counts={},
+            usage_sources={"event_count_in_period": UsageCounterMode.BOTH},
+            counter_comparisons={
+                "event_count_in_period": UsageCounterComparisonRows(
+                    legacy_by_team={1: 7, 2: 3},
+                    realtime_by_team={1: {"org-a": 3}, 2: {"org-b": 7}},
+                )
+            },
+        )
+        with patch("posthog.usage_counters.logger.info") as log:
+            log_usage_counter_comparisons(report, caller="quota_limiting", date="2026-05-04")
+        log.assert_any_call(
+            "usage_counter_sources",
+            caller="quota_limiting",
+            date="2026-05-04",
+            usage_sources=report.usage_sources,
+        )
+        log.assert_any_call(
+            "usage_counter_comparison",
+            caller="quota_limiting",
+            date="2026-05-04",
+            counter="event_count_in_period",
+            source="both",
+            legacy=10,
+            realtime=10,
+            differing_teams=2,
+            absolute_difference=8,
+        )
+
     @parameterized.expand([("legacy",), ("both",)])
     def test_authoritative_query_failure_fails_report(self, mode: str) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
@@ -453,8 +491,10 @@ class TestUsageCounterReport(SimpleTestCase):
         records.assert_called_once_with(period, ("cdp_billable_invocations", "workflow_emails_sent"), "daily_report")
         email_legacy.assert_called_once_with(period.start, period.end)
 
-    @parameterized.expand([(mode,) for mode in UsageCounterMode])
-    def test_remaining_readers_preserve_counts_and_exception_breakdowns(self, mode: UsageCounterMode) -> None:
+    @parameterized.expand(list(product(UsageCounterMode, ("flag", "override"))))
+    def test_remaining_readers_preserve_counts_and_exception_breakdowns(
+        self, mode: UsageCounterMode, source: str
+    ) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         counter_keys = {
             UsageCounter.EVENTS: ("events", 101),
@@ -480,7 +520,16 @@ class TestUsageCounterReport(SimpleTestCase):
                 for key, quantity in dict(counter_keys.values()).items()
             ]
         )
-        with patch("posthoganalytics.get_feature_flag", return_value=mode):
+        with (
+            self.settings(
+                USAGE_COUNTER_REALTIME_MODES=(
+                    ",".join(f"{COUNTER_FLAG_NAMES[counter]}:{mode}" for counter in counter_keys)
+                    if source == "override"
+                    else ""
+                )
+            ),
+            patch("posthoganalytics.get_feature_flag", return_value=mode if source == "flag" else "legacy"),
+        ):
             service = UsageCounterService()
             plan = service.resolve_plan(period, caller="daily_report", complete=True, counters=tuple(counter_keys))
         report = service.fetch_report(period, plan=plan)

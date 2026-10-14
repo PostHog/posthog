@@ -233,7 +233,18 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr("posthoganalytics.feature_enabled", lambda *a, **kw: False)
     monkeypatch.setattr("django.conf.settings.CLOUD_DEPLOYMENT", "US")
     monkeypatch.setattr("django.conf.settings.USAGE_COUNTER_REALTIME_MODES", f"workflow-emails:{mode}")
-    capture = mock.Mock()
+    captures_on_event_loop: list[str] = []
+
+    def check_capture_thread(*args: Any, **kwargs: Any) -> None:
+        if kwargs.get("event") != "usage counter shadow missing organizations":
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        captures_on_event_loop.append(kwargs["properties"]["caller"])
+
+    capture = mock.Mock(side_effect=check_capture_thread)
     monkeypatch.setattr("posthoganalytics.capture", capture)
     monkeypatch.setattr("posthog.tasks.usage_report.ph_scoped_capture", lambda **kw: nullcontext(capture))
     scan = mock.Mock(
@@ -422,6 +433,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert (str(idle_org.id) in temporal_per_org) == (mode == "realtime")
     assert (str(idle_org.id) in celery_per_org) == (mode == "realtime")
     assert scan.call_count == (0 if mode == "legacy" else 2)
+    assert captures_on_event_loop == []
     assert (str(legacy_only_org.id) in temporal_per_org) == (mode != "realtime")
     if mode != "legacy":
         assert temporal_per_org[str(org_a.id)]["counter_comparisons"] == {

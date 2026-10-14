@@ -229,7 +229,10 @@ The usage report task queries ClickHouse for aggregated billing data.
 
 Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
 Each counter's feature flag selects `legacy`, `both`, or `realtime`.
-A counter in `RECORD_UNDERCOUNTS` resolves `realtime` to `both`, because its usage records have a known undercount.
+A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
+These guards cover event and enhanced-person timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
+They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
+Guarded counters still collect comparisons while legacy totals remain authoritative.
 `legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.
 `realtime` uses the usage record count. A report for a complete day also queries billing events, for the comparison. Each caller states whether its period is a complete day. The daily report and finalized usage reports v2 runs pass a complete day. Intraday usage reports v2 runs and quota limiting pass a partial day and skip that query.
 Reports retain both totals in `counter_comparisons` for every counter that ran both queries. Both totals count each team under its current organization, the same as the report fields. A failed comparison query omits that counter's pair. A failure in a query needed for normal report fields still fails the report.
@@ -239,6 +242,13 @@ A mismatch in a source used for a realtime total fails the report.
 Removing the complete-day legacy query will be a later code change.
 The mode selects the authoritative count for every caller and time window.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
+Usage reports v2 saves each completed legacy query in S3 under its workflow run.
+Activity retries reuse those checkpoints and rerun only unfinished legacy queries.
+Usage reports v2 records query latency and failures under the existing query names, plus `usage_records` for the shared scan and `usage_counters` for the combined activity.
+A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
+Quota runs log resolved sources as `usage_counter_sources` and successful comparisons as `usage_counter_comparison`.
+Each comparison includes both totals, the number of differing teams, and the sum of absolute differences, so opposite discrepancies cannot cancel each other out.
+Missing-organization diagnostics use size-bounded events. Temporal runs their capture and flush outside the event loop.
 
 ### Billable calculation
 

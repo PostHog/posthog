@@ -15,13 +15,24 @@ import pytest
 from unittest.mock import patch
 
 from posthog.storage import object_storage
+from posthog.temporal.tests.usage_report.test_parity import _install_in_memory_object_storage
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import fetch_usage_counter_report, run_query_to_s3
+from posthog.temporal.usage_report.metrics import USAGE_REPORTS_QUERY_LATENCY
 from posthog.temporal.usage_report.queries import QuerySpec
 from posthog.temporal.usage_report.storage import queries_key
 from posthog.temporal.usage_report.types import RunQueryToS3Inputs, WorkflowContext
-from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan, UsageCounterReport
+from posthog.usage_counters import (
+    UsageCounter,
+    UsageCounterMode,
+    UsageCounterPlan,
+    UsageCounterReport,
+    UsageRecordTotal,
+    UsageRecordTotals,
+)
 from posthog.utils import DayRange
+
+from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
 
 
 @pytest.mark.asyncio
@@ -63,6 +74,146 @@ async def test_fetch_usage_counter_report_converts_off_the_event_loop(activity_e
         "counts": {UsageCounter.EVENTS.value: [[1, 7]]},
         "usage_sources": None,
         "counter_comparisons": None,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,failure",
+    [
+        (UsageCounterMode.LEGACY, None),
+        (UsageCounterMode.BOTH, None),
+        (UsageCounterMode.BOTH, "legacy"),
+        (UsageCounterMode.BOTH, "scan"),
+        (UsageCounterMode.REALTIME, "scan"),
+        (UsageCounterMode.REALTIME, "legacy"),
+        (UsageCounterMode.BOTH, "write"),
+    ],
+)
+async def test_counter_report_records_query_metrics(
+    activity_environment, mode: UsageCounterMode, failure: str | None
+) -> None:
+    period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+    ctx = WorkflowContext(
+        run_id="counter-metrics-test",
+        workflow_started_at=period.end,
+        period_start=period.start,
+        period_end=period.end,
+        date_str="2026-05-04",
+        usage_counter_plan=UsageCounterPlan(
+            period=period,
+            caller="usage_reports_v2",
+            modes={
+                UsageCounter.CDP_INVOCATIONS: mode,
+                UsageCounter.EXCEPTIONS: UsageCounterMode.LEGACY,
+                UsageCounter.LOGS_RETENTION_30D_BYTES: UsageCounterMode.LEGACY,
+                UsageCounter.SANDBOX_COMPUTE_CREDITS: UsageCounterMode.LEGACY,
+            },
+            complete=True,
+        ),
+    )
+    fails_report = (
+        failure == "write"
+        or (failure == "legacy" and mode != UsageCounterMode.REALTIME)
+        or (failure == "scan" and mode == UsageCounterMode.REALTIME)
+    )
+    with (
+        patch(
+            "posthog.tasks.usage_report.get_teams_with_cdp_billable_invocations_in_period", return_value=[(1, 7)]
+        ) as legacy,
+        patch(
+            "posthog.tasks.usage_report.get_usage_records_in_period",
+            return_value=UsageRecordTotals(
+                totals=[
+                    UsageRecordTotal(
+                        team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9
+                    )
+                ]
+            ),
+        ) as records,
+        patch("posthog.tasks.usage_report.get_teams_with_exceptions_captured_in_period", return_value=({}, [])),
+        patch("posthog.tasks.usage_report.get_teams_with_logs_retention_bytes_in_period", return_value={"30d": []}),
+        patch(
+            "posthog.tasks.usage_report.get_teams_with_billable_sandbox_compute_usage_in_period",
+            return_value=SandboxComputeUsageByTeam(credits=[], cpu_millicore_seconds=[], memory_mib_seconds=[]),
+        ),
+        patch("posthog.temporal.usage_report.storage.object_storage.write") as write,
+        patch("posthog.temporal.usage_report.storage.object_storage.read_bytes", return_value=None),
+        patch("posthog.temporal.common.metrics.get_metric_meter") as meter,
+    ):
+        if failure == "write":
+
+            def fail_report_write(key: str, *args: object, **kwargs: object) -> None:
+                if key == queries_key(ctx, "usage_counters"):
+                    raise RuntimeError("unavailable")
+
+            write.side_effect = fail_report_write
+        elif failure is not None:
+            {"legacy": legacy, "scan": records}[failure].side_effect = RuntimeError("unavailable")
+        if fails_report:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                await activity_environment.run(fetch_usage_counter_report, ctx)
+        else:
+            await activity_environment.run(fetch_usage_counter_report, ctx)
+            assert json.loads(write.call_args.args[1])["counts"][UsageCounter.CDP_INVOCATIONS.value] == [
+                [1, 9 if mode == UsageCounterMode.REALTIME else 7]
+            ]
+
+    expected = [
+        (UsageCounter.CDP_INVOCATIONS.value, "FAILED" if failure == "legacy" else "COMPLETED"),
+    ]
+    if not (failure == "legacy" and fails_report):
+        expected.extend(
+            (name, "COMPLETED") for name in ("exceptions_captured", "logs_retention_bytes", "sandbox_compute_usage")
+        )
+    if mode != UsageCounterMode.LEGACY and not (failure == "legacy" and fails_report):
+        expected.append(("usage_records", "FAILED" if failure == "scan" else "COMPLETED"))
+    expected.append(("usage_counters", "FAILED" if fails_report else "COMPLETED"))
+    assert [(call.args[0]["query_name"], call.args[0]["status"]) for call in meter.call_args_list] == expected
+    assert [call.args[0]["exception"] for call in meter.call_args_list] == [
+        "RuntimeError" if status == "FAILED" else "" for _, status in expected
+    ]
+    histograms = meter.return_value.create_histogram_timedelta
+    assert [call.kwargs["name"] for call in histograms.call_args_list] == [USAGE_REPORTS_QUERY_LATENCY] * len(expected)
+    assert histograms.return_value.record.call_count == len(expected)
+
+
+@pytest.mark.asyncio
+async def test_counter_activity_reuses_successful_queries_on_retry(activity_environment, monkeypatch) -> None:
+    s3 = _install_in_memory_object_storage(monkeypatch)
+    period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+    ctx = WorkflowContext(
+        run_id="counter-retry-test",
+        workflow_started_at=period.end,
+        period_start=period.start,
+        period_end=period.end,
+        date_str="2026-05-04",
+        usage_counter_plan=UsageCounterPlan(
+            period=period,
+            caller="usage_reports_v2",
+            complete=True,
+            modes={UsageCounter.EVENTS: UsageCounterMode.LEGACY, UsageCounter.EXCEPTIONS: UsageCounterMode.LEGACY},
+        ),
+    )
+    with (
+        patch(
+            "posthog.tasks.usage_report.get_teams_with_billable_event_count_in_period", return_value=[(1, 7)]
+        ) as events,
+        patch(
+            "posthog.tasks.usage_report.get_teams_with_exceptions_captured_in_period",
+            side_effect=[RuntimeError("unavailable"), ({"web": [(1, 3)]}, [(1, 3)])],
+        ) as exceptions,
+    ):
+        with pytest.raises(RuntimeError, match="unavailable"):
+            await activity_environment.run(fetch_usage_counter_report, ctx)
+        assert queries_key(ctx, "usage_counters") not in s3
+        result = await activity_environment.run(fetch_usage_counter_report, ctx)
+    events.assert_called_once()
+    assert exceptions.call_count == 2
+    assert json.loads(s3[result.s3_key])["counts"] == {
+        UsageCounter.EVENTS.value: [[1, 7]],
+        UsageCounter.EXCEPTIONS.value: [[1, 3]],
+        "teams_with_web_exceptions_captured_in_period": [[1, 3]],
     }
 
 

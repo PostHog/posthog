@@ -20,6 +20,7 @@ from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -110,7 +111,30 @@ class TestQuotaLimiting(BaseTest):
         org_id = str(self.organization.id)
         flush_persons_and_events()
 
-        result = update_all_orgs_billing_quotas()
+        with (
+            self.settings(USAGE_COUNTER_REALTIME_MODES="events:both"),
+            patch(
+                "posthog.tasks.usage_report.get_usage_records_in_period",
+                return_value=UsageRecordTotals(
+                    totals=[
+                        UsageRecordTotal(team_id=self.team.id, organization_id=org_id, usage_key="events", quantity=3)
+                    ]
+                ),
+            ),
+            patch("posthog.usage_counters.logger.info") as counter_log,
+        ):
+            result = update_all_orgs_billing_quotas()
+        counter_log.assert_any_call(
+            "usage_counter_comparison",
+            caller="quota_limiting",
+            date="2021-01-25",
+            counter="event_count_in_period",
+            source="both",
+            legacy=10,
+            realtime=3,
+            differing_teams=1,
+            absolute_difference=7,
+        )
         # feature_enabled will be called for AI billing check and then for data retention flag
         patch_feature_enabled.assert_any_call(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,

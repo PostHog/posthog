@@ -10,6 +10,7 @@ import json
 import time
 import asyncio
 import dataclasses
+from functools import partial
 from itertools import batched
 from typing import Any
 
@@ -51,6 +52,7 @@ from posthog.temporal.usage_report.storage import (
     delete_keys,
     manifest_key,
     queries_key,
+    run_legacy_counter_query,
     write_json,
     write_jsonl_chunk_gzip,
 )
@@ -86,27 +88,39 @@ async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
     )
 
 
+def record_query_latency(query_name: str) -> ExecutionTimeRecorder:
+    return ExecutionTimeRecorder(
+        USAGE_REPORTS_QUERY_LATENCY,
+        description="Run a usage-reports query or persist its result to S3.",
+        histogram_attributes={"query_name": query_name},
+    )
+
+
 @activity.defn(name="fetch-usage-counter-report")
 async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result:
     async with Heartbeater():
-        if ctx.usage_counter_plan is None:
-            raise ValueError("Fetching usage counters requires a resolved plan")
-        started = time.monotonic()
-        report = await database_sync_to_async_pool(UsageCounterService().fetch_report)(
-            DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan
-        )
-        key = queries_key(ctx, "usage_counters")
+        with record_query_latency("usage_counters"):
+            if ctx.usage_counter_plan is None:
+                raise ValueError("Fetching usage counters requires a resolved plan")
+            started = time.monotonic()
+            report = await database_sync_to_async_pool(
+                UsageCounterService(
+                    record_query=record_query_latency,
+                    run_legacy_query=partial(run_legacy_counter_query, ctx),
+                ).fetch_report
+            )(DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan)
+            key = queries_key(ctx, "usage_counters")
 
-        @sync_to_async
-        def persist_report() -> None:
-            write_json(key, dataclasses.asdict(report))
+            @sync_to_async
+            def persist_report() -> None:
+                write_json(key, dataclasses.asdict(report))
 
-        await persist_report()
-        return RunQueryToS3Result(
-            query_name="usage_counters",
-            s3_key=key,
-            duration_ms=int((time.monotonic() - started) * 1000),
-        )
+            await persist_report()
+            return RunQueryToS3Result(
+                query_name="usage_counters",
+                s3_key=key,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
 
 
 @activity.defn(name="run-usage-report-query")
@@ -118,11 +132,7 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     well under Temporal's payload limits).
     """
     async with Heartbeater():
-        with ExecutionTimeRecorder(
-            USAGE_REPORTS_QUERY_LATENCY,
-            description="Run one usage-reports gather query and write its result to S3.",
-            histogram_attributes={"query_name": inputs.query_name},
-        ):
+        with record_query_latency(inputs.query_name):
             spec = QUERY_INDEX[inputs.query_name]
 
             # Use the pooled variant so concurrent query activities on the same
@@ -182,7 +192,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
 
             org_reports = await aggregate_per_org()
 
-            apply_usage_counter_metadata(
+            await sync_to_async(apply_usage_counter_metadata)(
                 org_reports,
                 counter_report,
                 caller="usage_reports_v2",

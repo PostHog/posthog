@@ -32,7 +32,13 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounterComparisonRows, UsageCounterMode, UsageCounterReport, UsageCounterService
+from posthog.usage_counters import (
+    UsageCounterComparison,
+    UsageCounterComparisonRows,
+    UsageCounterMode,
+    UsageCounterReport,
+    UsageCounterService,
+)
 from posthog.utils import DayRange
 
 
@@ -235,6 +241,32 @@ def test_counter_comparisons_follow_current_team_ownership() -> None:
     assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
     assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
     capture.assert_not_called()
+
+
+def test_missing_organization_diagnostics_split_without_losing_comparisons() -> None:
+    rows = {team: {f"00000000-0000-0000-0000-{team:012d}": 7} for team in range(10_000)}
+    report = UsageCounterReport(
+        counts={},
+        usage_sources={"event_count_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "event_count_in_period": UsageCounterComparisonRows(legacy_by_team={}, realtime_by_team=rows)
+        },
+    )
+    with patch("posthog.tasks.usage_report.ph_scoped_capture") as scoped:
+        apply_usage_counter_metadata({}, report, caller="daily_report", date="2026-05-04")
+    calls = scoped.return_value.__enter__.return_value.call_args_list
+    assert len(calls) > 1
+    recovered: dict[str, dict[str, UsageCounterComparison]] = {}
+    for call in calls:
+        assert len(json.dumps(call.kwargs).encode("utf-8")) < 900 * 1024
+        batch = call.kwargs["properties"]["organizations"]
+        assert not recovered.keys() & batch.keys()
+        recovered.update(batch)
+    assert recovered == {
+        org: {"event_count_in_period": {"legacy": 0, "realtime": quantity}}
+        for orgs in rows.values()
+        for org, quantity in orgs.items()
+    }
 
 
 # ---- iter_chunk_lines ----------------------------------------------------

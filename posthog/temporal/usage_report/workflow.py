@@ -138,10 +138,19 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 async with sem:
                     return await self._run_query(ctx, spec)
 
-            query_results: list[RunQueryToS3Result] = list(
-                await asyncio.gather(*(_run_with_sem(spec) for spec in queries))
-            )
-            counter_result = await counter_task if counter_task else None
+            tasks = [asyncio.create_task(_run_with_sem(spec)) for spec in queries]
+            if counter_task is not None:
+                tasks.append(counter_task)
+            try:
+                results = await asyncio.gather(*tasks)
+            finally:
+                # Histories without the counter-service patch do not include these cancellation commands.
+                if counter_task is not None:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+            query_results = results[: len(queries)]
+            counter_result = results[-1] if counter_task is not None else None
 
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,

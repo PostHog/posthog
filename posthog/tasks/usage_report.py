@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -3564,6 +3564,27 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
     return report
 
 
+def _usage_counter_diagnostic_batches(
+    missing: dict[str, dict[str, UsageCounterComparison]],
+) -> Iterator[dict[str, dict[str, UsageCounterComparison]]]:
+    # Leave room for the SDK envelope and properties below its 900 KiB event limit.
+    max_bytes = 500_000
+    batch: dict[str, dict[str, UsageCounterComparison]] = {}
+    size = 2
+    for org_id, comparisons in missing.items():
+        entry_size = len(json.dumps({org_id: comparisons}).encode("utf-8"))
+        if entry_size > max_bytes:
+            raise ValueError("A usage counter diagnostic entry exceeds the event size limit")
+        if batch and size + entry_size > max_bytes:
+            yield batch
+            batch = {}
+            size = 2
+        batch[org_id] = comparisons
+        size += entry_size
+    if batch:
+        yield batch
+
+
 def apply_usage_counter_metadata(
     org_reports: dict[str, OrgReport],
     counter_report: UsageCounterReport,
@@ -3615,11 +3636,12 @@ def apply_usage_counter_metadata(
         if missing:
             logger.warning("usage_counter_shadow_missing_organizations", caller=caller, date=date, count=len(missing))
             with ph_scoped_capture(region=get_instance_region() or "US") as capture:
-                capture(
-                    distinct_id="internal_billing_events",
-                    event="usage counter shadow missing organizations",
-                    properties={"caller": caller, "date": date, "organizations": missing},
-                )
+                for batch in _usage_counter_diagnostic_batches(missing):
+                    capture(
+                        distinct_id="internal_billing_events",
+                        event="usage counter shadow missing organizations",
+                        properties={"caller": caller, "date": date, "organizations": batch},
+                    )
     except Exception:
         logger.exception("usage_counter_shadow_diagnostics_failed", caller=caller, date=date)
 

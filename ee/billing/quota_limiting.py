@@ -32,7 +32,7 @@ from posthog.tasks.usage_report import (
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
 )
-from posthog.usage_counters import UsageCounter, UsageCounterService
+from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
 from posthog.utils import get_current_day
 
 logger = structlog.get_logger(__name__)
@@ -1226,6 +1226,7 @@ def update_all_orgs_billing_quotas(
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
+    log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
