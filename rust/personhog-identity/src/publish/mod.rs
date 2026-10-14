@@ -1,0 +1,463 @@
+//! The publish phase. The outbox carries two row shapes: a mapping row
+//! (kinds `create` and `attach`) that publishes as it is, and an op pointer
+//! (kinds `merge_op` and `delete_op`) that resolves against the saga's
+//! `moved` records. Identity enqueues pointers in
+//! [`crate::lifecycle::engine::complete_op_in_tx`]; this module drains the
+//! outbox to Kafka from the separate `personhog-publisher` binary.
+//!
+//! One pass is one transaction: claim the oldest pending rows with `FOR
+//! UPDATE SKIP LOCKED`, resolve pointers against `moved` within a per-pass
+//! row budget, produce, await every ack, then delete finished rows, advance
+//! unfinished pointers and give up poisoned ones, and commit. A produce
+//! error rolls the whole pass back, so the only failure mode is a repeat
+//! publish, which every consumer of these topics absorbs by version.
+//! Deterministic failures (an op row that is gone, a `moved` entry the
+//! saga could not have written) give the row up with `last_error` instead
+//! of blocking the queue; Kafka failures retry forever with backoff.
+
+pub mod claim;
+pub mod config;
+pub mod messages;
+pub mod pointer;
+pub mod sink;
+
+use std::time::{Duration, Instant};
+
+use common_sqlx_macros::mirrored_query;
+use lifecycle::Handle;
+use sqlx::PgPool;
+
+use crate::config::IdentityTables;
+use crate::lifecycle::engine::Tx;
+use crate::publish::claim::{claim, ClaimedRow};
+use crate::publish::messages::DistinctIdRow;
+use crate::publish::pointer::{load_op, outbox_depth, resolve_chunk, Cursor};
+use crate::publish::sink::{PublishBatch, PublishError, PublishSink};
+
+const PUBLISH_ROWS_TOTAL: &str = "personhog_lifecycle_publish_rows_total";
+const PUBLISH_FAILURES_TOTAL: &str = "personhog_lifecycle_publish_failures_total";
+const PUBLISH_BATCH_DURATION_MS: &str = "personhog_lifecycle_publish_batch_duration_ms";
+const PUBLISH_BACKLOG: &str = "personhog_lifecycle_publish_backlog";
+const PUBLISH_LAG_SECONDS: &str = "personhog_lifecycle_publish_lag_seconds";
+const PUBLISH_GIVEN_UP: &str = "personhog_lifecycle_publish_given_up";
+
+/// The gauges read the whole outbox, so they refresh on their own clock
+/// rather than once per pass.
+const GAUGE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Debug)]
+pub struct DrainConfig {
+    pub batch_size: i64,
+    /// Distinct id rows one pass produces at most. A pointer's chunk is
+    /// bounded by what is left of it, so a pass of large ops stays inside
+    /// the produce timeout instead of failing the same way forever.
+    pub max_rows_per_pass: i64,
+    pub interval: Duration,
+    pub lag_alert: Duration,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DrainError {
+    #[error("database error: {0}")]
+    Db(#[from] sqlx::Error),
+    #[error(transparent)]
+    Publish(#[from] PublishError),
+}
+
+impl DrainError {
+    fn reason(&self) -> &'static str {
+        match self {
+            DrainError::Db(_) => "db",
+            DrainError::Publish(PublishError::Kafka(_)) => "kafka",
+            DrainError::Publish(PublishError::Timeout(_)) => "kafka_timeout",
+        }
+    }
+}
+
+/// What one pass did. More work is waiting when the claim was full or the
+/// row budget stopped the pass before every claimed row was handled.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PassReport {
+    pub claimed: usize,
+    pub finished: usize,
+    pub advanced: usize,
+    pub given_up: usize,
+    /// Claimed rows left untouched because the row budget ran out; they
+    /// stay pending with their cursors for the next pass.
+    pub unprocessed: usize,
+    pub messages: usize,
+}
+
+enum Disposition {
+    /// Published in full: the row is deleted.
+    Finished,
+    /// A pointer with rows left after this chunk: the cursor moves.
+    Advanced(Cursor),
+    /// Corrupt state the saga could not have written: parked for an
+    /// operator with the reason.
+    GivenUp(String),
+}
+
+pub struct Publisher<S> {
+    pool: PgPool,
+    tables: IdentityTables,
+    sink: S,
+    config: DrainConfig,
+}
+
+impl<S: PublishSink> Publisher<S> {
+    pub fn new(pool: PgPool, tables: IdentityTables, sink: S, config: DrainConfig) -> Self {
+        tables.validate().expect("invalid identity table set");
+        assert!(config.batch_size > 0, "batch_size must be > 0");
+        assert!(
+            config.max_rows_per_pass > 0,
+            "max_rows_per_pass must be > 0"
+        );
+        Self {
+            pool,
+            tables,
+            sink,
+            config,
+        }
+    }
+
+    /// The drain loop, until `handle` shuts down. An in-flight pass runs
+    /// to its end first: it is bounded by the produce timeout, the
+    /// statement timeout and the row budget, and tearing it down
+    /// mid-transaction would only trade a clean rollback for an abandoned
+    /// connection.
+    pub async fn run(&self, handle: &Handle) {
+        let mut delay = Duration::ZERO;
+        let mut backoff = self.config.interval;
+        let mut gauges_refreshed_at: Option<Instant> = None;
+        loop {
+            // Biased, so a shutdown that arrives during a backlog (delay
+            // zero, both branches ready) wins over starting another pass.
+            tokio::select! {
+                biased;
+                _ = handle.shutdown_recv() => break,
+                _ = tokio::time::sleep(delay) => {}
+            }
+            if gauges_refreshed_at.is_none_or(|at| at.elapsed() >= GAUGE_REFRESH_INTERVAL) {
+                self.refresh_gauges().await;
+                gauges_refreshed_at = Some(Instant::now());
+            }
+            match self.drain_once().await {
+                Ok(report) => {
+                    if report.claimed > 0 {
+                        tracing::debug!(
+                            claimed = report.claimed,
+                            finished = report.finished,
+                            advanced = report.advanced,
+                            given_up = report.given_up,
+                            unprocessed = report.unprocessed,
+                            messages = report.messages,
+                            "publish pass"
+                        );
+                    }
+                    backoff = self.config.interval;
+                    let more_waiting =
+                        report.claimed as i64 >= self.config.batch_size || report.unprocessed > 0;
+                    delay = if more_waiting {
+                        Duration::ZERO
+                    } else {
+                        self.config.interval
+                    };
+                }
+                Err(err) => {
+                    common_metrics::inc(
+                        PUBLISH_FAILURES_TOTAL,
+                        &[("reason".to_string(), err.reason().to_string())],
+                        1,
+                    );
+                    tracing::warn!(
+                        error = %err,
+                        backoff_ms = backoff.as_millis() as u64,
+                        "publish pass failed; its rows stay claimed by nobody until the retry"
+                    );
+                    delay = backoff;
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
+            }
+        }
+    }
+
+    /// One claim transaction. Nothing is awaited inside it except the
+    /// outbox statements and the sink.
+    pub async fn drain_once(&self) -> Result<PassReport, DrainError> {
+        let start = Instant::now();
+        let mut tx = self.pool.begin().await?;
+        let rows = claim(&mut tx, &self.tables, self.config.batch_size).await?;
+        if rows.is_empty() {
+            tx.rollback().await?;
+            return Ok(PassReport::default());
+        }
+
+        let mut batch = PublishBatch::default();
+        let mut dispositions: Vec<(&ClaimedRow, Disposition)> = Vec::with_capacity(rows.len());
+        let mut remaining = self.config.max_rows_per_pass;
+        for row in &rows {
+            if remaining <= 0 {
+                break;
+            }
+            let before = batch.distinct_id_rows.len();
+            let disposition = if row.is_pointer() {
+                self.resolve_pointer(&mut tx, row, &mut batch, remaining)
+                    .await
+                    .inspect_err(|e| {
+                        // The failing row is the head of the queue until it
+                        // is repaired, so name it.
+                        tracing::warn!(
+                            outbox_id = row.id,
+                            op_id = ?row.op_id,
+                            error = %e,
+                            "resolving a publish pointer failed; the pass rolls back"
+                        );
+                    })?
+            } else {
+                batch.distinct_id_rows.push(mapping_row(row)?);
+                Disposition::Finished
+            };
+            remaining -= (batch.distinct_id_rows.len() - before) as i64;
+            dispositions.push((row, disposition));
+        }
+        let unprocessed = rows.len() - dispositions.len();
+
+        // A failure here drops `tx`, which rolls the claim back: every row
+        // stays pending with its cursor untouched.
+        self.sink.send(&batch).await?;
+
+        let mut finished: Vec<i64> = Vec::new();
+        let mut advanced: (Vec<i64>, Vec<i64>, Vec<i64>) = Default::default();
+        let mut given_up: (Vec<i64>, Vec<String>) = Default::default();
+        for (row, disposition) in &dispositions {
+            match disposition {
+                Disposition::Finished => {
+                    finished.push(row.id);
+                    record_row(&row.kind, "published");
+                }
+                Disposition::Advanced(cursor) => {
+                    advanced.0.push(row.id);
+                    advanced.1.push(cursor.person_id);
+                    advanced.2.push(cursor.mapping_ordinal);
+                }
+                Disposition::GivenUp(reason) => {
+                    tracing::error!(
+                        outbox_id = row.id,
+                        kind = %row.kind,
+                        op_id = ?row.op_id,
+                        reason = %reason,
+                        "publish outbox row given up; it needs an operator"
+                    );
+                    given_up.0.push(row.id);
+                    given_up.1.push(reason.clone());
+                    record_row(&row.kind, "given_up");
+                }
+            }
+        }
+        self.write_back(&mut tx, &finished, &advanced, &given_up)
+            .await?;
+        tx.commit().await?;
+
+        common_metrics::histogram(
+            PUBLISH_BATCH_DURATION_MS,
+            &[],
+            start.elapsed().as_secs_f64() * 1000.0,
+        );
+        Ok(PassReport {
+            claimed: rows.len(),
+            finished: finished.len(),
+            advanced: advanced.0.len(),
+            given_up: given_up.0.len(),
+            unprocessed,
+            messages: batch.distinct_id_rows.len(),
+        })
+    }
+
+    /// Resolve one pointer's next chunk, at most `limit` rows, into
+    /// `batch`. Rows are added only once the whole chunk decodes, so a
+    /// poisoned pointer contributes nothing to the batch it is given up in.
+    async fn resolve_pointer(
+        &self,
+        tx: &mut Tx<'_>,
+        row: &ClaimedRow,
+        batch: &mut PublishBatch,
+        limit: i64,
+    ) -> Result<Disposition, sqlx::Error> {
+        let op_id = row.op_id.expect("pointer rows carry an op_id");
+        let Some(op) = load_op(tx, &self.tables, op_id).await? else {
+            return Ok(Disposition::GivenUp(format!(
+                "op {op_id} no longer exists; its moved rows cannot be published"
+            )));
+        };
+        // Pointers are written only by a completed op's own commit, so any
+        // of these is corrupt state rather than a case to handle.
+        if op.completed_at.is_none() {
+            return Ok(Disposition::GivenUp(format!("op {op_id} is not completed")));
+        }
+        if format!("{}_op", op.op_type) != row.kind {
+            return Ok(Disposition::GivenUp(format!(
+                "op {op_id} is a {} op but the pointer kind is {}",
+                op.op_type, row.kind
+            )));
+        }
+        if op.op_type == "merge" && op.target_rows != 1 {
+            return Ok(Disposition::GivenUp(format!(
+                "merge op {op_id} has {} target rows",
+                op.target_rows
+            )));
+        }
+        if op.malformed_moved_rows > 0 {
+            return Ok(Disposition::GivenUp(format!(
+                "op {op_id} has {} source or victim rows whose moved is not an array",
+                op.malformed_moved_rows
+            )));
+        }
+        let cursor = Cursor {
+            person_id: row.cursor_person_id,
+            mapping_ordinal: row.cursor_mapping_ordinal,
+        };
+        let chunk = resolve_chunk(tx, &self.tables, op_id, cursor, limit).await?;
+
+        let mut rows = Vec::with_capacity(chunk.len());
+        for resolved in &chunk {
+            let (Some(owner), Some(distinct_id), Some(version)) = (
+                resolved.owner_uuid,
+                resolved.distinct_id.as_ref(),
+                resolved.version,
+            ) else {
+                return Ok(Disposition::GivenUp(format!(
+                    "op {op_id} person {} moved entry {} is malformed (owner {:?}, distinct_id {:?}, version {:?})",
+                    resolved.person_id,
+                    resolved.mapping_ordinal,
+                    resolved.owner_uuid,
+                    resolved.distinct_id,
+                    resolved.version
+                )));
+            };
+            rows.push(DistinctIdRow {
+                person_id: owner,
+                team_id: row.team_id as i64,
+                distinct_id: distinct_id.clone(),
+                version,
+                is_deleted: u8::from(resolved.is_deleted),
+            });
+        }
+        batch.distinct_id_rows.extend(rows);
+
+        // A chunk shorter than the limit it was asked for is the last one.
+        // A chunk exactly at the limit may also be the last, which costs
+        // one more pass that finds nothing; cheaper than probing past the
+        // limit on every chunk.
+        Ok(match chunk.last() {
+            Some(last) if chunk.len() as i64 >= limit => Disposition::Advanced(last.cursor()),
+            _ => Disposition::Finished,
+        })
+    }
+
+    async fn write_back(
+        &self,
+        tx: &mut Tx<'_>,
+        finished: &[i64],
+        advanced: &(Vec<i64>, Vec<i64>, Vec<i64>),
+        given_up: &(Vec<i64>, Vec<String>),
+    ) -> Result<(), sqlx::Error> {
+        if !finished.is_empty() {
+            mirrored_query!(
+                self.tables.is_validation(),
+                op = "publish_delete_finished",
+                "DELETE FROM {person_publish_outbox} WHERE id = ANY($1)",
+                finished
+                => execute(&mut **tx)
+            )?;
+        }
+        if !advanced.0.is_empty() {
+            mirrored_query!(
+                self.tables.is_validation(),
+                op = "publish_advance_cursors",
+                r#"
+                UPDATE {person_publish_outbox} o
+                SET cursor_person_id = u.person_id,
+                    cursor_mapping_ordinal = u.mapping_ordinal,
+                    attempts = o.attempts + 1
+                FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS u(id, person_id, mapping_ordinal)
+                WHERE o.id = u.id
+                "#,
+                &advanced.0,
+                &advanced.1,
+                &advanced.2
+                => execute(&mut **tx)
+            )?;
+        }
+        if !given_up.0.is_empty() {
+            mirrored_query!(
+                self.tables.is_validation(),
+                op = "publish_give_up",
+                r#"
+                UPDATE {person_publish_outbox} o
+                SET given_up_at = now(), last_error = u.last_error, attempts = o.attempts + 1
+                FROM unnest($1::bigint[], $2::text[]) AS u(id, last_error)
+                WHERE o.id = u.id
+                "#,
+                &given_up.0,
+                &given_up.1
+                => execute(&mut **tx)
+            )?;
+        }
+        Ok(())
+    }
+
+    async fn refresh_gauges(&self) {
+        match outbox_depth(&self.pool, &self.tables).await {
+            Ok(depth) => {
+                common_metrics::gauge(PUBLISH_BACKLOG, &[], depth.pending as f64);
+                common_metrics::gauge(PUBLISH_GIVEN_UP, &[], depth.given_up as f64);
+                common_metrics::gauge(PUBLISH_LAG_SECONDS, &[], depth.lag_seconds);
+                if depth.lag_seconds > self.config.lag_alert.as_secs_f64() {
+                    tracing::warn!(
+                        lag_seconds = depth.lag_seconds,
+                        backlog = depth.pending,
+                        "publish lag is above the alert threshold"
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to refresh the publish outbox gauges"),
+        }
+    }
+}
+
+/// A create or attach row carries its message inline. The CHECK constraint
+/// makes the three columns non-null for these kinds, so a null is a schema
+/// change the code has not followed.
+fn mapping_row(row: &ClaimedRow) -> Result<DistinctIdRow, sqlx::Error> {
+    let (Some(person_uuid), Some(distinct_id), Some(version)) =
+        (row.person_uuid, row.distinct_id.as_ref(), row.version)
+    else {
+        return Err(sqlx::Error::Decode(
+            format!(
+                "outbox row {} of kind {} lacks a mapping column",
+                row.id, row.kind
+            )
+            .into(),
+        ));
+    };
+    Ok(DistinctIdRow {
+        person_id: person_uuid,
+        team_id: row.team_id as i64,
+        distinct_id: distinct_id.clone(),
+        version,
+        is_deleted: 0,
+    })
+}
+
+fn record_row(kind: &str, result: &str) {
+    common_metrics::inc(
+        PUBLISH_ROWS_TOTAL,
+        &[
+            ("kind".to_string(), kind.to_string()),
+            ("result".to_string(), result.to_string()),
+        ],
+        1,
+    );
+}
