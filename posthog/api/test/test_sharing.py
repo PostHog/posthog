@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from functools import wraps
+from typing import Any
 from urllib.parse import quote
 
 import time_machine
@@ -2698,7 +2699,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 created_by=self.user,
             )
         filters = {"properties": [denied_filter]}
-        sent_filters = filters
+        sent_filters: dict[str, Any] = filters
         if target.startswith("grouped"):
             sent_filters = {"properties": [{"type": "AND", "values": [denied_filter]}]}
         elif target.startswith("null"):
