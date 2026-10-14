@@ -133,7 +133,6 @@ from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     resume_workflow_email_sending,
-    workflow_has_been_active,
 )
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
@@ -3587,12 +3586,6 @@ class HogFlowInFlightSerializer(serializers.Serializer):
     )
 
 
-class HogFlowActivationHistorySerializer(serializers.Serializer):
-    has_been_active = serializers.BooleanField(
-        help_text="True when the workflow is active now or the activity log records it being enabled or disabled before."
-    )
-
-
 class HogFlowPublishImpactDeletedStepSerializer(serializers.Serializer):
     action_id = serializers.CharField(help_text="Id of the step this publish deletes.")
     name = serializers.CharField(help_text="Name of the deleted step.")
@@ -4343,7 +4336,6 @@ class HogFlowViewSet(
         "proposal_detail",
         "proposal_outcome",
         "in_flight",
-        "activation_history",
     ]
     scope_object_write_actions = [
         "create",
@@ -5317,15 +5309,6 @@ class HogFlowViewSet(
                 }
             ).data
         )
-
-    @extend_schema(responses={200: HogFlowActivationHistorySerializer})
-    @action(detail=True, methods=["GET"], url_path="activation_history", filter_backends=[], pagination_class=None)
-    def activation_history(self, request: Request, *args, **kwargs):
-        instance = self.get_object()
-        has_been_active = instance.status == HogFlowState.ACTIVE or workflow_has_been_active(
-            team_id=self.team_id, workflow_id=instance.id
-        )
-        return Response(HogFlowActivationHistorySerializer({"has_been_active": has_been_active}).data)
 
     @extend_schema(responses={200: HogFlowRevisionBasicSerializer(many=True)})
     # filter_backends=[]: don't inherit the viewset's HogFlow filterset — its fields would be

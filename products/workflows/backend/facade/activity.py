@@ -4,12 +4,10 @@ from products.workflows.backend.services.hog_flow_activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     resume_workflow_email_sending,
-    workflow_has_been_active,
 )
 
 __all__ = [
     "bulk_delete_archived_workflows",
     "log_workflow_activity",
     "resume_workflow_email_sending",
-    "workflow_has_been_active",
 ]

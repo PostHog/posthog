@@ -8,7 +8,7 @@ from uuid import UUID
 
 from django.db import models, transaction
 
-from posthog.models.activity_logging.activity_log import ActivityLog, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowActor
@@ -101,12 +101,3 @@ def bulk_delete_archived_workflows(
         for flow_id, name in deleted:
             log_workflow_activity(actor=actor, workflow_id=flow_id, name=name, activity="deleted")
     return deleted
-
-
-def workflow_has_been_active(*, team_id: int, workflow_id: UUID) -> bool:
-    """Whether the activity log records the workflow being enabled or disabled at any point."""
-    status_changes = ActivityLog.objects.filter(team_id=team_id, scope=_SCOPE, item_id=str(workflow_id))
-    return (
-        status_changes.filter(detail__changes__contains=[{"field": "status", "after": "active"}]).exists()
-        or status_changes.filter(detail__changes__contains=[{"field": "status", "before": "active"}]).exists()
-    )
