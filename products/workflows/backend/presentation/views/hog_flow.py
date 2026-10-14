@@ -134,6 +134,11 @@ from products.workflows.backend.facade.activity import (
     log_workflow_activity,
     resume_workflow_email_sending,
 )
+from products.workflows.backend.facade.api import (
+    load_team_utm_defaults,
+    release_edited_email_utm_keys,
+    seed_new_email_steps_with_utm_defaults,
+)
 from products.workflows.backend.facade.batch_jobs import (
     create_batch_job,
     get_batch_job,
@@ -3098,6 +3103,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
         actions = data.get("actions", instance.actions if instance else [])
+
+        get_team = self.context.get("get_team")
+        if isinstance(submitted_actions, list) and get_team is not None:
+            existing_ids = (
+                [str(a["id"]) for a in (instance.actions or []) if instance and isinstance(a, dict) and a.get("id")]
+                if instance
+                else []
+            )
+            utm_defaults = load_team_utm_defaults(get_team().id)
+            seed_new_email_steps_with_utm_defaults(actions, existing_ids, utm_defaults)
+            if instance:
+                stored_actions = instance.actions if isinstance(instance.actions, list) else []
+                release_edited_email_utm_keys(actions, stored_actions, instance.draft, utm_defaults)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")

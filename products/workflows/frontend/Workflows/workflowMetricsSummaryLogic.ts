@@ -502,6 +502,7 @@ export interface workflowMetricsSummaryLogicValues {
                       utm_source?: string | undefined
                   }
                 | undefined
+            utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
             utm_tags_enabled?: boolean | undefined
         }
         created_at?: number | undefined
@@ -736,6 +737,7 @@ export interface workflowMetricsSummaryLogicMeta {
                           utm_source?: string | undefined
                       }
                     | undefined
+                utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                 utm_tags_enabled?: boolean | undefined
             }
             created_at?: number | undefined
@@ -877,6 +879,9 @@ export interface workflowMetricsSummaryLogicMeta {
                               utm_medium?: string | undefined
                               utm_source?: string | undefined
                           }
+                        | undefined
+                    utm_params_from_default?:
+                        | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                         | undefined
                     utm_tags_enabled?: boolean | undefined
                 }
