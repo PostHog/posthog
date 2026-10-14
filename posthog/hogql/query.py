@@ -69,7 +69,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
@@ -936,7 +936,12 @@ class HogQLQueryExecutor:
             from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
 
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
-                if workload not in (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE, Workload.NEW_EVENTS_CLUSTER):
+                if get_query_tags().product == Product.ENDPOINTS or workload not in (
+                    Workload.DEFAULT,
+                    Workload.ONLINE,
+                    Workload.OFFLINE,
+                    Workload.NEW_EVENTS_CLUSTER,
+                ):
                     raise ExposedHogQLError(
                         "New events cluster opt-ins support analytics workloads only. Remove useNewEventsCluster for logs or endpoints queries."
                     )
