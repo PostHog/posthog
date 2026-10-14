@@ -185,28 +185,37 @@ def window_end_of(evaluation_key: str) -> datetime | None:
         return None
 
 
-def _query_shape(check: PlatformAlertCheckInput) -> tuple[object, int, bool]:
+@frozen
+class _QueryShape:
     """The part of `_cohort_key` a configuration fixes. Checks that differ here never share a query."""
-    return (
-        check.condition.get("window_minutes"),
-        check.evaluation_periods,
-        is_projection_eligible(check.source_config),
-    )
+
+    window_minutes: object
+    evaluation_periods: int
+    projection_eligible: bool
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QueryShape":
+        return cls(
+            window_minutes=check.condition.get("window_minutes"),
+            evaluation_periods=check.evaluation_periods,
+            projection_eligible=is_projection_eligible(check.source_config),
+        )
 
 
 def _schedule_group(check: PlatformAlertCheckInput) -> str:
     # The platform puts a team's checks with one group in one slot and spreads different groups
     # across slots, so one batch rarely holds more cohorts than `MAX_COHORTS_PER_CYCLE`.
-    return ":".join(str(part) for part in _query_shape(check))
+    shape = _QueryShape.of(check)
+    return f"{shape.window_minutes}:{shape.evaluation_periods}:{shape.projection_eligible}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
-    window_minutes, evaluation_periods, projection_eligible = _query_shape(check)
+    shape = _QueryShape.of(check)
     return (
-        window_minutes,
-        evaluation_periods,
+        shape.window_minutes,
+        shape.evaluation_periods,
         check.check_interval_minutes,
-        projection_eligible,
+        shape.projection_eligible,
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
     )
 
