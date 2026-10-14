@@ -12,6 +12,7 @@ from parameterized import parameterized
 from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.facade.destinations import (
     bucket_for,
+    bucketed_destinations,
     classify_alert_destinations,
     unbound_alert_destinations,
 )
@@ -315,6 +316,23 @@ class TestDestinationEligibility(APIBaseTest):
             untyped_event.id,
             excluding_one_alert.id,
         )
+
+    def test_the_report_buckets_an_unbound_function_by_its_content_once_per_team(self) -> None:
+        other_alert = "01936a2e-0000-7000-8000-0000000000dd"
+        bound = self._function("template-slack", SLACK_INPUTS)
+        self._function("template-slack", SLACK_INPUTS, alert_id=other_alert)
+        team_wide = self._function("template-slack", SLACK_INPUTS, alert_id=None)
+        self._edited(team_wide, hog="fetch('https://hooks.example.com/hook')")
+
+        report = list(
+            bucketed_destinations([(self.team.id, ALERT_ID), (self.team.id, other_alert)], allowed_event_ids=[EVENT])
+        )
+
+        assert [(d.alert_id, d.eligibility.hog_function_id, d.bucket) for d in report[:2]] == [
+            (None, team_wide.id, DestinationBucket.CODE),
+            (ALERT_ID, bound.id, DestinationBucket.STOCK),
+        ]
+        assert [d.alert_id for d in report] == [None, ALERT_ID, other_alert]
 
 
 class TestBucketFor(SimpleTestCase):

@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final
@@ -28,12 +28,13 @@ from products.alerts_platform.backend.facade.contracts import (
 
 from ..logic import (
     delivery_destinations,
+    destination_bucket_report,
     destination_configs,
     destination_eligibility,
     destinations,
     insight_alert_destinations,
 )
-from .contracts import DestinationBucket, DestinationEligibility
+from .contracts import BucketedDestination, DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -245,3 +246,15 @@ def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[st
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
     return destination_eligibility.bucket_for(eligibility)
+
+
+def bucketed_destinations(
+    team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]
+) -> Iterator[BucketedDestination]:
+    """Each alert's destinations, and once per team the destinations bound to no single alert."""
+    return destination_bucket_report.bucketed_destinations(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def bucket_report_lines(destinations: Iterable[BucketedDestination]) -> Iterator[str]:
+    """One line per destination, then the count per bucket and per reason."""
+    return destination_bucket_report.bucket_report_lines(destinations)

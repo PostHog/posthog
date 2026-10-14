@@ -82,6 +82,17 @@ def classify_alert_destinations(
         .filter(**_RECEIVES_ALERT_EVENTS)
         .order_by("created_at", "id")
     )
+    return _classify(team_id, functions)
+
+
+def classify_unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every unbound destination function of a team, with what native delivery cannot carry for each."""
+    return _classify(team_id, _unbound_functions(team_id, allowed_event_ids))
+
+
+def _classify(team_id: int, functions: list[HogFunction]) -> tuple[DestinationEligibility, ...]:
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -114,18 +125,18 @@ def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[st
     alert, so it would stop sending at cutover. A function bound to a deleted alert receives
     nothing, so it is not unbound.
     """
-    candidates = (
-        HogFunction.objects.filter(
-            _allowed_event_filter(allowed_event_ids),
-            team_id=team_id,
-            deleted=False,
-            enabled=True,
-            **_RECEIVES_ALERT_EVENTS,
-        )
-        .order_by("created_at", "id")
-        .values_list("id", "filters")
-    )
-    return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
+    return tuple(function.id for function in _unbound_functions(team_id, allowed_event_ids))
+
+
+def _unbound_functions(team_id: int, allowed_event_ids: Collection[str]) -> list[HogFunction]:
+    candidates = HogFunction.objects.filter(
+        _allowed_event_filter(allowed_event_ids),
+        team_id=team_id,
+        deleted=False,
+        enabled=True,
+        **_RECEIVES_ALERT_EVENTS,
+    ).order_by("created_at", "id")
+    return [function for function in candidates if not _bound_to_one_alert(function.filters)]
 
 
 def _bound_to_one_alert(filters: Any) -> bool:

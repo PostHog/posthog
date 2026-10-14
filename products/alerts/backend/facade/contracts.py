@@ -78,3 +78,14 @@ class DestinationEligibility:
     hold_backs: tuple[DestinationHoldBack, ...]
     # The md5 of the function's code, so the same code can be recognized across functions and teams.
     code_hash: str
+
+
+@frozen
+class BucketedDestination:
+    """One alert destination function in a cutover bucket report."""
+
+    team_id: int
+    # None for a function bound to no single alert, which fires for several alerts of the team.
+    alert_id: str | None
+    eligibility: DestinationEligibility
+    bucket: DestinationBucket
