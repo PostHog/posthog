@@ -11,7 +11,7 @@ from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
-from django.db import models, transaction
+from django.db import models, router, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
@@ -1328,7 +1328,11 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
 def _deleted_user_ids(user_ids: set[int]) -> set[int]:
     if not user_ids:
         return set()
-    return user_ids - set(get_user_model().objects.filter(pk__in=user_ids).values_list("pk", flat=True))
+    user_model = get_user_model()
+    # The insert checks the foreign key on the writer. A lagging replica can miss a user that the
+    # committed transaction created, or still hold one that it deleted.
+    existing = user_model.objects.using(router.db_for_write(user_model)).filter(pk__in=user_ids)
+    return user_ids - set(existing.values_list("pk", flat=True))
 
 
 def _handle_activity_log_transaction(

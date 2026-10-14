@@ -10,6 +10,7 @@ import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import transaction
 from django.db.utils import IntegrityError
 from django.http import HttpRequest
@@ -61,6 +62,13 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset
+
+
+class _UserReadsFromReplicaRouter:
+    """Sends user reads to an alias that does not exist, which fails any read that is not pinned to the writer."""
+
+    def db_for_read(self, model: type, **hints: Any) -> str | None:
+        return "unavailable_replica" if model is User else None
 
 
 class TestActivityLogModel(BaseTest):
@@ -460,16 +468,19 @@ class TestActivityLogModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("single_same_instance", "single", True),
-            ("single_other_instance", "single", False),
-            ("bulk_same_instance", "bulk", True),
-            ("bulk_other_instance", "bulk", False),
+            ("single_live_user", "single", None),
+            ("single_same_instance_deleted", "single", "same"),
+            ("single_other_instance_deleted", "single", "other"),
+            ("bulk_live_user", "bulk", None),
+            ("bulk_same_instance_deleted", "bulk", "same"),
+            ("bulk_other_instance_deleted", "bulk", "other"),
         ]
     )
-    def test_deferred_write_unsets_a_user_deleted_before_commit(
-        self, _name: str, path: str, delete_same_instance: bool
+    def test_deferred_write_keeps_only_a_user_that_still_exists(
+        self, _name: str, path: str, deleted_instance: str | None
     ) -> None:
-        user = User.objects.create_and_join(self.organization, "deleted@example.com", None)
+        user = User.objects.create_and_join(self.organization, "actor@example.com", None)
+        user_id = user.pk
         entry: LogActivityEntry = {
             "organization_id": self.organization.id,
             "team_id": self.team.id,
@@ -482,15 +493,21 @@ class TestActivityLogModel(BaseTest):
         }
 
         with self.settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
-            with self.captureOnCommitCallbacks(execute=True):
+            with self.captureOnCommitCallbacks() as callbacks:
                 if path == "single":
                     log_activity(**entry)
                 else:
                     bulk_log_activity([entry])
-                (user if delete_same_instance else User.objects.get(pk=user.pk)).delete()
+                if deleted_instance is not None:
+                    (user if deleted_instance == "same" else User.objects.get(pk=user_id)).delete()
+
+            with self.settings(DATABASE_ROUTERS=[_UserReadsFromReplicaRouter(), *settings.DATABASE_ROUTERS]):
+                for callback in callbacks:
+                    callback()
 
         row = ActivityLog.objects.get(team_id=self.team.id, scope="PersonalAPIKey", item_id="12345")
-        assert (row.user_id, row.is_system) == (None, False)
+        expected_user_id = None if deleted_instance is not None else user_id
+        assert (row.user_id, row.is_system) == (expected_user_id, False)
 
     def test_strict_write_failure_escapes_active_transaction(self) -> None:
         with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
