@@ -8,4 +8,5 @@ Each test has a `<name>.tsv` input and a matching `<name>.reference` expected ou
 | `drop_nested_a_and_keep_dotted_keys` | Drops top-level `a` values and verifies dotted keys that are not dropped keep their flat form. |
 | `large_integer`                      | Preserves large integer values while dropping only requested keys.                             |
 | `root_array`                         | Drops keys from objects when the root JSON value is an array.                                  |
+| `empty_input`                        | Returns an empty string for an empty input value.                                              |
 | `malformed_json.fail`                | Verifies malformed JSON fails instead of being hidden.                                         |

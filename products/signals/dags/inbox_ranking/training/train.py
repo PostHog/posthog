@@ -159,6 +159,54 @@ def _head_readable(
     return holdout_positives >= min_positives and holdout_auc > 0.5 and holdout_auc - null_auc >= NULL_MARGIN
 
 
+def head_metrics(
+    head: Head,
+    *,
+    y_train: np.ndarray,
+    train_scores: np.ndarray,
+    y_test: np.ndarray,
+    holdout_scores: np.ndarray,
+    null_aucs: Sequence[float],
+    refit_positive_rate: float,
+    holdout_team_ids: np.ndarray,
+) -> tuple[HeadMetrics, tuple[CalibrationBucket, ...]]:
+    """One head's metrics and holdout calibration from the scores of its train-only fit.
+
+    Every learner grades a head through this function, so the families' metadata carry the same
+    fields with the same meaning, and one promotion rule reads them all. `null_aucs` are the holdout
+    AUCs of the learner's fits on permuted labels.
+    """
+    holdout_auc = _auc(y_test, holdout_scores) if len(y_test) else None
+    null_auc = float(np.mean(null_aucs)) if null_aucs else None
+    null_auc_std = float(np.std(null_aucs)) if null_aucs else None
+    readable = _head_readable(holdout_auc, null_auc, int(y_test.sum()), min_positives=head.min_holdout_positives)
+    calibration = calibration_buckets(y_test.astype(bool), holdout_scores)
+    metrics = HeadMetrics(
+        head=head.name,
+        train_rows=int(len(y_train)),
+        train_positives=int(y_train.sum()),
+        holdout_rows=int(len(y_test)),
+        holdout_positives=int(y_test.sum()),
+        holdout_auc=holdout_auc,
+        null_auc=null_auc,
+        null_auc_std=null_auc_std,
+        readable=readable,
+        train_auc=_auc(y_train, train_scores),
+        holdout_average_precision=(
+            float(average_precision_score(y_test, holdout_scores)) if holdout_auc is not None else None
+        ),
+        # Logloss is defined on a single-class holdout, unlike AUC and average precision.
+        holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if len(y_test) else None,
+        holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
+        holdout_mean_score=float(holdout_scores.mean()) if len(y_test) else None,
+        holdout_expected_calibration_error=expected_calibration_error(calibration),
+        holdout_classification=classification_metrics(y_test, holdout_scores, float(y_train.mean())),
+        refit_classification_threshold=refit_positive_rate,
+        holdout_within_team=within_team_auc(y_test, holdout_scores, holdout_team_ids),
+    )
+    return metrics, calibration
+
+
 def train_head(
     examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int, seed: int = 0
 ) -> TrainedHead | None:
@@ -175,12 +223,10 @@ def train_head(
         return None
 
     model = _fit(x_train, y_train, seed)
-    train_auc = _auc(y_train, model.predict_proba(x_train)[:, 1])
     holdout_scores = model.predict_proba(x_test)[:, 1] if len(y_test) else np.array([])
     holdout_auc = _auc(y_test, holdout_scores) if len(y_test) else None
 
-    null_auc: float | None = None
-    null_auc_std: float | None = None
+    null_aucs: list[float] = []
     if holdout_auc is not None:
         rng = np.random.default_rng(seed)
         null_aucs = [
@@ -189,34 +235,16 @@ def train_head(
             if (auc := _auc(y_test, _fit(x_train, rng.permutation(y_train), seed + draw).predict_proba(x_test)[:, 1]))
             is not None
         ]
-        if null_aucs:
-            null_auc = float(np.mean(null_aucs))
-            null_auc_std = float(np.std(null_aucs))
 
-    readable = _head_readable(holdout_auc, null_auc, int(y_test.sum()), min_positives=head.min_holdout_positives)
-    calibration = calibration_buckets(y_test.astype(bool), holdout_scores)
-    metrics = HeadMetrics(
-        head=head.name,
-        train_rows=int(len(y_train)),
-        train_positives=int(y_train.sum()),
-        holdout_rows=int(len(y_test)),
-        holdout_positives=int(y_test.sum()),
-        holdout_auc=holdout_auc,
-        null_auc=null_auc,
-        null_auc_std=null_auc_std,
-        readable=readable,
-        train_auc=train_auc,
-        holdout_average_precision=(
-            float(average_precision_score(y_test, holdout_scores)) if holdout_auc is not None else None
-        ),
-        # Logloss is defined on a single-class holdout, unlike AUC and average precision.
-        holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if len(y_test) else None,
-        holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
-        holdout_mean_score=float(holdout_scores.mean()) if len(y_test) else None,
-        holdout_expected_calibration_error=expected_calibration_error(calibration),
-        holdout_classification=classification_metrics(y_test, holdout_scores, float(y_train.mean())),
-        refit_classification_threshold=float(y.mean()),
-        holdout_within_team=within_team_auc(y_test, holdout_scores, _team_ids(rows)[test]),
+    metrics, calibration = head_metrics(
+        head,
+        y_train=y_train,
+        train_scores=model.predict_proba(x_train)[:, 1],
+        y_test=y_test,
+        holdout_scores=holdout_scores,
+        null_aucs=null_aucs,
+        refit_positive_rate=float(y.mean()),
+        holdout_team_ids=_team_ids(rows)[test],
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)
@@ -242,6 +270,15 @@ class HoldoutGrade:
     positives: int
 
 
+def holdout_grade(y: np.ndarray, scores: np.ndarray) -> HoldoutGrade:
+    """A saved model's AUC and calibration error on a candidate's holdout outcomes `y`."""
+    return HoldoutGrade(
+        auc=_auc(y, scores),
+        expected_calibration_error=expected_calibration_error(calibration_buckets(y.astype(bool), scores)),
+        positives=int(y.sum()),
+    )
+
+
 def booster_holdout_grade(
     booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, feature_names: Sequence[str], holdout_days: int
 ) -> HoldoutGrade | None:
@@ -263,9 +300,4 @@ def booster_holdout_grade(
         return None
     x = rows.loc[test, names].astype(np.float32)
     y = rows.loc[test, "label"].to_numpy(dtype=int)
-    scores = booster.predict(xgb.DMatrix(x, feature_names=names))
-    return HoldoutGrade(
-        auc=_auc(y, scores),
-        expected_calibration_error=expected_calibration_error(calibration_buckets(y.astype(bool), scores)),
-        positives=int(y.sum()),
-    )
+    return holdout_grade(y, booster.predict(xgb.DMatrix(x, feature_names=names)))
