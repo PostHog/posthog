@@ -204,12 +204,12 @@ class TestOpenFgaDashboardMirror(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             insight = Insight.objects.create(team=self.team, created_by=self.creator_user, name="Insight")
         resource = Resource(type=ResourceType.INSIGHT, id=str(insight.id), project_id=self.team.id)
-        category = Resource(type=ResourceType.INSIGHT, project_id=self.team.id)
+        insight_resource = Resource(type=ResourceType.INSIGHT, project_id=self.team.id)
         assert api.check(resource=resource, action=Action.EDIT, subject=Subject(user_id=self.creator_user.id))
         self._grant("viewer", resource="insight", resource_id=insight.id)
         assert api.check(resource=resource, action=Action.VIEW, subject=self.subject)
         assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
-        listed = api.list_resources(resource=category, action=Action.VIEW, subject=self.subject)
+        listed = api.list_resources(resource=insight_resource, action=Action.VIEW, subject=self.subject)
         assert listed.complete and listed.ids == frozenset({str(insight.id)})
 
         self._grant("editor", resource="insight", resource_id=insight.id)

@@ -313,6 +313,8 @@
                             }
                         ]
                     },
+                    "org_admin": {},
+                    "org_member": {},
                     "organization": {
                         "directly_related_user_types": [
                             {
@@ -327,6 +329,7 @@
                             }
                         ]
                     },
+                    "same_project_member": {},
                     "user": {
                         "directly_related_user_types": [
                             {
@@ -355,13 +358,8 @@
                                     {
                                         "difference": {
                                             "base": {
-                                                "tupleToUserset": {
-                                                    "computedUserset": {
-                                                        "relation": "admin"
-                                                    },
-                                                    "tupleset": {
-                                                        "relation": "organization"
-                                                    }
+                                                "computedUserset": {
+                                                    "relation": "org_admin"
                                                 }
                                             },
                                             "subtract": {
@@ -450,26 +448,16 @@
                                 }
                             },
                             {
-                                "tupleToUserset": {
-                                    "computedUserset": {
-                                        "relation": "admin"
-                                    },
-                                    "tupleset": {
-                                        "relation": "organization"
-                                    }
+                                "computedUserset": {
+                                    "relation": "org_admin"
                                 }
                             },
                             {
                                 "intersection": {
                                     "child": [
                                         {
-                                            "tupleToUserset": {
-                                                "computedUserset": {
-                                                    "relation": "member"
-                                                },
-                                                "tupleset": {
-                                                    "relation": "organization"
-                                                }
+                                            "computedUserset": {
+                                                "relation": "org_member"
                                             }
                                         },
                                         {
@@ -486,13 +474,8 @@
                                                         }
                                                     },
                                                     {
-                                                        "tupleToUserset": {
-                                                            "computedUserset": {
-                                                                "relation": "member"
-                                                            },
-                                                            "tupleset": {
-                                                                "relation": "project"
-                                                            }
+                                                        "computedUserset": {
+                                                            "relation": "same_project_member"
                                                         }
                                                     }
                                                 ]
@@ -504,13 +487,8 @@
                             {
                                 "difference": {
                                     "base": {
-                                        "tupleToUserset": {
-                                            "computedUserset": {
-                                                "relation": "member"
-                                            },
-                                            "tupleset": {
-                                                "relation": "organization"
-                                            }
+                                        "computedUserset": {
+                                            "relation": "org_member"
                                         }
                                     },
                                     "subtract": {
@@ -531,11 +509,41 @@
                 "is_owner": {
                     "this": {}
                 },
+                "org_admin": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "admin"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
+                "org_member": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "member"
+                        },
+                        "tupleset": {
+                            "relation": "organization"
+                        }
+                    }
+                },
                 "organization": {
                     "this": {}
                 },
                 "project": {
                     "this": {}
+                },
+                "same_project_member": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "member"
+                        },
+                        "tupleset": {
+                            "relation": "project"
+                        }
+                    }
                 },
                 "user": {
                     "this": {}
@@ -664,7 +672,7 @@
                             }
                         ]
                     },
-                    "default_admin_or_higher": {},
+                    "default_level": {},
                     "default_member": {
                         "directly_related_user_types": [
                             {
@@ -673,7 +681,6 @@
                             }
                         ]
                     },
-                    "default_member_or_higher": {},
                     "default_none": {
                         "directly_related_user_types": [
                             {
@@ -682,7 +689,6 @@
                             }
                         ]
                     },
-                    "default_override": {},
                     "default_owner": {
                         "directly_related_user_types": [
                             {
@@ -691,6 +697,9 @@
                             }
                         ]
                     },
+                    "has_member_or_role_rule": {},
+                    "has_member_rule": {},
+                    "has_role_rule": {},
                     "has_rule": {},
                     "member": {},
                     "member_admin": {
@@ -701,7 +710,6 @@
                             }
                         ]
                     },
-                    "member_admin_or_higher": {},
                     "member_member": {
                         "directly_related_user_types": [
                             {
@@ -710,7 +718,6 @@
                             }
                         ]
                     },
-                    "member_member_or_higher": {},
                     "member_none": {
                         "directly_related_user_types": [
                             {
@@ -719,8 +726,6 @@
                             }
                         ]
                     },
-                    "member_or_role_override": {},
-                    "member_override": {},
                     "member_owner": {
                         "directly_related_user_types": [
                             {
@@ -739,6 +744,9 @@
                         ]
                     },
                     "owner": {},
+                    "policy_admin": {},
+                    "policy_member": {},
+                    "policy_owner": {},
                     "role_admin": {
                         "directly_related_user_types": [
                             {
@@ -747,7 +755,6 @@
                             }
                         ]
                     },
-                    "role_admin_or_higher": {},
                     "role_member": {
                         "directly_related_user_types": [
                             {
@@ -756,7 +763,6 @@
                             }
                         ]
                     },
-                    "role_member_or_higher": {},
                     "role_none": {
                         "directly_related_user_types": [
                             {
@@ -765,7 +771,6 @@
                             }
                         ]
                     },
-                    "role_override": {},
                     "role_owner": {
                         "directly_related_user_types": [
                             {
@@ -773,10 +778,7 @@
                                 "type": "role"
                             }
                         ]
-                    },
-                    "rule_admin": {},
-                    "rule_member": {},
-                    "rule_owner": {}
+                    }
                 }
             },
             "relations": {
@@ -816,7 +818,7 @@
                                                 "child": [
                                                     {
                                                         "computedUserset": {
-                                                            "relation": "rule_admin"
+                                                            "relation": "policy_admin"
                                                         }
                                                     },
                                                     {
@@ -881,7 +883,7 @@
                                                             "child": [
                                                                 {
                                                                     "computedUserset": {
-                                                                        "relation": "rule_admin"
+                                                                        "relation": "policy_admin"
                                                                     }
                                                                 },
                                                                 {
@@ -912,9 +914,19 @@
                 "default_admin": {
                     "this": {}
                 },
-                "default_admin_or_higher": {
+                "default_level": {
                     "union": {
                         "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "default_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_member"
+                                }
+                            },
                             {
                                 "computedUserset": {
                                     "relation": "default_admin"
@@ -931,55 +943,91 @@
                 "default_member": {
                     "this": {}
                 },
-                "default_member_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "default_member"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "default_admin_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "default_none": {
                     "this": {}
                 },
-                "default_override": {
+                "default_owner": {
+                    "this": {}
+                },
+                "has_member_or_role_rule": {
                     "union": {
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "default_none"
+                                    "relation": "has_member_rule"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "default_member_or_higher"
+                                    "relation": "has_role_rule"
                                 }
                             }
                         ]
                     }
                 },
-                "default_owner": {
-                    "this": {}
+                "has_member_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_owner"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_role_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "role_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_owner"
+                                }
+                            }
+                        ]
+                    }
                 },
                 "has_rule": {
                     "union": {
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "member_or_role_override"
+                                    "relation": "has_member_or_role_rule"
                                 }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "default_override"
+                                    "relation": "default_level"
                                 }
                             }
                         ]
@@ -1009,7 +1057,7 @@
                                                             "child": [
                                                                 {
                                                                     "computedUserset": {
-                                                                        "relation": "rule_member"
+                                                                        "relation": "policy_member"
                                                                     }
                                                                 },
                                                                 {
@@ -1060,75 +1108,11 @@
                 "member_admin": {
                     "this": {}
                 },
-                "member_admin_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_admin"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_owner"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "member_member": {
                     "this": {}
                 },
-                "member_member_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_member"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_admin_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "member_none": {
                     "this": {}
-                },
-                "member_or_role_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_override"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_override"
-                                }
-                            }
-                        ]
-                    }
-                },
-                "member_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_none"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_member_or_higher"
-                                }
-                            }
-                        ]
-                    }
                 },
                 "member_owner": {
                     "this": {}
@@ -1179,10 +1163,137 @@
                                         },
                                         {
                                             "computedUserset": {
-                                                "relation": "rule_owner"
+                                                "relation": "policy_owner"
                                             }
                                         }
                                     ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy_admin": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "policy_owner"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_admin"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "role_admin"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_rule"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "default_admin"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_or_role_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy_member": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "policy_admin"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_member"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "role_member"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_rule"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "default_member"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_or_role_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "policy_owner": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_owner"
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "role_owner"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_rule"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "computedUserset": {
+                                            "relation": "default_owner"
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_or_role_rule"
+                                        }
+                                    }
                                 }
                             }
                         ]
@@ -1207,22 +1318,6 @@
                         ]
                     }
                 },
-                "role_admin_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "role_admin"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_owner"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "role_member": {
                     "intersection": {
                         "child": [
@@ -1237,22 +1332,6 @@
                                     "tupleset": {
                                         "relation": "organization"
                                     }
-                                }
-                            }
-                        ]
-                    }
-                },
-                "role_member_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "role_member"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_admin_or_higher"
                                 }
                             }
                         ]
@@ -1277,22 +1356,6 @@
                         ]
                     }
                 },
-                "role_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "role_none"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_member_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "role_owner": {
                     "intersection": {
                         "child": [
@@ -1306,123 +1369,6 @@
                                     },
                                     "tupleset": {
                                         "relation": "organization"
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                },
-                "rule_admin": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_admin_or_higher"
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "role_admin_or_higher"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_override"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "default_admin_or_higher"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_or_role_override"
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                },
-                "rule_member": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_member_or_higher"
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "role_member_or_higher"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_override"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "default_member_or_higher"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_or_role_override"
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                },
-                "rule_owner": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_owner"
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "role_owner"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_override"
-                                        }
-                                    }
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "computedUserset": {
-                                            "relation": "default_owner"
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "member_or_role_override"
-                                        }
                                     }
                                 }
                             }
@@ -1443,7 +1389,7 @@
                             }
                         ]
                     },
-                    "default_editor_or_higher": {},
+                    "default_level": {},
                     "default_manager": {
                         "directly_related_user_types": [
                             {
@@ -1460,7 +1406,6 @@
                             }
                         ]
                     },
-                    "default_override": {},
                     "default_viewer": {
                         "directly_related_user_types": [
                             {
@@ -1469,8 +1414,10 @@
                             }
                         ]
                     },
-                    "default_viewer_or_higher": {},
                     "editor": {},
+                    "has_member_or_role_rule": {},
+                    "has_member_rule": {},
+                    "has_role_rule": {},
                     "has_rule": {},
                     "manager": {},
                     "member_editor": {
@@ -1481,7 +1428,6 @@
                             }
                         ]
                     },
-                    "member_editor_or_higher": {},
                     "member_manager": {
                         "directly_related_user_types": [
                             {
@@ -1498,8 +1444,6 @@
                             }
                         ]
                     },
-                    "member_or_role_override": {},
-                    "member_override": {},
                     "member_viewer": {
                         "directly_related_user_types": [
                             {
@@ -1508,7 +1452,6 @@
                             }
                         ]
                     },
-                    "member_viewer_or_higher": {},
                     "organization": {
                         "directly_related_user_types": [
                             {
@@ -1524,7 +1467,6 @@
                             }
                         ]
                     },
-                    "role_editor_or_higher": {},
                     "role_manager": {
                         "directly_related_user_types": [
                             {
@@ -1541,7 +1483,6 @@
                             }
                         ]
                     },
-                    "role_override": {},
                     "role_viewer": {
                         "directly_related_user_types": [
                             {
@@ -1550,7 +1491,6 @@
                             }
                         ]
                     },
-                    "role_viewer_or_higher": {},
                     "viewer": {}
                 }
             },
@@ -1558,9 +1498,19 @@
                 "default_editor": {
                     "this": {}
                 },
-                "default_editor_or_higher": {
+                "default_level": {
                     "union": {
                         "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "default_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "default_viewer"
+                                }
+                            },
                             {
                                 "computedUserset": {
                                     "relation": "default_editor"
@@ -1580,86 +1530,133 @@
                 "default_none": {
                     "this": {}
                 },
-                "default_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "default_none"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "default_viewer_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "default_viewer": {
                     "this": {}
                 },
-                "default_viewer_or_higher": {
+                "editor": {
                     "union": {
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "default_viewer"
+                                    "relation": "manager"
                                 }
                             },
                             {
-                                "computedUserset": {
-                                    "relation": "default_editor_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
-                "editor": {
-                    "intersection": {
-                        "child": [
-                            {
-                                "union": {
+                                "intersection": {
                                     "child": [
                                         {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "computedUserset": {
+                                                            "relation": "member_editor"
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "role_editor"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_member_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "default_editor"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_member_or_role_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        {
                                             "computedUserset": {
-                                                "relation": "member_editor_or_higher"
-                                            }
-                                        },
-                                        {
-                                            "difference": {
-                                                "base": {
-                                                    "computedUserset": {
-                                                        "relation": "role_editor_or_higher"
-                                                    }
-                                                },
-                                                "subtract": {
-                                                    "computedUserset": {
-                                                        "relation": "member_override"
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        {
-                                            "difference": {
-                                                "base": {
-                                                    "computedUserset": {
-                                                        "relation": "default_editor_or_higher"
-                                                    }
-                                                },
-                                                "subtract": {
-                                                    "computedUserset": {
-                                                        "relation": "member_or_role_override"
-                                                    }
-                                                }
+                                                "relation": "has_rule"
                                             }
                                         }
                                     ]
                                 }
+                            }
+                        ]
+                    }
+                },
+                "has_member_or_role_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "has_member_rule"
+                                }
                             },
                             {
                                 "computedUserset": {
-                                    "relation": "has_rule"
+                                    "relation": "has_role_rule"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_member_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_manager"
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_role_rule": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "role_none"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "role_manager"
                                 }
                             }
                         ]
@@ -1673,12 +1670,12 @@
                                     "child": [
                                         {
                                             "computedUserset": {
-                                                "relation": "member_or_role_override"
+                                                "relation": "has_member_or_role_rule"
                                             }
                                         },
                                         {
                                             "computedUserset": {
-                                                "relation": "default_override"
+                                                "relation": "default_level"
                                             }
                                         }
                                     ]
@@ -1717,7 +1714,7 @@
                                                 },
                                                 "subtract": {
                                                     "computedUserset": {
-                                                        "relation": "member_override"
+                                                        "relation": "has_member_rule"
                                                     }
                                                 }
                                             }
@@ -1731,7 +1728,7 @@
                                                 },
                                                 "subtract": {
                                                     "computedUserset": {
-                                                        "relation": "member_or_role_override"
+                                                        "relation": "has_member_or_role_rule"
                                                     }
                                                 }
                                             }
@@ -1750,78 +1747,14 @@
                 "member_editor": {
                     "this": {}
                 },
-                "member_editor_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_editor"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_manager"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "member_manager": {
                     "this": {}
                 },
                 "member_none": {
                     "this": {}
                 },
-                "member_or_role_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_override"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_override"
-                                }
-                            }
-                        ]
-                    }
-                },
-                "member_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_none"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_viewer_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "member_viewer": {
                     "this": {}
-                },
-                "member_viewer_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "member_viewer"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "member_editor_or_higher"
-                                }
-                            }
-                        ]
-                    }
                 },
                 "organization": {
                     "this": {}
@@ -1840,22 +1773,6 @@
                                     "tupleset": {
                                         "relation": "organization"
                                     }
-                                }
-                            }
-                        ]
-                    }
-                },
-                "role_editor_or_higher": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "role_editor"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_manager"
                                 }
                             }
                         ]
@@ -1899,22 +1816,6 @@
                         ]
                     }
                 },
-                "role_override": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "role_none"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "role_viewer_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
                 "role_viewer": {
                     "intersection": {
                         "child": [
@@ -1934,67 +1835,62 @@
                         ]
                     }
                 },
-                "role_viewer_or_higher": {
+                "viewer": {
                     "union": {
                         "child": [
                             {
                                 "computedUserset": {
-                                    "relation": "role_viewer"
+                                    "relation": "editor"
                                 }
                             },
                             {
-                                "computedUserset": {
-                                    "relation": "role_editor_or_higher"
-                                }
-                            }
-                        ]
-                    }
-                },
-                "viewer": {
-                    "intersection": {
-                        "child": [
-                            {
-                                "union": {
+                                "intersection": {
                                     "child": [
                                         {
+                                            "union": {
+                                                "child": [
+                                                    {
+                                                        "computedUserset": {
+                                                            "relation": "member_viewer"
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "role_viewer"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_member_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "difference": {
+                                                            "base": {
+                                                                "computedUserset": {
+                                                                    "relation": "default_viewer"
+                                                                }
+                                                            },
+                                                            "subtract": {
+                                                                "computedUserset": {
+                                                                    "relation": "has_member_or_role_rule"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        {
                                             "computedUserset": {
-                                                "relation": "member_viewer_or_higher"
-                                            }
-                                        },
-                                        {
-                                            "difference": {
-                                                "base": {
-                                                    "computedUserset": {
-                                                        "relation": "role_viewer_or_higher"
-                                                    }
-                                                },
-                                                "subtract": {
-                                                    "computedUserset": {
-                                                        "relation": "member_override"
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        {
-                                            "difference": {
-                                                "base": {
-                                                    "computedUserset": {
-                                                        "relation": "default_viewer_or_higher"
-                                                    }
-                                                },
-                                                "subtract": {
-                                                    "computedUserset": {
-                                                        "relation": "member_or_role_override"
-                                                    }
-                                                }
+                                                "relation": "has_rule"
                                             }
                                         }
                                     ]
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "has_rule"
                                 }
                             }
                         ]
