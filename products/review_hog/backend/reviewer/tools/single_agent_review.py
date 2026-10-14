@@ -44,7 +44,11 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    PROMPT_CACHE_MARKER,
+    load_template_and_schema,
+    without_cache_marker,
+)
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
 logger = logging.getLogger(__name__)
@@ -53,18 +57,6 @@ SINGLE_AGENT_PROMPT_DIR = "single_agent_review"
 SINGLE_AGENT_PROMPT_PATH = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR
 SINGLE_AGENT_CORE_FILE = SINGLE_AGENT_PROMPT_PATH / "core.md"
 LENS_PRIORITY_FILE = SINGLE_AGENT_PROMPT_PATH / "lens_priority.md"
-
-# The AI gateway turns this line into an OpenAI prompt cache breakpoint. Everything above it is the
-# same for the main session and the lens sessions of one part, so they read it from one cache entry.
-PROMPT_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint -->"
-# What a copy of the marker in pull request text becomes, so the prompt holds only ours.
-_QUOTED_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint (quoted) -->"
-
-
-def without_cache_marker(text: str) -> str:
-    """Pull request text with any copy of the cache marker defused, so it cannot pose as the real one."""
-    return text.replace(PROMPT_CACHE_MARKER, _QUOTED_CACHE_MARKER)
-
 
 # The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)

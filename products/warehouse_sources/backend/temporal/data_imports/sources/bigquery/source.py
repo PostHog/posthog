@@ -131,6 +131,22 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # need a change in the customer's Google Cloud project, so retrying can't recover them.
             BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR: BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
             BIGQUERY_IMPERSONATION_PERMISSION_ERROR: BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            # The ownership check above only needs `iam.serviceAccounts.get`, so it can pass while a
+            # later gRPC call (the Storage Read API's `create_read_session`/`read_rows`) still fails
+            # to mint a token, because minting one needs `iam.serviceAccounts.getAccessToken` too.
+            # grpc's auth metadata plugin surfaces that denial as a `ServiceUnavailable` wrapping
+            # Google's raw token-endpoint JSON, e.g. "Getting metadata from plugin failed with
+            # error: ('Unable to acquire impersonated credentials', '{"error": {"code": 403,
+            # "message": "Permission \'iam.serviceAccounts.getAccessToken\' denied on resource ..." ...'".
+            # Same remediation as the ownership check — grant Service Account Token Creator — so reuse
+            # its message. Deterministic IAM config problem; retrying can't grant the permission.
+            # Matched on the stable permission name plus "denied", not the volatile error id or
+            # troubleshooter URL. Mirrors the same check in `classify_bigquery_validation_error`,
+            # which covers this for the connection wizard rather than an in-progress sync. Python's
+            # `repr()` of the JSON body (inside the tuple `str()`) backslash-escapes the quotes
+            # around the permission name, so match both the raw and escaped forms.
+            "iam.serviceAccounts.getAccessToken' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            "iam.serviceAccounts.getAccessToken\\' denied": BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /

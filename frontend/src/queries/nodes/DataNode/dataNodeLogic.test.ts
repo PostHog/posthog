@@ -1,6 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api, { ApiError } from 'lib/api'
+import { promiseResolveReject } from 'lib/utils/async'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -71,6 +72,66 @@ describe('dataNodeLogic', () => {
     })
     afterEach(() => logic?.unmount())
 
+    it.each(['pending', 'failed'] as const)('restores a retained query after another query is %s', async (state) => {
+        const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+        const response = { results: [[1]], columns: ['value'] }
+        const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+        const pending = promiseResolveReject<typeof response>()
+        mockedQuery.mockReset()
+        mockedQuery.mockResolvedValueOnce(response).mockReturnValueOnce(pending.promise)
+        logic = dataNodeLogic(props)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        dataNodeLogic({
+            ...props,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' }),
+        })
+        expect(logic.values.dataLoading).toBe(true)
+        if (state === 'failed') {
+            await expectLogic(logic, () => pending.reject(new Error('Query failed')))
+                .toDispatchActions(['loadDataFailure'])
+                .toMatchValues({ responseError: 'Query failed', responseErrorObject: expect.any(Error) })
+        }
+
+        dataNodeLogic(props)
+        pending.resolve({ results: [[2]], columns: ['value'] })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            response,
+            responseLoading: false,
+            dataLoading: false,
+            responseError: null,
+            responseErrorObject: null,
+            queryCancelled: false,
+        })
+        expect(mockedQuery).toHaveBeenCalledTimes(2)
+        expect(mockedQuery.mock.calls[1][1]?.signal?.aborted).toBe(true)
+    })
+
+    it.each(['query', 'insight response'] as const)(
+        'restores notebook results when the query arrives after mount: %s',
+        async (source) => {
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const response = { results: [[1]], columns: ['value'] }
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue(response)
+            logic = dataNodeLogic(source === 'query' ? props : { ...props, cachedResults: response })
+            logic.mount()
+            if (source === 'query') {
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+            }
+            logic.unmount()
+            mockedQuery.mockClear()
+
+            logic = dataNodeLogic({ key: props.key } as DataNodeLogicProps)
+            logic.mount()
+            dataNodeLogic(props)
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ response })
+            expect(mockedQuery).not.toHaveBeenCalled()
+        }
+    )
+
     it.each(['same', 'query', 'filters', 'expired', 'disabled'] as const)(
         'reuses a completed notebook response on remount: %s',
         async (change) => {
@@ -90,6 +151,11 @@ describe('dataNodeLogic', () => {
                 } else if (change === 'filters') {
                     props.filtersOverride = { date_from: '-14d' }
                 } else if (change === 'expired') {
+                    clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL / 2)
+                    logic = dataNodeLogic(props)
+                    logic.mount()
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.unmount()
                     clock.mockReturnValue(10_000 + RESPONSE_CACHE_TTL)
                 } else if (change === 'disabled') {
                     props.retainResponseOnUnmount = false
@@ -97,6 +163,7 @@ describe('dataNodeLogic', () => {
                 logic = dataNodeLogic(props)
                 logic.mount()
                 if (change === 'same') {
+                    await expectLogic(logic).toFinishAllListeners()
                     dataNodeLogic({ ...props, cachedResults: { result: null } })
                     expect(logic.values.response).toEqual({ results: [[1]], columns: ['value'] })
                     expect(mockedQuery).toHaveBeenCalledTimes(1)

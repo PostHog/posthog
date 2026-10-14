@@ -294,10 +294,9 @@ export function InsightMeta({
         ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
-    })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+    const alertSupportOptions = { metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS] }
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, alertSupportOptions)
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, alertSupportOptions)
 
     const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
