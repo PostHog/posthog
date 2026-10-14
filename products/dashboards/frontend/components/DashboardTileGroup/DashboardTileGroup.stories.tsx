@@ -34,6 +34,7 @@ export const LongTitleInNarrowScene: StoryObj = {
                 tileCount={12}
                 collapsed
                 onToggle={() => {}}
+                onPreload={() => {}}
             >
                 <FakeTile />
             </DashboardTileGroup>
@@ -45,7 +46,14 @@ export const Styles: StoryObj = {
     render: () => (
         <div className="flex flex-col gap-4 bg-primary p-4">
             {STYLES.map(({ group, collapsed }, index) => (
-                <DashboardTileGroup key={index} group={group} tileCount={2} collapsed={collapsed} onToggle={() => {}}>
+                <DashboardTileGroup
+                    key={index}
+                    group={group}
+                    tileCount={2}
+                    collapsed={collapsed}
+                    onToggle={() => {}}
+                    onPreload={() => {}}
+                >
                     <div className="grid grid-cols-2 gap-2">
                         <FakeTile />
                         <FakeTile />

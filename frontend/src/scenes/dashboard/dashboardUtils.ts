@@ -290,6 +290,35 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
+export type TaskLimiter = <T>(task: () => Promise<T>) => Promise<T>
+
+/**
+ * Like `runWithLimit`, but the limit holds across every call, so batches started at different times share it.
+ * Tasks start in the order they arrive.
+ */
+export function createTaskLimiter(limit: number): TaskLimiter {
+    let active = 0
+    const waiting: (() => void)[] = []
+    return async <T>(task: () => Promise<T>): Promise<T> => {
+        if (active < limit) {
+            active++
+        } else {
+            await new Promise<void>((resolve) => waiting.push(resolve))
+        }
+        try {
+            return await task()
+        } finally {
+            // Hand the slot straight to the next task, so a new caller cannot take it in between.
+            const next = waiting.shift()
+            if (next) {
+                next()
+            } else {
+                active--
+            }
+        }
+    }
+}
+
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 

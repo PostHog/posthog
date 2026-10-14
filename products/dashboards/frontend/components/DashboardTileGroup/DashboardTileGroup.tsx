@@ -21,6 +21,7 @@ interface DashboardTileGroupProps {
     tileCount: number
     collapsed: boolean
     onToggle: () => void
+    onPreload: () => void
     children: React.ReactNode
 }
 
@@ -29,6 +30,7 @@ export function DashboardTileGroup({
     tileCount,
     collapsed,
     onToggle,
+    onPreload,
     children,
 }: DashboardTileGroupProps): JSX.Element {
     const tileCountLabel = pluralize(tileCount, 'tile')
@@ -43,7 +45,7 @@ export function DashboardTileGroup({
             )}
             data-attr="dashboard-tile-group"
         >
-            <div className="flex min-w-0 items-center gap-2 pt-1 pb-2">
+            <div className="flex min-w-0 items-center gap-2 pt-1 pb-2" onFocus={onPreload}>
                 <LemonButton
                     size="small"
                     truncate
@@ -57,6 +59,7 @@ export function DashboardTileGroup({
                         />
                     }
                     onClick={onToggle}
+                    onMouseEnter={onPreload}
                     aria-expanded={!collapsed}
                     data-attr="dashboard-tile-group-toggle"
                 >
