@@ -66,10 +66,6 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             user=user,
         )
 
-    def _on_user_changed(self) -> None:
-        super()._on_user_changed()
-        self.__dict__.pop("source_runner", None)
-
     @cached_property
     def source_runner(self) -> QueryRunner:
         return get_query_runner(

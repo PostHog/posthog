@@ -1927,10 +1927,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
 
     @property
-    def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk, self.modifiers)
-
-    @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
         AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and

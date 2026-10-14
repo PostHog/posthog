@@ -47,10 +47,6 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             user=user,
         )
 
-    def _on_user_changed(self) -> None:
-        super()._on_user_changed()
-        self.__dict__.pop("source_runner", None)
-
     @cached_property
     def source_runner(self) -> QueryRunner:
         # Modifiers must flow through so a cache-only read by the source runner (e.g. funnels)
