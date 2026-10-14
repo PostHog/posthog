@@ -84,7 +84,11 @@ class HeldTransport(RecordingTransport):
 
 
 def _request(
-    team_id: int, *, sends_messages: bool = True, incident_actions: dict[str, IncidentAction] | None = None
+    team_id: int,
+    *,
+    sends_messages: bool = True,
+    incident_actions: dict[str, IncidentAction] | None = None,
+    owned_by_platform: bool = False,
 ) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
@@ -96,6 +100,7 @@ def _request(
         sends_messages=sends_messages,
         incident_actions=incident_actions or {},
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
+        owned_by_platform=owned_by_platform,
     )
 
 
@@ -136,16 +141,20 @@ class TestDeliverEvaluation(APIBaseTest):
         self,
         announced: Any,
         by_event: dict[str, list[AlertDestinationGroup]],
-        live: bool = True,
+        live: bool | Exception = True,
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
+        owned_by_platform: bool = False,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
 
         with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=live),
+            patch(
+                f"{_MODULE}.posthoganalytics.feature_enabled",
+                **({"side_effect": live} if isinstance(live, Exception) else {"return_value": live}),
+            ),
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -159,7 +168,12 @@ class TestDeliverEvaluation(APIBaseTest):
             ),
         ):
             return deliver_evaluation(
-                _request(self.team.id, sends_messages=sends_messages, incident_actions=incident_actions)
+                _request(
+                    self.team.id,
+                    sends_messages=sends_messages,
+                    incident_actions=incident_actions,
+                    owned_by_platform=owned_by_platform,
+                )
             )
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
@@ -302,12 +316,18 @@ class TestDeliverEvaluation(APIBaseTest):
         assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
         assert flag.call_args.kwargs["group_properties"]["project"]["uuid"] == str(self.team.uuid)
 
-    def test_a_flag_that_cannot_be_read_leaves_the_legacy_path_as_the_only_deliverer(self) -> None:
-        with patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")):
-            outcome = deliver_evaluation(_request(self.team.id))
+    @parameterized.expand([("owned_by_the_source", False), ("owned_by_the_platform", True)])
+    def test_a_flag_that_cannot_be_read_silences_only_alerts_the_source_still_delivers(
+        self, _name: str, delivers: bool
+    ) -> None:
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)),
+            {FIRING_EVENT: [_group(SLACK)]},
+            live=RuntimeError("flags unreachable"),
+            owned_by_platform=delivers,
+        )
 
-        assert RecordingTransport.sends == []
-        assert outcome.live is False
+        assert (outcome.live, len(RecordingTransport.sends)) == (delivers, int(delivers))
 
     @parameterized.expand(
         [
