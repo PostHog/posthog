@@ -192,6 +192,7 @@ export interface tracingDataLogicValues {
         traceId: string
         ts?: string | null
     } | null
+    traceLoadFiltersActive: boolean
     traceSpans: Span[]
     traceSpansHasMore: boolean
     traceSpansLoadFailed: boolean
@@ -593,6 +594,9 @@ export interface tracingDataLogicActions {
     setSparklineAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
+    setTraceLoadFiltersActive: (filtersActive: boolean) => {
+        filtersActive: boolean
+    }
     setTracePagination: (
         hasMore: boolean,
         nextOffset: number | null
@@ -707,6 +711,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchNextPage: true,
         loadMoreTraceSpans: true,
         setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
+        setTraceLoadFiltersActive: (filtersActive: boolean) => ({ filtersActive }),
         widenTraceLookup: true,
         clearSpans: true,
         cancelInProgressSpans: (controller: AbortController | null) => ({ controller }),
@@ -897,6 +902,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 clearSpans: () => null,
             },
         ],
+        // The same filters that scope the span list also scope the single-trace lookup, so an empty
+        // trace can mean "filtered out" rather than "never sent". Set when the lookup starts, because
+        // the filters can change while it is in flight.
+        traceLoadFiltersActive: [
+            false as boolean,
+            {
+                setTraceLoadFiltersActive: (_, { filtersActive }) => filtersActive,
+            },
+        ],
         // Separate from the loader's own `traceSpansLoading` so paging in more spans shows a small
         // bottom spinner rather than the drawer's full-trace overlay (see `isLoadingFullTrace`).
         traceSpansLoadingMore: [
@@ -988,12 +1002,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     { traceId, ts }: { traceId: string; ts?: string | null },
                     breakpoint
                 ): Promise<Span[]> => {
-                    // Filters can change while the request is in flight; both lookups and the empty-result
-                    // capture must use these.
+                    // Filters can change while the request is in flight; both lookups must use these.
                     const serviceNames =
                         values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined
                     const filterGroup = values.queryFilterGroup
-                    cache.traceLoadFiltersActive = !!serviceNames || hasFilterConditions(filterGroup)
+                    actions.setTraceLoadFiltersActive(!!serviceNames || hasFilterConditions(filterGroup))
                     const lookUpTrace = (
                         dateRange: { date_from: string; date_to: string } | undefined
                     ): ReturnType<typeof api.tracing.getTrace> =>
@@ -1453,13 +1466,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        loadTraceSpansSuccess: ({ traceSpans }) => {
-            if (traceSpans.length === 0) {
-                // The same filters that scope the span list also scope this single-trace lookup, so an
-                // empty result can mean "filtered out" rather than "never sent" — carry that distinction.
-                posthog.capture('tracing trace unavailable', { filters_active: cache.traceLoadFiltersActive ?? false })
-            }
-        },
         handleFilterChange: ({ filterType, extraProps }) => {
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()

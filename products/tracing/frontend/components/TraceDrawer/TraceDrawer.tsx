@@ -62,6 +62,8 @@ export interface TraceDrawerProps {
     loadFailed: boolean
     /** Re-fetches the open trace. Omit to hide the retry button (e.g. no clean reload path). */
     onRetry?: () => void
+    /** List filters scoped the last trace lookup, so an empty trace may be filtered out rather than never sent. */
+    filtersActive: boolean
     /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
     hasMoreSpans?: boolean
     /** A next page of spans is being fetched (shows a bottom spinner without the full overlay). */
@@ -90,6 +92,7 @@ export function TraceDrawer({
     loading,
     loadFailed,
     onRetry,
+    filtersActive,
     hasMoreSpans = false,
     loadingMoreSpans = false,
     onLoadMoreSpans,
@@ -207,7 +210,7 @@ export function TraceDrawer({
             {traceId && !loading && anyLoadFailed && spans.length === 0 ? (
                 <TraceLoadErrorNotice onRetry={canRetry ? retryFailedLoads : undefined} />
             ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
-                <TraceUnavailableNotice traceId={traceId} />
+                <TraceUnavailableNotice traceId={traceId} filtersActive={filtersActive} />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">
                     {(loading || (aiEventsResponseLoading && spans.length === 0)) && <SpinnerOverlay />}

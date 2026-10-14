@@ -1,10 +1,25 @@
+import posthog from 'posthog-js'
+
 import { Link } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { TRACING_DOCS_URL } from '../../traceLinks'
 import { CopyableId } from './SpanSummaryHeader'
 
 // Other products link here by trace ID alone, so an empty result must not read as "this request never ran".
-export function TraceUnavailableNotice({ traceId }: { traceId: string }): JSX.Element {
+export function TraceUnavailableNotice({
+    traceId,
+    filtersActive,
+}: {
+    traceId: string
+    filtersActive: boolean
+}): JSX.Element {
+    // Captured on show, not on the span lookup, because AI events can still fill or fail the trace after that.
+    useOnMountEffect(() => {
+        posthog.capture('tracing trace unavailable', { filters_active: filtersActive })
+    })
+
     return (
         <div className="flex flex-col gap-1.5 p-4" data-attr="tracing-trace-unavailable-notice">
             <span className="font-semibold">Trace unavailable</span>

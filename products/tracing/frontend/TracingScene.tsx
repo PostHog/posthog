@@ -126,6 +126,7 @@ function TracingSceneContents(): JSX.Element {
         sceneTabsEnabled,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
+    const { traceLoadFiltersActive } = useValues(tracingDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         openTrace,
@@ -365,6 +366,7 @@ function TracingSceneContents(): JSX.Element {
                 onSelectInspectorTab={selectInspectorTab}
                 loading={isLoadingFullTrace}
                 loadFailed={selectedTraceLoadFailed}
+                filtersActive={traceLoadFiltersActive}
                 onRetry={
                     selectedTraceId
                         ? () => loadTraceSpans({ traceId: selectedTraceId, ts: selectedTraceTs })

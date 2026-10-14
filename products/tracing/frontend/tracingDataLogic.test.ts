@@ -195,28 +195,19 @@ describe('tracingDataLogic', () => {
                 event: 'tracing no results returned',
                 properties: { query_type: 'aggregation' },
             },
-            {
-                name: 'a trace with no spans',
-                dispatch: (l: typeof logic) => l.actions.loadTraceSpansSuccess([]),
-                event: 'tracing trace unavailable',
-                properties: { filters_active: false },
-            },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
             expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
         })
 
-        it('flags the capture when a service name filter is excluding spans', () => {
+        it('records that a service name filter scoped the trace lookup', () => {
             logic.actions.setServiceNames(['checkout-api'])
-            // Snapshots the active filters via loadTraceSpans (the real request path), then fires the
-            // success action directly rather than waiting on its unmocked network call.
             logic.actions.loadTraceSpans({ traceId: 'trace-x' })
-            logic.actions.loadTraceSpansSuccess([])
-            expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: true })
+            expect(logic.values.traceLoadFiltersActive).toBe(true)
         })
 
         // Filters changing mid-flight must not rescope or relabel a request made under the old filters.
-        it('keeps the filters active at request time through the widened lookup and the capture', async () => {
+        it('keeps the filters active at request time through the widened lookup', async () => {
             type TraceResponse = Awaited<ReturnType<typeof api.tracing.getTrace>>
             const empty: TraceResponse = { results: [], hasMore: false, nextOffset: null }
             let releaseBoundedLookup: (response: TraceResponse) => void = () => {}
@@ -231,7 +222,7 @@ describe('tracingDataLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
             expect(getTraceSpy.mock.calls.map(([, params]) => params?.serviceNames)).toEqual([undefined, undefined])
-            expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: false })
+            expect(logic.values.traceLoadFiltersActive).toBe(false)
         })
     })
 

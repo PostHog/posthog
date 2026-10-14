@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,12 +24,18 @@ const mockAiEventsRetrieve = tracingSpansTraceAiEventsRetrieve as jest.MockedFun
 >
 
 describe('TraceDrawer', () => {
+    let captureSpy: jest.SpyInstance
+
     beforeEach(() => {
         initKeaTests()
         mockAiEventsRetrieve.mockReset()
         mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false, limit: 500 })
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
     })
-    afterEach(() => cleanup())
+    afterEach(() => {
+        cleanup()
+        captureSpy.mockRestore()
+    })
 
     const renderDrawer = (props: Partial<TraceDrawerProps>): void => {
         render(
@@ -46,6 +53,7 @@ describe('TraceDrawer', () => {
                     onSelectInspectorTab={jest.fn()}
                     loading={false}
                     loadFailed={false}
+                    filtersActive={false}
                     selectedSpanId={null}
                     onSelectSpan={jest.fn()}
                     onClose={jest.fn()}
@@ -55,14 +63,20 @@ describe('TraceDrawer', () => {
         )
     }
 
-    // A trace with no spans yet is still loading, so the notice must wait for the result.
+    const unavailableCaptures = (): unknown[][] =>
+        captureSpy.mock.calls.filter(([event]) => event === 'tracing trace unavailable')
+
+    // A trace with no spans yet is still loading, so the notice and its capture must wait for the result.
     it.each([
         { loading: false, showsNotice: true },
         { loading: true, showsNotice: false },
     ])('with no spans and loading=$loading, shows the unavailable notice: $showsNotice', ({ loading, showsNotice }) => {
-        renderDrawer({ loading })
+        renderDrawer({ loading, filtersActive: true })
 
         expect(screen.queryByText('Trace unavailable') !== null).toBe(showsNotice)
+        expect(unavailableCaptures()).toEqual(
+            showsNotice ? [['tracing trace unavailable', { filters_active: true }]] : []
+        )
     })
 
     // A failed fetch must read as an error, not as "this trace has no spans" — the two share the
@@ -121,6 +135,7 @@ describe('TraceDrawer', () => {
         renderDrawer({ loading: false })
 
         expect(screen.queryByText('Trace unavailable')).toBeNull()
+        expect(unavailableCaptures()).toEqual([])
     })
 
     it('shows a retryable error when the AI events fetch fails and there are no spans', async () => {
@@ -133,6 +148,7 @@ describe('TraceDrawer', () => {
 
         expect(await screen.findByText("Couldn't load trace")).toBeInTheDocument()
         expect(screen.queryByText('Trace unavailable')).toBeNull()
+        expect(unavailableCaptures()).toEqual([])
 
         screen.getByText('Try again').click()
         expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(2)
