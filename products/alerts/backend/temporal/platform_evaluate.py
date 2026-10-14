@@ -79,7 +79,11 @@ def plan_platform_insight_batch_activity(inputs: InsightBatchPlanInputs) -> list
     key = inputs.evaluation.batch_key
     return list(
         plan_insight_batch(
-            key.team_id, key.slot, dt.datetime.fromisoformat(inputs.evaluation.cutoff), expires_at=inputs.expires_at
+            key.team_id,
+            key.slot,
+            dt.datetime.fromisoformat(inputs.evaluation.cutoff),
+            expires_at=inputs.expires_at,
+            exclude=inputs.exclude,
         )
     )
 
