@@ -1,7 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
@@ -36,7 +36,6 @@ const STATE_PRIORITY: PlatformAlertStateApi[] = [
     PlatformAlertStateApi.Broken,
     PlatformAlertStateApi.Errored,
     PlatformAlertStateApi.Firing,
-    PlatformAlertStateApi.Snoozed,
     PlatformAlertStateApi.NotFiring,
 ]
 

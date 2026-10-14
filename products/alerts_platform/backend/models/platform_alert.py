@@ -122,7 +122,12 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
         max_length=32, choices=State.choices, default=State.NOT_FIRING.value, db_default="not_firing"
     )
     last_notified_at = models.DateTimeField(null=True, blank=True)
+    # A snooze mutes announcements and leaves the state alone. Null with `snoozed_indefinitely`
+    # unset means not snoozed. A past time is an expired snooze, which reads the same.
     snooze_until = models.DateTimeField(null=True, blank=True)
+    # Muted until a user ends the snooze. A boolean rather than a far-future `snooze_until`, so a
+    # reader cannot mistake a sentinel date for a real end time.
+    snoozed_indefinitely = models.BooleanField(default=False, db_default=False)
     # Identifies one firing, from the transition into FIRING to the transition out. A timestamp
     # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
     # reader knows whether this firing was ever announced.

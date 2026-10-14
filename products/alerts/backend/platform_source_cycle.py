@@ -16,7 +16,6 @@ same set of checks.
 """
 
 import time
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Final
 
@@ -55,8 +54,6 @@ from products.alerts_platform.backend.facade.lifecycle import (
     ControlPlaneOutcome,
     NotificationAction,
     Outcome,
-    apply_snooze,
-    apply_unsnooze,
     decide_firing_episode,
     evaluate_alert_check,
 )
@@ -223,14 +220,14 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
 
-    # Production gates evaluation on a snooze and holds the alert in SNOOZED, then clears it to
-    # NOT_FIRING on the first check after the snooze ends. The legacy row is read for the snooze,
-    # because a snooze set after the backfill copied the row lives only there.
+    # Production gates evaluation on a snooze and clears the alert to NOT_FIRING on the first check
+    # after the snooze ends. The platform has no snoozed state, so it clears the alert when the
+    # snooze starts, and the first check after the snooze then starts from the same place. The
+    # legacy row is read for the snooze, because a snooze set after the backfill copied the row
+    # lives only there.
     if alert.snoozed_until is not None and alert.snoozed_until > now:
-        return _recorded(check, snapshot, apply_snooze(snapshot), now=now, skip=SkipReason.SOURCE_RULE)
-    if snapshot.state == AlertState.SNOOZED:
-        unsnoozed = apply_unsnooze(snapshot)
-        snapshot = replace(snapshot, state=unsnoozed.new_state, consecutive_failures=unsnoozed.consecutive_failures)
+        cleared = ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+        return _recorded(check, snapshot, cleared, now=now, skip=SkipReason.SOURCE_RULE)
 
     # Production's tags, so ClickHouse workload management treats the query the way it treats
     # production's and its cost is grouped the same way in the query log. The user is the

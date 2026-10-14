@@ -146,6 +146,8 @@ class AlertSnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     consecutive_failures: int
+    # A snooze with no end. Read with `snooze_until`, so adopters without one leave it unset.
+    snoozed_indefinitely: bool = False
     # N-of-M sliding window (CloudWatch-style). 1-of-1 means "fire on any breach".
     evaluation_periods: int = 1
     datapoints_to_alarm: int = 1
@@ -322,7 +324,7 @@ def evaluate_alert_check(
         # this is belt-and-braces against a race.
         return _stay(snapshot)
 
-    snoozing = snapshot.snooze_until is not None and snapshot.snooze_until > now
+    snoozing = snapshot.snoozed_indefinitely or (snapshot.snooze_until is not None and snapshot.snooze_until > now)
 
     if policy.mute_gates_notification_only:
         muted = snoozing or check.muted

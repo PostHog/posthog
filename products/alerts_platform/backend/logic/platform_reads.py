@@ -26,6 +26,7 @@ def instance_view(alert: PlatformAlert) -> PlatformAlertSnapshot:
         firing_started_at=alert.firing_started_at,
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snooze_until,
+        snoozed_indefinitely=alert.snoozed_indefinitely,
     )
 
 

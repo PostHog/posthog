@@ -1,5 +1,5 @@
 import {
-    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
+    PlatformAlertStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
@@ -43,6 +43,7 @@ function makeAlert(state: PlatformAlertStateApi): PlatformAlertApi {
         firing_started_at: null,
         last_notified_at: null,
         snooze_until: null,
+        snoozed_indefinitely: false,
     }
 }
 
@@ -57,11 +58,7 @@ describe('platformAlertFormat', () => {
         [
             'one firing group outranks healthy ones',
             {
-                alerts: [
-                    makeAlert(PlatformAlertStateApi.NotFiring),
-                    makeAlert(PlatformAlertStateApi.Firing),
-                    makeAlert(PlatformAlertStateApi.Snoozed),
-                ],
+                alerts: [makeAlert(PlatformAlertStateApi.NotFiring), makeAlert(PlatformAlertStateApi.Firing)],
             },
             'firing',
         ],

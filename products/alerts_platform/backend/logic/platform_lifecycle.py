@@ -134,6 +134,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        snoozed_indefinitely=alert.snoozed_indefinitely if alert else False,
     )
 
 

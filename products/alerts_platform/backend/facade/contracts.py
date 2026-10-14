@@ -125,6 +125,7 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    snoozed_indefinitely: bool = False
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -380,6 +381,7 @@ class PlatformAlertSnapshot:
     firing_started_at: datetime | None
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    snoozed_indefinitely: bool
 
 
 @frozen

@@ -219,6 +219,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
         cooldown=timedelta(minutes=check.cooldown_minutes),
         last_notified_at=check.last_notified_at,
         snooze_until=check.snooze_until,
+        snoozed_indefinitely=check.snoozed_indefinitely,
         consecutive_failures=check.consecutive_failures,
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,

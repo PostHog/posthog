@@ -125,7 +125,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, "not_firing"),
             ("detector", {"detector_config": {"type": "zscore"}}, "not_firing"),
             ("disabled", {"enabled": False}, "not_firing"),
-            ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "snoozed"),
+            ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "not_firing"),
         ]
     )
     def test_a_check_production_would_not_run_is_recorded_without_a_query(

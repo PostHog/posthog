@@ -29,6 +29,7 @@ def _snapshot(state: PlatformAlertState, firing_started_at: datetime | None) -> 
         firing_started_at=firing_started_at,
         last_notified_at=None,
         snooze_until=None,
+        snoozed_indefinitely=False,
     )
 
 
@@ -39,7 +40,6 @@ class TestRootStateLine(SimpleTestCase):
             ("resolved", PlatformAlertState.NOT_FIRING, None, "\U0001f7e2 Resolved as of 14:32 UTC"),
             ("a_later_firing", PlatformAlertState.FIRING, LATER_EPISODE, "\U0001f7e2 Resolved as of 14:32 UTC"),
             ("errored", PlatformAlertState.ERRORED, EPISODE, None),
-            ("snoozed", PlatformAlertState.SNOOZED, EPISODE, None),
         ]
     )
     def test_the_line_follows_the_recorded_state_of_this_firing(
