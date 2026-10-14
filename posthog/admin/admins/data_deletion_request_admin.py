@@ -659,7 +659,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         try:
             stats = refresh_deletion_stats(obj, user_id=request.user.id)
             self.log_change(request, obj, "Fetched ClickHouse stats.")
-            messages.success(request, f"Stats fetched: {stats['count']:,} matching events found.")
+            noun = "log records" if obj.request_type == RequestType.LOGS_REMOVAL else "events"
+            messages.success(request, f"Stats fetched: {stats['count']:,} matching {noun} found.")
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
 
@@ -732,7 +733,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             execution_mode = request.POST.get("execution_mode", default_execution_mode)
             if is_hogql_event_removal:
                 execution_mode = ExecutionMode.DEFERRED
-            elif obj.request_type == RequestType.PERSON_REMOVAL:
+            elif obj.request_type in (RequestType.PERSON_REMOVAL, RequestType.LOGS_REMOVAL):
                 execution_mode = ExecutionMode.IMMEDIATE
             if execution_mode not in ExecutionMode.values:
                 messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
@@ -772,6 +773,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "supports_deferred": supports_deferred,
             "is_hogql_event_removal": is_hogql_event_removal,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
+            "is_logs_removal": obj.request_type == RequestType.LOGS_REMOVAL,
             "execution_mode_choices": ExecutionMode.choices,
             "default_execution_mode": default_execution_mode,
             "opts": self.model._meta,

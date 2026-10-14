@@ -1120,8 +1120,12 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
-            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
+            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL, RequestType.LOGS_REMOVAL]),
+            (
+                "clickhouse_team",
+                True,
+                [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL, RequestType.LOGS_REMOVAL],
+            ),
         ]
     )
     def test_types_offered_on_a_new_request(self, _name, offer_clickhouse_team_types, expected_types):

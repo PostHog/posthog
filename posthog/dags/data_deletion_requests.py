@@ -30,8 +30,12 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    MutationWaiter,
+    Query,
+    wait_for_mutations_on_shards,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -43,8 +47,11 @@ from posthog.data_deletion import compile_event_uuid_query
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
+    LOGS_REMOVAL_TABLES,
+    LOGS_TABLE,
     DataDeletionRequest,
     ExecutionMode,
+    LogsRemovalTable,
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
@@ -118,6 +125,15 @@ class PersonRemovalContext:
     drop_recordings: bool
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+
+@frozen
+class LogsRemovalContext:
+    request_id: str
+    team_id: int
+    start_time: datetime
+    end_time: datetime
+    attempt_started_at: datetime
 
 
 @dataclass(frozen=True)
@@ -2063,6 +2079,124 @@ def delete_person_profiles_op(
     return person_removal
 
 
+@dagster.op(tags=OWNER_TAG)
+def load_logs_removal_request(
+    context: dagster.OpExecutionContext,
+    config: DataDeletionRequestConfig,
+) -> LogsRemovalContext:
+    """Load and validate a logs_removal request, transition to IN_PROGRESS."""
+    from django.db import transaction
+
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                status=RequestStatus.APPROVED,
+                request_type=RequestType.LOGS_REMOVAL,
+            )
+            .first()
+        )
+
+        if not request:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not an approved logs_removal request.",
+            )
+
+        _record_execution_attempt(request, context.run_id)
+
+    context.log.info(
+        f"Processing logs_removal request {request.pk}: "
+        f"team_id={request.team_id}, time_range={request.start_time} to {request.end_time}"
+    )
+    context.add_output_metadata(
+        {
+            "team_id": dagster.MetadataValue.int(request.team_id),
+            "start_time": dagster.MetadataValue.text(str(request.start_time)),
+            "end_time": dagster.MetadataValue.text(str(request.end_time)),
+        }
+    )
+
+    assert request.start_time is not None and request.end_time is not None
+    assert request.last_executed_at is not None
+    return LogsRemovalContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        attempt_started_at=request.last_executed_at,
+    )
+
+
+def _logs_deletion_target(table: LogsRemovalTable) -> DeletionTarget:
+    return DeletionTarget(
+        data_table=table.data_table,
+        read_table=table.read_table,
+        cluster_setting="CLICKHOUSE_LOGS_CLUSTER",
+        node_role=NodeRole.LOGS,
+        optional=True,
+    )
+
+
+@dagster.op(tags=OWNER_TAG)
+def delete_logs_op(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    deletion_request: LogsRemovalContext,
+) -> LogsRemovalContext:
+    """Delete the request's rows from every logs table, then fail if any of them are still readable.
+
+    logs34 has a projection, and ClickHouse refuses a lightweight delete on a table with one, so
+    every table gets an ALTER TABLE ... DELETE mutation. All of them are enqueued before any is
+    waited on, so the wait is the longest mutation rather than their sum.
+    """
+    enqueued: list[tuple[LogsRemovalTable, ClickhouseCluster, dict[int, MutationWaiter]]] = []
+    for table in LOGS_REMOVAL_TABLES:
+        placement = placement_for(cluster, _logs_deletion_target(table))
+        if placement is None:
+            if table is LOGS_TABLE:
+                raise dagster.Failure(
+                    f"Deletion request {deletion_request.request_id}: no node reachable from this job "
+                    f"carries {table.data_table}, so no logs can be deleted."
+                )
+            context.log.info(f"{table.data_table} does not exist on this deployment, skipping")
+            continue
+        predicate, params = table.removal_where(deletion_request)
+        runner = AlterTableMutationRunner(
+            table=table.data_table,
+            commands={f"DELETE WHERE {predicate}"},
+            parameters=params,
+            # The command text names a range, not rows, so a finished mutation from an earlier attempt
+            # has the same text and deleted nothing that arrived after it ran.
+            reuse_since=deletion_request.attempt_started_at,
+        )
+        context.log.info(f"Enqueueing delete on {table.data_table} ({len(placement.cluster.shards)} shards)")
+        enqueued.append((table, placement.cluster, runner.enqueue_on_shards(placement.cluster)))
+
+    for table, table_cluster, shard_mutations in enqueued:
+        wait_for_mutations_on_shards(table_cluster, shard_mutations)
+        context.log.info(f"Delete on {table.data_table} complete")
+
+    surviving: dict[str, int] = {}
+    for table, table_cluster, _shard_mutations in enqueued:
+        predicate, params = table.removal_where(deletion_request)
+        query = Query(surviving_rows_sql(table.read_table, predicate), params, settings={"max_execution_time": "1800"})
+        rows = table_cluster.any_host_by_role(query, table_cluster.shard_role).result()
+        count = int(rows[0][0]) if rows else 0
+        if count:
+            surviving[table.read_table] = count
+    if surviving:
+        raise dagster.Failure(
+            description=f"Deletion request {deletion_request.request_id}: the deletes finished but rows are "
+            f"still readable: {surviving}"
+        )
+
+    context.add_output_metadata(
+        {"swept_tables": dagster.MetadataValue.text(", ".join(table.data_table for table, _, _ in enqueued))}
+    )
+    return deletion_request
+
+
 # ---------------------------------------------------------------------------
 # Shared ops
 # ---------------------------------------------------------------------------
@@ -2128,6 +2262,23 @@ def finalize_person_removal(
     context.log.info(f"Person removal request {person_removal.request_id} marked as completed.")
 
 
+@dagster.op(tags=OWNER_TAG)
+def finalize_logs_removal(
+    context: dagster.OpExecutionContext,
+    deletion_request: LogsRemovalContext,
+) -> None:
+    from django.utils import timezone
+
+    # Accept FAILED too so a Dagster re-run after a mid-job failure can still finalize it. See
+    # finalize_deletion_request.
+    DataDeletionRequest.objects.filter(
+        pk=deletion_request.request_id,
+        status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
+    ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
+
+    context.log.info(f"Logs removal request {deletion_request.request_id} marked as completed.")
+
+
 @dagster.failure_hook()
 def mark_deletion_failed(context: dagster.HookContext) -> None:
     """Mark the deletion request as failed if any op fails."""
@@ -2148,6 +2299,7 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
         or ops_config.get("load_hogql_event_removal_request", {}).get("config", {}).get("request_id")
         or ops_config.get("load_property_removal_request", {}).get("config", {}).get("request_id")
         or ops_config.get("load_person_removal_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_logs_removal_request", {}).get("config", {}).get("request_id")
     )
     if not request_id:
         return
@@ -2234,6 +2386,14 @@ def data_deletion_request_person_removal():
     finalize_person_removal(request)
 
 
+@dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
+def data_deletion_request_logs_removal():
+    """Execute an approved logs_removal request: delete from every logs table → verify → finalize."""
+    request = load_logs_removal_request()
+    request = delete_logs_op(request)
+    finalize_logs_removal(request)
+
+
 # ---------------------------------------------------------------------------
 # Pickup sensor: scans for APPROVED requests and launches jobs (max 1 at a time)
 # ---------------------------------------------------------------------------
@@ -2243,6 +2403,7 @@ DELETION_JOB_NAMES = [
     data_deletion_request_hogql_event_removal.name,
     data_deletion_request_property_removal.name,
     data_deletion_request_person_removal.name,
+    data_deletion_request_logs_removal.name,
 ]
 
 
@@ -2252,6 +2413,7 @@ DELETION_JOB_NAMES = [
         data_deletion_request_hogql_event_removal,
         data_deletion_request_property_removal,
         data_deletion_request_person_removal,
+        data_deletion_request_logs_removal,
     ],
     minimum_interval_seconds=600,
     default_status=dagster.DefaultSensorStatus.STOPPED,
@@ -2290,6 +2452,8 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         job, load_op = data_deletion_request_property_removal, "load_property_removal_request"
     elif next_request.request_type == RequestType.PERSON_REMOVAL:
         job, load_op = data_deletion_request_person_removal, "load_person_removal_request"
+    elif next_request.request_type == RequestType.LOGS_REMOVAL:
+        job, load_op = data_deletion_request_logs_removal, "load_logs_removal_request"
     else:
         return dagster.SkipReason(f"Unknown request_type for request {next_request.pk}: {next_request.request_type}")
 
