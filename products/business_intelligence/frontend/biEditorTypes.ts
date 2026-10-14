@@ -1557,7 +1557,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 `SELECT\n    ${select.join(',\n    ')}`,
                 `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
-                ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
+                ...(expressions.length
+                    ? [
+                          `GROUP BY ${[...(generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : expressions), 'bi_comparison'].join(', ')}`,
+                      ]
+                    : []),
             ].join('\n')
         }
         query = limitBIComparisonQuery({

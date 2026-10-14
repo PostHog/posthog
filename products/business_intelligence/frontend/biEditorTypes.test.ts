@@ -101,6 +101,13 @@ describe('BI editor query generation', () => {
         if (chartType !== ChartDisplayType.ScatterPlot) {
             expect(result.node.chartSettings?.xAxis?.column).toBe(columns[0])
         }
+        const comparison = buildBIQuery({
+            ...config,
+            chartType: ChartDisplayType.ActionsTable,
+            dateRange: { date_from: 'mStart' },
+            compareFilter: { compare: true },
+        })!
+        expect(comparison.query).toContain(`GROUP BY ${[...columns, 'bi_comparison'].join(', ')}`)
     })
 
     it.each(['measure', 'custom measure', 'filter', 'custom filter'] as const)(
