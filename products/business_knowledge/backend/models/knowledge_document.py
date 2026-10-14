@@ -95,6 +95,22 @@ class KnowledgeDocument(UUIDModel):
                 name="bk_doc_embed_state",
                 condition=models.Q(safety_verdict=SafetyVerdict.SAFE),
             ),
+            # Match the sort orders of the paged pending scans, so each page reads
+            # the next rows in index order instead of sorting the whole backlog.
+            models.Index(
+                fields=["classification_attempts", "id"],
+                name="bk_doc_classify_queue",
+                condition=models.Q(safety_verdict=SafetyVerdict.UNKNOWN, tombstoned_at__isnull=True),
+            ),
+            models.Index(
+                fields=["id"],
+                name="bk_doc_embed_pending",
+                condition=models.Q(
+                    safety_verdict=SafetyVerdict.SAFE,
+                    tombstoned_at__isnull=True,
+                    embeddings_emitted_at__isnull=True,
+                ),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["source", "stable_id"], name="bk_doc_unique_per_source"),
