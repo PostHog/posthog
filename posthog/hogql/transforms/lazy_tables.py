@@ -9,6 +9,7 @@ from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.cross_join import local_cross_join_predicates
 from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -244,6 +245,12 @@ class LazyTableResolver(TraversingVisitor):
         subquery = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=list(join_ptr.table.chain)), alias=table_alias),
+            # Identity-key joins wrap their source; keep direct event/date filters inside that read.
+            where=(
+                local_cross_join_predicates(node.where, table_alias)
+                if self.context.modifiers.optimizeCrossJoins and join_ptr.join_type == "ALL INNER JOIN"
+                else None
+            ),
         )
 
         # Resolve types and lazy tables within the subquery

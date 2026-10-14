@@ -592,6 +592,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -1543,6 +1549,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -2253,6 +2265,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -2947,6 +2965,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -3662,6 +3686,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -4093,6 +4123,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
+                    optimizeCrossJoins: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
+                        ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
                     parserMode: zod
@@ -4346,6 +4382,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                    ),
+                optimizeCrossJoins: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                     ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
