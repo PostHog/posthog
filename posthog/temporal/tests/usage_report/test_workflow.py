@@ -29,19 +29,28 @@ from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
     EnqueuePointerInputs,
+    RunLegacyCounterInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     RunUsageReportsInputs,
     WorkflowContext,
 )
 from posthog.temporal.usage_report.workflow import (
+    PARALLEL_COUNTER_QUERIES_PATCH_ID,
+    QUERY_CONCURRENCY,
     SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
     _queries_for_sandbox_compute_patch,
     build_context,
 )
-from posthog.usage_counters import COUNTER_FLAG_NAMES, UsageCounter, UsageCounterMode, UsageCounterPlan
+from posthog.usage_counters import (
+    COUNTER_FLAG_NAMES,
+    LEGACY_QUERY_NAMES,
+    UsageCounter,
+    UsageCounterMode,
+    UsageCounterPlan,
+)
 
 
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
@@ -118,12 +127,16 @@ async def test_workflow_rejects_negative_day_offset() -> None:
         "partial",
         "pre_patch",
         "pre_patch_query_failure",
+        "concurrency",
+        "serial_counters",
+        "counter_query_failure",
     ],
 )
 async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger="temporalio.activity")
     caplog.set_level(logging.INFO, logger="temporalio.workflow")
     seen_query_names: list[str] = []
+    seen_counters: list[UsageCounter] = []
     aggregated_with: list[list[str]] = []
     aggregate_payloads: list[AggregateInputs] = []
     pointer_payloads: list[EnqueuePointerInputs] = []
@@ -132,8 +145,15 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     query_started = asyncio.Event()
     counter_started = asyncio.Event()
     release_queries = asyncio.Event()
-    fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure"}
+    starts: asyncio.Queue[str] = asyncio.Queue()
+    releases: dict[str, asyncio.Event] = {}
+    active_queries: set[str] = set()
+    active_counters: set[str] = set()
+    max_active = 0
+    max_active_counters = 0
+    fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure", "counter_query_failure"}
     pre_patch = report_behavior.startswith("pre_patch")
+    parallel_counters = not pre_patch and report_behavior != "serial_counters"
     expected_counter_report = RunQueryToS3Result(
         query_name="usage_counters", s3_key="queries/counters.json", duration_ms=1
     )
@@ -166,15 +186,39 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
             await release_queries.wait()
         return expected_counter_report
 
+    async def wait_for_query_release(name: str, *, counter: bool = False) -> None:
+        nonlocal max_active, max_active_counters
+        if report_behavior != "concurrency":
+            return
+        active_queries.add(name)
+        if counter:
+            active_counters.add(name)
+        max_active = max(max_active, len(active_queries))
+        max_active_counters = max(max_active_counters, len(active_counters))
+        releases[name] = asyncio.Event()
+        starts.put_nowait(name)
+        try:
+            await releases[name].wait()
+        finally:
+            active_queries.remove(name)
+            active_counters.discard(name)
+
+    @activity.defn(name="run-legacy-usage-counter")
+    async def legacy_counter_mock(inputs: RunLegacyCounterInputs) -> bool:
+        seen_counters.append(inputs.counter)
+        if report_behavior == "counter_query_failure":
+            raise ApplicationError("counter query unavailable", non_retryable=True)
+        await wait_for_query_release(LEGACY_QUERY_NAMES.get(inputs.counter, inputs.counter.value), counter=True)
+        return True
+
     @activity.defn(name="run-usage-report-query")
     async def query_mock(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
         seen_query_names.append(inputs.query_name)
         query_started.set()
-        if report_behavior == "activity_failure":
+        await wait_for_query_release(inputs.query_name)
+        if report_behavior in {"activity_failure", "counter_query_failure"} and len(seen_query_names) == 1:
             await release_queries.wait()
         if report_behavior in {"query_failure", "pre_patch_query_failure"}:
-            if not pre_patch:
-                await counter_started.wait()
             raise ApplicationError("query unavailable", non_retryable=True)
         return RunQueryToS3Result(
             query_name=inputs.query_name,
@@ -199,21 +243,26 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
             env.client,
             task_queue=task_queue,
             workflows=[RunUsageReportsWorkflow],
-            activities=[query_mock, aggregate_mock, pointer_mock, plan_mock, fetch_mock],
+            activities=[query_mock, aggregate_mock, pointer_mock, plan_mock, fetch_mock, legacy_counter_mock],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             patched = workflow.patched
             with (
                 patch(
                     "temporalio.workflow.patched",
-                    side_effect=lambda name: False if name == USAGE_COUNTER_SERVICE_PATCH_ID else patched(name),
+                    side_effect=lambda name: (
+                        False
+                        if (pre_patch and name == USAGE_COUNTER_SERVICE_PATCH_ID)
+                        or (report_behavior == "serial_counters" and name == PARALLEL_COUNTER_QUERIES_PATCH_ID)
+                        else patched(name)
+                    ),
                 )
-                if pre_patch
+                if pre_patch or report_behavior == "serial_counters"
                 else nullcontext()
             ):
                 try:
                     with pytest.raises(WorkflowFailureError) if fails else nullcontext():
-                        result = await asyncio.wait_for(
+                        run = asyncio.create_task(
                             env.client.execute_workflow(
                                 RunUsageReportsWorkflow.run,
                                 RunUsageReportsInputs(day_offset=0 if report_behavior == "partial" else 1),
@@ -221,10 +270,20 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                                 task_queue=task_queue,
                                 execution_timeout=timedelta(minutes=2),
                             ),
-                            timeout=30 if fails else 120,
                         )
+                        if report_behavior == "concurrency":
+                            for offset in range(0, len(QUERIES), QUERY_CONCURRENCY):
+                                batch = [
+                                    await asyncio.wait_for(starts.get(), timeout=10)
+                                    for _ in range(min(QUERY_CONCURRENCY, len(QUERIES) - offset))
+                                ]
+                                for name in batch:
+                                    releases[name].set()
+                        result = await asyncio.wait_for(run, timeout=30 if fails else 120)
                 finally:
                     release_queries.set()
+                    for release in releases.values():
+                        release.set()
 
         # Verify the per-query activity scheduling carried `summary=spec.name`
         # so the Temporal UI shows which query is running.
@@ -233,7 +292,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
         scheduled_summaries: dict[str, str] = {}
         async for event in handle.fetch_history_events():
             attrs = event.activity_task_scheduled_event_attributes
-            if attrs.activity_type.name != "run-usage-report-query":
+            if attrs.activity_type.name not in {"run-usage-report-query", "run-legacy-usage-counter"}:
                 continue
             assert event.user_metadata.HasField("summary"), f"activity {attrs.activity_id} scheduled without a summary"
             (decoded_summary,) = pydantic_data_converter.payload_converter.from_payloads(
@@ -259,6 +318,12 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     # aggregator) is preserved via `asyncio.gather`.
     assert set(seen_query_names) == set(expected_names)
     assert len(seen_query_names) == len(expected_names)
+    expected_counters = plans[0].legacy_counters if parallel_counters else []
+    assert set(seen_counters) == set(expected_counters)
+    assert len(seen_counters) == len(expected_counters)
+    if report_behavior == "concurrency":
+        assert max_active == QUERY_CONCURRENCY
+        assert max_active_counters == QUERY_CONCURRENCY
 
     assert len(aggregated_with) == 1
     assert aggregated_with[0] == expected_names
@@ -271,6 +336,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     assert aggregate_payloads[0].counter_result == (expected_counter_report if report_behavior != "pre_patch" else None)
     if counter_contexts:
         assert counter_contexts[0].usage_counter_plan == plans[0]
+        assert counter_contexts[0].prepared_legacy_counters == (plans[0].legacy_counters if parallel_counters else None)
         expected_mode = (
             UsageCounterMode.LEGACY if report_behavior in {"disabled", "flag_failure"} else UsageCounterMode.BOTH
         )
@@ -282,7 +348,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
 
     # Each scheduled query activity carries its query name as the Temporal
     # `summary`, so the UI surfaces which query is running.
-    assert set(scheduled_summaries.values()) == set(expected_names)
-    assert len(scheduled_summaries) == len(expected_names)
+    expected_summaries = set(expected_names) | {
+        LEGACY_QUERY_NAMES.get(counter, counter.value) for counter in expected_counters
+    }
+    assert set(scheduled_summaries.values()) == expected_summaries
+    assert len(scheduled_summaries) == len(expected_summaries)
 
     assert result == expected_aggregate.model_dump()

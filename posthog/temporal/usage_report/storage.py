@@ -102,6 +102,21 @@ def run_legacy_counter_query(
     return result
 
 
+def load_legacy_counter_counts(
+    ctx: WorkflowContext, query_names: Iterable[str], *, check_cancelled: Callable[[], None]
+) -> UsageCounterCounts:
+    counts: UsageCounterCounts = {}
+    for name in query_names:
+        check_cancelled()
+        key = queries_key(ctx, f"legacy_{name}")
+        raw = object_storage.read_bytes(key, bucket=bucket())
+        check_cancelled()
+        if raw is None:
+            raise FileNotFoundError(f"Legacy counter checkpoint not found: {key}")
+        counts.update(_COUNTER_COUNTS_ADAPTER.validate_json(raw))
+    return counts
+
+
 def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
     """Stream-encode `lines` as JSONL straight into gzip, then PUT the
     compressed body to S3 in a single `put_object` call.

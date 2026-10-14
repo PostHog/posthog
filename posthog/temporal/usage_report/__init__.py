@@ -4,6 +4,7 @@ from posthog.temporal.usage_report.activities import (
     enqueue_pointer_message,
     fetch_usage_counter_report,
     plan_usage_counters,
+    run_legacy_usage_counter,
     run_query_to_s3,
 )
 from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
@@ -15,6 +16,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     plan_usage_counters,
     fetch_usage_counter_report,
+    run_legacy_usage_counter,
     run_query_to_s3,
     aggregate_and_chunk_org_reports,
     enqueue_pointer_message,

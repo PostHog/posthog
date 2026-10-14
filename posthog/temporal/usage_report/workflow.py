@@ -28,19 +28,22 @@ from posthog.temporal.usage_report.activities import (
     enqueue_pointer_message,
     fetch_usage_counter_report,
     plan_usage_counters,
+    run_legacy_usage_counter,
     run_query_to_s3,
 )
 from posthog.temporal.usage_report.metrics import get_workflow_finished_metric, record_workflow_latency
-from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
+from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     EnqueuePointerInputs,
+    RunLegacyCounterInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     RunUsageReportsInputs,
     WorkflowContext,
 )
+from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounter
 
 # Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
 # with ~40 simultaneous heavy queries.
@@ -48,6 +51,7 @@ QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
+PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -217,6 +221,21 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 workflow.logger.warning("Failed to record usage-reports workflow metrics", exc_info=True)
 
     async def _fetch_counter_report(self, ctx: WorkflowContext, sem: asyncio.Semaphore) -> RunQueryToS3Result:
+        if workflow.patched(PARALLEL_COUNTER_QUERIES_PATCH_ID):
+            assert ctx.usage_counter_plan is not None
+            tasks = [
+                asyncio.create_task(self._run_legacy_counter(ctx, counter, sem))
+                for counter in ctx.usage_counter_plan.legacy_counters
+            ]
+            try:
+                prepared = await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+            ctx = ctx.model_copy(
+                update={"prepared_legacy_counters": [counter for counter in prepared if counter is not None]}
+            )
         async with sem:
             return await workflow.execute_activity(
                 fetch_usage_counter_report,
@@ -225,6 +244,21 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
                 heartbeat_timeout=timedelta(minutes=2),
             )
+
+    async def _run_legacy_counter(
+        self, ctx: WorkflowContext, counter: UsageCounter, sem: asyncio.Semaphore
+    ) -> UsageCounter | None:
+        name = LEGACY_QUERY_NAMES.get(counter, counter.value)
+        async with sem:
+            prepared = await workflow.execute_activity(
+                run_legacy_usage_counter,
+                RunLegacyCounterInputs(ctx=ctx, counter=counter),
+                start_to_close_timeout=timedelta(minutes=QUERY_INDEX[name].timeout_minutes),
+                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10)),
+                heartbeat_timeout=timedelta(minutes=1),
+                summary=name,
+            )
+            return counter if prepared else None
 
     async def _run_query(self, ctx: WorkflowContext, spec: QuerySpec) -> RunQueryToS3Result:
         return await workflow.execute_activity(

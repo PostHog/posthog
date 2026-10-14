@@ -10,7 +10,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
-from posthog.usage_counters import UsageCounterPlan
+from posthog.usage_counters import UsageCounter, UsageCounterPlan
 
 # What billing reads off the pointer/manifest: "partial" = intraday snapshot
 # of a day still in progress, "complete" = the day was already over when
@@ -44,6 +44,12 @@ class WorkflowContext(BaseModel):
     report_completeness: ReportCompleteness = "partial"
     organization_ids: Optional[list[str]] = None
     usage_counter_plan: UsageCounterPlan | None = None
+    prepared_legacy_counters: list[UsageCounter] | None = None
+
+
+class RunLegacyCounterInputs(BaseModel):
+    ctx: WorkflowContext
+    counter: UsageCounter
 
 
 class RunQueryToS3Inputs(BaseModel):

@@ -35,10 +35,17 @@ from posthog.temporal.usage_report.activities import (
     aggregate_and_chunk_org_reports,
     fetch_usage_counter_report,
     plan_usage_counters,
+    run_legacy_usage_counter,
 )
 from posthog.temporal.usage_report.queries import QUERIES
 from posthog.temporal.usage_report.storage import queries_key, write_json
-from posthog.temporal.usage_report.types import AggregateInputs, AggregateResult, RunQueryToS3Result, WorkflowContext
+from posthog.temporal.usage_report.types import (
+    AggregateInputs,
+    AggregateResult,
+    RunLegacyCounterInputs,
+    RunQueryToS3Result,
+    WorkflowContext,
+)
 from posthog.usage_counters import UsageCounter
 from posthog.utils import get_previous_day
 
@@ -378,7 +385,20 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         for result in _seed_temporal_query_files(s3, ctx, seeded)
         if result.query_name not in ctx.usage_counter_plan.query_names
     ]
-    counter_result = asyncio.run(activity_environment.run(fetch_usage_counter_report, ctx))
+
+    async def fetch_counters() -> RunQueryToS3Result:
+        assert ctx.usage_counter_plan is not None
+        prepared = []
+        for counter in ctx.usage_counter_plan.legacy_counters:
+            if await activity_environment.run(
+                run_legacy_usage_counter, RunLegacyCounterInputs(ctx=ctx, counter=counter)
+            ):
+                prepared.append(counter)
+        return await activity_environment.run(
+            fetch_usage_counter_report, ctx.model_copy(update={"prepared_legacy_counters": prepared})
+        )
+
+    counter_result = asyncio.run(fetch_counters())
     # The activity is async; the test is sync so DB setup can use the
     # ORM directly. `asyncio.run` drives the activity in a fresh loop.
     result: AggregateResult = asyncio.run(

@@ -51,6 +51,7 @@ from posthog.temporal.usage_report.storage import (
     chunk_key,
     chunks_prefix,
     delete_keys,
+    load_legacy_counter_counts,
     manifest_key,
     queries_key,
     run_legacy_counter_query,
@@ -62,11 +63,12 @@ from posthog.temporal.usage_report.types import (
     AggregateResult,
     CleanupInputs,
     EnqueuePointerInputs,
+    RunLegacyCounterInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounterPlan, UsageCounterService
+from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounterPlan, UsageCounterReport, UsageCounterService
 from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -111,13 +113,32 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
                     raise asyncio.CancelledError()
 
             try:
-                report = await database_sync_to_async_pool(
-                    UsageCounterService(
+
+                @database_sync_to_async_pool
+                def fetch_report() -> UsageCounterReport:
+                    plan = ctx.usage_counter_plan
+                    assert plan is not None
+                    legacy_counts = (
+                        load_legacy_counter_counts(
+                            ctx,
+                            (
+                                LEGACY_QUERY_NAMES.get(counter, counter.value)
+                                for counter in ctx.prepared_legacy_counters
+                            ),
+                            check_cancelled=check_cancelled,
+                        )
+                        if ctx.prepared_legacy_counters is not None
+                        else None
+                    )
+                    return UsageCounterService(
                         record_query=record_query_latency,
                         run_legacy_query=partial(run_legacy_counter_query, ctx, check_cancelled=check_cancelled),
                         check_cancelled=check_cancelled,
-                    ).fetch_report
-                )(DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan)
+                    ).fetch_report(
+                        DayRange(start=ctx.period_start, end=ctx.period_end), plan=plan, legacy_counts=legacy_counts
+                    )
+
+                report = await fetch_report()
                 key = queries_key(ctx, "usage_counters")
 
                 @sync_to_async(thread_sensitive=False)
@@ -136,6 +157,32 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
             finally:
                 # Cancelling the await leaves its sync worker running. Stop it between IO operations.
                 stopped.set()
+
+
+@activity.defn(name="run-legacy-usage-counter")
+async def run_legacy_usage_counter(inputs: RunLegacyCounterInputs) -> bool:
+    """Return whether this query produced a checkpoint, including an empty result."""
+    plan = inputs.ctx.usage_counter_plan
+    if plan is None:
+        raise ValueError("Fetching a legacy counter requires a resolved plan")
+    plan = dataclasses.replace(plan, modes={inputs.counter: plan.modes[inputs.counter]})
+    stopped = Event()
+
+    def check_cancelled() -> None:
+        if stopped.is_set() or activity.is_cancelled():
+            raise asyncio.CancelledError()
+
+    async with Heartbeater():
+        try:
+            service = UsageCounterService(
+                record_query=record_query_latency,
+                run_legacy_query=partial(run_legacy_counter_query, inputs.ctx, check_cancelled=check_cancelled),
+                check_cancelled=check_cancelled,
+            )
+            counts = await database_sync_to_async_pool(service.fetch_legacy)(plan)
+            return bool(counts)
+        finally:
+            stopped.set()
 
 
 @activity.defn(name="run-usage-report-query")

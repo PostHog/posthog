@@ -18,16 +18,27 @@ import pytest
 from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
+from temporalio.testing import ActivityEnvironment
 
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.tests.usage_report.test_parity import _install_in_memory_object_storage
 from posthog.temporal.usage_report import storage
-from posthog.temporal.usage_report.activities import fetch_usage_counter_report, plan_usage_counters, run_query_to_s3
+from posthog.temporal.usage_report.activities import (
+    fetch_usage_counter_report,
+    plan_usage_counters,
+    run_legacy_usage_counter,
+    run_query_to_s3,
+)
 from posthog.temporal.usage_report.metrics import USAGE_REPORTS_QUERY_LATENCY
 from posthog.temporal.usage_report.queries import QuerySpec
 from posthog.temporal.usage_report.storage import queries_key
-from posthog.temporal.usage_report.types import RunQueryToS3Inputs, WorkflowContext
+from posthog.temporal.usage_report.types import (
+    RunLegacyCounterInputs,
+    RunQueryToS3Inputs,
+    RunQueryToS3Result,
+    WorkflowContext,
+)
 from posthog.usage_counters import (
     UsageCounter,
     UsageCounterMode,
@@ -39,6 +50,17 @@ from posthog.usage_counters import (
 from posthog.utils import DayRange
 
 from products.tasks.backend.facade.billing import SandboxComputeUsageByTeam
+
+
+async def _fetch_counter_report(environment: ActivityEnvironment, ctx: WorkflowContext) -> RunQueryToS3Result:
+    if ctx.prepared_legacy_counters is not None:
+        assert ctx.usage_counter_plan is not None
+        prepared = []
+        for counter in ctx.usage_counter_plan.legacy_counters:
+            if await environment.run(run_legacy_usage_counter, RunLegacyCounterInputs(ctx=ctx, counter=counter)):
+                prepared.append(counter)
+        ctx = ctx.model_copy(update={"prepared_legacy_counters": prepared})
+    return await environment.run(fetch_usage_counter_report, ctx)
 
 
 @pytest.mark.asyncio
@@ -135,6 +157,7 @@ async def test_fetch_usage_counter_report_converts_off_the_event_loop(activity_e
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prepared", [False, True])
 @pytest.mark.parametrize(
     "mode,failure",
     [
@@ -144,12 +167,16 @@ async def test_fetch_usage_counter_report_converts_off_the_event_loop(activity_e
         (UsageCounterMode.BOTH, "scan"),
         (UsageCounterMode.REALTIME, "scan"),
         (UsageCounterMode.REALTIME, "legacy"),
+        (UsageCounterMode.BOTH, "checkpoint"),
+        (UsageCounterMode.REALTIME, "checkpoint"),
         (UsageCounterMode.BOTH, "write"),
     ],
 )
 async def test_counter_report_records_query_metrics(
-    activity_environment, mode: UsageCounterMode, failure: str | None
+    activity_environment, monkeypatch, mode: UsageCounterMode, failure: str | None, prepared: bool
 ) -> None:
+    _install_in_memory_object_storage(monkeypatch)
+    write_to_storage = object_storage.write
     period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
     ctx = WorkflowContext(
         run_id="counter-metrics-test",
@@ -157,6 +184,7 @@ async def test_counter_report_records_query_metrics(
         period_start=period.start,
         period_end=period.end,
         date_str="2026-05-04",
+        prepared_legacy_counters=[] if prepared else None,
         usage_counter_plan=UsageCounterPlan(
             period=period,
             caller="usage_reports_v2",
@@ -171,7 +199,7 @@ async def test_counter_report_records_query_metrics(
     )
     fails_report = (
         failure == "write"
-        or (failure == "legacy" and mode != UsageCounterMode.REALTIME)
+        or (failure in {"legacy", "checkpoint"} and mode != UsageCounterMode.REALTIME)
         or (failure == "scan" and mode == UsageCounterMode.REALTIME)
     )
     with (
@@ -194,38 +222,45 @@ async def test_counter_report_records_query_metrics(
             "posthog.tasks.usage_report.get_teams_with_billable_sandbox_compute_usage_in_period",
             return_value=SandboxComputeUsageByTeam(credits=[], cpu_millicore_seconds=[], memory_mib_seconds=[]),
         ),
-        patch("posthog.temporal.usage_report.storage.object_storage.write") as write,
-        patch("posthog.temporal.usage_report.storage.object_storage.read_bytes", return_value=None),
+        patch("posthog.temporal.usage_report.storage.object_storage.write", wraps=object_storage.write) as write,
         patch("posthog.temporal.common.metrics.get_metric_meter") as meter,
     ):
-        if failure == "write":
+        if failure in {"write", "checkpoint"}:
 
-            def fail_report_write(key: str, *args: object, **kwargs: object) -> None:
-                if key == queries_key(ctx, "usage_counters"):
+            def fail_write(
+                key: str, content: str | bytes, extras: dict | None = None, bucket: str | None = None
+            ) -> None:
+                failed_query = (
+                    "usage_counters" if failure == "write" else f"legacy_{UsageCounter.CDP_INVOCATIONS.value}"
+                )
+                if key == queries_key(ctx, failed_query):
                     raise RuntimeError("unavailable")
+                write_to_storage(key, content, extras=extras, bucket=bucket)
 
-            write.side_effect = fail_report_write
+            write.side_effect = fail_write
         elif failure is not None:
             {"legacy": legacy, "scan": records}[failure].side_effect = RuntimeError("unavailable")
         if fails_report:
             with pytest.raises(RuntimeError, match="unavailable"):
-                await activity_environment.run(fetch_usage_counter_report, ctx)
+                await _fetch_counter_report(activity_environment, ctx)
         else:
-            await activity_environment.run(fetch_usage_counter_report, ctx)
+            await _fetch_counter_report(activity_environment, ctx)
             assert json.loads(write.call_args.args[1])["counts"][UsageCounter.CDP_INVOCATIONS.value] == [
                 [1, 9 if mode == UsageCounterMode.REALTIME else 7]
             ]
+        legacy.assert_called_once()
 
     expected = [
-        (UsageCounter.CDP_INVOCATIONS.value, "FAILED" if failure == "legacy" else "COMPLETED"),
+        (UsageCounter.CDP_INVOCATIONS.value, "FAILED" if failure in {"legacy", "checkpoint"} else "COMPLETED"),
     ]
-    if not (failure == "legacy" and fails_report):
+    if not (failure in {"legacy", "checkpoint"} and fails_report):
         expected.extend(
             (name, "COMPLETED") for name in ("exceptions_captured", "logs_retention_bytes", "sandbox_compute_usage")
         )
-    if mode != UsageCounterMode.LEGACY and not (failure == "legacy" and fails_report):
+    if mode != UsageCounterMode.LEGACY and not (failure in {"legacy", "checkpoint"} and fails_report):
         expected.append(("usage_records", "FAILED" if failure == "scan" else "COMPLETED"))
-    expected.append(("usage_counters", "FAILED" if fails_report else "COMPLETED"))
+    if not (prepared and failure in {"legacy", "checkpoint"} and fails_report):
+        expected.append(("usage_counters", "FAILED" if fails_report else "COMPLETED"))
     assert [(call.args[0]["query_name"], call.args[0]["status"]) for call in meter.call_args_list] == expected
     assert [call.args[0]["exception"] for call in meter.call_args_list] == [
         "RuntimeError" if status == "FAILED" else "" for _, status in expected
@@ -238,9 +273,13 @@ async def test_counter_report_records_query_metrics(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel_during", ["cache_read", "legacy", "checkpoint", "last_checkpoint", "scan"])
 @pytest.mark.parametrize("cancel_source", ["temporal", "task"])
+@pytest.mark.parametrize("prepared", [False, True])
 async def test_cancelled_counter_activity_stops_background_work(
-    activity_environment, cancel_during: str, cancel_source: str
+    activity_environment, monkeypatch, cancel_during: str, cancel_source: str, prepared: bool
 ) -> None:
+    _install_in_memory_object_storage(monkeypatch)
+    read_from_storage = object_storage.read_bytes
+    write_to_storage = object_storage.write
     period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
     modes = {UsageCounter.CDP_INVOCATIONS: UsageCounterMode.BOTH}
     if cancel_during != "last_checkpoint":
@@ -251,6 +290,7 @@ async def test_cancelled_counter_activity_stops_background_work(
         period_start=period.start,
         period_end=period.end,
         date_str="2026-05-04",
+        prepared_legacy_counters=[] if prepared else None,
         usage_counter_plan=UsageCounterPlan(period=period, caller="usage_reports_v2", modes=modes, complete=True),
     )
     started = asyncio.Event()
@@ -264,7 +304,7 @@ async def test_cancelled_counter_activity_stops_background_work(
 
     def read_checkpoint(*args, **kwargs):
         block("cache_read")
-        return None
+        return read_from_storage(*args, **kwargs)
 
     def legacy_query(*args, **kwargs):
         block("legacy")
@@ -274,6 +314,7 @@ async def test_cancelled_counter_activity_stops_background_work(
         if key == queries_key(ctx, f"legacy_{UsageCounter.CDP_INVOCATIONS.value}"):
             block("checkpoint")
             block("last_checkpoint")
+        write_to_storage(key, *args, **kwargs)
 
     def scan_records(*args, **kwargs):
         block("scan")
@@ -294,7 +335,7 @@ async def test_cancelled_counter_activity_stops_background_work(
                 "posthog.temporal.usage_report.activities.database_sync_to_async_pool",
                 partial(database_sync_to_async_pool, executor=executor),
             ):
-                task = asyncio.create_task(activity_environment.run(fetch_usage_counter_report, ctx))
+                task = asyncio.create_task(_fetch_counter_report(activity_environment, ctx))
                 try:
                     await asyncio.wait_for(started.wait(), timeout=10)
                     calls_at_cancellation = [mock.call_count for mock in (read, legacy, events, records, write)]
@@ -315,7 +356,10 @@ async def test_cancelled_counter_activity_stops_background_work(
 
 
 @pytest.mark.asyncio
-async def test_counter_activity_reuses_successful_queries_on_retry(activity_environment, monkeypatch) -> None:
+@pytest.mark.parametrize("prepared", [False, True])
+async def test_counter_activity_reuses_successful_queries_on_retry(
+    activity_environment, monkeypatch, prepared: bool
+) -> None:
     s3 = _install_in_memory_object_storage(monkeypatch)
     period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
     ctx = WorkflowContext(
@@ -324,6 +368,7 @@ async def test_counter_activity_reuses_successful_queries_on_retry(activity_envi
         period_start=period.start,
         period_end=period.end,
         date_str="2026-05-04",
+        prepared_legacy_counters=[] if prepared else None,
         usage_counter_plan=UsageCounterPlan(
             period=period,
             caller="usage_reports_v2",
@@ -341,9 +386,9 @@ async def test_counter_activity_reuses_successful_queries_on_retry(activity_envi
         ) as exceptions,
     ):
         with pytest.raises(RuntimeError, match="unavailable"):
-            await activity_environment.run(fetch_usage_counter_report, ctx)
+            await _fetch_counter_report(activity_environment, ctx)
         assert queries_key(ctx, "usage_counters") not in s3
-        result = await activity_environment.run(fetch_usage_counter_report, ctx)
+        result = await _fetch_counter_report(activity_environment, ctx)
     events.assert_called_once()
     assert exceptions.call_count == 2
     assert json.loads(s3[result.s3_key])["counts"] == {

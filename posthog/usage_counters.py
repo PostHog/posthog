@@ -199,6 +199,20 @@ class UsageCounterPlan:
     def query_names(self) -> set[str]:
         return {LEGACY_QUERY_NAMES.get(counter, counter.value) for counter in self.modes}
 
+    @property
+    def legacy_counters(self) -> list[UsageCounter]:
+        # Realtime counters only need legacy queries for complete-day comparisons or report breakdowns.
+        return [
+            counter
+            for counter, mode in self.modes.items()
+            if mode != UsageCounterMode.REALTIME
+            or self.complete
+            or (
+                counter in LEGACY_QUERY_NAMES
+                and not (counter == UsageCounter.EXCEPTIONS and self.caller == "quota_limiting")
+            )
+        ]
+
 
 @frozen
 class UsageCounterComparisonRows:
@@ -416,15 +430,13 @@ class UsageCounterService:
             }
         return {counter.value: self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)}
 
-    def _fetch_legacy(self, plan: UsageCounterPlan) -> UsageCounterCounts:
+    def fetch_legacy(self, plan: UsageCounterPlan) -> UsageCounterCounts:
         counts: UsageCounterCounts = {}
-        for counter, mode in plan.modes.items():
+        for counter in plan.legacy_counters:
+            mode = plan.modes[counter]
             requires_breakdown = counter in LEGACY_QUERY_NAMES and not (
                 counter == UsageCounter.EXCEPTIONS and plan.caller == "quota_limiting"
             )
-            if mode == UsageCounterMode.REALTIME and not plan.complete and not requires_breakdown:
-                # A realtime counter reads legacy only to compare a complete day, so partial-day runs skip it.
-                continue
             self._check_cancelled()
             try:
                 with self._record_query(LEGACY_QUERY_NAMES.get(counter, counter.value)):
@@ -466,7 +478,13 @@ class UsageCounterService:
             record_shadow_failure(plan.caller, "validation")
         return records
 
-    def fetch_report(self, period: DayRange, *, plan: UsageCounterPlan | None = None) -> UsageCounterReport:
+    def fetch_report(
+        self,
+        period: DayRange,
+        *,
+        plan: UsageCounterPlan | None = None,
+        legacy_counts: UsageCounterCounts | None = None,
+    ) -> UsageCounterReport:
         if plan is None:
             plan = UsageCounterPlan(
                 period=period,
@@ -476,7 +494,7 @@ class UsageCounterService:
             )
         if plan.period != period:
             raise ValueError("A usage counter plan cannot be shared across periods")
-        counts = self._fetch_legacy(plan)
+        counts = self.fetch_legacy(plan) if legacy_counts is None else legacy_counts
         record_counters = [counter for counter, mode in plan.modes.items() if mode != UsageCounterMode.LEGACY]
         if not record_counters:
             return UsageCounterReport(counts=counts)
