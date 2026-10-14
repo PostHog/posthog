@@ -43,6 +43,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
     "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
@@ -890,6 +891,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
+                # The wizard tool catalog: deploy-static public JSON that compresses ~5x.
+                "^/?api/wizard/tool_catalog/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]

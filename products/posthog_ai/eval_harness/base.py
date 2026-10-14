@@ -180,6 +180,7 @@ class _BaseEvalRun:
         self.agent_trace_id_lookup: dict[str, str] = {}
         # Per-case metadata for emitting $ai_trace root events after scoring.
         self.case_trace_meta: dict[str, dict[str, Any]] = {}
+        self._trial_counts: dict[str, int] = {}
 
         # Local disk sink for raw agent logs — lets an agent iterating on the
         # harness read back what happened without round-tripping through Braintrust.
@@ -247,6 +248,9 @@ class _BaseEvalRun:
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
         case_name = input.get("name", "?")
+        hooks.metadata["trial_id"] = str(uuid.uuid4())
+        hooks.metadata["trial_index"] = self._trial_counts.get(case_name, 0)
+        self._trial_counts[case_name] = hooks.metadata["trial_index"] + 1
         status: Literal["ok", "timeout", "error"] = "ok"
         try:
             return await self._execute_case(input, hooks)
@@ -282,7 +286,12 @@ class _BaseEvalRun:
                 if not case_name:
                     continue
                 try:
-                    append_case_scores(self.run_log_dir, case_name, dict(eval_result.scores or {}))
+                    append_case_scores(
+                        self.run_log_dir,
+                        case_name,
+                        dict(eval_result.scores or {}),
+                        trial_id=eval_result.metadata.get("trial_id"),
+                    )
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
@@ -309,8 +318,9 @@ class _BaseEvalRun:
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
-                    trace_id = self.agent_trace_id_lookup.get(case_name)
-                    meta = self.case_trace_meta.get(case_name)
+                    trial_id = str(eval_result.metadata.get("trial_id") or case_name)
+                    trace_id = self.agent_trace_id_lookup.get(trial_id)
+                    meta = self.case_trace_meta.get(trial_id)
                     if trace_id and meta:
                         emit_trace_root(
                             self.posthog_client,
@@ -352,8 +362,7 @@ class _BaseEvalRun:
         """Write one JSONL row per case x trial to the run's local log dir.
 
         The reporter's ``eval_results.jsonl`` carries only per-experiment
-        aggregates, and ``eval_harness/logs/`` case logs overwrite each other
-        across trials — neither supports a paired case-level analysis. The data
+        aggregates. The per-case records support paired case-level analysis. The data
         already lives in ``ExperimentResult.results``; persist it here.
         ``trial_index`` groups the trials of one case: scores from the same
         trial index are comparable across runs of the same case set, but a
@@ -372,7 +381,8 @@ class _BaseEvalRun:
                     "run_id": self.experiment_id,
                     "experiment": self.experiment_name,
                     "case_name": case_name,
-                    "trial_index": trial_index,
+                    "trial_index": case_result.metadata.get("trial_index", trial_index),
+                    "trial_id": case_result.metadata.get("trial_id"),
                     "scores": case_result.scores,
                     "error": case_result.error,
                 }
@@ -624,9 +634,10 @@ class _SandboxedEvalRun(_BaseEvalRun):
         """Build Braintrust spans, write local logs, emit trace events, and shape
         the scorer input dict — all off the sandbox slot."""
         # Store trace_id in metadata so evaluation events can link to the trace
+        trial_id = hooks.metadata.get("trial_id", eval_case.name)
         if result.trace_id:
             hooks.metadata["trace_id"] = result.trace_id
-            self.agent_trace_id_lookup[eval_case.name] = result.trace_id
+            self.agent_trace_id_lookup[trial_id] = result.trace_id
         hooks.metadata["artifacts"] = result.artifacts.model_dump()
 
         # Parse the log once, use for both Braintrust spans and PostHog trace capture
@@ -651,7 +662,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         run_metadata=self._experiment_metadata(),
                     )
                     # Store metadata for emit_trace_root (called after scoring)
-                    self.case_trace_meta[eval_case.name] = {
+                    self.case_trace_meta[trial_id] = {
                         "prompt": eval_case.prompt,
                         "duration": result.artifacts.duration_seconds,
                         "first_timestamp": parsed.first_timestamp,
@@ -671,7 +682,9 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 prompt=eval_case.prompt,
                 duration=result.artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
+                trial_id=hooks.metadata.get("trial_id"),
+                trace_id=result.trace_id,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)

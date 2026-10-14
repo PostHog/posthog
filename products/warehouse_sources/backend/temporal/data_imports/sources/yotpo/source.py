@@ -2,6 +2,7 @@ from typing import cast
 
 from requests import HTTPError, RequestException
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class YotpoSource(ResumableSource[YotpoSourceConfig, YotpoResumeConfig]):
+    codebase_detection = detect(
+        env=("^YOTPO_", "^(NEXT_PUBLIC|VITE|PUBLIC|REACT_APP)_YOTPO_"),
+        script_hosts=("cdn-widgetsrepository.yotpo.com", "staticw2.yotpo.com"),
+        npm=("@frontend-sdk/yotpo",),
+        composer=(
+            "yotpo/module-review",
+            "yotpo/module-yotpo-core",
+            "yotpo/module-yotpo-reviews",
+            "yotpo/module-yotpo-messaging",
+            "yotpo/module-yotpo-combined",
+            "yotpo/magento2-module-yotpo-loyalty",
+            "yotpo/magento2-module-yotpo-core",
+            "yotpo/yotpo",
+        ),
+        rubygems=("yotpo",),
+    )
+
     lists_tables_without_credentials = True
     # Storefront V3 cannot replace the authenticated merchant review and email endpoints.
     api_docs_url = "https://apidocs.yotpo.com/reference/retrieve-all-reviews"

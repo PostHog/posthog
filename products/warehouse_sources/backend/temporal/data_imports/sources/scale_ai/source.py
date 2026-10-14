@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScaleAISource(ResumableSource[ScaleAISourceConfig, ScaleAIResumeConfig]):
+    codebase_detection = detect(env=("^(SCALE_AI|SCALEAI)_", "^SCALE_API_KEY$"), npm=("scaleapi",), pypi=("scaleapi",))
+
     api_docs_url = "https://scale.com/docs/api-reference/introduction-to-scale-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
