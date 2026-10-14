@@ -3509,7 +3509,9 @@ class SignalReportViewSet(
                     updated_fields = report.transition_to(
                         effective_target,
                         snooze_for=effective_snooze_for,
-                        monitoring_started_at=timezone.now() if target_status == SignalReport.Status.MONITORING else None,
+                        monitoring_started_at=timezone.now()
+                        if target_status == SignalReport.Status.MONITORING
+                        else None,
                     )
                 except InvalidStatusTransition as e:
                     logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
