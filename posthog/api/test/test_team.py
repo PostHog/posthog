@@ -1443,7 +1443,7 @@ def team_api_test_factory():
                 ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
             ]
         )
-        def test_patching_modifiers_keeps_only_use_new_events_schema(
+        def test_patching_modifiers_over_a_stored_value(
             self, prefix: str, stored: object, patched: dict | None, expected: dict | None
         ) -> None:
             self.team.modifiers = stored
