@@ -100,12 +100,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "reservation_coverage_daily": {
-        "description": "Daily share of Reserved Instance eligible usage that reservations covered, across the account.",
+        "description": "Daily share of reservation eligible usage that reservations covered, per service (EC2, RDS, ElastiCache and Redshift).",
         "docs_url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetReservationCoverage.html",
         "columns": {
             "period_start": "Inclusive start of the period the coverage covers.",
             "period_end": "Exclusive end of the period the coverage covers.",
             "granularity": "Bucket size AWS aggregated the period to (DAILY).",
+            "service": "AWS service the coverage belongs to, for example 'Amazon Relational Database Service'.",
             "coverage_hours_on_demand_hours": "Instance hours that ran at On-Demand rates.",
             "coverage_hours_reserved_hours": "Instance hours that reservations covered.",
             "coverage_hours_total_running_hours": "Total instance hours that ran in the period.",

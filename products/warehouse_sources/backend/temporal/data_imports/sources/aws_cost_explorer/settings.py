@@ -54,8 +54,11 @@ class CostExplorerEndpointConfig:
     includes_current_day: bool = False
     # GetDimensionValues: one request series per dimension, each row keyed by dimension + value.
     dimensions: tuple[str, ...] = ()
-    # Days before the window end the operation serves at all. GetCostAndUsageWithResources
-    # rejects a start date more than 14 days back.
+    # One request series per service, filtered on SERVICE and tagged with a `service` column.
+    # GetReservationCoverage reports only EC2 when the request has no SERVICE filter.
+    services: tuple[str, ...] = ()
+    # Days before today the operation serves at all. GetCostAndUsageWithResources rejects a
+    # start date more than 14 days back.
     max_lookback_days: int | None = None
     # GetCostAndUsageWithResources requires a filter, so each window is filtered to the services
     # GetDimensionValues reports for it, which keeps every service in scope.
@@ -147,9 +150,15 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         operation="GetReservationCoverage",
         granularity="DAILY",
         result_key="CoveragesByTime",
-        primary_key=["period_start"],
+        primary_key=["period_start", "service"],
         page_token_key="NextPageToken",
         metrics=("Hour", "Unit", "Cost"),
+        services=(
+            "Amazon Elastic Compute Cloud - Compute",
+            "Amazon Relational Database Service",
+            "Amazon ElastiCache",
+            "Amazon Redshift",
+        ),
         window_days=92,
         restatement_lookback_days=7,
         nested_keys=(("Total", ""),),
@@ -193,6 +202,6 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "savings_plans_utilization_daily": "Daily Savings Plans commitment utilization and net savings.",
     "dimension_values": "Linked accounts, services and regions seen in the synced range, with linked account names.",
     "cost_and_usage_with_resources_daily": "Daily cost and usage per resource for the last 14 days. Requires resource-level data to be enabled in Cost Explorer settings.",
-    "reservation_coverage_daily": "Daily share of eligible usage covered by Reserved Instances.",
+    "reservation_coverage_daily": "Daily share of eligible EC2, RDS, ElastiCache and Redshift usage covered by reservations.",
     "savings_plans_coverage_daily": "Daily share of eligible spend covered by Savings Plans, and the remaining On-Demand cost.",
 }

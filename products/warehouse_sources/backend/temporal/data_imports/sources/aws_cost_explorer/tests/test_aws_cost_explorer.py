@@ -113,7 +113,8 @@ class TestResolveStartDate:
 
     def test_resource_level_data_never_reaches_past_the_14_days_aws_serves(self) -> None:
         # GetCostAndUsageWithResources rejects a start date older than 14 days.
-        assert resolve_start_date("2024-01-01", WITH_RESOURCES, False, None, self.END) == dt.date(2024, 5, 18)
+        # END is exclusive and reaches into tomorrow, so today is 2024-05-31.
+        assert resolve_start_date("2024-01-01", WITH_RESOURCES, False, None, self.END) == dt.date(2024, 5, 17)
 
 
 class TestBuildPayload:
@@ -346,7 +347,7 @@ class TestGetRows:
 
         batches, send = self._run(
             [
-                {"DimensionValues": [{"Value": "111111111111", "Attributes": {"description": "Production"}}]},
+                {"DimensionValues": [{"Value": "111111111111", "Attributes": {"description": "0010"}}]},
                 {"DimensionValues": [{"Value": "AWS Lambda", "Attributes": {}}]},
                 {"DimensionValues": [{"Value": "us-east-1", "Attributes": {}}]},
             ],
@@ -357,14 +358,14 @@ class TestGetRows:
         assert [call[0][3]["Dimension"] for call in send.call_args_list] == ["LINKED_ACCOUNT", "SERVICE", "REGION"]
         assert "Granularity" not in send.call_args_list[0][0][3]
         assert batches == [
-            [{"dimension": "LINKED_ACCOUNT", "value": "111111111111", "description": "Production"}],
+            [{"dimension": "LINKED_ACCOUNT", "value": "111111111111", "description": "0010"}],
             [{"dimension": "SERVICE", "value": "AWS Lambda"}],
             [{"dimension": "REGION", "value": "us-east-1"}],
         ]
 
     def test_a_saved_dimension_resumes_at_that_dimension_and_page(self) -> None:
         manager = FakeResumeManager(
-            AwsCostExplorerResumeConfig(window_start="2024-03-01", next_page_token="page-2", dimension="SERVICE")
+            AwsCostExplorerResumeConfig(window_start="2024-03-01", next_page_token="page-2", slice_key="SERVICE")
         )
 
         _, send = self._run([{"DimensionValues": []}, {"DimensionValues": []}], manager, endpoint="dimension_values")
@@ -401,28 +402,32 @@ class TestGetRows:
         assert [row["coverage_percentage"] for batch in batches for row in batch] == [40.0, 40.0]
         assert batches[0][0]["on_demand_cost"] == 6.0
 
-    def test_reservation_coverage_flattens_the_period_total(self) -> None:
+    def test_reservation_coverage_is_requested_and_tagged_per_service(self) -> None:
+        # Without a SERVICE filter AWS reports EC2 only, so RDS and the others would go missing.
         manager = FakeResumeManager()
-
-        batches, _ = self._run(
-            [
+        coverage = {
+            "CoveragesByTime": [
                 {
-                    "CoveragesByTime": [
-                        {
-                            "TimePeriod": {"Start": "2024-03-01", "End": "2024-03-02"},
-                            "Groups": [],
-                            "Total": {
-                                "CoverageHours": {"ReservedHours": "18", "CoverageHoursPercentage": "75"},
-                                "CoverageCost": {"OnDemandCost": "1.5"},
-                            },
-                        }
-                    ]
+                    "TimePeriod": {"Start": "2024-03-01", "End": "2024-03-02"},
+                    "Groups": [],
+                    "Total": {
+                        "CoverageHours": {"ReservedHours": "18", "CoverageHoursPercentage": "75"},
+                        "CoverageCost": {"OnDemandCost": "1.5"},
+                    },
                 }
-            ],
-            manager,
-            endpoint="reservation_coverage_daily",
-        )
+            ]
+        }
 
+        batches, send = self._run([coverage] * 4, manager, endpoint="reservation_coverage_daily")
+
+        services = [call[0][3]["Filter"]["Dimensions"]["Values"] for call in send.call_args_list]
+        assert services == [
+            ["Amazon Elastic Compute Cloud - Compute"],
+            ["Amazon Relational Database Service"],
+            ["Amazon ElastiCache"],
+            ["Amazon Redshift"],
+        ]
+        assert [batch[0]["service"] for batch in batches] == [service[0] for service in services]
         row = batches[0][0]
         assert row["coverage_hours_reserved_hours"] == 18.0
         assert row["coverage_hours_coverage_hours_percentage"] == 75.0
