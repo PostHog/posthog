@@ -252,9 +252,8 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     consecutive_failures = models.PositiveIntegerField(default=0)
     first_enabled_at = models.DateTimeField(null=True, blank=True)
 
-    # Which stack evaluates and delivers this alert. The platform's copy records the same owner,
-    # and only the cutover and rollback commands write the two. After a cutover the logs stack
-    # keeps evaluating the alert for a shadow window from `owner_changed_at`, and sends nothing.
+    # The platform's copy records the same owner, and only the cutover and rollback commands
+    # write the two, so each stack can decide from its own row.
     owner = models.CharField(
         max_length=16,
         choices=PlatformAlertOwner.choices,
@@ -271,6 +270,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 name="logs_alert_scheduler_idx",
             ),
         ]
+
+    @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The logs stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
