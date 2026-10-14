@@ -74,7 +74,7 @@ export function SurveyFormAppearance({
         </div>
     ) : (
         <div className="flex flex-col">
-            <h4 className="text-center">API survey response</h4>
+            <h4 className="text-center">Add this code to your app</h4>
             <SurveyAPIEditor survey={survey} />
         </div>
     )
