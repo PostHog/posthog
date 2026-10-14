@@ -67,7 +67,7 @@ class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConf
         maven=("com.logrocket:logrocket", "com.logrocket:compose"),
         pub=("logrocket_flutter",),
         swiftpm=("github.com/logrocket/logrocket-ios-swift-package",),
-        competes_with=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
+        alternative_to=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
     )
 
     lists_tables_without_credentials = True

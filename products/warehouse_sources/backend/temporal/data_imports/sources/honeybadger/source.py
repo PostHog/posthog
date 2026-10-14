@@ -75,7 +75,7 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
         maven=("io.honeybadger:honeybadger-java", "io.honeybadger:honeybadger-java-shaded"),
         rubygems=("honeybadger", "yabeda-honeybadger_insights", "resque-honeybadger", "delayed_job_honeybadger"),
         swiftpm=("github.com/honeybadger-io/honeybadger-cocoa",),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

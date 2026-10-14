@@ -81,7 +81,7 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
             "github.com/fullstorydev/fullstory-guides-and-surveys-swift-package-ios",
             "github.com/fullstorydev/fullstory-swiftui-selectors-ios",
         ),
-        competes_with=(ProductKey.SESSION_REPLAY,),
+        alternative_to=(ProductKey.SESSION_REPLAY,),
     )
 
     supported_versions = ("v2",)
