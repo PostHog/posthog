@@ -31,6 +31,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
 )
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
+    NO_SENDER_FIELD,
     _build_key,
     _build_lock_key,
     _cache_key,
@@ -41,7 +42,7 @@ from products.workflows.backend.services.data_suggestions.service import (
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
-from products.workflows.backend.services.data_suggestions.team_context import email_sender
+from products.workflows.backend.services.data_suggestions.team_context import email_sender, has_verified_email_sender
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
 from products.workflows.backend.tasks.data_suggestions import build_data_suggestion
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
@@ -687,12 +688,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         built = cache.get(_build_key(self.team.id, suggestion_id, caller))
         assert built["status"] == "ready"
         assert HogFlow.objects.filter(team=self.team, id=built["workflow_id"], status="draft").exists()
+        # The project has no sender, so the agent learns it must add one before it can fill the field.
+        assert [item["field"] for item in built["missing_inputs"]] == [NO_SENDER_FIELD]
 
     @parameterized.expand(
         [
             ("the project default", ["old@example.com", "new@example.com"], "new@example.com", "new@example.com"),
             ("the only verified sender", ["only@example.com"], None, "only@example.com"),
             ("several senders and no default", ["a@example.com", "b@example.com"], None, None),
+            ("no verified sender", [], None, None),
         ]
     )
     def test_drafts_send_from(
@@ -719,6 +723,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         sender = email_sender(self.team)
 
         assert (sender.email if sender else None) == expected
+        assert has_verified_email_sender(self.team) is bool(senders)
 
     def test_build_with_an_unknown_suggestion_is_not_found(self, _flag) -> None:
         response = self.client.post(

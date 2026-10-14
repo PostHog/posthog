@@ -84,6 +84,8 @@ _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
+# A project without a verified sender cannot pick one yet, so the field says what to do first.
+NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
 
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
@@ -293,7 +295,11 @@ def _plan_and_build(
         status="ready",
         workflow=built.workflow,
         uses_saved_template=built.uses_saved_template,
-        missing_inputs=missing_inputs(built.workflow, _input_schemas(built.workflow)),
+        missing_inputs=missing_inputs(
+            built.workflow,
+            _input_schemas(built.workflow),
+            sender_field="Email sender" if team_context.has_verified_email_sender(team) else NO_SENDER_FIELD,
+        ),
     )
     return result, validated
 

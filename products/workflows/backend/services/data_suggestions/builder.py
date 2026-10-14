@@ -365,7 +365,7 @@ def clean_copy(text: str) -> str:
 
 
 def missing_inputs(
-    workflow: dict[str, Any], input_schemas: dict[str, list[dict[str, Any]]]
+    workflow: dict[str, Any], input_schemas: dict[str, list[dict[str, Any]]], *, sender_field: str = "Email sender"
 ) -> tuple[MissingInput, ...]:
     """The settings a draft leaves blank: required template inputs, the email sender and unset branch conditions.
     `input_schemas` maps a template id to its inputs schema."""
@@ -382,7 +382,7 @@ def missing_inputs(
         if action["type"] == "function_email":
             sender = (((config.get("inputs") or {}).get("email") or {}).get("value") or {}).get("from") or {}
             if not sender.get("email"):
-                fields.append("Email sender")
+                fields.append(sender_field)
         else:
             inputs = config.get("inputs") or {}
             fields += [

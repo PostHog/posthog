@@ -44,11 +44,7 @@ def slack_integration_id(team: Team) -> int | None:
 def email_sender(team: Team) -> EmailSender | None:
     """The project's default sender, or its only verified sender. With several and no default the step stays
     blank, so the team picks one rather than a draft sending from an identity nobody chose."""
-    verified = [
-        EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
-        for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at")
-        if (config := integration.config or {}).get("verified") is True and config.get("email")
-    ]
+    verified = _verified_senders(team)
     default_id = (
         TeamWorkflowsConfig.objects.filter(team_id=team.id)
         .values_list("default_email_integration_id", flat=True)
@@ -58,6 +54,18 @@ def email_sender(team: Team) -> EmailSender | None:
     if default is not None:
         return default
     return verified[0] if len(verified) == 1 else None
+
+
+def has_verified_email_sender(team: Team) -> bool:
+    return bool(_verified_senders(team))
+
+
+def _verified_senders(team: Team) -> list[EmailSender]:
+    return [
+        EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
+        for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at")
+        if (config := integration.config or {}).get("verified") is True and config.get("email")
+    ]
 
 
 def email_templates(team: Team) -> tuple[EmailTemplateSummary, ...]:
