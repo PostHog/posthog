@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCMaskedKeyError,
     CDCReservedColumnError,
     CDCSlotNotConfiguredError,
     classify_cdc_error,
@@ -621,11 +622,17 @@ class CDCExtractActivity:
                 self.enabled_columns_by_table[schema.name] = retained
 
             if isinstance(schema.masked_columns, list) and schema.masked_columns:
-                self.masked_columns_by_table[schema.name] = resolve_masked_columns(
-                    schema.masked_columns,
-                    self.pk_columns_by_table.get(schema.name, []),
-                    schema.incremental_field,
+                primary_keys = self.pk_columns_by_table.get(schema.name, [])
+                masked = resolve_masked_columns(schema.masked_columns, primary_keys, schema.incremental_field)
+                # The API checks a mask against the stored key, but a table saved without one gets
+                # its key from the catalog above. Fail before any change of the table is read.
+                masked_keys = sorted(
+                    {fold_column_name(column) for column in schema.masked_columns}
+                    & {fold_column_name(column) for column in primary_keys}
                 )
+                if masked_keys:
+                    raise CDCMaskedKeyError(f"Table {schema.name} masks its primary-key columns {masked_keys}")
+                self.masked_columns_by_table[schema.name] = masked
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
         """Look up primary keys in the source catalog, keyed back on `ExternalDataSchema.name`.

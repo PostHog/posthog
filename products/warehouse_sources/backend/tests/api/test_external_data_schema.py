@@ -4820,19 +4820,30 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.sync_type_config.get("reset_pipeline") is True
         mock_trigger.assert_not_called()
 
-    def test_a_cdc_table_takes_a_new_snapshot(self) -> None:
-        schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC)
+    @parameterized.expand([("syncing", True, 1), ("disabled_waits_for_the_snapshot_on_re_enable", False, 0)])
+    def test_a_cdc_table_hands_its_reset_to_capture(self, _name: str, should_sync: bool, resets: int) -> None:
+        schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC, should_sync=should_sync)
         with (
             mock.patch(f"{self.VIEWS}.source_type_supports_cdc", return_value=False),
             mock.patch(f"{self.VIEWS}.sync_cdc_extraction_schedule"),
+            mock.patch(f"{self.VIEWS}.hand_reset_to_capture") as mock_hand_over,
             mock.patch(f"{self.VIEWS}._reset_cdc_for_full_resnapshot") as mock_resnapshot,
             mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger,
         ):
             response = self._patch(schema, {"masked_columns": ["password"]})
 
         assert response.status_code == 200, response.json()
-        mock_resnapshot.assert_called_once()
+        assert mock_hand_over.call_count == resets
+        mock_resnapshot.assert_not_called()
         mock_trigger.assert_not_called()
+
+    def test_rejected_when_the_masking_key_is_public(self) -> None:
+        schema = self._create()
+        with mock.patch(f"{self.VIEWS}.masking_key_is_public", return_value=True):
+            response = self._patch(schema, {"masked_columns": ["password"]})
+
+        assert response.status_code == 400
+        assert "ENCRYPTION_SALT_KEYS" in str(response.json())
 
     def test_rejected_for_a_direct_query_source(self) -> None:
         schema = self._create(access_method=ExternalDataSource.AccessMethod.DIRECT)

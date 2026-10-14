@@ -945,6 +945,7 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        source_column_names = pa_table.column_names
         pa_table = normalize_table_column_names(pa_table)
 
         if self._uses_delta_write_column_selection:
@@ -963,7 +964,9 @@ class PipelineV3(Generic[ResumableData]):
                 "V3 Pipeline: Dropped non-enabled columns before write",
             )
 
-        pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource)
+        # Capture masks a change before it writes the change buffer, so a buffered batch is masked already.
+        if self._resource.cdc_write_mode is None:
+            pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource, source_column_names)
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)

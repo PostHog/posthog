@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     is_team_allowlisted_for_internal_hosts,
+    masking_key_is_public,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
@@ -80,6 +81,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    MASKING_KEY_IS_PUBLIC_ERROR,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     masked_columns_error,
@@ -1673,18 +1675,20 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 sync_type_config = {"schema_metadata": schema_metadata}
 
             if masked_columns:
-                # A direct query source never syncs, so a saved mask would protect nothing.
-                masking_error = (
-                    "Column masking is not supported for direct query sources."
-                    if is_direct_query
-                    else masked_columns_error(
+                masking_error: str | None
+                if is_direct_query:
+                    # A direct query source never syncs, so a saved mask would protect nothing.
+                    masking_error = "Column masking is not supported for direct query sources."
+                elif masking_key_is_public():
+                    masking_error = MASKING_KEY_IS_PUBLIC_ERROR
+                else:
+                    masking_error = masked_columns_error(
                         masked_columns,
                         source_columns=[column[0] for column in introspected_columns],
                         primary_key_columns=sync_type_config.get("primary_key_columns")
                         or (source_schema.detected_primary_keys if source_schema else None),
                         incremental_field=incremental_field,
                     )
-                )
                 if masking_error:
                     new_source_model.delete()
                     return Response(

@@ -39,10 +39,20 @@ class TestMaskValue:
             second = mask_value(1, "secret")
         assert first != second
 
-    def test_fails_without_a_key(self) -> None:
-        with override_settings(ENCRYPTION_SALT_KEYS=[]):
-            with pytest.raises(ValueError):
-                mask_value(1, "secret")
+    @parameterized.expand(
+        [
+            ("no_key", [], False),
+            ("public_default_key_outside_development", ["00beef0000beef0000beef0000beef00"], False),
+            ("public_default_key_in_development", ["00beef0000beef0000beef0000beef00"], True),
+        ]
+    )
+    def test_key_checks(self, _name: str, keys: list[str], debug: bool) -> None:
+        with override_settings(ENCRYPTION_SALT_KEYS=keys, DEBUG=debug, TEST=False):
+            if debug:
+                assert mask_value(1, "secret") is not None
+            else:
+                with pytest.raises(NonRetryableException):
+                    mask_value(1, "secret")
 
 
 class TestResolveMaskedColumns:
@@ -99,9 +109,16 @@ class TestMaskTableColumns:
 
 
 class TestMaskTableIfConfigured:
-    async def test_a_mask_on_a_key_resolved_at_sync_time_fails_the_sync(self) -> None:
-        schema = cast(Any, SimpleNamespace(masked_columns=["id"], incremental_field=None, team_id=3))
+    @pytest.mark.parametrize(
+        "masked,source_column_names",
+        [
+            pytest.param(["id"], ["id", "email"], id="mask_on_a_key_resolved_at_sync_time"),
+            pytest.param(["Email"], ["id", "Email", "email"], id="source_column_added_with_a_colliding_name"),
+        ],
+    )
+    async def test_fails_the_sync(self, masked: list[str], source_column_names: list[str]) -> None:
+        schema = cast(Any, SimpleNamespace(masked_columns=masked, incremental_field=None, team_id=3))
         resource = cast(Any, SimpleNamespace(primary_keys=["id"]))
 
-        with pytest.raises(NonRetryableException, match="id"):
-            await mask_table_if_configured(pa.table({"id": [1]}), schema, resource)
+        with pytest.raises(NonRetryableException):
+            await mask_table_if_configured(pa.table({"id": [1]}), schema, resource, source_column_names)

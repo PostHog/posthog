@@ -1148,12 +1148,22 @@ class TestSingleTableRunIsUntouched:
         pipeline._s3_batch_writer.write_batch.assert_called_once()
         pipeline._pg_producer.hold_batch.assert_called_once()
 
-    async def test_masked_columns_are_hashed_before_anything_is_staged(self) -> None:
+    @pytest.mark.parametrize(
+        "cdc_write_mode,expected",
+        [
+            pytest.param(None, [mask_value(1, "a@example.com")], id="source_rows"),
+            # Capture masked the change before it wrote the buffer, and a second hash would differ from the snapshot's.
+            pytest.param("consolidated", ["already-masked"], id="buffered_change_rows"),
+        ],
+    )
+    async def test_masked_columns_are_hashed_once_before_anything_is_staged(
+        self, cdc_write_mode: str | None, expected: list[str]
+    ) -> None:
         pipeline = _make_pipeline()
         cast(MagicMock, pipeline._schema).configure_mock(
             incremental_field=None, enabled_columns=None, masked_columns=["email"], team_id=1
         )
-        pipeline._resource = MagicMock(primary_keys=["id"], column_hints=None)
+        pipeline._resource = MagicMock(primary_keys=["id"], column_hints=None, cdc_write_mode=cdc_write_mode)
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
         module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -1166,9 +1176,9 @@ class TestSingleTableRunIsUntouched:
             ),
             patch(f"{module}.update_row_tracking_after_batch", AsyncMock()),
         ):
-            await pipeline._process_batch(pa.table({"id": [1], "email": ["a@example.com"]}), 0, 1)
+            email = "a@example.com" if cdc_write_mode is None else "already-masked"
+            await pipeline._process_batch(pa.table({"id": [1], "email": [email]}), 0, 1)
 
-        expected = [mask_value(1, "a@example.com")]
         assert stage_batch.call_args.args[0].column("email").to_pylist() == expected
         sink_table = cast(MagicMock, pipeline._sinks.stage_chunk).call_args.args[1]
         assert sink_table.column("email").to_pylist() == expected

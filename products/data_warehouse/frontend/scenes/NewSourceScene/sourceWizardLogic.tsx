@@ -730,15 +730,15 @@ export interface sourceWizardLogicActions {
         returnLabel: string
         returnUrl: string
     }
-    setSchemaNameFilter: (schemaNameFilter: string) => {
-        schemaNameFilter: string
-    }
     setSchemaMaskedColumns: (
         schema: ExternalDataSourceSyncSchema,
         maskedColumns: string[]
     ) => {
         maskedColumns: string[]
         schema: ExternalDataSourceSyncSchema
+    }
+    setSchemaNameFilter: (schemaNameFilter: string) => {
+        schemaNameFilter: string
     }
     setSchemaRowFilters: (
         schema: ExternalDataSourceSyncSchema,

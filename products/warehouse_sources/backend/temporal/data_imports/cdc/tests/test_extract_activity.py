@@ -37,7 +37,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_PROVENANCE,
     ChangeEventBatcher,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
+    CDCErrorCategory,
+    CDCMaskedKeyError,
+    cdc_error_info,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     cancel_running_sync,
     stage_handed_over_reset,
@@ -1450,6 +1454,15 @@ class TestPKColumnLoading:
         queried_namespaces = {call.args[0] for call in act.reader.get_primary_key_columns.call_args_list}
         assert queried_namespaces == {"cdc_test", "public"}
         assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
+
+    def test_a_mask_on_a_discovered_key_fails_capture(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["ID"]
+        schema.incremental_field = None
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        with pytest.raises(CDCMaskedKeyError):
+            act._load_pk_columns()
 
     def test_stored_keys_are_not_requeried(self):
         schema = _make_schema("cdc_test.orders")

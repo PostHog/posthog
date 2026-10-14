@@ -37,10 +37,23 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
+# The default in posthog/settings/access.py and the docker-compose files. Anyone can read it, so a
+# digest keyed with it can be brute-forced from the team id alone.
+_PUBLIC_DEFAULT_KEY = "00beef0000beef0000beef0000beef00"
+
+
+def masking_key_is_public() -> bool:
+    """Whether the masking key is the shipped default. Local development and tests may use it."""
+    keys = settings.ENCRYPTION_SALT_KEYS
+    return bool(keys) and keys[0] == _PUBLIC_DEFAULT_KEY and not (settings.DEBUG or settings.TEST)
+
+
 def get_masking_key() -> bytes:
     keys = settings.ENCRYPTION_SALT_KEYS
     if not keys:
-        raise ValueError("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
+        raise NonRetryableException("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
+    if masking_key_is_public():
+        raise NonRetryableException("ENCRYPTION_SALT_KEYS is the public default. Set a secret value to mask columns.")
     return keys[0].encode()
 
 
@@ -132,9 +145,20 @@ def mask_table_columns(
     return table
 
 
-async def mask_table_if_configured(table: pa.Table, schema: ExternalDataSchema, resource: SourceResponse) -> pa.Table:
+async def mask_table_if_configured(
+    table: pa.Table, schema: ExternalDataSchema, resource: SourceResponse, source_column_names: Iterable[str]
+) -> pa.Table:
+    """Mask a batch whose names are already normalized. `source_column_names` are the names before that."""
     if not schema.masked_columns:
         return table
+    # A source column added after the mask was saved can fold to a masked name. Normalization then
+    # renames one of the two, and the mask could hash the wrong one and leave the other in plaintext.
+    ambiguous = ambiguous_masked_columns(schema.masked_columns, source_column_names)
+    if ambiguous:
+        raise NonRetryableException(
+            f"Cannot mask {sorted(ambiguous)}: two source columns have this name after normalization. "
+            "Rename one of the source columns to sync this table."
+        )
     # The API rejects a mask on a known merge key, but some sources only resolve their key at sync
     # time. Hashing it breaks merges and skipping the mask syncs plaintext, so fail the sync. A retry
     # reads the same configuration, so the failure is final.

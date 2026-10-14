@@ -72,7 +72,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
+    hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
+    masking_key_is_public,
     purge_buffer_prefix,
     repair_is_running,
     resnapshot_stays_in_buffer,
@@ -426,10 +428,16 @@ def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
         )
 
 
+MASKING_KEY_IS_PUBLIC_ERROR = (
+    "Column masking needs a secret ENCRYPTION_SALT_KEYS value, and this instance uses the public default. "
+    "Set ENCRYPTION_SALT_KEYS to a secret value, then try again."
+)
+
+
 def masked_columns_error(
     masked_columns: list[str],
     *,
-    source_columns: Iterable[str],
+    source_columns: Iterable[object],
     primary_key_columns: Iterable[str] | None,
     incremental_field: str | None,
 ) -> str | None:
@@ -470,6 +478,8 @@ def _validate_masked_columns(
         # A direct query source never syncs, so a saved mask would protect nothing.
         if instance.source.is_direct_query:
             raise ValidationError("Column masking is not supported for direct query sources.")
+        if masking_key_is_public():
+            raise ValidationError(MASKING_KEY_IS_PUBLIC_ERROR)
         metadata_columns = (instance.schema_metadata or {}).get("columns")
         error = masked_columns_error(
             masked_columns,
@@ -1680,19 +1690,22 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(sync_cdc_schedule)
 
+        # Capture finishes this reset before it reads the change stream again, and it empties the change
+        # buffer first: files captured before the change hold the old values and the old column type.
+        # A table that does not sync now takes a new snapshot when it is turned back on.
+        cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
+        if cdc_mask_reset:
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger))
+
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
         # automatically once the snapshot completes via `run_post_load_operations`.
-        if is_cdc:
+        if is_cdc and "cdc_table_mode" in data and not cdc_mask_reset:
             new_cdc_table_mode = data.get("cdc_table_mode")
-            cdc_table_mode_needs_resnapshot = "cdc_table_mode" in data and _cdc_table_mode_change_needs_resnapshot(
-                previous_cdc_table_mode, new_cdc_table_mode
-            )
-            if cdc_table_mode_needs_resnapshot or masked_columns_changed:
+            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
                 logger.info(
                     "cdc_table_mode_changed_resnapshot_triggered",
                     schema_id=str(updated_instance.id),
-                    masked_columns_changed=masked_columns_changed,
                     old_cdc_table_mode=previous_cdc_table_mode,
                     new_cdc_table_mode=new_cdc_table_mode,
                 )
