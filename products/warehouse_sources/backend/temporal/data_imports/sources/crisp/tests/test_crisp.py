@@ -119,8 +119,6 @@ def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_
                     {"session_id": "unchanged", "updated_at": after_start - 86_400_000},
                 ]
             ),
-            page([{"fingerprint": 1, "timestamp": after_start}]),
-            page([]),
             page([{"fingerprint": 2, "timestamp": 1000}]),
             page([]),
         ],
@@ -133,6 +131,7 @@ def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_
     )
     assert result.raised is None
     assert [row["session_id"] for row in result.rows] == ["unchanged"]
+    assert not any("/changed/" in path for path in result.paths)
     assert all(state.started_at == started_at.isoformat() for state in result.saved_states)
 
 

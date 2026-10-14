@@ -161,8 +161,18 @@ def resource_config(endpoint: CrispEndpoint, website_id: str, inputs: SourceInpu
     }
 
 
-def parent_path_map(field: str, included: list[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    def encode_path(row: dict[str, Any]) -> dict[str, Any]:
+def parent_path_map(
+    field: str, included: list[str], updated_before: datetime | None = None
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    cutoff_ms = updated_before.timestamp() * 1000 if updated_before is not None else None
+
+    def encode_path(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        # A resumed attempt skips the conversations that an earlier attempt finished, even when they
+        # changed since then. Messages of a conversation that changed after the run started could move
+        # the watermark past that change, so the next run reads the conversation instead.
+        updated_at = row.get("updated_at")
+        if cutoff_ms is not None and isinstance(updated_at, int | float) and updated_at > cutoff_ms:
+            return []
         # The fan-out fails on a parent row that lacks an included field.
         return {**dict.fromkeys(included), **row, "_path_id": quote(str(row[field]), safe="")}
 
@@ -175,14 +185,6 @@ def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, int | float) and not isinstance(value, bool):
             row[name] = datetime.fromtimestamp(value / 1000, tz=UTC)
     return row
-
-
-def defer_updated_after(row: dict[str, Any], started_at: datetime) -> dict[str, Any] | list[dict[str, Any]]:
-    # A resumed attempt skips the conversations that an earlier attempt finished, even when they
-    # changed since then. A row from a conversation that changed after the run started could move
-    # the watermark past that change, so the next run reads the conversation instead.
-    updated_at = row.get("conversation_updated_at")
-    return [] if isinstance(updated_at, datetime) and updated_at > started_at else row
 
 
 def normalize_operator(row: dict[str, Any]) -> dict[str, Any]:
@@ -261,7 +263,11 @@ def crisp_source(
             incremental_config_factory=lambda _field: None,
             parent_endpoint_extra=parent_endpoint,
             child_endpoint_extra=child_endpoint,
-            parent_data_map=parent_path_map(settings.fanout.resolve_param, settings.fanout.include_from_parent),
+            parent_data_map=parent_path_map(
+                settings.fanout.resolve_param,
+                settings.fanout.include_from_parent,
+                started_at if defer_changed else None,
+            ),
             page_size_param=None,
             resume_hook=save_state,
             initial_paginator_state=initial_state,
@@ -284,8 +290,6 @@ def crisp_source(
         resource.add_filter(lambda row: row.get("type") in ("operator", "sandbox"))
         resource.add_map(normalize_operator)
     resource.add_map(normalize_row)
-    if defer_changed:
-        resource.add_map(lambda row: defer_updated_after(row, started_at))
     return SourceResponse(
         name=settings.name,
         items=lambda: resource,
