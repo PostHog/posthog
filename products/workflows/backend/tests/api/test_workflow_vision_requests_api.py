@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.test.authentication_checks import covers_authentication
 
 from products.replay_vision.backend.facade.api import (
     ObservationRequestRejected,
@@ -19,6 +20,9 @@ from products.replay_vision.backend.facade.api import (
     WorkflowInlineScan,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.presentation.views.workflow_vision_requests import (
+    WorkflowVisionRequestsJWTAuthentication,
+)
 
 SECRET = "test-workflow-vision-request-jwt"
 _START = "products.workflows.backend.presentation.views.workflow_vision_requests.start_workflow_observation_request"
@@ -113,6 +117,7 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
         assert response.json() == {"detail": f"detail: {kind}"}
 
+    @covers_authentication(WorkflowVisionRequestsJWTAuthentication)
     def test_an_incomplete_setup_fails_the_step_without_starting_a_scan(self) -> None:
         with patch(_START) as start:
             response = self.client.post(
