@@ -7,6 +7,23 @@ feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
+    conversations-tickets-compose-create:
+        operation: conversations_tickets_compose_create
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Start a support ticket by email
+        description: >
+            Create a new outbound email ticket and send its first message to the recipient. The message IS EMAILED to
+            the customer in full, from a support email channel with a verified domain. Omit email_config_id to send from
+            the team's default support channel. Use it to reach a customer who has no ticket, or who cannot read replies
+            on an existing widget ticket. To answer an existing ticket, use conversations-tickets-reply-create instead.
+            An identical request sent again within a short window returns the same ticket and sends no second email.
+            Returns the new ticket's id and ticket_number.
     conversations-tickets-list:
         operation: conversations_tickets_list
         enabled: true

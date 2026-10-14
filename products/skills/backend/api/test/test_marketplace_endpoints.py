@@ -24,8 +24,10 @@ from posthog.models import PersonalAPIKey, User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.skills.backend.marketplace.auth import MarketplaceGitBasicAuthentication
 
 from ...api import skill_services
 from ...api.skill_serializers import validate_skill_file_path
@@ -595,6 +597,7 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.get("WWW-Authenticate", "").startswith("Basic")
 
+    @covers_authentication(MarketplaceGitBasicAuthentication)
     def test_info_refs_with_pak_advertises_refs(self):
         self._create_skill()
         _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[self.team.id])

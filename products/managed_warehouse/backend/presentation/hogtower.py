@@ -419,6 +419,8 @@ _ORG_ROUTES: dict[tuple[str, str], Callable[[_Call], TranslatedResponse]] = {
     ("POST", "/service-credentials/refresh"): _refresh_credential,
     ("GET", "/monitoring/snapshot"): _org_passthrough("/monitoring/snapshot"),
     ("GET", "/monitoring/series"): _org_passthrough("/monitoring/series"),
+    ("GET", "/monitoring/trino/snapshot"): _org_passthrough("/monitoring/trino/snapshot"),
+    ("GET", "/monitoring/trino/series"): _org_passthrough("/monitoring/trino/series"),
 }
 
 # Global v1 paths (under /api/v1) keyed by (method, path).

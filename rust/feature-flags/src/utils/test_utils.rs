@@ -1810,8 +1810,22 @@ impl TestContext {
         label: &str,
         scopes: Option<Vec<&str>>,
     ) -> Result<(String, String), Error> {
-        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+        self.create_project_secret_api_key_with_value(team_id, label, scopes, &raw_key)
+            .await
+    }
+
+    /// Same, but hashing a caller-provided token value — e.g. a mirror row holding a
+    /// team's legacy secret token, as the backfill migration writes them.
+    pub async fn create_project_secret_api_key_with_value(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+        raw_key: &str,
+    ) -> Result<(String, String), Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = raw_key.to_string();
 
         let secure_value = crate::api::auth::hash_token_value(&raw_key);
         let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);

@@ -343,8 +343,8 @@ inline. An
 optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one sentence that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`, `large_pr_note`). A Standard review adds it to its summary line, and a clean
 Standard turn posts a short review with it next to the 👍. That review has its own hidden `reviewhog:large-pr-note`
-marker, so a head gets at most one, and it does not set the published watermark, so a later turn on the head still
-publishes its findings.
+marker, so a pull request gets it once and re-reviews do not repeat it. It does not set the published watermark, so a
+later turn on the head still publishes its findings.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -468,7 +468,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     It answers per head: pending while a request for the head waits in the queue (the queue workflow's `requested_heads` query) or a turn on the head runs, through its publish; completed with the kind, the valid findings count, the published flag, the merge base the diff was taken against and the skipped files (filtered files, files GitHub sent without a patch, and the files of every pipeline chunk that no review unit finished, because a turn completes when only some of its units fail); failed when the turn for the head failed; None for any other head or a repository no project owns.
     When a publishing turn ends, after publish or after the failure is recorded, `nudge_stamphog_activity` calls stamphog's `request_rereview_after_external_review` (behind the `reviewhog-nudge-stamphog-2026-10` patch, fail-open). Stamphog decides whether a WAIT at that head runs again.
     **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
-    A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`).
+    A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`). The 👍 does not come back: a clean turn adds it only while no turn of the PR published findings (`published_head_sha` unset).
     Status comments that earlier turns left on the PR stay as they are, and a Standard turn never refreshes them.
     On the publish path of a **Deep** turn a live **status comment**
     (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
@@ -494,7 +494,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
     finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size properties
-    (`track_review_completed_activity`); a dead turn gets `reviewhog_review_failed` instead. All three, and the
+    (`track_review_completed_activity`). Both carry `pr_draft` from the turn's PR snapshot, null when the snapshot is unavailable; a dead turn gets `reviewhog_review_failed` instead. All three, and the
     per-finding `reviewhog_finding_outcome`, carry routing properties from `reviewer/telemetry.py`: the tier,
     reviewer configuration, validator and resolver pins, and review mode when known.
     Flash turn events name the Flash arm in both seats.
@@ -941,7 +941,7 @@ An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first ru
 Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
 Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
-Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, and `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), so skip rules that weigh push size can be calibrated offline.
+Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), and `pr_draft` from the head's PR snapshot (null when it is unavailable), so skip rules that weigh push size can be calibrated offline.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
 Reviews start only from a trigger (a push, the label, the UI, the inbox, or a manual run) and run right away.
 ReviewHog never schedules a review for later, for example on a timer after a skipped push: nobody waits for a review that arrives at an unknown time, and a late review can land while the PR sits in a merge queue or under a stack.
