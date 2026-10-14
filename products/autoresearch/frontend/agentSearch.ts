@@ -15,7 +15,7 @@ export interface SearchPoint {
     iterationNumber: number
     status: AutoresearchIterationStatusEnumApi
     holdoutScore: number | null
-    /** One plain line for people: the agent's `summary`, else the first sentence of its description. */
+    /** One plain line for people: the agent's `headline`, else its `summary`, else the first clause of its description. */
     summary: string
     agentDescription: string
     modelSpec: IterationTrailApiModelSpec
@@ -47,6 +47,8 @@ export type ExperimentLogFilter = 'all' | 'kept' | 'discarded' | 'crashed'
 export interface ExperimentLogGroup {
     run: AutoresearchTrainingRunApi
     runNumber: number
+    /** The run's `headline`, else the first sentence of its `reader_summary`, else "Run N". */
+    headline: string
     /** Newest first, after the filter. */
     entries: SearchPoint[]
 }
@@ -62,6 +64,7 @@ export interface AgentNotes {
 
 /** Fields for people that older runs and iterations do not have. */
 interface ReaderFields {
+    headline?: string | null
     summary?: string | null
     reader_summary?: string | null
     next_steps?: string[] | null
@@ -71,6 +74,21 @@ function firstSentence(text: string): string {
     const trimmed = text.trim()
     const match = trimmed.match(/^.*?[.!?](?=\s|$)/s)
     return match ? match[0] : trimmed
+}
+
+const HEADLINE_MAX_LENGTH = 60
+
+function firstClause(text: string): string {
+    const clause = firstSentence(text).split(/[,;:]\s/)[0]
+    if (clause.length <= HEADLINE_MAX_LENGTH) {
+        return clause
+    }
+    return `${clause.slice(0, HEADLINE_MAX_LENGTH).replace(/\s+\S*$/, '')}…`
+}
+
+function runHeadline(run: AutoresearchTrainingRunApi, runNumber: number): string {
+    const { headline, reader_summary } = run as ReaderFields
+    return headline?.trim() || firstSentence(reader_summary ?? '') || `Run ${runNumber}`
 }
 
 function oldestFirst(runs: AutoresearchTrainingRunApi[]): AutoresearchTrainingRunApi[] {
@@ -121,7 +139,10 @@ export function buildAgentSearch(
                 iterationNumber: it.iteration_number,
                 status: it.status,
                 holdoutScore: score,
-                summary: (it as ReaderFields).summary?.trim() || firstSentence(it.agent_description ?? ''),
+                summary:
+                    (it as ReaderFields).headline?.trim() ||
+                    (it as ReaderFields).summary?.trim() ||
+                    firstClause(it.agent_description ?? ''),
                 agentDescription: it.agent_description ?? '',
                 modelSpec: it.model_spec,
                 bestBefore,
@@ -170,6 +191,7 @@ export function experimentLogGroups(
         .map((run, index) => ({
             run,
             runNumber: index + 1,
+            headline: runHeadline(run, index + 1),
             entries: [...(pointsByRun.get(run.id) ?? [])].reverse(),
         }))
         .reverse()
