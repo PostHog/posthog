@@ -204,6 +204,11 @@ function experimentScannersEnabled(): boolean {
     return !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]
 }
 
+/** The control arm gets legacy drafts, so it never makes a free-only scanner. */
+function goalFlowEnabled(): boolean {
+    return featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
+}
+
 /** The experiment a goal draft named, in the experiment type's config or in the legacy targeting. */
 function draftExperimentScope(goalDraft: DraftScannerResponseApi): ScannerExperimentScope | null {
     if (goalDraft.scanner_type === 'experiment') {
@@ -2212,7 +2217,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     creation_method: 'ai',
                     // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
                     template_key: templateKey ?? null,
-                    spend_mode: monthlyCreditBudget == null ? null : freeOnly ? 'free' : 'budget',
+                    spend_mode: monthlyCreditBudget == null || !goalFlowEnabled() ? null : freeOnly ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })

@@ -175,8 +175,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
             {scanner.free_only && freeCreditsLeft !== null && (
                 <div className="text-xs text-muted">
-                    Uses free credits only, so it stops when they run out. {formatCreditCount(freeCreditsLeft)} left
-                    until {resetsOn ?? 'the period ends'}.
+                    Uses free credits only, so it stops when they run out.{' '}
+                    <span>{formatCreditCount(freeCreditsLeft)}</span> left until{' '}
+                    <span>{resetsOn ?? 'the period ends'}</span>.
                 </div>
             )}
 

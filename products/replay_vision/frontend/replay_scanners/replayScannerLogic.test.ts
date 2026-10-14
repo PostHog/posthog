@@ -1827,20 +1827,33 @@ describe('replayScannerLogic', () => {
         })
 
         it.each([
-            ['a typed goal', undefined, null],
-            ['a goal starter', 'dead_end', 'dead_end'],
-        ])('drafting from %s reports the AI path without the goal text', async (_, templateKey, reportedKey) => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
-            await expectLogic(logic, () => {
-                logic.actions.draftScannerFromGoal('  find users who get stuck  ', undefined, templateKey)
-            }).toFinishAllListeners()
-            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
-                creation_method: 'ai',
-                template_key: reportedKey,
-                spend_mode: null,
-                goal_length: 'find users who get stuck'.length,
-            })
-        })
+            ['a typed goal', undefined, null, undefined, null],
+            ['a goal starter', 'dead_end', 'dead_end', undefined, null],
+            ['the goal flow with free credits', undefined, null, 'test', 'free'],
+            ['the control arm, which never gets free-only', undefined, null, 'control', null],
+        ])(
+            'drafting from %s reports the AI path without the goal text',
+            async (_, templateKey, reportedKey, goalFlowVariant, spendMode) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: goalFlowVariant ?? false,
+                })
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                await expectLogic(logic, () => {
+                    logic.actions.draftScannerFromGoal(
+                        '  find users who get stuck  ',
+                        goalFlowVariant ? 2500 : undefined,
+                        templateKey,
+                        true
+                    )
+                }).toFinishAllListeners()
+                expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                    creation_method: 'ai',
+                    template_key: reportedKey,
+                    spend_mode: spendMode,
+                    goal_length: 'find users who get stuck'.length,
+                })
+            }
+        )
 
         it('the last path taken is what the save reports', async () => {
             // Each of these replaces the form, so someone who drafts with AI and then picks a
