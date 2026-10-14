@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("signals", "0174_inbox_summary_participants"),
+        ("signals", "0178_inbox_summary_participants"),
     ]
 
     operations = [

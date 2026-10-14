@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
@@ -34,11 +35,14 @@ class TestInboxSummary(APIBaseTest):
         team: Team | None = None,
         merged_at: datetime | None = MERGED_AT,
         participant_ids: list[int] | None = None,
+        participant_logins: list[str] | None = None,
         verified: bool = True,
         relationship: str = "implementation",
         state: str = "merged",
     ) -> SignalReportPullRequest:
         team = team or self.team
+        if participant_ids is not None and participant_logins is None:
+            participant_logins = [f"user-{participant_id}" for participant_id in participant_ids]
         pr = SignalReportPullRequest.objects.for_team(team.id).create(
             team=team,
             repository="example/app",
@@ -47,6 +51,7 @@ class TestInboxSummary(APIBaseTest):
             state=state,
             merged_at=merged_at,
             participant_ids=participant_ids,
+            participant_logins=participant_logins,
             participants_synced_at=NOW if participant_ids is not None else None,
         )
         report = SignalReport.objects.create(team=team, title="Example report", summary="Example finding")
@@ -81,6 +86,15 @@ class TestInboxSummary(APIBaseTest):
             "merged_pr_count": 2,
             "people_count": 3,
             "participation_complete": True,
+            "pull_requests": [
+                {"repository": "example/app", "number": 1, "url": "https://github.com/example/app/pull/1"},
+                {"repository": "example/app", "number": 2, "url": "https://github.com/example/app/pull/2"},
+            ],
+            "people": [
+                {"id": 10, "login": "user-10"},
+                {"id": 20, "login": "user-20"},
+                {"id": 30, "login": "user-30"},
+            ],
         }
 
     def test_a_pr_with_multiple_task_associations_counts_once(self) -> None:
@@ -123,6 +137,8 @@ class TestInboxSummary(APIBaseTest):
         assert result["merged_pr_count"] == 0
         assert result["people_count"] == 0
         assert result["participation_complete"] is True
+        assert result["pull_requests"] == []
+        assert result["people"] == []
 
     def test_another_project_is_not_accessible(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
@@ -197,6 +213,7 @@ class TestInboxSummary(APIBaseTest):
         pr.refresh_from_db()
         assert pr.merged_at == MERGED_AT
         assert pr.participant_ids == [10, 20]
+        assert pr.participant_logins == ["example-merger", "renamed-approver"]
         assert pr.participants_synced_at == NOW
 
     @parameterized.expand([("missing_merger",), ("missing_review_page",), ("invalid_approval_time",)])
@@ -214,6 +231,7 @@ class TestInboxSummary(APIBaseTest):
         pr.refresh_from_db()
         assert pr.merged_at == MERGED_AT
         assert pr.participant_ids is None
+        assert pr.participant_logins is None
         assert pr.participants_synced_at is None
 
     def test_an_old_missing_merge_time_is_repaired_without_fetching_reviews(self) -> None:
@@ -233,6 +251,7 @@ class TestInboxSummary(APIBaseTest):
             self.sync(github)
         pr.refresh_from_db()
         assert pr.participant_ids is None
+        assert pr.participant_logins is None
         assert pr.participants_synced_at is None
 
     @parameterized.expand([("manual", False, "implementation"), ("research", True, "research")])
@@ -256,7 +275,8 @@ class TestInboxSummary(APIBaseTest):
         self.make_pr(1, merged_at=None)
         self.make_pr(2)
         self.make_pr(3, merged_at=NOW - timedelta(days=30))
-        self.make_pr(4, participant_ids=[10])
+        existing = self.make_pr(4, participant_ids=[10])
+        SignalReportPullRequest.objects.for_team(self.team.id).filter(id=existing.id).update(participant_logins=None)
         output = StringIO()
         with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
             call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, dry_run=True, stdout=output)
@@ -266,21 +286,21 @@ class TestInboxSummary(APIBaseTest):
             assert enqueue.call_count == 1
             cursor = output.getvalue().split("--after ")[1].strip()
             call_command("backfill_inbox_summary", team_id=self.team.id, after=cursor, stdout=StringIO())
-            assert enqueue.call_count == 2
-            assert {call.kwargs["pr_number"] for call in enqueue.call_args_list} == {1, 2}
+            assert enqueue.call_count == 3
+            assert {call.kwargs["pr_number"] for call in enqueue.call_args_list} == {1, 2, 4}
 
 
 class TestPullRequestReviewPagination(SimpleTestCase):
     @parameterized.expand([("../example/app", 1), ("example/app?path=other", 1), ("example/app", 0)])
     def test_rejects_invalid_identity_before_network_access(self, repository: str, number: int) -> None:
-        github = GitHubIntegration(MagicMock(kind="github"))
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_get_pages") as fetch:
             with self.assertRaises(GitHubIntegrationError):
                 github.get_pull_request_reviews(repository, number)
             fetch.assert_not_called()
 
     def test_reads_every_page(self) -> None:
-        github = GitHubIntegration(MagicMock(kind="github"))
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
         first = MagicMock(
             status_code=200, links={"next": {"url": "https://api.github.com/repos/example/app/pulls/1/reviews?page=2"}}
         )
@@ -291,7 +311,7 @@ class TestPullRequestReviewPagination(SimpleTestCase):
             assert len(github.get_pull_request_reviews("example/app", 1)) == 101
 
     def test_rejects_partial_pages(self) -> None:
-        github = GitHubIntegration(MagicMock(kind="github"))
+        github = GitHubIntegration(MagicMock(kind="github"), source="test", priority=Priority.CRITICAL)
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([MagicMock()], False)):
             with self.assertRaises(GitHubIntegrationError):
                 github.get_pull_request_reviews("example/app", 1)

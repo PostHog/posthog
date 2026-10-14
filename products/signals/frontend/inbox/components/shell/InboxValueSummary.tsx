@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCard, Tooltip } from '@posthog/lemon-ui'
+import { IconPullRequest, IconX } from '@posthog/icons'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,6 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { INBOX_SUMMARY_DISMISS_MS, InboxSummaryLogicProps, inboxSummaryLogic } from '../../logics/inboxSummaryLogic'
+import { InboxSummaryPeoplePopover } from './InboxSummaryPeoplePopover'
+import { InboxSummaryPullRequestsPopover } from './InboxSummaryPullRequestsPopover'
 
 function ProjectSummary(props: InboxSummaryLogicProps): JSX.Element | null {
     const logic = inboxSummaryLogic(props)
@@ -46,31 +48,24 @@ function ProjectSummary(props: InboxSummaryLogicProps): JSX.Element | null {
     }
 
     return (
-        <LemonCard hoverEffect={false} className="mx-6 my-3 p-4" data-attr="inbox-value-summary">
-            <section aria-label="Self-driving summary" className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <h2 className="m-0 text-sm font-semibold">Self-driving in the last 7 days</h2>
-                    <p className="m-0 mt-1 text-xs text-secondary">Entire project</p>
-                    <dl className="mb-0 mt-3 flex flex-wrap gap-x-8 gap-y-3">
-                        <div>
-                            <dt className="text-xs text-secondary">PRs merged</dt>
-                            <dd className="m-0 text-2xl font-semibold tabular-nums">
-                                {summary.merged_pr_count.toLocaleString()}
-                            </dd>
-                        </div>
-                        <div>
-                            <Tooltip title="Distinct people who approved or merged these PRs. Bots are excluded.">
-                                <dt className="text-xs text-secondary">People who approved or merged</dt>
-                            </Tooltip>
-                            <dd className="m-0 text-2xl font-semibold tabular-nums">
-                                {summary.participation_complete && summary.people_count !== null ? (
-                                    summary.people_count.toLocaleString()
-                                ) : (
-                                    <span className="text-sm font-normal text-secondary">People count is updating</span>
-                                )}
-                            </dd>
-                        </div>
-                    </dl>
+        <LemonCard
+            hoverEffect={false}
+            className="mx-6 my-3 flex flex-wrap items-center gap-3 p-3 shadow-none"
+            data-attr="inbox-value-summary"
+        >
+            <section aria-label="Self-driving summary" className="contents">
+                <IconPullRequest className="shrink-0 text-lg text-success" />
+                <div className="min-w-0 flex-1">
+                    <h2 className="m-0 text-sm font-semibold">Self-driving activity</h2>
+                    <p className="m-0 text-xs text-secondary">
+                        <InboxSummaryPullRequestsPopover pullRequests={summary.pull_requests} /> merged with{' '}
+                        {summary.participation_complete && summary.people !== null ? (
+                            <InboxSummaryPeoplePopover people={summary.people} />
+                        ) : (
+                            <span className="font-medium text-secondary">people count updating</span>
+                        )}{' '}
+                        participating in the last 7 days
+                    </p>
                 </div>
                 <LemonButton
                     type="tertiary"

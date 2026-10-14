@@ -15,6 +15,17 @@ from products.signals.backend.inbox_summary import INBOX_SUMMARY_PERIOD, generat
 from products.signals.backend.models import SignalReportPullRequest
 
 
+class InboxSummaryPullRequestSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="GitHub repository in owner/name format.")
+    number = serializers.IntegerField(help_text="GitHub pull request number.")
+    url = serializers.URLField(help_text="URL of the GitHub pull request.")
+
+
+class InboxSummaryPersonSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Stable GitHub user ID.")
+    login = serializers.CharField(help_text="Current GitHub login from the participant snapshot.")
+
+
 @extend_schema_serializer(many=False)
 class InboxSummarySerializer(serializers.Serializer):
     period_start = serializers.DateTimeField(help_text="Inclusive start of the rolling seven-day period.")
@@ -27,6 +38,14 @@ class InboxSummarySerializer(serializers.Serializer):
     )
     participation_complete = serializers.BooleanField(
         help_text="Whether every counted PR has a complete participant snapshot."
+    )
+    pull_requests = InboxSummaryPullRequestSerializer(
+        many=True, help_text="Verified Self-driving implementation PRs merged in the period."
+    )
+    people = InboxSummaryPersonSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Distinct human approvers and mergers, or null while participation is incomplete.",
     )
 
 
@@ -51,25 +70,47 @@ class InboxSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         rows = (
             self.get_queryset()
             .filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
-            .values_list("participant_ids", "participants_synced_at")
+            .values(
+                "number",
+                "participant_ids",
+                "participant_logins",
+                "participants_synced_at",
+                "repository",
+                "url",
+            )
+            .order_by("-merged_at", "repository", "number")
         )
-        merged_pr_count = 0
         participation_complete = True
-        people: set[int] = set()
-        for participant_ids, synced_at in rows.iterator():
-            merged_pr_count += 1
-            if participant_ids is None or synced_at is None:
+        people_by_id: dict[int, str] = {}
+        pull_requests: list[dict[str, object]] = []
+        for row in rows.iterator():
+            pull_requests.append({"repository": row["repository"], "number": row["number"], "url": row["url"]})
+            participant_ids = row["participant_ids"]
+            participant_logins = row["participant_logins"]
+            if (
+                participant_ids is None
+                or participant_logins is None
+                or row["participants_synced_at"] is None
+                or len(participant_ids) != len(participant_logins)
+            ):
                 participation_complete = False
             else:
-                people.update(participant_ids)
+                for participant_id, login in zip(participant_ids, participant_logins, strict=True):
+                    people_by_id.setdefault(participant_id, login)
+        people = [
+            {"id": participant_id, "login": login}
+            for participant_id, login in sorted(people_by_id.items(), key=lambda item: (item[1].lower(), item[0]))
+        ]
         return Response(
             InboxSummarySerializer(
                 {
                     "period_start": period_start,
                     "period_end": period_end,
-                    "merged_pr_count": merged_pr_count,
+                    "merged_pr_count": len(pull_requests),
                     "people_count": len(people) if participation_complete else None,
                     "participation_complete": participation_complete,
+                    "pull_requests": pull_requests,
+                    "people": people if participation_complete else None,
                 }
             ).data
         )
