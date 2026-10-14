@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import * as signalsApi from 'products/signals/frontend/generated/api'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
@@ -333,6 +334,43 @@ describe('inboxReportDetailLogic', () => {
             logic.unmount()
         })
 
+        it('bounds a stalled evidence request and recovers on retry', async () => {
+            await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess'])
+            const request = jest.spyOn(signalsApi, 'signalsReportsSignalsRetrieve')
+            request.mockImplementationOnce(
+                (_team, _report, options) =>
+                    new Promise((_resolve, reject) => {
+                        options?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('Aborted', 'AbortError'))
+                        )
+                    })
+            )
+            silenceKeaLoadersErrors()
+            jest.useFakeTimers()
+            try {
+                logic.actions.loadReportSignals()
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(logic.values.reportSignalsLoading).toBe(false)
+                expect(logic.values.reportSignalsError).toBe('Evidence took too long to load.')
+                expect(posthog.capture).toHaveBeenCalledWith(
+                    INBOX_EVENTS.REPORT_EVIDENCE_LOADED,
+                    expect.objectContaining({ outcome: 'timeout' }),
+                    undefined
+                )
+                jest.useRealTimers()
+                request.mockRestore()
+                await expectLogic(logic, () => logic.actions.loadReportSignals()).toDispatchActions([
+                    'loadReportSignalsSuccess',
+                ])
+                expect(logic.values.reportSignalsError).toBeNull()
+                expect(logic.values.reportSignals).toHaveLength(3)
+            } finally {
+                request.mockRestore()
+                jest.useRealTimers()
+                resumeKeaLoadersErrors()
+            }
+        })
+
         // The disclosure control has to put the value back. Without the collapse case a reader who
         // opens a long evidence list is stuck with it for the rest of the visit to that report.
         it('expands and collapses again', () => {
@@ -343,6 +381,7 @@ describe('inboxReportDetailLogic', () => {
 
             logic.actions.collapseEvidence()
             expect(logic.values.evidenceExpanded).toBe(false)
+            expect(logic.values.evidenceHasExpanded).toBe(true)
         })
 
         // Reaching past the two shown cards is the only evidence that the limit is set too low, so

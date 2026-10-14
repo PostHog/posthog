@@ -129,6 +129,35 @@ class ReportMetricAccessPolicy:
         # shared result when the materializer had a different property-access fingerprint.
         return not self._materializer_property_restrictions
 
+    def may_read_chart_snapshot(self, chart: Mapping[str, object]) -> bool:
+        if (
+            self._user is None
+            or self._team is None
+            or self._viewer_property_restrictions
+            or self._materializer_property_restrictions
+        ):
+            return False
+        query = chart.get("query")
+        if not isinstance(query, Mapping):
+            return False
+        source = query.get("source")
+        if not isinstance(source, Mapping):
+            return False
+        if query.get("kind") == "InsightVizNode" and source.get("kind") == "TrendsQuery":
+            return self.may_read_snapshot(chart)
+        if query.get("kind") != "DataVisualizationNode" or source.get("kind") != "HogQLQuery":
+            return False
+        # SQL can reference arbitrary resources. A shared result is only safe when this viewer
+        # can read every resource, including individual objects, without token restrictions.
+        access = self._user_access_control
+        return (
+            self._token_grants("query")
+            and (self._token_scopes is None or "*" in self._token_scopes)
+            and access is not None
+            and all(access.has_resource_access(resource) for resource in ACCESS_CONTROL_RESOURCES)
+            and not any(access.blocked_resource_ids_by_scope.values())
+        )
+
     @cached_property
     def _viewer_property_restrictions(self) -> frozenset[RestrictedProperty]:
         if self._user is None or self._team is None:

@@ -15,6 +15,7 @@ from datetime import datetime
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -476,7 +477,9 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
-def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None = None) -> list[dict]:
+def fetch_signals_for_report_sync(
+    team: Team, report_id: str, newest: int | None = None, *, max_execution_time: int | None = None
+) -> list[dict]:
     """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
 
     With `newest`, fetch only that many of the newest signals.
@@ -488,6 +491,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None
         team=team,
         placeholders=_report_placeholders(report_id),
         context=_signals_query_context(team),
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_time) if max_execution_time is not None else None,
     )
 
     signals_list = []

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -289,6 +289,8 @@ function InboxDetailFrameLegacy({
     const {
         reportSignals,
         reportSignalsLoading,
+        reportSignalsError,
+        evidenceHasExpanded,
         evidenceExpanded,
         priorityExplanation,
         actionabilityExplanation,
@@ -296,13 +298,13 @@ function InboxDetailFrameLegacy({
         chartsById,
         trailingCharts,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { expandEvidence, collapseEvidence, loadReportSignals } = useActions(inboxReportDetailLogic(logicProps))
     // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
-    const hasEvidence = evidenceCount > 0
+    const hasEvidence = evidenceCount > 0 || !!reportSignalsError
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
@@ -393,16 +395,37 @@ function InboxDetailFrameLegacy({
                         <DetailSection
                             icon={<IconSearch />}
                             title="Evidence"
+                            keepMounted
                             collapsible
                             onToggleCollapsed={captureSectionToggle('evidence')}
                         >
                             {reportSignalsLoading && reportSignals === null ? (
                                 <EvidenceSkeleton count={evidenceCount} />
+                            ) : reportSignalsError ? (
+                                <LemonBanner type="error">
+                                    <p className="m-0">{reportSignalsError}</p>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadReportSignals()}
+                                        loading={reportSignalsLoading}
+                                        data-attr="report-evidence-retry"
+                                    >
+                                        Try again
+                                    </LemonButton>
+                                </LemonBanner>
                             ) : (
                                 <div className="flex flex-col gap-3">
-                                    {(evidenceExpanded ? signals : signals.slice(0, 2)).map((signal: SignalNode) => (
-                                        <SignalCard key={signal.signal_id} signal={signal} />
-                                    ))}
+                                    {(evidenceHasExpanded ? signals : signals.slice(0, 2)).map(
+                                        (signal: SignalNode, index: number) => (
+                                            <div
+                                                key={signal.signal_id}
+                                                className={!evidenceExpanded && index >= 2 ? 'hidden' : undefined}
+                                            >
+                                                <SignalCard signal={signal} />
+                                            </div>
+                                        )
+                                    )}
                                     {signals.length > 2 && (
                                         <LemonButton
                                             type="tertiary"

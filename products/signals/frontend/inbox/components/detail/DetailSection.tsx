@@ -23,6 +23,7 @@ interface DetailSectionProps {
     collapsible?: boolean
     /** Start collapsed (only honoured when `collapsible`). */
     defaultCollapsed?: boolean
+    keepMounted?: boolean
     /** Called with the new collapsed state whenever the header toggle is pressed. */
     onToggleCollapsed?: (collapsed: boolean) => void
 }
@@ -44,6 +45,7 @@ export function DetailSection({
     children,
     collapsible = false,
     defaultCollapsed = false,
+    keepMounted = false,
     onToggleCollapsed,
 }: DetailSectionProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(defaultCollapsed)
@@ -98,7 +100,7 @@ export function DetailSection({
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
             </div>
             {renderedSummary && <div className="min-w-0">{renderedSummary}</div>}
-            {open && <div>{children}</div>}
+            {(open || keepMounted) && <div hidden={!open}>{children}</div>}
         </div>
     )
 }

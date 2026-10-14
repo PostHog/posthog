@@ -10,6 +10,20 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 
 
 class TestReportMetricAccessPolicy(APIBaseTest):
+    def test_chart_snapshots_require_equivalent_viewer_access(self) -> None:
+        chart = {
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            }
+        }
+        full = self._policy(["*"])
+        assert full.may_read_chart_snapshot(chart)
+        assert not self._policy(["query:read", "task:read"]).may_read_chart_snapshot(chart)
+        assert not self._policy(["*"], blocked={"warehouse_objects": {1}}).may_read_chart_snapshot(chart)
+        full.__dict__["_viewer_property_restrictions"] = frozenset({"restricted"})
+        assert not full.may_read_chart_snapshot(chart)
+
     def _policy(
         self,
         scopes: list[str],

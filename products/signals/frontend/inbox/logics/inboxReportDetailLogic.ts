@@ -72,6 +72,7 @@ import {
     captureInboxReportAction,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
+    captureInboxReportEvidenceLoaded,
     InboxReportActionSurface,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
@@ -306,6 +307,7 @@ export interface inboxReportDetailLogicValues {
     draftThread: DraftThread | null
     editingCommentId: string | null
     evidenceExpanded: boolean
+    evidenceHasExpanded: boolean
     expandedTaskIds: string[]
     feedbackDisabledReason:
         | 'Could not load feedback. Refresh the page to try again.'
@@ -352,6 +354,7 @@ export interface inboxReportDetailLogicValues {
     reportDiffLoading: boolean
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
+    reportSignalsError: string | null
     reportSignalsLoading: boolean
     reportSummary: string | null
     reportTaskToOpen: ReportTaskEntry | null
@@ -534,7 +537,7 @@ export interface inboxReportDetailLogicActions {
             artefactId: string
         }
     }
-    loadReportSignals: () => any
+    loadReportSignals: (_: void) => void
     loadReportSignalsFailure: (
         error: string,
         errorObject?: any
@@ -544,10 +547,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadReportSignalsSuccess: (
         reportSignals: SignalNodeApi[],
-        payload?: any
+        payload?: void
     ) => {
         reportSignals: SignalNodeApi[]
-        payload?: any
+        payload?: void
     }
     loadReportTasks: () => any
     loadReportTasksFailure: (
@@ -813,7 +816,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -835,12 +838,45 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportSignals: [
             null as SignalNode[] | null,
             {
-                loadReportSignals: async () => {
-                    const response = await signalsReportsSignalsRetrieve(
-                        String(teamLogic.values.currentTeamId),
-                        props.reportId
+                loadReportSignals: async (_: void, breakpoint) => {
+                    const startedAt = performance.now()
+                    const controller = new AbortController()
+                    let timedOut = false
+                    const disposables = cache.disposables
+                    disposables.add(
+                        () => {
+                            const timer = setTimeout(() => {
+                                timedOut = true
+                                controller.abort()
+                            }, 20_000)
+                            return () => {
+                                clearTimeout(timer)
+                                controller.abort()
+                            }
+                        },
+                        'reportSignalsRequest',
+                        { pauseOnPageHidden: false }
                     )
-                    return response.signals
+                    try {
+                        const response = await signalsReportsSignalsRetrieve(
+                            String(teamLogic.values.currentTeamId),
+                            props.reportId,
+                            { signal: controller.signal }
+                        )
+                        await breakpoint()
+                        captureInboxReportEvidenceLoaded(props.reportId, performance.now() - startedAt, 'success')
+                        return response.signals
+                    } catch {
+                        await breakpoint()
+                        captureInboxReportEvidenceLoaded(
+                            props.reportId,
+                            performance.now() - startedAt,
+                            timedOut ? 'timeout' : 'error'
+                        )
+                        throw new Error(timedOut ? 'Evidence took too long to load.' : 'Could not load evidence.')
+                    } finally {
+                        disposables.dispose('reportSignalsRequest')
+                    }
                 },
             },
         ],
@@ -1022,6 +1058,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
+        evidenceHasExpanded: [false, { expandEvidence: () => true }],
+        reportSignalsError: [
+            null as string | null,
+            {
+                loadReportSignals: () => null,
+                loadReportSignalsSuccess: () => null,
+                loadReportSignalsFailure: (_, { error }) => error,
+            },
+        ],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,

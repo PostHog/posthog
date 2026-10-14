@@ -15,6 +15,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { reportChartLogic } from '../../logics/reportChartLogic'
 import { chartOpenTarget } from '../../utils/chartOpenTarget'
 import { asEmbeddedChart, isGraphicalSqlNode } from '../../utils/reportChartQuery'
 import { ReportChartsContext } from './reportChartsContext'
@@ -126,6 +127,7 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
 
 /** One chart as it appears in a report: title, the drawn query, and an optional caption. */
 export function ReportChartCard({ chart }: { chart: ReportChartApi }): JSX.Element | null {
+    const { cachedResults } = useValues(reportChartLogic({ chart }))
     // `query` is `unknown` on the serializer, and the rows behind it are older stored JSON, so this is
     // where it becomes a node: anything that isn't an object has no `kind` for `Query` to draw.
     const authoredQuery = useMemo(
@@ -187,7 +189,7 @@ export function ReportChartCard({ chart }: { chart: ReportChartApi }): JSX.Eleme
                         <ChartLoadError />
                     )
                 ) : (
-                    <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
+                    <Query query={query} uniqueKey={uniqueKey} cachedResults={cachedResults} readOnly embedded />
                 )}
             </div>
             {chart.caption ? <p className="m-0 text-xs text-tertiary">{chart.caption}</p> : null}

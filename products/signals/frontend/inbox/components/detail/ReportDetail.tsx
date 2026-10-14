@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -227,6 +227,8 @@ export function InboxDetailFrame({
     const {
         reportSignals,
         reportSignalsLoading,
+        reportSignalsError,
+        evidenceHasExpanded,
         evidenceExpanded,
         priorityExplanation,
         chartPlacements,
@@ -239,7 +241,7 @@ export function InboxDetailFrame({
         prioritySaving,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+    const { setDetailTab, expandEvidence, collapseEvidence, loadReportSignals, updatePriority } = useActions(
         inboxReportDetailLogic(logicProps)
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -250,7 +252,7 @@ export function InboxDetailFrame({
         (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     )
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
-    const hasEvidence = evidenceCount > 0
+    const hasEvidence = evidenceCount > 0 || !!reportSignalsError
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
@@ -429,69 +431,84 @@ export function InboxDetailFrame({
             <div className={DETAIL_CONTAINER_CLASS}>
                 {evidenceRailCollapsed ? (
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
-                ) : (
-                    <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection
-                            report={currentReport ?? report}
-                            rightSlot={hideRailButton}
-                            onPriorityChange={updatePriority}
-                            prioritySaving={prioritySaving}
-                        />
-                        {/* The observation leads, then the evidence its claims rest on. */}
-                        {primaryMetric && (
-                            <DetailSection
-                                icon={<IconTrends />}
-                                title="Observation"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('observation')}
-                            >
-                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
-                            </DetailSection>
-                        )}
-                        {hasEvidence && (
-                            <DetailSection
-                                icon={<IconSearch />}
-                                title="Evidence"
-                                collapsible
-                                onToggleCollapsed={captureSectionToggle('evidence')}
-                            >
-                                {reportSignalsLoading && reportSignals === null ? (
-                                    <EvidenceSkeleton count={evidenceCount} />
-                                ) : (
-                                    <div className="flex flex-col gap-3">
-                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
-                                            (signal: SignalNode) => (
-                                                <SignalCard key={signal.signal_id} signal={signal} />
-                                            )
-                                        )}
-                                        {signals.length > 2 && (
-                                            <LemonButton
-                                                type="tertiary"
-                                                size="small"
-                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                ) : null}
+                <aside className={evidenceRailCollapsed ? 'hidden' : DETAIL_ASIDE_CLASS}>
+                    <ReportStatusSection
+                        report={currentReport ?? report}
+                        rightSlot={hideRailButton}
+                        onPriorityChange={updatePriority}
+                        prioritySaving={prioritySaving}
+                    />
+                    {/* The observation leads, then the evidence its claims rest on. */}
+                    {primaryMetric && (
+                        <DetailSection
+                            icon={<IconTrends />}
+                            title="Observation"
+                            collapsible
+                            onToggleCollapsed={captureSectionToggle('observation')}
+                        >
+                            <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                        </DetailSection>
+                    )}
+                    {hasEvidence && (
+                        <DetailSection
+                            icon={<IconSearch />}
+                            title="Evidence"
+                            keepMounted
+                            collapsible
+                            onToggleCollapsed={captureSectionToggle('evidence')}
+                        >
+                            {reportSignalsLoading && reportSignals === null ? (
+                                <EvidenceSkeleton count={evidenceCount} />
+                            ) : reportSignalsError ? (
+                                <LemonBanner type="error">
+                                    <p className="m-0">{reportSignalsError}</p>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadReportSignals()}
+                                        loading={reportSignalsLoading}
+                                        data-attr="report-evidence-retry"
+                                    >
+                                        Try again
+                                    </LemonButton>
+                                </LemonBanner>
+                            ) : (
+                                <div className="flex flex-col gap-3">
+                                    {(evidenceHasExpanded ? signals : signals.slice(0, 2)).map(
+                                        (signal: SignalNode, index: number) => (
+                                            <div
+                                                key={signal.signal_id}
+                                                className={!evidenceExpanded && index >= 2 ? 'hidden' : undefined}
                                             >
-                                                {evidenceExpanded ? 'Show less' : 'Show more'}
-                                            </LemonButton>
-                                        )}
-                                        {report.source_suggestion && (
-                                            <ReportSourceSuggestion
-                                                report={report}
-                                                suggestion={report.source_suggestion}
-                                            />
-                                        )}
-                                    </div>
-                                )}
-                            </DetailSection>
-                        )}
-                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-                        {children}
-                        <SuggestedReviewersSection report={report} />
-                        <ReportTasksSection report={report} />
-                        <ReportChecksSection report={report} />
-                        <ReportActivitySection report={report} />
-                        {asideFooter}
-                    </aside>
-                )}
+                                                <SignalCard signal={signal} />
+                                            </div>
+                                        )
+                                    )}
+                                    {signals.length > 2 && (
+                                        <LemonButton
+                                            type="tertiary"
+                                            size="small"
+                                            onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                        >
+                                            {evidenceExpanded ? 'Show less' : 'Show more'}
+                                        </LemonButton>
+                                    )}
+                                    {report.source_suggestion && (
+                                        <ReportSourceSuggestion report={report} suggestion={report.source_suggestion} />
+                                    )}
+                                </div>
+                            )}
+                        </DetailSection>
+                    )}
+                    {/* The pull request picker (when present), then reviewers, runs, and activity. */}
+                    {children}
+                    <SuggestedReviewersSection report={report} />
+                    <ReportTasksSection report={report} />
+                    <ReportChecksSection report={report} />
+                    <ReportActivitySection report={report} />
+                    {asideFooter}
+                </aside>
 
                 <main className={DETAIL_MAIN_CLASS}>
                     {showFilesTab ? (
