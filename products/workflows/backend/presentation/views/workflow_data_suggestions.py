@@ -2,31 +2,27 @@ from typing import Any
 
 from django.db import models
 
-import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import EventSource
+from posthog.event_usage import get_event_source
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.workflows.backend.facade.contracts import DataSuggestionBuildFailed, DataSuggestionNotFound
+from products.workflows.backend.facade.contracts import DataSuggestionNotFound
 from products.workflows.backend.facade.data_suggestions import (
-    build_data_suggestion,
     get_data_suggestions,
     has_cached_data_suggestions,
+    needs_new_build,
+    start_build,
     start_data_suggestions,
 )
-from products.workflows.backend.presentation.views.graph_validation import validate_graph
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
-
-logger = structlog.get_logger(__name__)
 
 # pinned: feature flag key - the frontend gates the same surfaces on it
 FEATURE_FLAG_KEY = "workflows-data-suggestions"
@@ -103,10 +99,24 @@ class DataSuggestionBuildRequestSerializer(serializers.Serializer):
     suggestion_id = serializers.CharField(help_text="The id of a suggestion from the list endpoint.")
 
 
+class DataSuggestionBuildStatus(models.TextChoices):
+    READY = "ready"
+    BUILDING = "building"
+    FAILED = "failed"
+
+
 class DataSuggestionBuildResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=DataSuggestionBuildStatus.choices,
+        help_text="ready when the draft is built, building while a background build runs (call build again to "
+        "check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the "
+        "next call starts a new build.",
+    )
     workflow = serializers.JSONField(
-        help_text="A validated draft workflow (name, description, trigger, actions, edges, conversion, "
-        "exit_condition), ready to send to the workflow create endpoint. Nothing is saved by this call."
+        allow_null=True,
+        help_text="With status ready: a validated draft workflow (name, description, trigger, actions, edges, "
+        "conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved "
+        "by this call. Null otherwise.",
     )
     uses_saved_template = serializers.BooleanField(help_text="Whether an email step reuses a saved email template.")
 
@@ -124,11 +134,18 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def get_throttles(self):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
         # against it. A generate call answered from the cache does not.
-        if self.action == "build" or (
+        if (self.action == "build" and self._starts_build()) or (
             self.action == "generate" and (self._wants_refresh() or not has_cached_data_suggestions(team=self.team))
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         return super().get_throttles()
+
+    def _starts_build(self) -> bool:
+        # Asking again while a build runs, or for a finished build, costs no model time, so only a new build counts.
+        payload = DataSuggestionBuildRequestSerializer(data=self.request.data)
+        return not payload.is_valid() or needs_new_build(
+            team=self.team, suggestion_id=payload.validated_data["suggestion_id"]
+        )
 
     def _wants_refresh(self) -> bool:
         # Parsed like the endpoint parses it, so every value it accepts as true is throttled. Invalid input counts
@@ -166,42 +183,15 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            built = build_data_suggestion(
+            built = start_build(
                 team=self.team,
                 user=user,
                 suggestion_id=payload.validated_data["suggestion_id"],
-                is_valid_draft=self._is_valid_draft,
+                event_source=get_event_source(request),
             )
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
-        except DataSuggestionBuildFailed:
-            return Response(
-                {"detail": "We couldn't build this workflow. Try again, or start from a template."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
         return Response(DataSuggestionBuildResponseSerializer(built).data)
-
-    def _is_valid_draft(self, workflow: dict[str, Any]) -> bool:
-        # The draft leaves credentials, channels and filters blank for the team, so it is checked the way the
-        # editor saves a draft. The graph wiring is checked in full, and enabling it later validates every step.
-        serializer = HogFlowSerializer(
-            data={**workflow, "status": "draft"},
-            context={
-                "team_id": self.team.id,
-                "get_team": lambda: self.team,
-                "is_draft": True,
-                "event_source": EventSource.WEB,
-            },
-        )
-        try:
-            validate_graph(workflow["actions"], workflow["edges"])
-            serializer.is_valid(raise_exception=True)
-        except ValidationError as error:
-            logger.info(
-                "workflows.data_suggestions.invalid_workflow", team_id=self.team.id, errors=str(error.detail)[:500]
-            )
-            return False
-        return True
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user

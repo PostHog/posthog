@@ -82,8 +82,14 @@ def invoke_structured(
         )
         response = llm.invoke([("system", system), ("human", human)], config=RunnableConfig(callbacks=callbacks))
         return schema.model_validate_json(_response_text(response.content))
-    except ValidationError:
-        logger.warning("workflows.data_suggestions.llm_malformed", team_id=team.id, feature=feature, exc_info=True)
+    except ValidationError as error:
+        # The error's input holds model output, which can carry project content, so only types and paths are logged.
+        logger.warning(
+            "workflows.data_suggestions.llm_malformed",
+            team_id=team.id,
+            feature=feature,
+            errors=[{"type": item["type"], "loc": item["loc"]} for item in error.errors(include_input=False)],
+        )
         return None
     except Exception as error:
         logger.warning("workflows.data_suggestions.llm_failed", team_id=team.id, feature=feature, exc_info=True)

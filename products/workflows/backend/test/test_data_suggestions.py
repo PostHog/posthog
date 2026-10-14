@@ -18,7 +18,7 @@ from products.workflows.backend.presentation.views.workflow_data_suggestions imp
 )
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
-from products.workflows.backend.services.data_suggestions.llm import strict_schema
+from products.workflows.backend.services.data_suggestions.llm import invoke_structured, strict_schema
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
@@ -118,6 +118,14 @@ class TestDataSuggestions(SimpleTestCase):
                 plan(step("wait", type="wait_until_event", wait_event="made_up_event")),
             ),
             (
+                "step reachable only through a split's continue edge",
+                {},
+                plan(
+                    step("ab", type="random_split", branches=[branch("A", None, 50), branch("B", None, 50)], next="x"),
+                    step("x", type="delay", duration="1d"),
+                ),
+            ),
+            (
                 "split with a share outside 1 to 100",
                 {},
                 plan(step("ab", type="random_split", branches=[branch("A", None, -50), branch("B", None, 150)])),
@@ -186,6 +194,30 @@ class TestDataSuggestions(SimpleTestCase):
         slack_inputs = actions["action_4_slack"]["config"]["inputs"]
         assert "slack_workspace" not in slack_inputs
         assert slack_inputs["text"]["value"] == "Trial user needs help"
+
+    @patch("products.workflows.backend.services.data_suggestions.llm.logger")
+    @patch("products.workflows.backend.services.data_suggestions.llm.is_privacy_mode_enabled", return_value=True)
+    @patch("products.workflows.backend.services.data_suggestions.llm.MaxChatAnthropic")
+    def test_a_malformed_answer_is_logged_without_its_content(
+        self, chat: MagicMock, _privacy: MagicMock, logger: MagicMock
+    ) -> None:
+        chat.return_value.invoke.return_value.content = '{"first_step": "secret_signup_event"}'
+
+        result = invoke_structured(
+            team=MagicMock(id=1),
+            user=MagicMock(distinct_id="user-1"),
+            model="claude-test",
+            effort="low",
+            feature="test",
+            schema=PlannedWorkflow,
+            system="",
+            human="",
+            excluded_values=frozenset(),
+        )
+
+        assert result is None
+        assert "secret_signup_event" not in str(logger.warning.call_args)
+        assert "exc_info" not in logger.warning.call_args.kwargs
 
     def test_plan_schema_only_offers_connected_channels_and_project_events(self) -> None:
         schema = strict_schema(PlannedWorkflow, frozenset({"sms", "push"}), {"wait_event": ["trial_started"]})

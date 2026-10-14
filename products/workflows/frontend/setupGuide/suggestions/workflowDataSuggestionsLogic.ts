@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -18,9 +31,12 @@ import {
 import type { DataSuggestionsResponseApi } from '../../generated/api.schemas'
 import { SuggestionCard, cardFromSuggestion } from './suggestionCards'
 
-// The background run usually takes 10 to 30 seconds. Past the cap the run is treated as failed and nothing shows.
+// A background run or build usually takes 10 to 30 seconds. Past the deadline it counts as failed.
 const POLL_INTERVAL_MS = 2000
-const MAX_POLLS = 90
+const POLL_DEADLINE_MS = 3 * 60 * 1000
+// A stalled request would otherwise keep the skeletons up past the deadline.
+const POLL_REQUEST_TIMEOUT_MS = 10_000
+const BUILD_FAILED_MESSAGE = "We couldn't build this workflow. Try again, or start from a template."
 
 // pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
 export type WorkflowDataSuggestionsSurface = 'empty_state' | 'list'
@@ -187,7 +203,9 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 },
                 pollAiResult: async (): Promise<DataSuggestionsResponseApi | null> => {
                     try {
-                        return await workflowDataSuggestionsCurrent(String(values.currentProjectId))
+                        return await workflowDataSuggestionsCurrent(String(values.currentProjectId), {
+                            signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
+                        })
                     } catch {
                         return null
                     }
@@ -214,8 +232,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
         // Both the first call and every poll land here: keep polling while the background run goes on.
         const handleResult = (aiResult: DataSuggestionsResponseApi | null): void => {
             if (aiResult?.status === 'generating') {
-                cache.polls = (cache.polls ?? 0) + 1
-                if (cache.polls > MAX_POLLS) {
+                if (Date.now() > cache.pollDeadline) {
                     actions.giveUpPolling()
                     return
                 }
@@ -237,11 +254,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
         }
         return {
             loadAiResultSuccess: ({ aiResult }) => {
-                cache.polls = 0
+                cache.pollDeadline = Date.now() + POLL_DEADLINE_MS
                 handleResult(aiResult)
             },
             pollAiResultSuccess: ({ aiResult }) => handleResult(aiResult),
-            startSuggestion: async ({ card }) => {
+            startSuggestion: async ({ card }, breakpoint) => {
                 if (values.buildingKey) {
                     return
                 }
@@ -254,13 +271,29 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     stage: card.stage,
                 })
                 actions.setBuildingKey(card.key)
+                const projectId = String(values.currentProjectId)
+                const deadline = Date.now() + POLL_DEADLINE_MS
                 try {
-                    const projectId = String(values.currentProjectId)
-                    const built = await workflowDataSuggestionsBuild(projectId, { suggestion_id: card.suggestionId })
+                    // The build runs in the background. Asking again is free while it runs, and breakpoint stops
+                    // the loop, the save and the redirect once the person leaves the page.
+                    let built = await workflowDataSuggestionsBuild(projectId, { suggestion_id: card.suggestionId })
+                    breakpoint()
+                    while (built.status === 'building') {
+                        if (Date.now() > deadline) {
+                            throw new Error(BUILD_FAILED_MESSAGE)
+                        }
+                        await breakpoint(POLL_INTERVAL_MS)
+                        built = await workflowDataSuggestionsBuild(projectId, { suggestion_id: card.suggestionId })
+                        breakpoint()
+                    }
+                    if (built.status !== 'ready') {
+                        throw new Error(BUILD_FAILED_MESSAGE)
+                    }
                     const workflow = await hogFlowsCreate(projectId, {
                         ...(built.workflow as Record<string, unknown>),
                         status: 'draft',
                     } as Parameters<typeof hogFlowsCreate>[1])
+                    breakpoint()
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestion built', {
                         surface: props.surface,
@@ -270,11 +303,14 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     })
                     router.actions.push(urls.workflow(workflow.id, 'workflow'))
                 } catch (error: any) {
-                    lemonToast.error(
-                        error?.detail || "We couldn't build this workflow. Try again, or start from a template."
-                    )
+                    if (isBreakpoint(error)) {
+                        throw error
+                    }
+                    lemonToast.error(error?.detail || error?.message || BUILD_FAILED_MESSAGE)
                 } finally {
-                    actions.setBuildingKey(null)
+                    if (!cache.disposables.isDisposed) {
+                        actions.setBuildingKey(null)
+                    }
                 }
             },
             hideSuggestions: () => {
