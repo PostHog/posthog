@@ -19,6 +19,10 @@ import { retentionHeatmapLogic } from './retentionHeatmapLogic'
 
 const ROW_HEIGHT = 34
 const SMALL_ROW_HEIGHT = 26
+// The chart drops a cell label that does not fit its cell. Below this width a narrow container
+// scrolls sideways instead, so that the values stay readable.
+const MIN_INTERVAL_WIDTH = 64
+const SMALL_MIN_INTERVAL_WIDTH = 52
 
 /** One drawn row: a breakdown's mean, or a cohort inside it. Ordered top to bottom. */
 interface HeatmapRow {
@@ -66,8 +70,10 @@ export function RetentionHeatmap({
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
     const allowSelectingColumns = !inSharedMode && !embedded
+    const canOpenPeople = !inSharedMode && canOpenPersonModal
     const smallLayout = !!retentionVizOptions?.useSmallLayout
     const rowHeight = smallLayout ? SMALL_ROW_HEIGHT : ROW_HEIGHT
+    const minIntervalWidth = smallLayout ? SMALL_MIN_INTERVAL_WIDTH : MIN_INTERVAL_WIDTH
     const cohortColor = theme?.['preset-1'] || '#1d4aff'
     const meanColor = theme?.['preset-2'] || cohortColor
 
@@ -153,14 +159,16 @@ export function RetentionHeatmap({
     const onCellClick = useCallback(
         (cell: HeatmapCellDatum): void => {
             const row = rowAt(cell.yIndex)
-            if (!row || row.isMean || inSharedMode || !canOpenPersonModal) {
+            if (!row || row.isMean || row.percentages[cell.xIndex] === undefined) {
                 return
             }
-            row.breakdownValue === NO_BREAKDOWN_VALUE
-                ? openModal(row.cohortIndex, null, cell.xIndex)
-                : openModal(row.cohortIndex, row.breakdownValue, cell.xIndex)
+            openModal(
+                row.cohortIndex,
+                row.breakdownValue === NO_BREAKDOWN_VALUE ? null : row.breakdownValue,
+                cell.xIndex
+            )
         },
-        [rowAt, inSharedMode, canOpenPersonModal, openModal]
+        [rowAt, openModal]
     )
 
     const highlightedColumns = useMemo(
@@ -204,13 +212,14 @@ export function RetentionHeatmap({
                     <button
                         key={row.key}
                         type="button"
+                        data-attr={row.isMean ? 'retention-mean-row' : 'retention-cohort-row'}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: rowHeight }}
                         className={clsx('RetentionHeatmap__row', { 'RetentionHeatmap__row--indented': row.indented })}
                         onClick={() => {
                             if (row.isMean) {
                                 toggleBreakdown(row.breakdownValue)
-                            } else if (!inSharedMode && canOpenPersonModal) {
+                            } else if (canOpenPeople) {
                                 openModal(
                                     row.cohortIndex,
                                     row.breakdownValue === NO_BREAKDOWN_VALUE ? null : row.breakdownValue
@@ -226,7 +235,8 @@ export function RetentionHeatmap({
                 ))}
             </div>
 
-            <div className="RetentionHeatmap__grid">
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="RetentionHeatmap__grid" style={{ minWidth: tableHeaders.length * minIntervalWidth }}>
                 <div
                     className="RetentionHeatmap__head RetentionHeatmap__intervals"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -236,6 +246,7 @@ export function RetentionHeatmap({
                         <button
                             key={header}
                             type="button"
+                            data-attr="retention-interval-header"
                             disabled={!allowSelectingColumns}
                             className={clsx('RetentionHeatmap__interval', {
                                 'RetentionHeatmap__interval--selected': columnIndex === selectedInterval,
@@ -253,7 +264,11 @@ export function RetentionHeatmap({
                         </button>
                     ))}
                 </div>
-                <Tooltip title="Click a cell to see who is in it" placement="top-start" delayMs={1500}>
+                <Tooltip
+                    title={canOpenPeople ? 'Click a cell to see who is in it' : undefined}
+                    placement="top-start"
+                    delayMs={1500}
+                >
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="RetentionHeatmap__canvas" style={{ height: rows.length * rowHeight }}>
                         <Heatmap
@@ -262,7 +277,7 @@ export function RetentionHeatmap({
                             cells={cells}
                             theme={chartTheme}
                             config={config}
-                            onCellClick={onCellClick}
+                            onCellClick={canOpenPeople ? onCellClick : undefined}
                         />
                     </div>
                 </Tooltip>
