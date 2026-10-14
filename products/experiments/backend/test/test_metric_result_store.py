@@ -88,12 +88,20 @@ class TestMetricResultStore(BaseTest):
         )
 
     def _row(
-        self, experiment: Experiment, fingerprint: str, *, query_to: datetime, completed_at: datetime, samples: int
-    ) -> None:
-        ExperimentMetricResult.objects.create(
+        self,
+        experiment: Experiment,
+        fingerprint: str,
+        *,
+        query_to: datetime,
+        completed_at: datetime,
+        samples: int,
+        display_key: str | None = None,
+    ) -> ExperimentMetricResult:
+        return ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="m1",
             fingerprint=fingerprint,
+            display_key=display_key,
             query_from=_START,
             query_to=query_to,
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -116,7 +124,11 @@ class TestMetricResultStore(BaseTest):
                     status=ExperimentMetricsRecalculation.Status.COMPLETED,
                     completed_at=django_timezone.now(),
                 )
-                stored = store.for_run(run)
+                # The run wrote the rows at its window, so it was created before them.
+                ExperimentMetricsRecalculation.objects.filter(id=run.id).update(
+                    created_at=django_timezone.now() - timedelta(hours=1)
+                )
+                stored = store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id))
                 return [sample for item in stored for sample in _samples(item.row)], any(i.legacy for i in stored)
             case "latest_daily_point":
                 point = store.latest_daily_point(
@@ -248,6 +260,59 @@ class TestMetricResultStore(BaseTest):
         assert self._read("current_outcome", experiment, calculation_config) == ([2], False)
 
     @parameterized.expand(
+        [("without_a_current_row", False, ([1], True)), ("with_an_older_current_row", True, ([2], False))]
+    )
+    def test_a_batch_outcome_ranks_each_experiment_by_its_own_keys(
+        self, _name: str, older_current_row: bool, expected: tuple[list[int], bool]
+    ) -> None:
+        earlier_stats = {"method": "bayesian", "bayesian": {"ci_level": 0.9}}
+        experiment = self._experiment()
+        experiment.stats_config = earlier_stats
+        experiment.save()
+        earlier_config = get_metric_calculation_config(experiment, "m1")
+        assert earlier_config is not None
+        self._row(
+            experiment,
+            earlier_config.calculation_key(),
+            display_key=earlier_config.legacy_key(),
+            query_to=_WINDOW,
+            completed_at=_WINDOW,
+            samples=1,
+        )
+        experiment.stats_config = {"method": "bayesian", "bayesian": {"ci_level": 0.99}}
+        experiment.save()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        if older_current_row:
+            day_before = _WINDOW - timedelta(days=1)
+            self._row(
+                experiment,
+                calculation_config.calculation_key(),
+                query_to=day_before,
+                completed_at=day_before,
+                samples=2,
+            )
+        # Another experiment on the same flag and start date now has the first experiment's earlier settings.
+        other = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=experiment.feature_flag,
+            name="other",
+            start_date=_START,
+            metrics=experiment.metrics,
+            stats_config=earlier_stats,
+        )
+        other_config = get_metric_calculation_config(other, "m1")
+        assert other_config is not None and other_config.calculation_key() == earlier_config.calculation_key()
+
+        outcome = MetricResultStore.current_outcomes({experiment.id: calculation_config, other.id: other_config})[
+            experiment.id
+        ]
+
+        assert outcome.baseline_samples is not None
+        assert ([int(outcome.baseline_samples)], outcome.legacy) == expected
+
+    @parameterized.expand(
         [
             ("own_team", True, [("current", _WINDOW, 7)], 7),
             ("other_team", False, [("current", _WINDOW, 7)], None),
@@ -277,46 +342,58 @@ class TestMetricResultStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("finished_before_the_first_current_write", ExperimentMetricsRecalculation.Status.COMPLETED, -1, True),
-            ("in_progress", ExperimentMetricsRecalculation.Status.IN_PROGRESS, None, False),
-            ("superseded_without_finishing", ExperimentMetricsRecalculation.Status.FAILED, None, False),
-            ("finished_after_a_current_write", ExperimentMetricsRecalculation.Status.COMPLETED, 1, False),
+            # A run from before key version 2 that finished after a daily write under the current key.
+            ("written_by_the_run", ExperimentMetricsRecalculation.Status.COMPLETED, 1, True, True),
+            # A later run at the same window that failed without a row of its own, before any current write.
+            ("written_before_the_run", ExperimentMetricsRecalculation.Status.FAILED, -1, False, False),
         ]
     )
-    def test_a_run_shows_a_legacy_row_only_when_it_finished_before_the_current_keys(
-        self, _name: str, status: str, finished_hours_from_now: int | None, shows_legacy: bool
+    def test_a_run_shows_only_the_legacy_rows_that_it_wrote(
+        self,
+        _name: str,
+        status: str,
+        written_hours_after_the_run: int,
+        daily_write_under_the_current_key: bool,
+        shows_legacy: bool,
     ) -> None:
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        self._row(
-            experiment,
-            _recalc_fingerprint(calculation_config.legacy_key()),
-            query_to=_WINDOW,
-            completed_at=_WINDOW,
-            samples=1,
-        )
-        self._row(
-            experiment,
-            calculation_config.calculation_key(),
-            query_to=_START + timedelta(days=1),
-            completed_at=_START,
-            samples=2,
-        )
+        run_created_at = django_timezone.now() - timedelta(days=1)
         run = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=experiment,
             metric_uuids=["m1"],
             query_to=_WINDOW,
             status=status,
-            completed_at=(
-                django_timezone.now() + timedelta(hours=finished_hours_from_now)
-                if finished_hours_from_now is not None
-                else None
-            ),
+            completed_at=run_created_at + timedelta(hours=2),
         )
+        ExperimentMetricsRecalculation.objects.filter(id=run.id).update(created_at=run_created_at)
+        legacy_row = self._row(
+            experiment,
+            _recalc_fingerprint(calculation_config.legacy_key()),
+            query_to=_WINDOW,
+            completed_at=_WINDOW,
+            samples=1,
+        )
+        ExperimentMetricResult.objects.filter(id=legacy_row.id).update(
+            updated_at=run_created_at + timedelta(hours=written_hours_after_the_run)
+        )
+        if daily_write_under_the_current_key:
+            current_row = self._row(
+                experiment,
+                calculation_config.calculation_key(),
+                query_to=_START + timedelta(days=1),
+                completed_at=_START,
+                samples=2,
+            )
+            ExperimentMetricResult.objects.filter(id=current_row.id).update(
+                updated_at=run_created_at + timedelta(minutes=90)
+            )
 
-        stored = MetricResultStore(experiment_id=experiment.id).for_run(run)
+        stored = MetricResultStore(experiment_id=experiment.id).for_run(
+            ExperimentMetricsRecalculation.objects.get(id=run.id)
+        )
 
         assert [(_samples(item.row), item.legacy) for item in stored] == ([([1], True)] if shows_legacy else [])
 

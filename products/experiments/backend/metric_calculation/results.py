@@ -13,8 +13,8 @@ The calculation key includes the start date, so no reader needs `query_from` to 
 Rows written before calculation key version 2 carry the legacy key (`MetricCalculationConfig.legacy_key`), which leaves out
 several analytical inputs. No reuse check accepts them. The readers that show results (the run read, the cold-start
 read, the chart and the current outcome) fall back to them only where no row under the current key covers the same
-metric, window or day, and they mark such a result `legacy`. The run read does so only for a run that finished
-before the first write under the current keys. The daily significance check never reads them.
+metric, window or day, and they mark such a result `legacy`. The run read does so only for a row that the run wrote
+itself. The daily significance check never reads them.
 
 Every write also stores the legacy key of its calculation config in `display_key`, salted like the fingerprint on a
 run row. The legacy key hashes only inputs that the experiment owns. So after a team setting changes the current key, the chart
@@ -154,11 +154,11 @@ class MetricResultStore:
 
         A run from before key version 2 holds rows under the legacy keys. Such a row is returned as legacy when the
         metric has no row under its current key at the window, so that the results page shows the run complete
-        instead of starting a new run to fill the gaps. Only a run that finished before the first write under its
-        metrics' current keys gets legacy rows. A run in progress has not computed its metrics yet, so a legacy row
-        would show an old result as a new one. A run that finished later recomputed every metric it reached, because
-        no legacy row counts for reuse, so a metric it left without a row under the current key is one it did not
-        compute.
+        instead of starting a new run to fill the gaps. A run gets only the legacy rows that it wrote itself, which
+        are the rows written after it was created. No current writer files a run row under a legacy key, so the
+        write time of such a row does not change. A legacy row from before the run is the result of an earlier run
+        at the same window. Returning it would show a metric that the run did not compute as computed, for example
+        when a run under key version 2 failed without a row.
         """
         if run.query_to is None:
             return []
@@ -194,27 +194,7 @@ class MetricResultStore:
                 "metric_uuid"
             )
         ]
-        if any(item.legacy for item in stored) and not self._finished_before_current_keys(run, run_configs):
-            return [item for item in stored if not item.legacy]
-        return stored
-
-    def _finished_before_current_keys(
-        self, run: ExperimentMetricsRecalculation, calculation_configs: list[MetricCalculationConfig]
-    ) -> bool:
-        """Whether the run finished before any row of its metrics was written under a current key, bare or salted."""
-        if run.status not in _TERMINAL_RECALC_STATUSES or run.completed_at is None:
-            return False
-        current_keys = [
-            key
-            for calculation_config in calculation_configs
-            for key in (calculation_config.calculation_key(), _recalc_fingerprint(calculation_config.calculation_key()))
-        ]
-        return not ExperimentMetricResult.objects.filter(
-            experiment_id=self.experiment_id,
-            metric_uuid__in=[calculation_config.metric_id for calculation_config in calculation_configs],
-            fingerprint__in=current_keys,
-            updated_at__lte=run.completed_at,
-        ).exists()
+        return [item for item in stored if not item.legacy or item.row.updated_at >= run.created_at]
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
         """Whether a recalculation already stored a completed result for this calculation config at this window. A
@@ -558,16 +538,20 @@ class MetricResultStore:
         past windows after the newer ones.
 
         When no row carries the calculation key, the row whose fingerprint or display key is the legacy key and whose
-        data ends last stands in, marked legacy.
+        data ends last stands in, marked legacy. Each experiment's rows rank by that experiment's own keys. A
+        calculation key hashes no experiment id, so the earlier key of one experiment can be the current key of
+        another.
         """
         if not config_by_experiment:
             return {}
         filed_under_config = Q()
-        current_keys: set[str] = set()
+        under_current_key = Q()
+        current_keys: dict[int, set[str]] = {}
         for experiment_id, calculation_config in config_by_experiment.items():
             key, legacy_key = calculation_config.calculation_key(), calculation_config.legacy_key()
             legacy_keys = [legacy_key, _recalc_fingerprint(legacy_key)]
-            current_keys |= {key, _recalc_fingerprint(key)}
+            current_keys[experiment_id] = {key, _recalc_fingerprint(key)}
+            under_current_key |= Q(experiment_id=experiment_id, fingerprint__in=[key, _recalc_fingerprint(key)])
             filed_under_config |= Q(experiment_id=experiment_id, metric_uuid=calculation_config.metric_id) & (
                 Q(fingerprint__in=[key, _recalc_fingerprint(key), *legacy_keys]) | Q(display_key__in=legacy_keys)
             )
@@ -577,7 +561,7 @@ class MetricResultStore:
             .alias(data_until=Least("query_to", "completed_at"))
             .order_by(
                 "experiment_id",
-                _current_key_first(current_keys),
+                Case(When(under_current_key, then=Value(0)), default=Value(1), output_field=IntegerField()),
                 F("data_until").desc(),
                 F("completed_at").desc(nulls_last=True),
                 "-id",
@@ -603,7 +587,7 @@ class MetricResultStore:
                 baseline_samples=row["baseline_samples"],
                 baseline_sum=row["baseline_sum"],
                 variant_results=tuple(variant for variant in variant_results if isinstance(variant, dict)),
-                legacy=row["fingerprint"] not in current_keys,
+                legacy=row["fingerprint"] not in current_keys[row["experiment_id"]],
             )
         return summaries
 
