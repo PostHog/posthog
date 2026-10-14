@@ -4,8 +4,14 @@
  * unit falls back to a compact number with the unit string appended, so a new
  * unit never breaks rendering — it just reads less cleanly until it is added here. */
 
-const compact = (value: number, fractionDigits = 2): string =>
-    new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: fractionDigits }).format(value)
+import { significantDecimalPlaces } from 'lib/utils/numbers'
+
+// A fixed two decimals renders every value below 0.005 as "0", so a small-valued axis repeats one label.
+const compact = (value: number): string =>
+    new Intl.NumberFormat('en-US', {
+        notation: 'compact',
+        maximumFractionDigits: significantDecimalPlaces(value),
+    }).format(value)
 
 const bytes = (value: number, base: 1000 | 1024): string => {
     const units = base === 1024 ? ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] : ['B', 'KB', 'MB', 'GB', 'TB', 'PB']

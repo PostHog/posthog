@@ -37,6 +37,12 @@ describe('formatMetricValue', () => {
         [1500, '{message}/s', '1.5K message/s'],
         // unknown unit falls back to compact + suffix
         [1234, 'widgets', '1.23K widgets'],
+        // small nonzero values keep two significant digits instead of rounding to zero
+        [0.0012, undefined, '0.0012'],
+        [0.0042, '%', '0.0042%'],
+        [0.00005, '1', '0.005%'],
+        [0.004, '1/s', '0.004/s'],
+        [0.0031, '{request}/s', '0.0031 request/s'],
     ])('formats %s with unit %s as %s', (value, unit, expected) => {
         expect(formatMetricValue(value, unit)).toBe(expected)
     })
