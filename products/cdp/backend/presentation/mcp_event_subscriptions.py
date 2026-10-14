@@ -1,5 +1,4 @@
-from typing import TYPE_CHECKING, cast
-from urllib.parse import urlsplit
+from typing import cast
 
 from django.db.models import TextChoices
 
@@ -16,14 +15,19 @@ from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import User
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.mcp_event_delivery import MCP_EVENT_NAME, MCPCallbackError, signing_key, validate_callback_url
-from products.cdp.backend.mcp_events import MAX_TTL_MS, MCPEventSubscriptions
-from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
-from products.cdp.backend.validation import HogFunctionFiltersSerializer
-
-if TYPE_CHECKING:
-    from django.db.models import QuerySet
+from products.cdp.backend.facade.contracts import (
+    MCPCallbackError,
+    MCPEventSubscriptionNotFoundError,
+    MCPEventSubscriptionPermissionError,
+)
+from products.cdp.backend.facade.mcp_events import (
+    MAX_TTL_MS,
+    MCP_EVENT_NAME,
+    MCPEventSubscriptionsAPI,
+    validate_mcp_callback_url,
+    validate_mcp_signing_secret,
+)
+from products.cdp.backend.presentation.serializers import HogFunctionFiltersSerializer
 
 
 @extend_schema_field(
@@ -130,11 +134,10 @@ class MCPEventWebhookSerializer(serializers.Serializer):
         return value
 
     def validate_url(self, value: str) -> str:
-        return validate_callback_url(value)
+        return validate_mcp_callback_url(value)
 
     def validate_secret(self, value: str) -> str:
-        signing_key(value)
-        return value
+        return validate_mcp_signing_secret(value)
 
 
 class MCPEventSubscribeSerializer(serializers.Serializer):
@@ -176,7 +179,7 @@ class MCPEventUnsubscribeDeliverySerializer(serializers.Serializer):
         return value
 
     def validate_url(self, value: str) -> str:
-        return validate_callback_url(value)
+        return validate_mcp_callback_url(value)
 
 
 class MCPEventUnsubscribeSerializer(serializers.Serializer):
@@ -190,20 +193,17 @@ class MCPEventUnsubscribeSerializer(serializers.Serializer):
         return value
 
 
-class MCPEventSubscriptionSerializer(serializers.ModelSerializer):
+class MCPEventSubscriptionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Subscription ID supplied to the receiving MCP client.")
     arguments = MCPEventArgumentsSerializer(read_only=True)
-    callback_host = serializers.SerializerMethodField(
-        help_text="Callback hostname. Paths and signing secrets are hidden."
+    callback_host = serializers.CharField(
+        read_only=True, help_text="Callback hostname. Paths and signing secrets are hidden."
     )
-
-    class Meta:
-        model = MCPEventSubscription
-        fields = ["id", "arguments", "callback_host", "expires_at", "active", "created_at"]
-        read_only_fields = fields
-
-    @extend_schema_field(serializers.CharField())
-    def get_callback_host(self, subscription: MCPEventSubscription) -> str:
-        return urlsplit(subscription.delivery["url"]).hostname or ""
+    expires_at = serializers.DateTimeField(
+        read_only=True, help_text="Time when this subscription stops delivering events."
+    )
+    active = serializers.BooleanField(read_only=True, help_text="Whether this subscription is enabled.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="Time when this subscription was created.")
 
 
 class MCPEventDataSerializer(serializers.Serializer):
@@ -259,12 +259,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "mcp_event_subscription"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["subscribe", "unsubscribe"]
-    # DRF needs model metadata before the request establishes its team scope.
-    queryset = MCPEventSubscription.objects.unscoped().none()
     serializer_class = MCPEventSubscriptionSerializer
-
-    def safely_get_queryset(self, queryset: "QuerySet[MCPEventSubscription]") -> "QuerySet[MCPEventSubscription]":
-        return MCPEventSubscription.objects.for_team(self.team_id).filter(created_by=cast(User, self.request.user))
 
     def get_serializer_context(self) -> dict[str, object]:
         return {
@@ -291,16 +286,24 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return f"personal_api_key:{request.user.pk}:{authenticator.personal_api_key.pk}"
         raise PermissionDenied("Connect using an OAuth token or personal API key to manage subscriptions.")
 
-    def _service(self, request: Request) -> MCPEventSubscriptions:
-        return MCPEventSubscriptions(team=self.team, user=cast(User, request.user), principal=self._principal(request))
+    def _service(self, request: Request) -> MCPEventSubscriptionsAPI:
+        return MCPEventSubscriptionsAPI(
+            team=self.team, user=cast(User, request.user), principal=self._principal(request)
+        )
 
     @extend_schema(responses=MCPEventSubscriptionSerializer(many=True))
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(self.get_serializer(self.get_queryset().order_by("-created_at")[:100], many=True).data)
+        service = MCPEventSubscriptionsAPI(team=self.team, user=cast(User, request.user), principal="")
+        return Response(self.get_serializer(service.list(), many=True).data)
 
     @extend_schema(responses=MCPEventSubscriptionSerializer)
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(self.get_serializer(self.get_object()).data)
+        service = MCPEventSubscriptionsAPI(team=self.team, user=cast(User, request.user), principal="")
+        try:
+            subscription = service.get(str(kwargs["pk"]))
+        except MCPEventSubscriptionNotFoundError:
+            raise NotFound() from None
+        return Response(self.get_serializer(subscription).data)
 
     @extend_schema(
         operation_id="mcp_event_subscriptions_preview",
@@ -311,7 +314,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def preview(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = MCPEventArgumentsSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        service = MCPEventSubscriptions(team=self.team, user=cast(User, request.user), principal="")
+        service = MCPEventSubscriptionsAPI(team=self.team, user=cast(User, request.user), principal="")
         result = service.preview(serializer.validated_data["filters"])
         return Response(MCPEventPreviewSerializer(result, context=self.get_serializer_context()).data)
 
@@ -336,7 +339,6 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication)
                     else None
                 ),
-                serializer_class=HogFunctionSerializer,
             )
         except MCPCallbackError as error:
             raise ValidationError({"callback": {"reason": error.reason, "detail": str(error)}}) from None
@@ -357,15 +359,16 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = MCPEventDeliveryRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        subscription = self.get_object()
-        service = self._service(request)
-        if subscription.principal != service.principal:
-            raise PermissionDenied("Use the credential that owns this subscription.")
-        result = service.authorize_delivery(
-            subscription=subscription,
-            generation=str(data["generation"]),
-            body=data["body"],
-            url=data["url"],
-            function_id=str(data["function_id"]),
-        )
+        try:
+            result = self._service(request).authorize_delivery(
+                subscription_id=str(kwargs["pk"]),
+                generation=str(data["generation"]),
+                body=data["body"],
+                url=data["url"],
+                function_id=str(data["function_id"]),
+            )
+        except MCPEventSubscriptionNotFoundError:
+            raise NotFound() from None
+        except MCPEventSubscriptionPermissionError as error:
+            raise PermissionDenied(str(error)) from None
         return Response(MCPEventDeliveryResponseSerializer(result).data)

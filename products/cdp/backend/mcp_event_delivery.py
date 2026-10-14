@@ -13,15 +13,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
+from products.cdp.backend.facade.contracts import MCPCallbackError
+
 MCP_EVENT_NAME: Final = "posthog.event_captured"
 MCP_EVENT_MAX_BYTES: Final = 256 * 1024
 MCP_CREDENTIAL_INPUT: Final = "mcp_credential"
-
-
-class MCPCallbackError(Exception):
-    def __init__(self, reason: str) -> None:
-        self.reason = reason
-        super().__init__("Callback verification failed. Check the receiving endpoint and try again.")
 
 
 def signing_key(secret: str) -> bytes:

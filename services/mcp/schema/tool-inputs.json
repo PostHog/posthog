@@ -756,6 +756,55 @@
             },
             "required": ["insightId"]
         },
+        "McpEventFiltersSchema": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "default": "events",
+                    "description": "Captured PostHog events. Use events.\n\n* `events` - events",
+                    "type": "string",
+                    "enum": ["events"]
+                },
+                "actions": {
+                    "description": "Saved action entries combined with the event entries using OR. Example: [{\"id\": \"123\", \"type\": \"actions\"}].",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    }
+                },
+                "events": {
+                    "description": "Captured event entries combined with OR. Example: [{\"id\": \"survey sent\", \"type\": \"events\", \"properties\": [{\"key\": \"rating\", \"type\": \"event\", \"operator\": \"lt\", \"value\": 3}]}].",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    }
+                },
+                "properties": {
+                    "description": "Property conditions applied to all selected events. Example: [{\"key\": \"plan\", \"type\": \"event\", \"operator\": \"exact\", \"value\": \"enterprise\"}].",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    }
+                },
+                "filter_test_accounts": {
+                    "description": "Apply the project's existing test-account exclusions.",
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
         "OfflineExperimentUploadItemsSchema": {
             "description": "Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.",
             "maxItems": 1000,

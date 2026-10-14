@@ -64,7 +64,8 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.flag = patch(
-            "products.cdp.backend.api.mcp_event_subscriptions.posthoganalytics.feature_enabled", return_value=True
+            "products.cdp.backend.presentation.mcp_event_subscriptions.posthoganalytics.feature_enabled",
+            return_value=True,
         )
         self.flag.start()
         self.addCleanup(self.flag.stop)

@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
-from products.cdp.backend.api.mcp_event_subscriptions import MCPEventSubscriptionViewSet
+from products.cdp.backend.presentation.mcp_event_subscriptions import MCPEventSubscriptionViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
