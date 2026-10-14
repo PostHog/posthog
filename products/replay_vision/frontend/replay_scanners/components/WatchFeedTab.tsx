@@ -52,6 +52,8 @@ export function WatchFeedTab(): JSX.Element {
         scannerIdsFilter,
         tagsFilter,
         tagOptions,
+        createdByFilter,
+        createdByOptions,
         search,
         hasFeedFilters,
         emptyReason,
@@ -61,6 +63,7 @@ export function WatchFeedTab(): JSX.Element {
         setScannerTypeFilter,
         setScannerIdsFilter,
         setTagsFilter,
+        setCreatedByFilter,
         setSearch,
         clearFeedFilters,
         loadFeed,
@@ -110,9 +113,17 @@ export function WatchFeedTab(): JSX.Element {
                         dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
+                        selectAllLabel="All scanners"
                         options={scannerOptions}
                         value={scannerIdsFilter}
                         onChange={setScannerIdsFilter}
+                    />
+                    <FilterPill<string>
+                        label="Created by"
+                        dataAttr="vision-watch-feed-created-by-filter"
+                        options={createdByOptions}
+                        value={createdByFilter}
+                        onChange={setCreatedByFilter}
                     />
                     <FilterPill<string>
                         label="Tags"
