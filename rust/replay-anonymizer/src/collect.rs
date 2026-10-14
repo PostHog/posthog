@@ -237,13 +237,7 @@ impl ImageCollector {
 /// subtypes, parameters — where client-controlled text could ride through unscrubbed) normalizes
 /// to `image/png`. Exact matches only: the old blur path re-encoded and overwrote this field, so
 /// no client string ever survived; the ref path must not weaken that.
-const COLLECTED_MIME_ALLOWLIST: &[&str] = &[
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "image/avif",
-];
+const COLLECTED_MIME_ALLOWLIST: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 pub fn normalize_collected_mime(mime: &str) -> &'static str {
     let lower = mime.trim().to_ascii_lowercase();
@@ -268,7 +262,8 @@ pub fn collectable_data_uri_bytes(uri: &str, max_image_bytes: usize) -> Option<V
     let mime_type = meta
         .split_once(';')
         .map_or(meta.as_str(), |(mime_type, _)| mime_type);
-    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") {
+    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") || mime_type.contains("avif")
+    {
         return None;
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
@@ -280,7 +275,8 @@ pub fn collectable_data_uri_bytes(uri: &str, max_image_bytes: usize) -> Option<V
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
         .ok()?;
-    if bytes.starts_with(b"BM") {
+    // An ISO-BMFF container (AVIF, HEIC) under any label: the scrub refuses it, so a ref would dangle.
+    if bytes.starts_with(b"BM") || bytes.get(4..8) == Some(b"ftyp") {
         return None;
     }
     Some(bytes)
@@ -383,6 +379,9 @@ mod tests {
         assert!(collectable("data:image/bmp;base64,Qk0=").is_none());
         assert!(collectable("data:image/x-bmp;base64,Qk0=").is_none());
         assert!(collectable("data:image/x-ms-bmp;base64,Qk0=").is_none());
+        assert!(collectable("data:image/avif;base64,AAAAHGZ0eXBhdmlm").is_none());
+        // AVIF bytes behind a raster label.
+        assert!(collectable("data:image/png;base64,AAAAHGZ0eXBhdmlm").is_none());
         assert!(collectable("data:image/png;base64,Qk0=").is_none());
         assert!(collectable("data:image/svg+xml;utf8,<svg/>").is_none());
         assert!(collectable("data:text/plain;base64,aGk=").is_none());
