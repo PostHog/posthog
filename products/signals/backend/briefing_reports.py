@@ -401,6 +401,42 @@ def _reports_for_person(team_id: int, user: User, *, include_unowned: bool) -> Q
     )
 
 
+def _ranked_candidates(
+    team_id: int, user_id: int, *, limit: int | None, include_unowned: bool
+) -> list[_BriefingCandidate]:
+    rows = (
+        _reports_for_person(team_id, User.objects.get(id=user_id), include_unowned=include_unowned)
+        .annotate(briefing_heads=_latest_served_heads())
+        .order_by("-updated_at")
+        .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
+    )
+    return _briefing_pick(
+        [
+            _BriefingCandidate(
+                report_id=str(report_id),
+                relation=BriefingReportRelation(relation_value),
+                priority=priority,
+                updated_at=updated_at,
+                scores=_served_scores(heads),
+            )
+            for report_id, updated_at, relation_value, priority, heads in rows
+        ],
+        limit,
+    )
+
+
+def ranked_report_ids(*, team_id: int, user_id: int, include_unowned: bool = True) -> list[str]:
+    """The ids of every report `reports_for_briefing` returns, in the same order.
+
+    It reads no report text and no source products, so a paged list can rank the whole set on each
+    page and render only the rows of that page.
+    """
+    return [
+        candidate.report_id
+        for candidate in _ranked_candidates(team_id, user_id, limit=None, include_unowned=include_unowned)
+    ]
+
+
 def reports_for_briefing(
     *, team_id: int, user_id: int, limit: int | None = None, include_unowned: bool = True
 ) -> list[BriefingReport]:
@@ -416,25 +452,7 @@ def reports_for_briefing(
     every other item, because P0 is the first key in `_briefing_pick` and is exempt from the
     dismiss-wrong filter, so one unowned report would take the top of every briefing in the project.
     """
-    rows = (
-        _reports_for_person(team_id, User.objects.get(id=user_id), include_unowned=include_unowned)
-        .annotate(briefing_heads=_latest_served_heads())
-        .order_by("-updated_at")
-        .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
-    )
-    chosen = _briefing_pick(
-        [
-            _BriefingCandidate(
-                report_id=str(report_id),
-                relation=BriefingReportRelation(relation_value),
-                priority=priority,
-                updated_at=updated_at,
-                scores=_served_scores(heads),
-            )
-            for report_id, updated_at, relation_value, priority, heads in rows
-        ],
-        limit,
-    )
+    chosen = _ranked_candidates(team_id, user_id, limit=limit, include_unowned=include_unowned)
     chosen_ids = [candidate.report_id for candidate in chosen]
     reports = {
         str(report.id): report

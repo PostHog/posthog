@@ -1742,6 +1742,15 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "How many of the top reports to skip, for the next page of the same ranking. Defaults to 0. "
+            "Each page ranks the reports again, so a report can move between pages when it changes."
+        ),
+    )
     include_unowned = serializers.BooleanField(
         required=False,
         default=True,
@@ -1768,6 +1777,14 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
             "How many open reports are for the current user: the reports in `results`, plus the other "
             "open, actionable reports that name them as a reviewer. Counted over the same set as "
             "`results`, so it follows `include_unowned` too."
+        ),
+    )
+    next = serializers.URLField(
+        allow_null=True,
+        help_text=(
+            "The URL of the next page of the ranking, or null when this page holds the last ranked report. "
+            "Use it to tell whether more pages exist: `count` can be higher than the number of reports "
+            "the ranking returns, because the ranking leaves out reports likely to be dismissed as wrong."
         ),
     )
 

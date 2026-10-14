@@ -46,6 +46,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -109,7 +110,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
+from products.signals.backend.briefing_reports import open_report_counts, ranked_report_ids
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
@@ -2479,24 +2480,20 @@ class SignalReportViewSet(
             "The open, actionable reports for the current user, best first, and how many there are in "
             "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
             "show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 "
-            "reports nobody owns, which belong to the project rather than to this person."
+            "reports nobody owns, which belong to the project rather than to this person. Pass `offset`, "
+            "or follow `next`, to page through the rest of the ranking."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
     def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         user = cast(User, request.user)
         include_unowned = request.validated_query_data["include_unowned"]
-        ranked_ids = [
-            report.report_id
-            for report in reports_for_briefing(
-                team_id=self.team_id,
-                user_id=user.id,
-                limit=request.validated_query_data["limit"],
-                include_unowned=include_unowned,
-            )
-        ]
-        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
-        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        limit = request.validated_query_data["limit"]
+        offset = request.validated_query_data["offset"]
+        ranked_ids = ranked_report_ids(team_id=self.team_id, user_id=user.id, include_unowned=include_unowned)
+        page_ids = ranked_ids[offset : offset + limit]
+        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=page_ids)}
+        reports = [by_id[report_id] for report_id in page_ids if report_id in by_id]
         more = open_report_counts(
             team_id=self.team_id,
             user=user,
@@ -2504,7 +2501,12 @@ class SignalReportViewSet(
             include_unowned=include_unowned,
         )
         rows = self._render_report_rows(reports, include_source_metadata=True)
-        return Response({"results": rows, "count": len(rows) + more.for_person})
+        next_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", offset + limit)
+            if offset + limit < len(ranked_ids)
+            else None
+        )
+        return Response({"results": rows, "count": len(rows) + more.for_person, "next": next_url})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",
