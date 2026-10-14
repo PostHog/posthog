@@ -99,38 +99,6 @@ database "posthog" {
     }
   }
 
-  materialized_view "logs34_to_log_attributes" {
-    to_table = "posthog.log_attributes2"
-    query = file("sql/logs34_to_log_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
   materialized_view "logs34_to_log_attributes3" {
     to_table = "posthog.log_attributes3"
     query    = file("sql/logs34_to_log_attributes3.sql")
@@ -160,38 +128,6 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "severity_text" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "logs34_to_resource_attributes" {
-    to_table = "posthog.log_attributes2"
-    query = file("sql/logs34_to_resource_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
@@ -379,71 +315,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series1"
       replica_name   = "{replica}-{shard}"
       version_column = "last_seen"
-    }
-  }
-
-  table "log_attributes2" {
-    order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
-    partition_by = "toDate(original_expiry_time_bucket)"
-    ttl          = "original_expiry_time_bucket"
-    settings = {
-      deduplicate_merge_projection_mode = "drop"
-      index_granularity                 = "8192"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type    = "UInt64"
-      default = "0"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type  = "String"
-      codec = "ZSTD(5)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-    column "attribute_type" {
-      type    = "LowCardinality(String)"
-      default = "'log'"
-    }
-    column "original_expiry_time_bucket" {
-      type    = "DateTime"
-      default = "now()"
-    }
-    index "idx_attribute_key" {
-      expr        = "attribute_key"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "idx_attribute_value" {
-      expr        = "attribute_value"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "idx_attribute_key_n3" {
-      expr        = "attribute_key"
-      type        = "ngrambf_v1(3, 32768, 3, 0)"
-      granularity = 1
-    }
-    index "idx_attribute_value_n3" {
-      expr        = "attribute_value"
-      type        = "ngrambf_v1(3, 32768, 3, 0)"
-      granularity = 1
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.log_attributes2"
-      replica_name = "{replica}-{shard}"
     }
   }
 
