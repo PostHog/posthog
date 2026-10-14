@@ -5,7 +5,6 @@ import uuid
 import hashlib
 from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
-from datetime import datetime
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -100,6 +99,7 @@ from products.cohorts.backend.models.cohort import (
 from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    close_open_population_attempts,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1158,6 +1158,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
         logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        # A killed import leaves its history row open. The stuck-cohort sweep resets a cohort whose newest row stays
+        # open past its cutoff. That row stays the newest until the task of this upload starts. A run that is still
+        # alive overwrites this stamp when it finishes.
+        close_open_population_attempts(cohort.pk, finished_at=timezone.now())
         calculate_cohort_from_list.delay(
             cohort.pk,
             ids,
@@ -1202,14 +1206,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Set calculating flag immediately so UI shows loading state
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
-        # A killed import leaves its history row open. The stuck-cohort sweep resets a cohort whose newest row stays
-        # open past its cutoff. That row stays the newest until the task of this upload starts. A run that is still
-        # alive overwrites this stamp when it finishes.
-        CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).update(
-            finished_at=timezone.now(),
-            error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
-            error_code=CohortErrorCode.INTERRUPTED,
-        )
 
         try:
             first_row, reader = self._parse_csv_file(file)
@@ -2430,37 +2426,6 @@ def _batch_evaluate_flag_page_with_retries(
     raise last_error
 
 
-def _record_flag_population_outcome(
-    history: CohortCalculationHistory | None,
-    *,
-    cohort: Cohort,
-    team_id: int,
-    started_at: datetime,
-    count: int | None = None,
-    error: str | None = None,
-    error_code: CohortErrorCode | None = None,
-) -> None:
-    if history is None:
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            count=count,
-            error=error,
-            error_code=error_code,
-        )
-        return
-    history.finished_at = timezone.now()
-    history.count = count
-    # Writing error and error_code also clears an INTERRUPTED stamp that the stuck-cohort sweep or a CSV upload wrote
-    # while this run was alive.
-    history.error = error
-    history.error_code = error_code
-    history.save(update_fields=["finished_at", "count", "error", "error_code"])
-
-
 def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000) -> None:
     """
     Populate a static cohort with the persons matched by a feature flag.
@@ -2515,12 +2480,12 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     eval_errors_count = 0
     # The stuck-cohort sweep measures a run that has an open history row from the row's start. Without that row, the
     # sweep measures the run from created_at. That measure also counts the time that the task waited in the queue. A
-    # failed insert must not stop the population. The run then records its outcome in a new row when it ends.
-    history: CohortCalculationHistory | None = None
+    # failed insert must not stop the population. Django then keeps the row unsaved. The save of the outcome inserts it.
+    history = CohortCalculationHistory(
+        team_id=team_id, cohort=cohort, filters=cohort.filters or {}, started_at=started_at
+    )
     try:
-        history = CohortCalculationHistory.objects.create(
-            team_id=team_id, cohort=cohort, filters=cohort.filters or {}, started_at=started_at
-        )
+        history.save()
     except Exception as err:
         logger.warning(
             "cohort_from_feature_flag_history_open_failed",
@@ -2609,14 +2574,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # store the friendly message; raw exception details (internal URLs, instance
         # config) stay in logs and error tracking only. This path only ever populates a
         # static cohort, and nothing re-runs one, so the message must not ask for that.
-        _record_flag_population_outcome(
-            history,
-            cohort=cohort,
-            team_id=team_id,
-            started_at=started_at,
-            error=get_friendly_error_message(error_code, will_retry=False),
-            error_code=error_code,
-        )
+        history.finished_at = timezone.now()
+        history.error = get_friendly_error_message(error_code, will_retry=False)
+        history.error_code = error_code
+        history.save()
         raise
 
     # The save above finalized cohort state, including the recomputed count. Recording the run
@@ -2625,9 +2586,11 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     # the block above: the population is already committed, so a failure to record it must not
     # report a finished run as a failed one.
     try:
-        _record_flag_population_outcome(
-            history, cohort=cohort, team_id=team_id, started_at=started_at, count=cohort.count
-        )
+        history.finished_at = timezone.now()
+        history.count = cohort.count
+        # The full save also clears an INTERRUPTED stamp that the stuck-cohort sweep or a CSV upload wrote while this
+        # run was alive.
+        history.save()
     except Exception as err:
         logger.warning(
             "cohort_from_feature_flag_history_write_failed",

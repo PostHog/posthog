@@ -8892,7 +8892,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         mock_batch_evaluate.return_value = self._page([str(person.uuid)])
 
-        with patch.object(CohortCalculationHistory.objects, "create", side_effect=IntegrityError("no row for you")):
+        with patch.object(CohortCalculationHistory, "save", side_effect=IntegrityError("no row for you")):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()

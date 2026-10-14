@@ -45,6 +45,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, Import
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
+    close_open_population_attempts,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -286,7 +287,6 @@ def reset_stuck_sourceless_static_cohorts() -> None:
     # would change. So the reset records the failure and never dispatches a population.
     now = timezone.now()
     cutoff = now - SOURCELESS_STATIC_COHORT_STUCK_AFTER
-    error = get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False)
     reset_cohort_ids = []
     for cohort in get_stuck_sourceless_static_cohort_candidates_queryset(cutoff).order_by(F("created_at").asc())[
         0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
@@ -303,10 +303,7 @@ def reset_stuck_sourceless_static_cohorts() -> None:
                 continue
 
             # The history tab shows an open row as a run in progress.
-            closed = CohortCalculationHistory.objects.filter(
-                cohort_id=cohort.pk, finished_at__isnull=True, started_at__lte=cutoff
-            ).update(finished_at=now, error=error, error_code=CohortErrorCode.INTERRUPTED)
-            if not closed:
+            if not close_open_population_attempts(cohort.pk, finished_at=now, started_before=cutoff):
                 CohortCalculationHistory.objects.create(
                     team_id=cohort.team_id,
                     cohort=cohort,
@@ -315,7 +312,7 @@ def reset_stuck_sourceless_static_cohorts() -> None:
                     # run.
                     started_at=cohort.created_at,
                     finished_at=now,
-                    error=error,
+                    error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
                     error_code=CohortErrorCode.INTERRUPTED,
                 )
         reset_cohort_ids.append(cohort.pk)

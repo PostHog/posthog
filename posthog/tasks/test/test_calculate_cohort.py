@@ -1754,15 +1754,33 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_run_killed", None, relativedelta(hours=6), [], True),
-            ("flag_run_within_soft_limit", None, relativedelta(hours=4), [], False),
-            ("filters_without_values_killed", {"properties": {"type": "AND"}}, relativedelta(hours=6), [], True),
-            ("csv_reupload_killed", {"properties": {}}, relativedelta(days=3), [(relativedelta(hours=6), False)], True),
+            ("flag_run_killed", None, relativedelta(hours=6), [], None, 0, True),
+            ("flag_run_within_soft_limit", None, relativedelta(hours=4), [], None, 0, False),
+            (
+                "filters_without_values_killed",
+                {"properties": {"type": "AND"}},
+                relativedelta(hours=6),
+                [],
+                None,
+                0,
+                True,
+            ),
+            (
+                "csv_reupload_killed",
+                {"properties": {}},
+                relativedelta(days=3),
+                [(relativedelta(hours=6), False)],
+                None,
+                0,
+                True,
+            ),
             (
                 "csv_reupload_running",
                 {"properties": {}},
                 relativedelta(days=3),
                 [(relativedelta(minutes=10), False)],
+                None,
+                0,
                 False,
             ),
             (
@@ -1770,6 +1788,8 @@ class TestCohortCalculationTasks(APIBaseTest):
                 {"properties": {}},
                 relativedelta(days=3),
                 [(relativedelta(days=2), True)],
+                None,
+                0,
                 False,
             ),
             (
@@ -1777,8 +1797,20 @@ class TestCohortCalculationTasks(APIBaseTest):
                 {"properties": {}},
                 relativedelta(days=3),
                 [(relativedelta(hours=6), False), (relativedelta(minutes=10), False)],
+                None,
+                0,
                 False,
             ),
+            (
+                "csv_reupload_queued_to_a_populated_cohort",
+                {"properties": {}},
+                relativedelta(days=3),
+                [],
+                relativedelta(days=2),
+                0,
+                False,
+            ),
+            ("csv_reupload_queued_to_a_failed_cohort", {"properties": {}}, relativedelta(days=3), [], None, 1, False),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
@@ -1789,6 +1821,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         filters: dict | None,
         created_age: relativedelta,
         attempts: list[tuple[relativedelta, bool]],
+        last_calculation_age: relativedelta | None,
+        errors_calculating: int,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
         mock_insert_cohort_from_filters: MagicMock,
@@ -1800,6 +1834,8 @@ class TestCohortCalculationTasks(APIBaseTest):
             is_calculating=True,
             is_static=True,
             filters=filters,
+            last_calculation=now - last_calculation_age if last_calculation_age else None,
+            errors_calculating=errors_calculating,
         )
         Cohort.objects.filter(pk=cohort.pk).update(created_at=now - created_age)
         for attempt_age, attempt_finished in attempts:
@@ -1815,7 +1851,7 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         cohort.refresh_from_db()
         self.assertEqual(cohort.is_calculating, not expect_reset)
-        self.assertEqual(cohort.errors_calculating, 1 if expect_reset else 0)
+        self.assertEqual(cohort.errors_calculating, errors_calculating + (1 if expect_reset else 0))
         mock_insert_cohort_from_query.delay.assert_not_called()
         mock_insert_cohort_from_filters.delay.assert_not_called()
         history = [
@@ -1828,34 +1864,6 @@ class TestCohortCalculationTasks(APIBaseTest):
         else:
             expected_history = [(None, None, attempt_finished) for _, attempt_finished in attempts]
         self.assertEqual(history, expected_history)
-
-    @parameterized.expand(
-        [
-            ("populated_cohort_without_history", relativedelta(days=2), 0),
-            ("failed_cohort_without_history", None, 1),
-        ]
-    )
-    def test_reset_stuck_sourceless_static_cohorts_skips_queued_reupload_without_history(
-        self, _name: str, last_calculation_age: relativedelta | None, errors_calculating: int
-    ) -> None:
-        now = timezone.now()
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="static with a queued re-upload",
-            is_calculating=True,
-            is_static=True,
-            filters={"properties": {}},
-            last_calculation=now - last_calculation_age if last_calculation_age else None,
-            errors_calculating=errors_calculating,
-        )
-        Cohort.objects.filter(pk=cohort.pk).update(created_at=now - relativedelta(days=3))
-
-        reset_stuck_cohorts()
-
-        cohort.refresh_from_db()
-        self.assertTrue(cohort.is_calculating)
-        self.assertEqual(cohort.errors_calculating, errors_calculating)
-        self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort).exists())
 
     @parameterized.expand(
         [
