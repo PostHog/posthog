@@ -1636,7 +1636,7 @@ export class AgentServer {
                       ? { _meta: promptMeta }
                       : {}),
                   },
-                  messageId
+                  messageId && params.userOriginated !== false
                     ? {
                         messageId,
                         text: promptBlocksToText(builtPrompt.prompt),

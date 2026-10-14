@@ -1,3 +1,4 @@
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -23,6 +24,7 @@ from posthog.models.user import User
 from products.context_layer.backend.presentation.selection import ContextSelectionViewSet
 from products.context_layer.backend.selection import (
     MAX_CONTEXT_CHARS,
+    MAX_SOURCE_TEXT,
     Candidate,
     ContextSelector,
     SelectionDenied,
@@ -36,7 +38,7 @@ from products.tasks.backend.models import Task, TaskRun
 
 
 def task_run() -> TaskRun:
-    team = Team(id=42, organization=Organization(id=uuid4()))
+    team = Team(id=42, organization=Organization(id=uuid4(), is_ai_data_processing_approved=True))
     return TaskRun(
         id=uuid4(),
         team=team,
@@ -102,9 +104,15 @@ class TestSelection(SimpleTestCase):
             ),
             ("long_without_history", "Please follow project conventions. " * 10 + "How is activation defined?", ""),
             ("follow_up", "What about last week?", "Earlier activation and onboarding discussion"),
+            ("long_metric", "What is our activation?", "", "metric"),
+            ("long_certification", "What is our activation?", "", "certification"),
+            ("long_relationship", "What is our activation?", "", "relationship"),
+            ("skill_body_match", "What is our activation?", "", "skill"),
         ]
     )
-    def test_current_credential_and_all_source_shapes(self, name: str, prompt: str, history: str) -> None:
+    def test_current_credential_and_all_source_shapes(
+        self, name: str, prompt: str, history: str, long_source: str = ""
+    ) -> None:
         self.selector = ContextSelector(
             self.run_record,
             self.selector.actor,
@@ -156,12 +164,40 @@ class TestSelection(SimpleTestCase):
                 ],
             }
         )
-        result = self.selector.prepare()
+        if long_source == "skill":
+            self.skill.update(
+                name="operations-guide",
+                description="Project procedures",
+                matches=[{"matched_field": "body", "excerpt": "Activation definition"}],
+            )
+        elif long_source:
+            path, field = {
+                "metric": ("data_catalog/metrics/", "definition"),
+                "certification": ("data_catalog/certifications/", "notes"),
+                "relationship": ("data_catalog/relationship_proposals/", "reasoning"),
+            }[long_source]
+            self.rows[path][0][field] = '"\\\n😀' * 2_000
+            if long_source == "certification":
+                self.rows[path][0]["proposed_status"] = "deprecated"
+        result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(len(self.requests), 5)
         self.assertEqual(result.context.count('"reference":'), 5)
-        self.assertIn("skill_name=activation-guide", result.context)
+        self.assertIn(f"skill_name={self.skill['name']}", result.context)
         self.assertNotIn("version=", result.context)
         self.assertIn("is_drifted", result.context)
+        rendered = [json.loads(line) for line in result.context.splitlines() if line.startswith("{")]
+        records = {record["kind"]: json.loads(record["text"]) for record in rendered}
+        self.assertEqual(records["metric"]["is_drifted"], True)
+        self.assertEqual(records["metric"]["status"], "approved")
+        self.assertEqual(records["certification"]["status"], "approved")
+        self.assertEqual(
+            records["certification"]["proposed_status"], "deprecated" if long_source == "certification" else "trusted"
+        )
+        self.assertEqual(records["relationship"]["status"], "proposed")
+        for candidate in self.model.decide.call_args.kwargs["state"]["candidates"].values():
+            self.assertLessEqual(len(candidate["text"]), MAX_SOURCE_TEXT)
+            if candidate["kind"] == "skill" and long_source == "skill":
+                self.assertEqual(json.loads(candidate["text"])["matches"], self.skill["matches"])
         for request in self.requests:
             self.assertEqual(request.headers["Authorization"], "Bearer fake-sandbox-token")
             self.assertTrue(request.url.path.startswith("/api/projects/42/"))
@@ -178,7 +214,7 @@ class TestSelection(SimpleTestCase):
     @parameterized.expand([(403,), (404,), (429,), (503,), (302,)])
     def test_denied_or_failed_sources_preserve_other_results(self, status: int) -> None:
         self.status = status
-        result = self.selector.prepare()
+        result = self.selector.prepare(time.monotonic() + 60)
         self.assertIn("Activation definition", result.context)
         self.assertEqual(result.reason, "selected")
         self.assertEqual(len(self.requests), 5)
@@ -186,7 +222,7 @@ class TestSelection(SimpleTestCase):
     @parameterized.expand([("control", False), ("disabled", False), ("shadow", False), ("treatment", True)])
     def test_variants_control_retrieval_injection_and_call_metadata(self, mode: str, inject: bool) -> None:
         self.flag.return_value = mode
-        result = self.selector.prepare()
+        result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.mode, mode)
         self.assertEqual(bool(result.context), inject)
         self.assertEqual(bool(self.requests), mode in ("shadow", "treatment"))
@@ -197,6 +233,16 @@ class TestSelection(SimpleTestCase):
             self.assertEqual(labels["runtime_version"], "unknown")
         else:
             self.client_factory.assert_not_called()
+
+    @parameterized.expand([("shadow", False), ("shadow", None), ("treatment", False), ("treatment", None)])
+    def test_ai_consent_required_before_retrieval_and_model_calls(self, mode: str, consent: bool | None) -> None:
+        self.flag.return_value = mode
+        self.run_record.team.organization.is_ai_data_processing_approved = consent
+        result = self.selector.prepare(time.monotonic() + 60)
+        self.assertEqual(result.context, "")
+        self.assertEqual(result.reason, "ai_consent_required")
+        self.assertEqual(self.requests, [])
+        self.client_factory.assert_not_called()
 
     @parameterized.expand(
         [
@@ -218,7 +264,7 @@ class TestSelection(SimpleTestCase):
 
     def test_gate_failure_preserves_delivery(self) -> None:
         self.model.decide.side_effect = RuntimeError
-        result = self.selector.prepare()
+        result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.context, "")
         self.assertEqual(result.reason, "error")
 
@@ -242,7 +288,7 @@ class TestSelection(SimpleTestCase):
             return parse_system_one_response({"model": "test", "answers": answers}, questions)
 
         self.model.decide.side_effect = decide
-        result = self.selector.prepare()
+        result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.context, "")
         self.assertEqual(result.mode, "treatment")
         self.assertEqual(result.reason, reason)
@@ -297,7 +343,8 @@ class TestSelectionPermissions(SimpleTestCase):
             patch("products.context_layer.backend.selection.TaskRun.objects.select_related") as lookup,
             patch("products.context_layer.backend.selection.is_current_task_run_actor", side_effect=[True, False]),
             patch(
-                "products.context_layer.backend.selection.bounded_request", side_effect=lambda team, execute: execute()
+                "products.context_layer.backend.selection.bounded_request",
+                side_effect=lambda team, execute: execute(time.monotonic() + 60),
             ),
             patch.object(ContextSelector, "prepare"),
             self.assertRaises(SelectionDenied),
@@ -312,6 +359,44 @@ class TestSelectionPermissions(SimpleTestCase):
 
 
 class TestSelectionDeadline(SimpleTestCase):
+    @parameterized.expand([("lookup",), ("actor",)])
+    @override_settings(CONTEXT_SELECTION_TIMEOUT_SECONDS=60)
+    def test_slow_run_checks_do_not_start_unused_selection(self, phase: str) -> None:
+        run = task_run()
+        clock = [0.0]
+
+        def lookup_run(**kwargs: object) -> TaskRun:
+            if phase == "lookup":
+                clock[0] = 61
+            return run
+
+        def current_actor(*args: object) -> bool:
+            if phase == "actor":
+                clock[0] = 61
+            return True
+
+        with (
+            patch("products.context_layer.backend.selection.time.monotonic", side_effect=lambda: clock[0]),
+            patch("products.context_layer.backend.selection.TaskRun.objects.select_related") as lookup,
+            patch("products.context_layer.backend.selection.is_current_task_run_actor", side_effect=current_actor),
+            patch("products.context_layer.backend.selection.build_system_one_client") as model,
+            patch("products.context_layer.backend.selection.httpx.Client") as source,
+            patch.object(Team.objects, "using") as teams,
+        ):
+            teams.return_value.only.return_value.get.return_value = run.team
+            lookup.return_value.get.side_effect = lookup_run
+            with self.assertRaises(SelectionUnavailable):
+                prepare_context_selection(
+                    42,
+                    run.id,
+                    run.task_id,
+                    User(id=5),
+                    SelectionInput(message_id="m", prompt="activation"),
+                    "Bearer fake",
+                )
+            model.assert_not_called()
+            source.assert_not_called()
+
     @override_settings(CONTEXT_SELECTION_TIMEOUT_SECONDS=-0.5)
     def test_timed_out_work_keeps_its_capacity_slot_until_finished(self) -> None:
         release, started = Event(), Event()
@@ -323,7 +408,7 @@ class TestSelectionDeadline(SimpleTestCase):
                 self.assertTrue(started.wait(timeout=5))
                 return future
 
-            def blocked():
+            def blocked(deadline: float):
                 started.set()
                 release.wait()
 
@@ -338,7 +423,7 @@ class TestSelectionDeadline(SimpleTestCase):
                     with self.assertRaises(SelectionUnavailable):
                         bounded_request(42, blocked)
                     with self.assertRaises(SelectionUnavailable):
-                        bounded_request(42, lambda: self.fail("queued behind timed-out work"))
+                        bounded_request(42, lambda deadline: self.fail("queued behind timed-out work"))
                 finally:
                     release.set()
                     executor.shutdown(wait=True)
@@ -403,6 +488,9 @@ class TestSelectionGateway(SimpleTestCase):
         self.assertEqual(len(body["questions"]), 32)
         for i, candidate in enumerate(candidates):
             key = f"candidate_{i}"
-            self.assertEqual(body["questions"][key]["instructions"]["candidate"]["reference"], candidate.reference)
-        self.assertEqual(body["state"], {"user_request": "request", "history": "history"})
+            self.assertEqual(body["state"]["candidates"][key]["reference"], candidate.reference)
+            self.assertIn(key, body["questions"][key]["instructions"])
+            self.assertNotIn(candidate.text, body["questions"][key]["instructions"])
+        self.assertEqual(body["state"]["user_request"], "request")
+        self.assertEqual(body["state"]["history"], "history")
         self.assertIn("rerank", str(post.call_args.kwargs["headers"]))

@@ -725,27 +725,32 @@ The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` us
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 
 Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
-Autonomous continuations, steering, and slash commands do not trigger selection.
+Autonomous continuations, CI and peer follow-ups, steering, and slash commands do not trigger selection.
+Follow-up delivery carries `userOriginated: false` for autonomous messages; older commands default to human origin.
+Shadow and treatment require the organization's existing AI data processing consent before retrieval or model calls.
+Sandbox OAuth requests share project rate limits of 30 preparations per minute and 300 per hour.
 
 System One first checks whether organizational context could help, using the request and bounded conversation history.
 When the gate passes, the selector calls the existing skill search, catalog list/search, and Business Knowledge search APIs with the sandbox bearer credential.
 There is no separate projection or refresh job. Candidate counts are bounded per source.
 Each source endpoint enforces its existing OAuth scopes, project restrictions, and actor permissions.
 The selector does not maintain a separate source or conversation-audience permission policy.
-System One reranks up to 32 returned candidates in one request. Each question contains its own candidate and shares the user request and history.
+System One reranks up to 32 returned candidates in one request. Candidate content, the user request, and history stay in model state; questions refer to candidate keys.
 Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
 Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
 References link to the retrieved sources; skill references fetch the latest published version by name.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
-Skill references contain descriptions, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
+Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
+Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
 A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
 This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
 The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
 It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
 
 Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
-Selection has a three-second budget by default. Saturation, timeout, and selection failures leave the ordinary prompt flow available.
+Selection has a three-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.
+Saturation, timeout, and selection failures leave the ordinary prompt flow available.
 Source requests run concurrently and use at most half the remaining budget, leaving time to score ready results.
 A denied, failed, or slow source does not suppress results from other sources.
 A failed or incomplete reranking response skips enrichment for the turn; individual scores are not recovered from a failed batch.
@@ -755,6 +760,7 @@ Each active session owns its bounded selection history. Session creation and res
 The shared prompt dispatch path prepares human requests, checks cancellation, and records completed turns. Human request text stays separate from resume wrappers and retry continuations.
 Native and summary resumes preserve bounded prior conversation history for later turns; a successful `/clear` resets selection history.
 Actor refreshes update the selection credential. Flag eligibility is checked on each human turn.
+Preparation failure reports distinguish HTTP status, timeouts, response validation, and transport failures without recording exception messages or source content.
 Startup preparation shares the message-delivery queue with follow-ups, preserving prompt order.
 Cancellation during preparation prevents the prepared prompt from reaching the model.
 The selector uses one implementation for source retrieval, scoring, and bounded rendering. Only source retrieval uses the bounded worker pool.

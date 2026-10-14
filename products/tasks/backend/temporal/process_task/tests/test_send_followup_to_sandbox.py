@@ -1231,13 +1231,17 @@ class TestSendFollowupTurnTimeout:
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 
-    def test_message_id_forwarded_to_sandbox(self, _patches):
+    @pytest.mark.parametrize("user_originated", [True, False])
+    def test_message_id_forwarded_to_sandbox(self, _patches, user_originated):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+        _run_activity(
+            SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1", user_originated=user_originated)
+        )
 
         _, kwargs = _patches["user_msg"].call_args
         assert kwargs["message_id"] == "m-1"
+        assert kwargs["user_originated"] == user_originated
 
 
 class TestPeerDeliveryMode:

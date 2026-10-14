@@ -1,4 +1,5 @@
-import type { PostHogAPIClient } from "../posthog-api";
+import { ZodError } from "zod/v4";
+import { type PostHogAPIClient, PostHogAPIError } from "../posthog-api";
 
 export interface HumanMessage {
   messageId: string;
@@ -39,11 +40,24 @@ export class ContextSelection {
         runtime_version: this.runtimeVersion,
       });
       return prepared.context;
-    } catch {
+    } catch (error) {
+      const errorType =
+        error instanceof PostHogAPIError
+          ? "http"
+          : error instanceof ZodError
+            ? "response_validation"
+            : error instanceof Error &&
+                (error.name === "TimeoutError" || error.name === "AbortError")
+              ? "timeout"
+              : "transport";
       this.report({
         event: "prepare_failed",
         run_id: this.runId,
         message_id: message.messageId,
+        error_type: errorType,
+        ...(error instanceof PostHogAPIError
+          ? { http_status: error.status }
+          : {}),
       });
       return "";
     }

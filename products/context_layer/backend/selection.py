@@ -34,7 +34,7 @@ MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000
 MAX_SOURCE_TEXT = 2_800
-CONFIG_VERSION = "context-selection-v11"
+CONFIG_VERSION = "context-selection-v12"
 type SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
 SOURCE_ENDPOINTS: dict[SourceKind, tuple[str, int]] = {
     "skill": ("llm_skills/search/", 10),
@@ -99,14 +99,22 @@ class SelectionUnavailable(RuntimeError):
     pass
 
 
-def bounded_request[T](team_id: int, operation: Callable[[], T]) -> T:
+def time_remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("selector_deadline")
+    return remaining
+
+
+def bounded_request[T](team_id: int, operation: Callable[[float], T]) -> T:
+    deadline = time.monotonic() + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
     if not _REQUEST_CAPACITY.acquire(blocking=False):
         raise SelectionUnavailable()
 
     def execute() -> T:
         try:
             with team_scope(team_id):
-                return operation()
+                return operation(deadline)
         finally:
             connections.close_all()
 
@@ -119,7 +127,7 @@ def bounded_request[T](team_id: int, operation: Callable[[], T]) -> T:
         raise
     future.add_done_callback(lambda _: _REQUEST_CAPACITY.release())
     try:
-        return cast(T, future.result(timeout=settings.CONTEXT_SELECTION_TIMEOUT_SECONDS + 0.5))
+        return cast(T, future.result(timeout=max(0, deadline - time.monotonic() + 0.5)))
     except TimeoutError as error:
         future.cancel()
         raise SelectionUnavailable() from error
@@ -168,7 +176,7 @@ class ContextSelector:
             base_url=settings.SITE_URL,
             headers={"Authorization": self._authorization},
             follow_redirects=False,
-            timeout=max(0, deadline - time.monotonic()),
+            timeout=time_remaining(deadline),
         ) as client:
             response = client.get(f"/api/projects/{self.run.team_id}/{path}", params=params)
             response.raise_for_status()
@@ -182,7 +190,7 @@ class ContextSelector:
         if kind == "skill":
             title = str(row["name"])
             identifier = title
-            payload = {"description": row["description"]}
+            payload = {"description": row["description"], "matches": row.get("matches", [])}
             reference = f"skill-get: skill_name={title}"
         elif kind == "business_knowledge":
             identifier = str(row["chunk_id"])
@@ -204,17 +212,29 @@ class ContextSelector:
                 title = f"{row['source_table_name']} -> {row['joining_table_name']}"
                 payload = {key: row[key] for key in ("source_table_key", "joining_table_key", "reasoning", "status")}
                 reference = f"{root}data_catalog/relationship_proposals/{identifier}/"
-        text = json.dumps(payload, ensure_ascii=False, default=str)
-        if len(text) > MAX_SOURCE_TEXT:
-            text = text[:MAX_SOURCE_TEXT] + " [truncated; read the source]"
         return Candidate(
             id=identifier,
             kind=kind,
             title=title,
-            text=text,
+            text=self.source_text(payload),
             reference=reference,
             document_id=document_id,
         )
+
+    @staticmethod
+    def source_text(payload: dict[str, object]) -> str:
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+        if len(text) <= MAX_SOURCE_TEXT:
+            return text
+        lifecycle = {key: payload[key] for key in ("status", "proposed_status", "is_drifted") if key in payload}
+        detail = json.dumps(
+            {key: value for key, value in payload.items() if key not in lifecycle}, ensure_ascii=False, default=str
+        )
+        marker = " [truncated; read the source]"
+        envelope_size = len(json.dumps({**lifecycle, "excerpt": marker}, ensure_ascii=False))
+        # Quoting the serialized excerpt can double its size through JSON escaping.
+        excerpt_budget = max(0, (MAX_SOURCE_TEXT - envelope_size) // 2)
+        return json.dumps({**lifecycle, "excerpt": detail[:excerpt_budget] + marker}, ensure_ascii=False)
 
     def retrieve(self, deadline: float) -> list[Candidate]:
         pending: dict[Future[list[Candidate]], SourceKind] = {}
@@ -245,9 +265,7 @@ class ContextSelector:
         return candidates
 
     def decision_client(self, deadline: float, step: Literal["gate", "rerank"]) -> "SystemOneClient":
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("selector_deadline")
+        remaining = time_remaining(deadline)
         return build_system_one_client(
             model=settings.HOGQL_PROMPT_JEV_MODEL,
             ai_product="posthog_ai",
@@ -284,13 +302,14 @@ class ContextSelector:
             state={
                 "user_request": self.selection.prompt,
                 "history": self.selection.history,
+                "candidates": {key: asdict(candidate) for key, candidate in keyed.items()},
             },
             questions={
                 key: replace(
                     RELEVANCE,
-                    instructions={"relevance": RELEVANCE.instructions, "candidate": asdict(candidate)},
+                    instructions=f"{RELEVANCE.instructions} Evaluate state.candidates[{key}].",
                 )
-                for key, candidate in keyed.items()
+                for key in keyed
             },
         ).answers
         scored: list[tuple[Candidate, float]] = []
@@ -304,8 +323,8 @@ class ContextSelector:
     def select(self, deadline: float) -> PreparedContext:
         if self.gate(deadline) <= 0.3:
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
-        started = time.monotonic()
-        candidates = self.retrieve(started + max(0, deadline - started) / 2)
+        remaining = time_remaining(deadline)
+        candidates = self.retrieve(deadline - remaining / 2)
         context = self.render(self.rerank(candidates, deadline))
         return PreparedContext(
             selection_id=self.selection_id,
@@ -348,9 +367,9 @@ class ContextSelector:
                 documents.add(candidate.document_id)
         return header + body + footer if selected_count else ""
 
-    def prepare(self) -> PreparedContext:
-        started = time.monotonic()
+    def prepare(self, deadline: float) -> PreparedContext:
         try:
+            time_remaining(deadline)
             self.mode = selection_mode(self.run)
             if self.mode == "disabled":
                 return PreparedContext()
@@ -360,7 +379,9 @@ class ContextSelector:
                     mode=self.mode,
                     reason="no_text" if not self.selection.prompt.strip() else "control",
                 )
-            return self.select(started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS)
+            if self.run.team.organization.is_ai_data_processing_approved is not True:
+                return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="ai_consent_required")
+            return self.select(deadline)
         except Exception as error:
             logger.warning("context_selection_failed", selection_id=self.selection_id, error_type=type(error).__name__)
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="error")
@@ -369,18 +390,21 @@ class ContextSelector:
 def prepare_context_selection(
     team_id: int, run_id: UUID, task_id: UUID, actor: User, selection: SelectionInput, authorization: str
 ) -> PreparedContext:
-    def execute() -> PreparedContext:
+    def execute(deadline: float) -> PreparedContext:
+        time_remaining(deadline)
         try:
             run = TaskRun.objects.select_related("task", "team__organization").get(
                 id=run_id, team_id=team_id, task_id=task_id
             )
         except TaskRun.DoesNotExist as error:
             raise SelectionRunNotFound() from error
+        time_remaining(deadline)
         if run.status != TaskRun.Status.IN_PROGRESS or run.environment != TaskRun.Environment.CLOUD:
             raise SelectionDenied("The cloud run is not active.")
         if not is_current_task_run_actor(team_id, run_id, actor.id):
             raise SelectionDenied("The credential no longer belongs to the current actor.")
-        result = ContextSelector(run, actor, selection, authorization).prepare()
+        time_remaining(deadline)
+        result = ContextSelector(run, actor, selection, authorization).prepare(deadline)
         if not is_current_task_run_actor(team_id, run_id, actor.id):
             raise SelectionDenied("The credential no longer belongs to the current actor.")
         return result

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { contextSelectionResponseSchema } from "../context-selection/schemas";
+import { PostHogAPIError } from "../posthog-api";
 import { ContextSelection } from "./context-selection";
 
 const message = { messageId: "m", text: "How is activation defined?" };
@@ -39,16 +40,34 @@ describe("cloud context selection", () => {
     expect(api.prepareContextSelection.mock.lastCall?.[0].history).toBe("");
   });
 
-  it("returns no enrichment on selection failure", async () => {
-    const { api, selector, report } = fixture();
-    api.prepareContextSelection.mockRejectedValue(new Error("timeout"));
-    expect(await selector.prepare(message)).toBe("");
-    expect(report).toHaveBeenCalledWith({
-      event: "prepare_failed",
-      run_id: "r",
-      message_id: "m",
-    });
-  });
+  it.each([
+    [new PostHogAPIError("sensitive response body", 403), "http", 403],
+    [
+      new DOMException("sensitive timeout details", "TimeoutError"),
+      "timeout",
+      undefined,
+    ],
+    [
+      contextSelectionResponseSchema.safeParse({}).error,
+      "response_validation",
+      undefined,
+    ],
+    [new Error("sensitive transport details"), "transport", undefined],
+  ])(
+    "returns no enrichment and safe diagnostics on %s",
+    async (error, category, status) => {
+      const { api, selector, report } = fixture();
+      api.prepareContextSelection.mockRejectedValue(error);
+      expect(await selector.prepare(message)).toBe("");
+      expect(report).toHaveBeenCalledWith({
+        event: "prepare_failed",
+        run_id: "r",
+        message_id: "m",
+        error_type: category,
+        ...(status ? { http_status: status } : {}),
+      });
+    },
+  );
 
   it.each(["x", "😀"])(
     "bounds Unicode history and requests: %s",

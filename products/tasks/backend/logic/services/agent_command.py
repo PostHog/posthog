@@ -395,6 +395,7 @@ def send_user_message(
     timeout: int = COMMAND_TIMEOUT_SECONDS,
     message_id: str | None = None,
     steer: bool = False,
+    user_originated: bool = True,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent.
 
@@ -411,6 +412,8 @@ def send_user_message(
         params["messageId"] = message_id
     if steer:
         params["steer"] = True
+    if not user_originated:
+        params["userOriginated"] = False
     return send_agent_command(
         task_run,
         method="user_message",
