@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-config-service",),
+        cargo=("aws-sdk-config",),
+        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
+        maven=("software.amazon.awssdk:config", "com.amazonaws:aws-java-sdk-config"),
+        rubygems=("aws-sdk-configservice",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (CONFIG_API_VERSION,)
     default_version = CONFIG_API_VERSION

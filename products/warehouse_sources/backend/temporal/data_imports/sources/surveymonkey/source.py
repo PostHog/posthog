@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,14 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SURVEY_MONKEY|SURVEYMONKEY)_",),
+        npm=("surveymonkey-react-native",),
+        cocoapods=("surveymonkey-ios-sdk",),
+        maven=("com.surveymonkey:surveymonkey-android-sdk",),
+        swiftpm=("github.com/surveymonkey/surveymonkey-ios-sdk",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://api.surveymonkey.com/v3/docs"
