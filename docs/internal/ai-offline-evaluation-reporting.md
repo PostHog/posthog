@@ -92,6 +92,7 @@ A `None` score becomes `skipped`; a task error or missing scorer result becomes 
 LLM judge exceptions publish an `error` outcome with code `judge_error`; the existing zero fallback remains in Braintrust and local aggregates.
 A failed scorer does not replace successful results from other scorers on the same case.
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
+The shared scorer layer observes return values and exceptions without converting them; Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
 Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
 Application and dataset revisions use the commit captured at run start.
 

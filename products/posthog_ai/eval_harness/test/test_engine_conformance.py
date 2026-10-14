@@ -290,6 +290,8 @@ def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
     "score_output, expected_scores, expected_trace_ids",
     [
         (0.5, {"score": 0.5}, {"score": "origin-trace"}),
+        (1.1, {}, {}),
+        ([Score(name="first", score=1.0), {"name": "invalid", "score": 0.5}], {}, {}),
         (
             {"name": "metric", "score": 0.25, "metadata": {"reason": "Partial match"}},
             {"metric": 0.25},
@@ -310,21 +312,27 @@ def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
         ),
     ],
 )
-@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize("scorer_form", ["sync", "async", "instance", "class"])
 def test_callable_scorers_keep_their_supported_return_shapes(
     engine: BraintrustEngine,
     score_output: object,
     expected_scores: dict[str, float | None],
     expected_trace_ids: dict[str, str],
-    is_async: bool,
+    scorer_form: str,
 ) -> None:
+    calls = 0
+
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         return {"answer": "match"}
 
+    scorer_name = "async_score" if scorer_form == "async" else "score"
+
     def score(output: dict[str, Any], metadata: dict[str, Any]) -> object:
+        nonlocal calls
+        calls += 1
         assert output == {"answer": "match"}
         metadata["scorer_trace_ids"] = {
-            scorer.__name__: "origin-trace",
+            scorer_name: "origin-trace",
             "first": "metric-trace",
             "third": "metric-trace",
         }
@@ -333,15 +341,19 @@ def test_callable_scorers_keep_their_supported_return_shapes(
     async def async_score(output: dict[str, Any], metadata: dict[str, Any]) -> object:
         return score(output, metadata)
 
-    scorer = async_score if is_async else score
-    expected_scores = {
-        "async_score" if name == "score" and is_async else name: value for name, value in expected_scores.items()
-    }
-    expected_trace_ids = {
-        "async_score" if name == "score" and is_async else name: value for name, value in expected_trace_ids.items()
-    }
+    class _CallableScorer(Scorer):
+        def _name(self) -> str:
+            return "score"
+
+        def _run_eval_sync(self, output: Any, expected: Any = None, **kwargs: Any) -> Any:
+            return score(output, kwargs["metadata"])
+
+    scorer = {"sync": score, "async": async_score, "instance": _CallableScorer(), "class": _CallableScorer}[scorer_form]
+    expected_scores = {scorer_name if name == "score" else name: value for name, value in expected_scores.items()}
+    expected_trace_ids = {scorer_name if name == "score" else name: value for name, value in expected_trace_ids.items()}
     result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
 
+    assert calls == 1
     assert result.results[0].scores == expected_scores
     assert {name: outcome.value for name, outcome in result.results[0].scorer_results.items()} == expected_scores
     assert {
