@@ -115,10 +115,9 @@ _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com
 # The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
 # tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
 NARROWED_APP_POLICY_REPORT_VERSION = "4"
-# Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`.
+# Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`. Reports tagged
+# v=6 came from a report-only policy for style-src and font-src, so a new policy must take another version.
 IMG_SRC_SHADOW_REPORT_VERSION = "5"
-# Reports tagged v=6 come from a report-only policy that holds only style-src and font-src, with named PostHog hosts.
-STYLE_FONT_SHADOW_REPORT_VERSION = "6"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -147,19 +146,6 @@ def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
     supply, before `https:` can go. The policy names no other directive, so it restricts nothing else.
     """
     return [" ".join(s for s in part.split() if s != "https:") for part in csp_parts if part.split()[0] == "img-src"]
-
-
-def style_font_shadow_policy(csp_parts: list[str], sources: list[str]) -> list[str]:
-    """The app policy's style-src and font-src with the PostHog wildcards swapped for `sources`, to send as a
-    report-only policy of its own.
-
-    Local runs and E2E keep the wildcards, so production is the first place a named list applies. Enforced,
-    a host the list misses leaves the page without its styles or fonts and shows the user no error. Reported,
-    the same miss arrives as a report while the page still loads. The policy names no other directive, so it
-    restricts nothing else.
-    """
-    narrowed = narrowed_app_policy(csp_parts, {"style-src": sources, "font-src": sources})
-    return [part for part in narrowed if part.split()[0] in ("style-src", "font-src")]
 
 
 class CSPMiddleware:
@@ -427,18 +413,18 @@ class CSPMiddleware:
                             # A task run's live stream, when the server hands out the region's agent-proxy.
                             *agent_proxy,
                         ],
+                        # The app's stylesheets and fonts load from its bundle. posthog-js can load the toolbar on
+                        # an app page, and the toolbar loads its stylesheet and fonts from beside its script under
+                        # /static/. font-src already names both regions' bundle hosts, and it takes the bundle
+                        # here too so that fonts follow JS_URL as scripts and stylesheets do.
+                        #
+                        # Production is the first place these two lists apply. A host they miss leaves the page
+                        # without its styles or fonts and shows the user no error.
+                        "style-src": [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"],
+                        "font-src": [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"],
                     },
                 )
-                shadows = {
-                    IMG_SRC_SHADOW_REPORT_VERSION: img_src_shadow_policy(csp_parts),
-                    # The app's stylesheets and fonts load from its bundle. posthog-js can load the toolbar on
-                    # an app page, and the toolbar loads its stylesheet and fonts from beside its script under
-                    # /static/. font-src already names both regions' bundle hosts, and it takes the bundle
-                    # here too so that fonts follow JS_URL as scripts and stylesheets do.
-                    STYLE_FONT_SHADOW_REPORT_VERSION: style_font_shadow_policy(
-                        csp_parts, [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"]
-                    ),
-                }
+                shadows = {IMG_SRC_SHADOW_REPORT_VERSION: img_src_shadow_policy(csp_parts)}
 
             user = getattr(request, "user", None)
             distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
