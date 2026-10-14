@@ -61,7 +61,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence import repair_distinct_id
+from posthog.models.person.divergence.repairs import repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
