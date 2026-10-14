@@ -125,6 +125,7 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    owned_by_platform: bool = False
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -333,6 +334,10 @@ class AlertDeliveryRequest:
     actions, so its rows reach no message destination even when their kind has an event id.
     `event_ids_by_incident_action` maps each action onto the event id an incident manager
     destination filters on, the way `event_ids_by_kind` does for a message.
+
+    `owned_by_platform` is the owner when the check was read, not when the delivery runs. The
+    source decided its own send for that check from the same owner, so a retry across a cutover
+    or a rollback still has exactly one stack sending.
     """
 
     source: SourceKind
@@ -344,6 +349,7 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    owned_by_platform: bool = False
 
 
 @frozen

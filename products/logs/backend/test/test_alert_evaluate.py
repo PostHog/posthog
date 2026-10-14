@@ -108,9 +108,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    @parameterized.expand([("without_a_paging_destination", False), ("with_a_paging_destination", True)])
-    def test_a_breaching_configuration_fires_and_records_its_own_state(self, _name: str, paged: bool) -> None:
-        configuration = self._configuration()
+    @parameterized.expand(
+        [
+            ("without_a_paging_destination", False, "source"),
+            ("with_a_paging_destination", True, "source"),
+            ("owned_by_the_platform", False, "platform"),
+        ]
+    )
+    def test_a_breaching_configuration_fires_and_records_its_own_state(
+        self, _name: str, paged: bool, owner: str
+    ) -> None:
+        configuration = self._configuration(owner=owner)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -118,8 +126,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
-        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
-            (True, {"": IncidentAction.TRIGGER} if paged else {})
+        assert [(d.sends_messages, d.incident_actions, d.owned_by_platform) for d in evaluation.deliveries] == [
+            (True, {"": IncidentAction.TRIGGER} if paged else {}, owner == "platform")
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
