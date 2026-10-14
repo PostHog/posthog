@@ -1,6 +1,7 @@
 import io
 import asyncio
 import logging
+import dataclasses
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,13 +17,13 @@ from products.mcp_analytics.backend.agent_evals import runner
 from products.mcp_analytics.backend.agent_evals.agent_loop import AgentTrial, TrialUsage
 from products.mcp_analytics.backend.agent_evals.runner import RunConfig, tool_result_text
 from products.mcp_analytics.backend.agent_evals.scenarios import Scenario
-from products.mcp_analytics.backend.management.commands.run_mcp_evals import _headers
+from products.mcp_analytics.backend.management.commands.run_mcp_evals import _headers, _url
 
 SCENARIO = Scenario(
     id="flags-list-active", intent="List all our active feature flags.", success_criteria="Returns the flags."
 )
 CONFIG = RunConfig(
-    url="http://localhost:8787/mcp?token=secret",
+    url="http://localhost:8787/mcp/cap-secret",
     headers={},
     scenarios=(SCENARIO,),
     trials=1,
@@ -44,55 +45,53 @@ ANSWERED = AgentTrial(
 
 
 class TestRunnerBoundaries(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "query_token",
-                "GET https://mcp.example.com/mcp?token=abc failed",
-                "GET https://mcp.example.com/mcp failed",
-            ),
-            (
-                "userinfo_in_another_url",
-                "redirect to 'http://u:p@other.example.com/x?k=1'",
-                "redirect to 'http://other.example.com/x'",
-            ),
-        ]
-    )
-    def test_recorded_failures_carry_no_credentials(self, _name: str, message: str, expected: str) -> None:
-        assert runner.describe_failure(ConnectionError(message), {"Authorization": "Bearer tok123"}) == expected
+    def test_recorded_failures_carry_neither_the_path_nor_header_values(self) -> None:
+        config = dataclasses.replace(
+            CONFIG, url="https://mcp.example.com/mcp/cap-secret", headers={"X-Api-Key": "k-123"}
+        )
+        message = "401 for https://mcp.example.com/mcp/cap-secret with X-Api-Key k-123"
 
-    def test_library_logs_lose_url_credentials_while_redaction_is_on(self) -> None:
+        assert runner.describe_failure(ConnectionError(message), config) == (
+            "401 for https://mcp.example.com with X-Api-Key [redacted]"
+        )
+
+    def test_transport_logs_stay_quiet_during_a_run(self) -> None:
         stream = io.StringIO()
         handler = logging.StreamHandler(stream)
         logging.getLogger().addHandler(handler)
         self.addCleanup(logging.getLogger().removeHandler, handler)
-        url = "https://mcp.example.com/mcp?token=abc"
 
-        with runner.redacted_logs():
-            try:
-                raise ConnectionError(f"401 for {url}")
-            except ConnectionError:
-                logging.getLogger("mcp.client.streamable_http").exception("POST %s failed", url)
+        with runner.quiet_transport_logs():
+            logging.getLogger("mcp.client.streamable_http").error("POST https://mcp.example.com/mcp/cap-secret failed")
 
-            logging.getLogger("mcp.client.streamable_http").error({"event": "request failed", "url": url})
-
-        assert "token=abc" not in stream.getvalue()
-        assert "POST https://mcp.example.com/mcp failed" in stream.getvalue()
-        assert "{'event': 'request failed', 'url': 'https://mcp.example.com/mcp'}" in stream.getvalue()
+        assert stream.getvalue() == ""
+        assert logging.getLogger("mcp").level == logging.NOTSET
 
     @parameterized.expand(
         [
             (
-                "userinfo_and_query_are_dropped",
-                "https://user:secret@mcp.example.com/mcp?token=abc#x",
-                "https://mcp.example.com/mcp",
+                "userinfo_and_path_are_dropped",
+                "https://user:secret@mcp.example.com/mcp/cap-secret",
+                "https://mcp.example.com",
             ),
-            ("the_port_is_kept", "http://localhost:8787/mcp", "http://localhost:8787/mcp"),
-            ("ipv6_keeps_its_brackets", "http://[::1]:8787/mcp", "http://[::1]:8787/mcp"),
+            ("the_port_is_kept", "http://localhost:8787/mcp", "http://localhost:8787"),
+            ("ipv6_keeps_its_brackets", "http://[::1]:8787/mcp", "http://[::1]:8787"),
         ]
     )
-    def test_server_url_is_recorded_without_credentials(self, _name: str, url: str, expected: str) -> None:
-        assert runner._without_credentials(url) == expected
+    def test_the_report_records_only_the_server_origin(self, _name: str, url: str, expected: str) -> None:
+        assert runner.server_origin(url) == expected
+
+    @parameterized.expand(
+        [
+            ("query", "https://mcp.example.com/mcp?token=abc"),
+            ("userinfo", "https://u:p@mcp.example.com/mcp"),
+            ("fragment", "https://mcp.example.com/mcp#k"),
+            ("not_http", "ftp://mcp.example.com/mcp"),
+        ]
+    )
+    def test_a_url_that_could_carry_credentials_is_rejected(self, _name: str, url: str) -> None:
+        with self.assertRaises(CommandError):
+            _url(url)
 
     @parameterized.expand(
         [
@@ -160,7 +159,7 @@ class TestTrialFailureBoundary(SimpleTestCase):
             (
                 "an_open_failure_is_an_mcp_error_with_the_real_cause_and_no_token",
                 "open",
-                ("mcp_error", "connection refused: http://localhost:8787/mcp"),
+                ("mcp_error", "connection refused: http://localhost:8787"),
             ),
         ]
     )

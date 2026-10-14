@@ -15,6 +15,7 @@ import re
 import asyncio
 from pathlib import Path
 from typing import cast, get_args
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -26,7 +27,7 @@ from products.mcp_analytics.backend.agent_evals.runner import (
     RunConfig,
     describe_failure,
     format_run_summary,
-    redacted_logs,
+    quiet_transport_logs,
     run_agent_evals,
 )
 from products.mcp_analytics.backend.agent_evals.scenarios import load_scenarios
@@ -68,7 +69,7 @@ class Command(BaseCommand):
         scenarios = tuple(scenario for scenario in scenario_file.scenarios if not only or scenario.id in only)
 
         config = RunConfig(
-            url=cast(str, options["url"]),
+            url=_url(cast(str, options["url"])),
             headers=_headers(cast(list[str], options["header"]), os.environ.get(TOKEN_ENV)),
             scenarios=scenarios,
             trials=cast(int, options["trials"]),
@@ -78,20 +79,28 @@ class Command(BaseCommand):
             max_turns=cast(int, options["max_turns"]),
         )
         try:
-            with redacted_logs():
+            with quiet_transport_logs():
                 report = asyncio.run(
                     run_agent_evals(config, anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY))
                 )
         except Exception as unreachable:
             # Only the catalog session raises here; every trial failure stays inside its trial.
-            raise CommandError(
-                f"could not list the server's tools: {describe_failure(unreachable, config.headers)}"
-            ) from None
+            raise CommandError(f"could not list the server's tools: {describe_failure(unreachable, config)}") from None
 
         out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report.to_json())
         self.stdout.write(f"{format_run_summary(report)}\nwrote {out}")
+
+
+def _url(raw: str) -> str:
+    parts = urlsplit(raw)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise CommandError("--url must be an http or https URL")
+    if parts.username or parts.password or parts.query or parts.fragment:
+        # Credentials travel in a header, which never reaches the report or the logs.
+        raise CommandError(f"--url must have no credentials or query; use {TOKEN_ENV} or --header")
+    return raw
 
 
 def _headers(raw_headers: list[str], token: str | None) -> dict[str, str]:

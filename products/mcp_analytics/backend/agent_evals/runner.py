@@ -1,15 +1,13 @@
-import re
 import json
 import time
 import asyncio
 import logging
-import traceback
 import dataclasses
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import anthropic
 from anthropic.types import Message, MessageParam, TextBlockParam, ToolParam
@@ -54,7 +52,8 @@ class RunConfig:
 
 @frozen
 class AgentRunReport:
-    server_url: str
+    # The origin only: a path can carry a capability token, and the report is shared.
+    server_origin: str
     # Names only, because any header can carry a credential on a server we don't know.
     header_names: tuple[str, ...]
     tool_names: tuple[str, ...]
@@ -100,7 +99,7 @@ async def run_agent_evals(config: RunConfig, client: anthropic.AsyncAnthropic) -
         trials.extend(await asyncio.gather(*(bounded(scenario, trial) for scenario in config.scenarios)))
 
     return AgentRunReport(
-        server_url=_without_credentials(config.url),
+        server_origin=server_origin(config.url),
         header_names=tuple(config.headers),
         tool_names=tuple(tool.name for tool in tools),
         scenarios=config.scenarios,
@@ -151,7 +150,7 @@ async def _run_scenario(
                 try:
                     result = await session.call_tool(name, tool_input, read_timeout_seconds=TOOL_CALL_TIMEOUT)
                 except Exception as error:
-                    return ToolOutcome(text=describe_failure(error, config.headers), is_error=True)
+                    return ToolOutcome(text=describe_failure(error, config), is_error=True)
                 return ToolOutcome(text=tool_result_text(result), is_error=bool(result.isError))
 
             deps = TrialDeps(create_message=create_message, call_tool=call_tool, now_ms=_now_ms)
@@ -167,16 +166,16 @@ async def _run_scenario(
                 turns=0,
                 usage=TrialUsage(),
                 duration_ms=0,
-                error=describe_failure(error, config.headers),
+                error=describe_failure(error, config),
             )
     assert finished is not None
     return finished
 
 
-def describe_failure(error: Exception, headers: Mapping[str, str]) -> str:
-    # HTTP errors quote the request URL, which can carry a token, and can quote a rejected header value.
-    text = redact_urls(_describe(error))
-    for value in headers.values():
+def describe_failure(error: Exception, config: RunConfig) -> str:
+    # HTTP errors quote the request URL, and a rejected header's value.
+    text = _describe(error).replace(config.url.rstrip("/"), server_origin(config.url))
+    for value in config.headers.values():
         if value:
             text = text.replace(value, "[redacted]")
     return text
@@ -234,7 +233,7 @@ def format_run_summary(report: AgentRunReport) -> str:
         by_scenario.setdefault(trial.scenario_id, []).append(trial)
     answered = sum(1 for trial in report.trials if trial.outcome == "answered")
     lines = [
-        f"agent run on {report.server_url}: {report.model} ({report.effort or 'default effort'}), "
+        f"agent run on {report.server_origin}: {report.model} ({report.effort or 'default effort'}), "
         f"{len(by_scenario)} scenarios x {report.trials_per_scenario} trials",
         f"answered {answered}/{len(report.trials)}",
     ]
@@ -245,44 +244,23 @@ def format_run_summary(report: AgentRunReport) -> str:
     return "\n".join(lines)
 
 
-_URL = re.compile(r"https?://[^\s'\"<>]+")
-
-
-def redact_urls(text: str) -> str:
-    return _URL.sub(lambda match: _without_credentials(match.group(0)), text)
-
-
-class _RedactUrls(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, dict):
-            # structlog hands its formatter the event dict, which has to stay a dict.
-            record.msg = {
-                key: redact_urls(value) if isinstance(value, str) else value for key, value in record.msg.items()
-            }
-        else:
-            record.msg, record.args = redact_urls(record.getMessage()), None
-        if record.exc_info:
-            record.exc_text = redact_urls("".join(traceback.format_exception(*record.exc_info)))
-            record.exc_info = None
-        return True
-
-
 @contextmanager
-def redacted_logs() -> Iterator[None]:
-    """The MCP SDK and httpx log request URLs and tracebacks themselves, before any failure reaches us."""
-    handlers, redact = list(logging.getLogger().handlers), _RedactUrls()
-    for handler in handlers:
-        handler.addFilter(redact)
+def quiet_transport_logs() -> Iterator[None]:
+    """The MCP SDK and httpx log request URLs and tracebacks; the report already records every failure."""
+    loggers = [logging.getLogger(name) for name in ("mcp", "httpx", "httpcore")]
+    levels = [logger.level for logger in loggers]
+    for logger in loggers:
+        logger.setLevel(logging.CRITICAL + 1)
     try:
         yield
     finally:
-        for handler in handlers:
-            handler.removeFilter(redact)
+        for logger, level in zip(loggers, levels, strict=True):
+            logger.setLevel(level)
 
 
-def _without_credentials(url: str) -> str:
+def server_origin(url: str) -> str:
     parts = urlsplit(url)
-    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment=""))
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}"
 
 
 def _now_ms() -> int:
