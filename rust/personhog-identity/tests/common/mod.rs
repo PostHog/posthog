@@ -229,6 +229,17 @@ impl TestContext {
 pub struct UnusedLeader;
 
 #[async_trait::async_trait]
+impl personhog_identity::leader::PersonStateReader for UnusedLeader {
+    async fn is_identified(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+    ) -> Result<Option<bool>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
+
+#[async_trait::async_trait]
 impl personhog_identity::leader::PropertyWriter for UnusedLeader {
     async fn update_person_properties(
         &self,
