@@ -12,6 +12,8 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from posthog.dataclasses import frozen
+
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
@@ -713,8 +715,14 @@ def stale_managed_view_copies() -> QuerySet[Node]:
     ).exclude(dag__name=REVENUE_ANALYTICS_DAG_NAME)
 
 
-def _user_readers_of(copies: QuerySet[Node]) -> list[tuple[UUID, UUID]]:
-    return list(
+@frozen
+class _Reader:
+    node_id: UUID
+    saved_query_id: UUID
+
+
+def _user_readers_of(copies: QuerySet[Node]) -> list[_Reader]:
+    rows = (
         Node.objects.filter(
             incoming_edges__source__in=copies,
             saved_query__isnull=False,
@@ -724,22 +732,23 @@ def _user_readers_of(copies: QuerySet[Node]) -> list[tuple[UUID, UUID]]:
         .values_list("id", "saved_query_id")
         .distinct()
     )
+    return [_Reader(node_id=node_id, saved_query_id=saved_query_id) for node_id, saved_query_id in rows]
 
 
-def _repoint_reader(team_id: int, node_id: UUID, saved_query_id: UUID, database: Database) -> None:
+def _repoint_reader(team_id: int, reader: _Reader, database: Database) -> None:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     try:
         with transaction.atomic():
             saved_query = DataWarehouseSavedQuery.objects.select_for_update(no_key=True).get(
-                team_id=team_id, id=saved_query_id
+                team_id=team_id, id=reader.saved_query_id
             )
-            node = Node.objects.select_related("dag").filter(team_id=team_id, id=node_id).first()
+            node = Node.objects.select_related("dag").filter(team_id=team_id, id=reader.node_id).first()
             if node is None:
                 return
             sync_saved_query_to_dag(saved_query, dag=node.dag, reconcile=False, database=database)
     except Exception:
-        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(node_id))
+        logger.exception("Could not repoint a reader of a stale managed view copy", node_id=str(reader.node_id))
 
 
 def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> None:
@@ -764,7 +773,7 @@ def retire_stale_managed_view_copies(team_id: int, copy_ids: Iterable[UUID]) -> 
             bypass_warehouse_access_control=True,
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
-        for node_id, saved_query_id in readers:
-            _repoint_reader(team_id, node_id, saved_query_id, database)
+        for reader in readers:
+            _repoint_reader(team_id, reader, database)
     for dag in DAG.objects.filter(team_id=team_id, id__in=copies.values("dag_id")).order_by("id"):
         _delete_unread_copies(team_id, dag, copies)
