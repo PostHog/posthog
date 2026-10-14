@@ -2,8 +2,8 @@
 
 from products.alerts_platform.backend.delivery import addresses, describers, destinations
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
     DestinationResolver,
-    DestinationType,
     SourceDescriber,
     SourceKind,
 )
@@ -17,6 +17,6 @@ def register_source_describer(source: SourceKind, describer: SourceDescriber) ->
     describers.register(source, describer)
 
 
-def refused_address(destination_type: DestinationType, url: str) -> str | None:
-    """Why native delivery would refuse to send to this URL, or None when it would send."""
-    return addresses.refused_address(destination_type, url)
+def refused_destination(data: AlertDestinationData) -> str | None:
+    """Why native delivery would refuse to send to this destination, or None when it would send."""
+    return addresses.refused_destination(data)

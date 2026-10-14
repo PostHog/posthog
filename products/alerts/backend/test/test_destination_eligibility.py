@@ -18,6 +18,11 @@ WEBHOOK_INPUTS: dict[str, Any] = {
     "body": {"value": {"type": "logs_alert.firing"}},
     "headers": {"value": {"Content-Type": "application/json"}},
 }
+PAGERDUTY_INPUTS: dict[str, Any] = {
+    "routing_key": {"value": "not-a-real-key"},
+    "severity": {"value": "critical"},
+    "region": {"value": "us"},
+}
 SLACK_INPUTS: dict[str, Any] = {
     "slack_workspace": {"value": 1},
     "channel": {"value": "C-1"},
@@ -204,9 +209,18 @@ class TestDestinationEligibility(APIBaseTest):
 
         assert self._classify() == (DestinationHoldBack.UNTRACKED_EDIT,)
 
-    @parameterized.expand([("plain_http", "http://hooks.example.com/hook"), ("malformed", "https://[invalid/hook")])
-    def test_a_webhook_url_native_delivery_refuses_is_held_back(self, _name: str, url: str) -> None:
-        self._function("template-webhook", _with(WEBHOOK_INPUTS, "url", url))
+    @parameterized.expand(
+        [
+            ("plain_http", "template-webhook", _with(WEBHOOK_INPUTS, "url", "http://hooks.example.com/hook")),
+            ("malformed", "template-webhook", _with(WEBHOOK_INPUTS, "url", "https://[invalid/hook")),
+            ("unknown_severity", "template-pagerduty", {**PAGERDUTY_INPUTS, "severity": {"value": "urgent"}}),
+            ("unknown_region", "template-pagerduty", {**PAGERDUTY_INPUTS, "region": {"value": "apac"}}),
+        ]
+    )
+    def test_a_destination_native_delivery_refuses_is_held_back(
+        self, _name: str, template_id: str, inputs: dict[str, Any]
+    ) -> None:
+        self._function(template_id, inputs)
 
         assert self._classify() == (DestinationHoldBack.REFUSED_ADDRESS,)
 
