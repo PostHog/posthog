@@ -79,7 +79,7 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
         pub=("optimizely_flutter_sdk",),
         rubygems=("optimizely-sdk",),
         swiftpm=("github.com/optimizely/swift-sdk",),
-        competes_with=(ProductKey.EXPERIMENTS,),
+        alternative_to=(ProductKey.EXPERIMENTS,),
     )
 
     supported_versions = ("v2",)

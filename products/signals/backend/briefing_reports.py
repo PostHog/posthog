@@ -29,6 +29,8 @@ from products.signals.backend.implementation_pr import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
 from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
@@ -454,7 +456,7 @@ def reports_for_briefing(
             relation=candidate.relation,
             title=_trimmed(report.title, 200) or "Untitled report",
             summary=_trimmed(report.summary, _SUMMARY_LIMIT),
-            status=report.status,
+            status=report.effective_status,
             priority=candidate.priority,
             has_implementation_pr=report.has_implementation_pr,
             source_products=source_products.get(candidate.report_id, []),
@@ -539,12 +541,17 @@ def report_details(
         return []
     reports = list(
         SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only(
-            "id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
+            "id", "team_id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
         )
     )
     found_ids = [str(report.id) for report in reports]
     priorities = _priorities(team_id, found_ids)
     pull_requests = fetch_implementation_pr_state_for_reports(found_ids, team_id=team_id)
+    monitoring_enabled = (
+        team_report_monitoring_enabled(team_id)
+        if any(report.status == SignalReport.Status.MONITORING for report in reports)
+        else None
+    )
     details = []
     for report in reports:
         report_id = str(report.id)
@@ -552,7 +559,7 @@ def report_details(
         details.append(
             BriefingReportDetails(
                 report_id=report_id,
-                status=report.status,
+                status=effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled),
                 priority=priorities.get(report_id),
                 summary=summary_lead(report.summary, SUMMARY_LEAD_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)

@@ -108,7 +108,7 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
             "com.quantpulsar:opentelemetry-exporter-langfuse",
         ),
         rubygems=("langfuse-rb", "langfuse-ruby", "langfuse"),
-        competes_with=(ProductKey.LLM_ANALYTICS,),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
