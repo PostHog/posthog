@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id::bigint as \"id!\", uuid as \"uuid!\", created_at as \"created_at!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2)\n            FOR UPDATE\n            ",
+  "query": "\n            SELECT id::bigint as \"id!\", uuid as \"uuid!\", created_at as \"created_at!\", is_deleted as \"is_deleted!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND uuid = ANY($2)\n            FOR UPDATE\n            ",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "created_at!",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_deleted!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -28,8 +33,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "49bcc915e71cec48ea8e91fac80f2e4a004a39a064354ea5ef7dd6ae4e5afb78"
+  "hash": "f075e90842db8d0e8b747f98b72cd7160de42994fbfc4c7de7abb86ed64c4451"
 }
