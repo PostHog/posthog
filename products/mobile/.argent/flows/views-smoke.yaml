@@ -26,6 +26,73 @@ steps:
     - await: { visible: { id: views-pin-value-insight-demo-ins-signups } }
     - await: { idle: true }
 
+    - echo: On Views. Open Product KPIs. Expect the dashboard on its saved range
+    - tap: { id: views-pin-dashboard-demo-dash-kpis }
+    - await: { visible: { id: view-range } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+
+    - echo: On the dashboard. Pick 7 days. Expect Last 7 days and Not saved
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tap: { id: range-chip-7d }
+    - await: { idle: true }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - assert: { text: { in: { id: view-range }, contains: Last 7 days } }
+    - await: { visible: { id: view-range-not-saved } }
+
+    - echo: Step back one period. Expect the dates of the 8 days before
+    - tap: { id: range-step-prev }
+    - await: { idle: true }
+    - assert: { text: { in: { id: view-range }, contains: – } }
+
+    - echo: Reset to the saved range. Expect Last 14 days and no Not saved
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
+    - tap: { id: range-reset }
+    - await: { hidden: { id: range-reset } }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+    - await: { hidden: { id: view-range-not-saved } }
+
+    - echo: Open the Daily active users tile. Expect the insight on the dashboard's range
+    - tap: { id: view-tile-open-1 }
+    - await: { visible: { id: insight-scroll } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+
+    - echo: On the insight. Turn on compare. Expect the previous period in the legend
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
+    - tap: { id: range-compare }
+    - await: { idle: true }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - await: { visible: { text: Previous period } }
+
+    - echo: Tap the chart. Expect a pinned tooltip. Tap it. Expect the point sheet
+    - tap: { id: chart-demo-ins-dau }
+    - await: { idle: true }
+    - await: { visible: { id: chart-demo-ins-dau-tooltip } }
+    - tap: { id: chart-demo-ins-dau-tooltip }
+    - await: { visible: { id: point-sheet } }
+    - await: { idle: true }
+
+    - echo: Close the point sheet and go back twice. Expect Views
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: point-sheet } }
+    - tap: { id: view-back }
+    - await: { visible: { id: dashboard-tiles } }
+    - tap: { id: view-back }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
     - echo: On Views. Scroll to Browse and open Dashboards. Expect the dashboard list
     - tool: gesture-swipe
       args: { fromX: 0.5, fromY: 0.8, toX: 0.5, toY: 0.25, durationMs: 300 }

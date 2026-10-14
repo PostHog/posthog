@@ -74,13 +74,15 @@ A pin shows in one of three modes, chosen on this phone:
 
 | Mode | Shows | Height | Reads data |
 | --- | --- | --- | --- |
-| Row | Icon, name, the view type ("Dashboard", "Notebook · Opens on the web") | 64 pt | No |
+| Row | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt | No |
 | Number | The value, a neutral change pill, the saved range or the tile name, a 14-bucket sparkline | 139 pt | Yes |
 | Chart | The value, the change pill, a compact `MetricChart` | 207 pt | Yes |
 
 Each mode has a fixed height, so the list never moves when a value arrives or a chart's canvas replaces its sparkline placeholder.
 Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`.
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
+A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.
+A Chart pin draws the first current series and its previous period (`pinChartSeries`, built on `snapshotChartSeries`), because the pin has no legend.
 Web analytics and pins that open on the web show as rows only (`pinModes`).
 
 A dashboard pin in Number or Chart mode shows one tile.
@@ -97,7 +99,8 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 - "Edit pins" (More menu, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions.
 
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.
-Pin and unpin show a toast with Undo. Undo pins the view again as a new row, so it comes back as a Row at the end of the list.
+Pin and unpin show a toast with Undo, from the list, Browse and a view's pin button alike (`ViewsToast` and `useToasts`). The toast draws through the nearest `OverlayHost`, so it sits above the tab bar and any open sheet.
+Undo pins the view again as a new row, so it comes back as a Row at the end of the list.
 
 ### Search and Browse
 
@@ -114,4 +117,45 @@ The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views
 | Web analytics | `/views/web-analytics?from={entry}` |
 | Browse lists | `/views/browse/dashboards`, `/views/browse/insights` |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse` or `search`) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search` or `dashboard`) for `mobile_view_opened`; `mode` is the pin's display mode.
+Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`), never by hand.
+An insight opened from a tile also carries `fromDashboard` and `insightId`: it reads with `from_dashboard` and shares the dashboard's session range.
+Deep links work: `posthog://views/dashboard/demo-dash-kpis`, `posthog://views/insight/demo-ins-dau`, `posthog://views/web-analytics`.
+
+## View screens
+
+The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`, `app/views/insight/[shortId].tsx`, `app/views/web-analytics.tsx`) share one frame:
+
+- `ViewScreenFrame` puts an `OverlayHost` above `ChartSheetsProvider` and `ChartSelectionProvider`. View screens are pushed above the tabs, so they bring their own host for sheets and toasts. The sheets draw outside the chart selection, so a pinned tooltip stays behind an open Point sheet.
+- `ViewChrome` is the floating top row: Back (`view-back`), the refresh button (`views-refresh`) and More (`view-more`, "Open on web").
+- `ViewTitle` holds the title with the pin button (`view-pin`), the status line (`views-updated`), the refresh hint, the date range control and the resolved dates.
+- `ViewsReauthState` replaces the content when `useViewsAccess()` is not `ok`, on the list and on every view screen.
+- `ViewErrorState`: "This view was deleted" (`view-deleted`), no access (`view-no-access`) or a failed read (`view-error`), with Unpin when the view is pinned. `RefreshFailedBanner` shows when a visible item's last read failed, and failed values dim to 50%.
+
+| Screen | Content |
+| --- | --- |
+| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). A tile is a number, a chart, a card that opens on the web, or a text card. Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
+| Insight | The big number with its change pill, the inline chart and its legend, ⓘ for "About this chart" (`view-about`). |
+| Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
+
+A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
+People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet aborts it. In demo, rows that open the web say "Not available in the demo".
+An insight kind without a phone renderer shows "This chart opens on the web." `insightDisplay()` in `snapshotChart.ts` decides.
+
+## Date range control
+
+The range sits in each view's header (`src/features/views/range/`), as prototype E and F show.
+
+- **Header row** (`ViewRangeControl`): ‹ (`range-step-prev`), the range button (`view-range`), › (`range-step-next`), and "Not saved" (`view-range-not-saved`) while the range differs from the saved one. The resolved dates show under the row.
+- **Steps:** ‹ and ›, or a swipe on the button (right for the earlier period), step through periods with a selection haptic. Steps start from the window the server resolved (`rangeStep.ts`), so they wait while a new range loads. › stops at the current period, and a step that lands on it returns to the matching relative preset, so the cache is shared with the web again. All time cannot step. Screen readers adjust the button up or down to step, and activate it to open the sheet.
+- **Sheet** (`RangeSheet`, `range-sheet`): what the view shows now, six chips (`range-chip-{today|yesterday|24h|7d|30d|90d}`), the web's other presets (`range-preset-{key}`; "This year", no "Last year"), "Custom range" (`range-custom`), "Compare to previous period" (`range-compare`), and "Reset to saved range" (`range-reset`) only while the range differs. Chips and presets apply at once and keep the sheet open; Done (`sheet-done`) closes it.
+- **Custom range** (`RangeCalendar`, `range-calendar`): a month grid in the project timezone. The first tap sets the start, the second the end (taps in reverse order swap), and a third starts over. Future days are disabled. ‹ › (`range-month-prev`, `range-month-next`) or a swipe change the month, and Apply (`range-apply`) sends date-only strings.
+- **Compare:** on an insight it runs the compare query from the data layer, and is off for All time. On a dashboard the switch stays disabled with "Compare works on single insights. Open a chart to compare." while `DASHBOARD_COMPARE_SUPPORTED` is false. Web analytics has no compare row.
+
+A range change reads with `blocking`, never `force_*`: the new override is a new cache key, so the screen hooks run their open path again (`trigger: range`).
+While the new range loads, the insight and web analytics screens keep the previous values on screen (`rangeLoading`), and dashboard tiles keep their layout.
+Dashboard rows count as visible by tile id, because a range change gives every tile a new item key while the list keeps the same rows.
+Number and Chart pins in the list keep the saved range. Ranges last for the session, per view, in memory.
+`useViewRange` sends `mobile_date_range_changed` (`chip`, `more`, `custom`, `step`, `reset`) and `mobile_date_range_compared`.
+
+The smoke flow `.argent/flows/views-smoke.yaml` opens Product KPIs, picks 7 days, steps back, resets, opens the Daily active users tile, turns on compare and opens the Point sheet from the chart.
