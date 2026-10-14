@@ -505,7 +505,7 @@ class AlertDestinationData(TypedDict):
     webhook_url: NotRequired[str]
     # Request headers a user added to a webhook, such as an auth token, as sorted (name, value)
     # pairs so a destination stays hashable. Secret-bearing, so never shown in a read response.
-    webhook_headers: NotRequired[tuple[tuple[str, str], ...]]
+    webhook_headers: NotRequired[dict[str, str]]
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]

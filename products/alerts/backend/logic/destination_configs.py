@@ -126,8 +126,7 @@ _TRANSPORT_HEADER_NAMES: Final = frozenset(
 )
 
 
-# nosemgrep: tuple-return-prefer-dataclass -- (name, value) header pairs, the shape dict() and requests take.
-def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
+def _added_webhook_headers(headers: Any) -> dict[str, str]:
     """The headers a user added to a webhook destination, such as an auth token.
 
     A value with a `{` is a Hog template, which only the HogFunction path can render. Sending it
@@ -135,8 +134,8 @@ def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
     the native client cannot send, which would otherwise fail every delivery to the destination.
     """
     if not isinstance(headers, dict):
-        return ()
-    added: list[tuple[str, str]] = []
+        return {}
+    added: dict[str, str] = {}
     for raw_name, raw_value in headers.items():
         if not isinstance(raw_name, str) or not isinstance(raw_value, str):
             continue
@@ -151,8 +150,8 @@ def _added_webhook_headers(headers: Any) -> tuple[tuple[str, str], ...]:
             value.encode("latin-1")
         except (InvalidHeader, UnicodeEncodeError):
             continue
-        added.append((name, value))
-    return tuple(sorted(added))
+        added[name] = value
+    return dict(sorted(added.items()))
 
 
 def _input_value(inputs: dict[str, Any], key: str) -> Any:

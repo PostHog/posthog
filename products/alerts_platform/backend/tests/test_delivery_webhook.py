@@ -144,7 +144,7 @@ class TestWebhookTransport(SimpleTestCase):
             AlertDestinationData,
             {
                 **TARGET,
-                "webhook_headers": (("Authorization", "Bearer not-a-real-token"), ("X-PostHog-Webhook-Version", "9")),
+                "webhook_headers": {"Authorization": "Bearer not-a-real-token", "X-PostHog-Webhook-Version": "9"},
             },
         )
 
@@ -155,8 +155,8 @@ class TestWebhookTransport(SimpleTestCase):
         assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
 
     def test_destinations_on_one_url_with_different_headers_are_separate_receivers(self) -> None:
-        with_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": (("Authorization", "Bearer a"),)})
-        other_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": (("Authorization", "Bearer b"),)})
+        with_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer a"}})
+        other_auth = cast(AlertDestinationData, {**TARGET, "webhook_headers": {"Authorization": "Bearer b"}})
         transport = WebhookTransport()
 
         assert len({transport.channel_target(t) for t in (TARGET, with_auth, other_auth)}) == 3

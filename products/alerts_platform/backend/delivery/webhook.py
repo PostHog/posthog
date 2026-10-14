@@ -102,12 +102,12 @@ class WebhookTransport(WebhookUrlTransport):
             return super().channel_target(target)
         # Two destinations on one URL with different headers are two receivers, so each gets its
         # own delivery record. A destination without headers keeps the key it always had.
-        return credential_digest(target.get("webhook_url", "") + "\n" + repr(headers))
+        return credential_digest(target.get("webhook_url", "") + "\n" + repr(sorted(headers.items())))
 
     def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
         version = LEGACY_WEBHOOK_VERSION if self._legacy_body is not None else WEBHOOK_VERSION
         # The version header comes last, so a stored header cannot change which body a receiver expects.
-        return {**dict(target.get("webhook_headers", ())), "X-PostHog-Webhook-Version": version}
+        return {**target.get("webhook_headers", {}), "X-PostHog-Webhook-Version": version}
 
     def check_url(self, url: str) -> None:
         # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on

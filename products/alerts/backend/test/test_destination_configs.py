@@ -234,10 +234,10 @@ class TestWebhookDestination:
             ({"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}, None),
             (
                 {"Content-Type": "application/json", "Authorization": "Bearer not-a-real-token"},
-                (("Authorization", "Bearer not-a-real-token"),),
+                {"Authorization": "Bearer not-a-real-token"},
             ),
             ({"Authorization": "Bearer {inputs.token}"}, None),
-            ({"Authorization": " Bearer not-a-real-token "}, (("Authorization", "Bearer not-a-real-token"),)),
+            ({"Authorization": " Bearer not-a-real-token "}, {"Authorization": "Bearer not-a-real-token"}),
             (
                 {
                     "": "orphaned value",
@@ -251,7 +251,7 @@ class TestWebhookDestination:
         ids=["stock", "added_auth_header", "templated_value", "padded_value", "unsendable"],
     )
     def test_only_headers_a_user_added_as_plain_text_are_read(
-        self, headers: dict[str, str], read: tuple[tuple[str, str], ...] | None
+        self, headers: dict[str, str], read: dict[str, str] | None
     ) -> None:
         inputs = {"url": {"value": "https://hooks.example.com/hook"}, "headers": {"value": headers}}
 
@@ -265,7 +265,7 @@ class TestWebhookDestination:
             {
                 "type": DestinationType.WEBHOOK,
                 "webhook_url": "https://hooks.example.com/hook",
-                "webhook_headers": (("Authorization", "Bearer not-a-real-token"),),
+                "webhook_headers": {"Authorization": "Bearer not-a-real-token"},
             },
         )
 
