@@ -290,11 +290,14 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
     })
 
-    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
-        router.actions.push('/data-warehouse/new')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
-    })
+    it.each(['/data-warehouse/new', '/data-management/sources/new'])(
+        'redirects %s to the new-source wizard instead of a 404',
+        async (path) => {
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+        }
+    )
 
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
