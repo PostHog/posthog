@@ -3089,7 +3089,7 @@ def get_task_run_stream_info(
 
 def signal_workflow_completion(
     run_id: str | UUID, status: str, error_message: str | None, error_type: str | None = None
-) -> None:
+) -> bool:
     """Send a completion signal to a run's Temporal workflow (best-effort)."""
     import asyncio  # noqa: PLC0415 — only needed when signalling
 
@@ -3101,7 +3101,7 @@ def signal_workflow_completion(
 
     run = TaskRun.objects.filter(pk=run_id).first()
     if run is None or (run.scheduled_at is not None and run.queued_at is None):
-        return
+        return True
     if error_type is not None:
         record_run_failure_cause(run.id, error_type)
     try:
@@ -3111,6 +3111,8 @@ def signal_workflow_completion(
         logger.info("Signaled workflow completion for task run %s with status %s", run.id, status)
     except Exception as e:
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
+        return False
+    return True
 
 
 def _post_slack_update_for_pr(run: TaskRun) -> None:

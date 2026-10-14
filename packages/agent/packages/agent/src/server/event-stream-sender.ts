@@ -132,6 +132,8 @@ export class TaskRunEventStreamSender {
   private bufferRevision = 0;
   private nextEnvelopeId = 0;
   private lastAdmittedId: number | null = null;
+  private closeRequests = 0;
+  private closedThroughRequest = 0;
   private readonly ackWaiters = new Map<
     number,
     (sequence: number | null) => void
@@ -218,8 +220,9 @@ export class TaskRunEventStreamSender {
     const acked = new Promise<number | null>((resolve) => {
       this.ackWaiters.set(id, resolve);
     });
+    this.closeRequests += 1;
     if (!this.stopped) {
-      void this.flush(true);
+      void this.flush();
     }
     return acked;
   }
@@ -276,12 +279,13 @@ export class TaskRunEventStreamSender {
     }
   }
 
-  private async flush(closeUpload = false): Promise<boolean> {
+  private async flush(): Promise<boolean> {
     if (this.flushPromise) {
       await this.flushPromise.catch(() => undefined);
     }
 
     if (this.bufferedEvents.length === 0) {
+      this.closedThroughRequest = this.closeRequests;
       return true;
     }
 
@@ -293,8 +297,13 @@ export class TaskRunEventStreamSender {
       await flushPromise;
       // The ingress ahead of the agent-proxy only forwards the request body once the
       // upload closes, so close per drained batch to avoid stranding buffered events.
-      if (!this.stopped && (closeUpload || !this.keepProxyStreamOpen)) {
+      const closeRequest = this.closeRequests;
+      if (
+        !this.stopped &&
+        (closeRequest > this.closedThroughRequest || !this.keepProxyStreamOpen)
+      ) {
         await this.closeActiveStream();
+        this.closedThroughRequest = closeRequest;
       }
       return this.bufferedEvents.length < previousBufferLength;
     } catch (error) {

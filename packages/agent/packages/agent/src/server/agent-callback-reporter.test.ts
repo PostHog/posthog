@@ -321,4 +321,22 @@ describe("AgentCallbackReporter", () => {
 
     expect(reporter !== null).toBe(reports);
   });
+  it("reports at once without a sequence after it stops waiting for acks", async () => {
+    const { reporter, sent } = createReporter({
+      awaitEventAck: () => new Promise<number>(() => {}),
+    });
+
+    reporter.turnCompleted("end_turn");
+    reporter.stopWaitingForAcks();
+    await reporter.settled();
+
+    expect(sent).toEqual([
+      {
+        kind: "awaiting_input",
+        agent_active: false,
+        turn_completed: true,
+        turn_succeeded: true,
+      },
+    ]);
+  });
 });

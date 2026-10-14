@@ -1272,6 +1272,7 @@ export class AgentServer {
               Promise.resolve()),
         5_000,
       );
+      this.agentCallbacks?.stopWaitingForAcks();
       await withTimeout(
         this.agentCallbacks?.settled() ?? Promise.resolve(),
         AGENT_CALLBACK_SETTLE_BUDGET_MS,

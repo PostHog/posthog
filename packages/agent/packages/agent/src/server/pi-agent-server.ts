@@ -364,6 +364,7 @@ export class PiAgentServer {
     );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    this.agentCallbacks?.stopWaitingForAcks();
     await withTimeout(
       this.agentCallbacks?.settled() ?? Promise.resolve(),
       AGENT_CALLBACK_SETTLE_BUDGET_MS,
@@ -411,6 +412,7 @@ export class PiAgentServer {
       );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    this.agentCallbacks?.stopWaitingForAcks();
     await withTimeout(
       this.agentCallbacks?.settled() ?? Promise.resolve(),
       AGENT_CALLBACK_SETTLE_BUDGET_MS,

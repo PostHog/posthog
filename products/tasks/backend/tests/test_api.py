@@ -14314,19 +14314,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("same_sequence", [5, 5], 1),
-            ("different_sequences", [5, 6], 2),
-            ("no_sequence", [None, None], 2),
+            ("same_sequence", [5, 5], [True, True], [200, 200], 1),
+            ("different_sequences", [5, 6], [True, True], [200, 200], 2),
+            ("no_sequence", [None, None], [True, True], [200, 200], 2),
+            ("retry_after_failed_signal", [5, 5], [False, True], [503, 200], 2),
         ]
     )
-    def test_agent_callback_drops_a_retried_turn_result(self, _name, sequences, expected_signals):
+    def test_agent_callback_drops_a_retried_turn_result(
+        self, _name, sequences, signal_results, expected_statuses, expected_signals
+    ):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         run.state = {**run.state, "agent_sends_callbacks": True}
         run.save(update_fields=["state"])
         client = self._sandbox_oauth_client(task.id)
 
-        with patch.object(TaskRun, "signal_agent_turn_completed") as turn_completed:
+        with patch.object(TaskRun, "signal_agent_turn_completed", side_effect=signal_results) as turn_completed:
+            statuses = []
             for sequence in sequences:
                 body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True}
                 if sequence is not None:
@@ -14334,7 +14338,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 response = client.post(
                     f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/", body, format="json"
                 )
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                statuses.append(response.status_code)
+
+        self.assertEqual(statuses, expected_statuses)
 
         self.assertEqual(turn_completed.call_count, expected_signals)
 

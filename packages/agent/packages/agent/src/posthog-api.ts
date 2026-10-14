@@ -10,10 +10,7 @@ import {
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
 import packageJson from "../package.json" with { type: "json" };
-import {
-  AGENT_CALLBACK_TIMEOUT_MS,
-  type AgentCallback,
-} from "./server/agent-callback-reporter";
+import type { AgentCallback } from "./server/agent-callback-reporter";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
@@ -69,6 +66,8 @@ export class PostHogAPIError extends Error {
     return this.status >= 500 || this.status === 408 || this.status === 429;
   }
 }
+
+export const AGENT_CALLBACK_TIMEOUT_MS = 2_000;
 
 export class PostHogAPIClient {
   private readonly http: PostHogHttpClient;

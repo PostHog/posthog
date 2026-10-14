@@ -1,9 +1,9 @@
 import { Buffer } from "node:buffer";
 import type { ProcessKilledParams } from "../acp-extensions";
+import { AGENT_CALLBACK_TIMEOUT_MS } from "../posthog-api";
 import type { Logger } from "../utils/logger";
 
 export const AGENT_CALLBACKS_HEADER = "X-PostHog-Agent-Callbacks";
-export const AGENT_CALLBACK_TIMEOUT_MS = 2_000;
 
 const AGENT_SENDS_CALLBACKS_CLAIM = "agent_sends_callbacks";
 const HEARTBEAT_THROTTLE_MS = 30_000;
@@ -109,6 +109,8 @@ export class AgentCallbackReporter {
   private queue: Promise<void> = Promise.resolve();
   private agentActive = false;
   private lastHeartbeatAtMs: number | null = null;
+  private ackWaitsReleased = false;
+  private readonly pendingAckWaits = new Set<() => void>();
 
   constructor(private readonly config: AgentCallbackReporterConfig) {
     this.now = config.now ?? Date.now;
@@ -209,6 +211,14 @@ export class AgentCallbackReporter {
     return this.queue;
   }
 
+  stopWaitingForAcks(): void {
+    this.ackWaitsReleased = true;
+    for (const release of this.pendingAckWaits) {
+      release();
+    }
+    this.pendingAckWaits.clear();
+  }
+
   private reportMilestone(
     callback: Extract<AgentCallback, { kind: BootMilestone }>,
   ): void {
@@ -241,19 +251,20 @@ export class AgentCallbackReporter {
   }
 
   private waitForAck(): Promise<number | null> {
+    if (this.ackWaitsReleased) {
+      return Promise.resolve(null);
+    }
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(null), this.ackTimeoutMs);
+      const finish = (sequence: number | null) => {
+        clearTimeout(timer);
+        this.pendingAckWaits.delete(release);
+        resolve(sequence);
+      };
+      const release = () => finish(null);
+      const timer = setTimeout(release, this.ackTimeoutMs);
       timer.unref?.();
-      this.config.awaitEventAck().then(
-        (sequence) => {
-          clearTimeout(timer);
-          resolve(sequence);
-        },
-        () => {
-          clearTimeout(timer);
-          resolve(null);
-        },
-      );
+      this.pendingAckWaits.add(release);
+      this.config.awaitEventAck().then(finish, release);
     });
   }
 

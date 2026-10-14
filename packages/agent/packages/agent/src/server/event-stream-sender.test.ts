@@ -259,6 +259,33 @@ describe("TaskRunEventStreamSender", () => {
     await sender.stop();
   });
 
+  it("still closes a held-open upload for an ack after the first upload fails", async () => {
+    let uploads = 0;
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = await readRequestBody(init);
+        if (eventSequences(body).length > 0) {
+          uploads += 1;
+          if (uploads === 1) {
+            return new Response("unavailable", { status: 503 });
+          }
+        }
+        return responseForBody(body);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+      retryDelayMs: 1,
+    });
+
+    sender.enqueue({ type: "notification", notification: { method: "turn" } });
+
+    await expect(sender.awaitAckOfLastEvent()).resolves.toBe(1);
+    await sender.stop();
+  });
+
   it("acks nothing for an event the buffer dropped", async () => {
     vi.stubGlobal(
       "fetch",
