@@ -1231,6 +1231,7 @@ mod tests {
             Duration::from_secs(3600),
             Utc::now(),
         )
+        .unwrap()
         .unwrap();
 
         let verdict = boot
