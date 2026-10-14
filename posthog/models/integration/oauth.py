@@ -26,6 +26,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
+from posthog.utils import get_instance_region
 
 from . import apple_ads, common, model, refresh_tracking
 
@@ -126,10 +127,20 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# Every scope here is approved for the public Cloud app, so the same list is requested on every
-# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
-# note by SlackIntegrationScope in frontend/src/types.ts.
-POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+# The development Slack app can grant in-review scopes. The public app rejects them with
+# `invalid_scope`, so US/EU/self-hosted installs must request only approved scopes.
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        from posthog.schema import (  # noqa: PLC0415 - keeps heavy schema models off production startup
+            SlackIntegrationScopeInReview,
+        )
+
+        scopes.append(SlackIntegrationScopeInReview().root)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:

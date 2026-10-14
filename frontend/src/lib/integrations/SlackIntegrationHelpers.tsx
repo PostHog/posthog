@@ -23,6 +23,7 @@ import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
+import { getGrantedScopes } from './integrationScopes'
 import { integrationsLogic } from './integrationsLogic'
 import { slackChannelId } from './slackChannel'
 import { slackConnectLogic } from './slackConnectLogic'
@@ -374,14 +375,29 @@ function SlackChannelPickerNotices({
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         slackIntegrationInactiveMessage,
+        slackChannelJoinStatus,
     } = useValues(logic)
     const { recheckSlackChannelMembership } = useActions(logic)
 
-    const channelsMissingTheApp = values.filter((value) => isMemberOfSlackChannel(value) === false)
+    const channelsMissingTheApp = values.filter(
+        (value) =>
+            isMemberOfSlackChannel(value) === false &&
+            slackChannelJoinStatus[slackChannelId(value)]?.status !== 'joining'
+    )
+    const joining = values.some((value) => slackChannelJoinStatus[slackChannelId(value)]?.status === 'joining')
+    const failed = channelsMissingTheApp.some(
+        (value) => slackChannelJoinStatus[slackChannelId(value)]?.status === 'failed'
+    )
     const showPrivateChannelWarning = values.some((value) => isPrivateChannelWithoutAccess(value))
 
     return (
         <>
+            {joining ? (
+                <p className="flex items-center gap-1 mt-1 mb-0 text-sm text-secondary" role="status">
+                    <Spinner className="text-sm" />
+                    <span>Adding PostHog to the selected channels...</span>
+                </p>
+            ) : null}
             {showUnselectedSearchError ? (
                 <p className="mt-1 mb-0 text-xs text-danger" role="alert">
                     No channel selected. Pick one from the list.
@@ -400,11 +416,13 @@ function SlackChannelPickerNotices({
 
             {channelsMissingTheApp.length ? (
                 <LemonBanner type="info">
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-wrap gap-2 items-center">
                         <span>
-                            {values.length > 1
-                                ? 'The PostHog Slack app is not in every selected channel. '
-                                : 'The PostHog Slack app is not in this channel. '}
+                            {failed
+                                ? "PostHog couldn't join the selected channels automatically. "
+                                : values.length > 1
+                                  ? 'The PostHog Slack app is not in every selected channel. '
+                                  : 'The PostHog Slack app is not in this channel. '}
                             Invite it with <code>/invite @PostHog</code> in Slack, then check again.{' '}
                             <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                 See the docs for more information
@@ -414,6 +432,7 @@ function SlackChannelPickerNotices({
                             type="secondary"
                             onClick={() => recheckSlackChannelMembership(channelsMissingTheApp.map(slackChannelId))}
                             loading={slackChannelByIdLoading}
+                            data-attr="slack-channel-membership-recheck"
                         >
                             Check again
                         </LemonButton>
@@ -451,21 +470,30 @@ export type SlackChannelPickerProps = SlackChannelPickerCommonProps &
 
 export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element {
     const { integration, disabled } = props
+    const canJoin = getGrantedScopes(integration).includes('channels:join')
+    const logic = slackIntegrationLogic({ id: integration.id })
+    const { joinSelectedSlackChannels } = useActions(logic)
     const values = useMemo(
         () => (props.mode === 'multiple' ? (props.value ?? []) : props.value ? [props.value] : []),
         [props.mode, props.value]
     )
     const onValuesChange = useCallback(
         (nextValues: string[]): void => {
+            if (disabled) {
+                return
+            }
             if (props.mode === 'multiple') {
                 props.onChange?.(nextValues)
             } else {
                 props.onChange?.(nextValues[0] ?? null)
             }
+            joinSelectedSlackChannels(
+                nextValues.map(slackChannelId).filter((id) => !values.some((value) => slackChannelId(value) === id)),
+                canJoin
+            )
         },
-        [props.mode, props.onChange]
+        [props.mode, props.onChange, disabled, values, canJoin, joinSelectedSlackChannels]
     )
-    const logic = slackIntegrationLogic({ id: integration.id })
     const {
         slackChannels,
         slackChannelsForPicker,
@@ -492,7 +520,8 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
     }
     // A pasted channel id is already an unambiguous choice, so hold it until the lookup resolves and
     // then pick it. Nobody should have to recognize their channel by id in the list.
-    const [pastedChannelId, setPastedChannelId] = useState<string | null>(null)
+    const [pastedChannel, setPastedChannel] = useState<{ id: string; integrationId: number } | null>(null)
+    const pastedChannelId = pastedChannel?.integrationId === integration.id ? pastedChannel.id : null
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -538,7 +567,7 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         hasActiveSearchRef.current = false
         clearDroppedSearch()
         setLocalValue(null)
-        setPastedChannelId(null)
+        setPastedChannel(null)
     }, [integration.id])
 
     useEffect(() => {
@@ -550,11 +579,11 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
             // Stop waiting once the lookup settles with nothing. A paste that resolves to no channel
             // has to fall back to the dropped-search message rather than stay silent.
             if (!slackChannelByIdLoading) {
-                setPastedChannelId(null)
+                setPastedChannel(null)
             }
             return
         }
-        setPastedChannelId(null)
+        setPastedChannel(null)
         clearDroppedSearch()
         if (!values.some((value) => slackChannelId(value) === channel.id)) {
             const selectedChannel = `${channel.id}|#${channel.name}`
@@ -586,6 +615,11 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
 
     return (
         <>
+            {canJoin && !disabled ? (
+                <p className="text-secondary text-xs mb-1">
+                    Selecting a public channel adds PostHog to it, even if you cancel this setup.
+                </p>
+            ) : null}
             <LemonInputSelect
                 onChange={(val) => {
                     // LemonInputSelect blurs the input before it reports a selection, so onBlur has
@@ -612,9 +646,9 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
                         const idCandidate = val.trim().toUpperCase()
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
-                            setPastedChannelId(idCandidate)
+                            setPastedChannel({ id: idCandidate, integrationId: integration.id })
                         } else if (!modifiedValues.includes(val)) {
-                            setPastedChannelId(null)
+                            setPastedChannel(null)
                             // LemonInputSelect auto-fills the input with the selected option's key on
                             // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
                             // search — the composite "id|#name" matches no channel server-side and
