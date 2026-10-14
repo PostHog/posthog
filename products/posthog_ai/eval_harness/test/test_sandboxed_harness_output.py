@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import io
+import os
 import sys
 import json
 import asyncio
+import logging
+import warnings
+import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from threading import get_ident
+from threading import Event, Thread, get_ident
 from typing import Any, Literal
 
 import pytest
@@ -32,6 +37,7 @@ from products.posthog_ai.eval_harness.engines.types import (
     ExperimentResult,
     NullCaseHooks,
 )
+from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
@@ -66,6 +72,45 @@ def test_run_transcript_captures_both_streams_and_prints_its_path_last(
         str(transcript.path),
     ]
     assert (tmp_path / "latest.log").resolve() == transcript.path
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("blocked_operation", ["write", "flush"])
+def test_logging_continues_while_progress_output_is_blocked(
+    tmp_path: Path, verbose: bool, blocked_operation: str
+) -> None:
+    blocked = Event()
+    release = Event()
+    logged = Event()
+    stdout = MagicMock(wraps=io.StringIO())
+
+    def wait_for_release(*_args: object) -> None:
+        blocked.set()
+        release.wait()
+
+    getattr(stdout, blocked_operation).side_effect = wait_for_release
+    transcript = RunTranscript(tmp_path / "run.log", stdout, io.StringIO())
+    handler = transcript.logging_handler(verbose=verbose)
+
+    def log() -> None:
+        handler.handle(logging.LogRecord("eval", logging.INFO, "", 0, "poll continues", (), None))
+        logged.set()
+
+    progress = Thread(target=transcript._stdout.write_console, args=("CASE PHASE agent\n",))
+    logging_worker = Thread(target=log)
+    progress.start()
+    try:
+        assert blocked.wait(timeout=5)
+        logging_worker.start()
+        assert logged.wait(timeout=5)
+        assert "poll continues" in transcript.path.read_text()
+    finally:
+        release.set()
+        progress.join(timeout=5)
+        if logging_worker.ident is not None:
+            logging_worker.join(timeout=5)
+        handler.close()
+        transcript.finish()
 
 
 @pytest.mark.asyncio
@@ -580,10 +625,51 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     output = capsys.readouterr().out
     retry_count = failures if recovers else (retries if stage == "seed" and isinstance(error, NetworkError) else 0)
     assert output.count("CASE RETRY") == retry_count
-    assert output.count("CASE DONE" if recovers else "CASE ERROR") == 1
+    assert output.count("CASE READY" if recovers else "CASE ERROR") == 1
     assert reporter.has_case_errors() is (not recovers)
     assert ctx.sandbox_slots._value == ctx.team_setup_slots._value == 1
     assert not broken_workers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
+@pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
+async def test_kernel_cleanup_preserves_case_outcome_when_progress_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, agent_error: BaseException | None, reporting_phase: str
+) -> None:
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    ctx = MagicMock(posthog_client=None, case_filter=None, sandbox_slots=asyncio.Semaphore(1))
+    ctx.per_case_timeout_seconds = 30
+    ctx.provider_strategy.keeps_sandboxes.return_value = False
+    case = SandboxedEvalCase(name="case", prompt="Run the task")
+    run = base._SandboxedEvalRun("cleanup", [case], [], ctx, is_public=False, no_send_logs=True)
+    context = CustomPromptSandboxContext(team_id=1, user_id=2)
+    monkeypatch.setattr(
+        run, "_prepare_case", AsyncMock(return_value=base._SandboxedCaseSetup(context=context, seed={}))
+    )
+
+    async def report_phase(_trial_id: str, phase: str) -> None:
+        if phase == reporting_phase:
+            raise BrokenPipeError("closed output")
+
+    ctx.reporter.case_phase = AsyncMock(side_effect=report_phase)
+    hooks = NullCaseHooks()
+    hooks.metadata["trial_id"] = "trial"
+    result = base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0))
+    monkeypatch.setattr(base, "run_eval_case", AsyncMock(return_value=result, side_effect=agent_error))
+    cleanup = AsyncMock()
+    monkeypatch.setattr(base, "reclaim_kernels", cleanup)
+
+    if agent_error is None:
+        actual, _ = await run._run_sandbox_window(case, case, hooks)
+        assert actual is result
+    else:
+        with pytest.raises(type(agent_error)) as raised:
+            await run._run_sandbox_window(case, case, hooks)
+        assert raised.value is agent_error
+
+    cleanup.assert_awaited_once_with(1, keep=False)
+    assert ctx.sandbox_slots._value == 1
 
 
 @pytest.mark.asyncio
@@ -640,3 +726,172 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         if call.kwargs.get("event") == "$ai_trace"
     ]
     assert [root["$ai_trace_id"] for root in roots] == ["trace-2", "trace-1", "trace-0"]
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("structured", [False, True])
+def test_console_detail_does_not_remove_transcript_logs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], verbose: bool, structured: bool
+) -> None:
+    transcript = RunTranscript.create(tmp_path)
+    handler = transcript.logging_handler(verbose=verbose)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    info = logging.LogRecord(
+        "products.posthog_ai.eval_harness.example",
+        logging.INFO,
+        "",
+        0,
+        {"event": "agent detail"} if structured else "agent detail",
+        (),
+        None,
+    )
+    try:
+        raise ValueError("service unavailable")
+    except ValueError:
+        error = logging.LogRecord(
+            "products.posthog_ai.eval_harness.example",
+            logging.ERROR,
+            "",
+            0,
+            {"event": "case error"} if structured else "case error",
+            (),
+            sys.exc_info(),
+        )
+    dependency_warning = logging.LogRecord("dependency", logging.WARNING, "", 0, "optional dependency detail", (), None)
+    dependency_error = logging.LogRecord("dependency", logging.ERROR, "", 0, "optional service detail", (), None)
+    runner_warning = logging.LogRecord(
+        "products.posthog_ai.eval_harness.example", logging.WARNING, "", 0, "Setup will retry", (), None
+    )
+    with transcript.capture(verbose=verbose), warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.warn("optional Python dependency detail", UserWarning, stacklevel=1)
+        sys.stdout.write("SDK progress detail\n")
+        reporting._emit("CASE PHASE example :: case [trial 1] agent")
+        handler.handle(dependency_warning)
+        handler.handle(dependency_error)
+        handler.handle(runner_warning)
+        handler.handle(info)
+        handler.handle(error)
+    handler.close()
+    transcript.finish()
+    output = capsys.readouterr()
+    saved = transcript.path.read_text()
+    assert "CASE PHASE example :: case [trial 1] agent" in output.out
+    assert "Setup will retry" in output.err
+    assert "optional service detail" in saved
+    assert ("optional service detail" in output.err) is verbose
+    assert "optional dependency detail" in saved
+    assert "optional Python dependency detail" in saved
+    assert "SDK progress detail" in saved
+    assert ("SDK progress detail" in output.out) is verbose
+    assert ("optional Python dependency detail" in output.err) is verbose
+    assert ("optional dependency detail" in output.err) is verbose
+    assert "agent detail" in saved
+    assert "ValueError: service unavailable" in saved
+    assert "case error" in output.err
+    assert ("agent detail" in output.err) is verbose
+    assert ("Traceback" in output.err) is verbose
+    assert output.out.splitlines()[-1] == saved.splitlines()[-1] == str(transcript.path)
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_native_child_output_stays_in_transcript_and_file_descriptors_restore(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], verbose: bool
+) -> None:
+    transcript = RunTranscript.create(tmp_path)
+    with transcript.capture(verbose=verbose):
+        subprocess.run(
+            [sys.executable, "-c", "import os; os.write(1, b'native stdout\\n'); os.write(2, b'native stderr')"],
+            check=True,
+        )
+        reporting._emit("SETUP START example service")
+    os.write(1, b"descriptors restored\n")
+    transcript.finish()
+    output = capfd.readouterr()
+    saved = transcript.path.read_text()
+    assert "native stdout" not in output.out
+    assert "native stderr" not in output.err
+    assert "SETUP START example service" in output.out
+    assert "descriptors restored" in output.out
+    assert "native stdout\nnative stderr" in saved
+    assert saved.count("SETUP START example service") == 1
+    assert output.out.splitlines()[-1] == saved.splitlines()[-1] == str(transcript.path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoring_error", [None, "scorer failed"])
+async def test_progress_tracks_trials_and_keeps_scoring_distinct(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], scoring_error: str | None
+) -> None:
+    loop_thread = get_ident()
+    emit = reporting._emit
+
+    def worker_emit(text: str) -> None:
+        assert get_ident() != loop_thread
+        emit(text)
+
+    monkeypatch.setattr(reporting, "_emit", worker_emit)
+    now = [10.0]
+    monkeypatch.setattr(reporting.time, "monotonic", lambda: now[0])
+    reporter = ProgressReporter(total_suites=1)
+    await reporter.experiment_started("suite", 3, tmp_path)
+    phases = await reporter.case_started("suite", "same-case", "trial-1", 0)
+    await reporter.case_started("suite", "same-case", "trial-2", 1)
+    now[0] = 15.0
+    await reporter.case_phase("trial-1", "setup")
+    now[0] = 25.0
+    await reporter.case_phase("trial-1", "agent")
+    now[0] = 45.0
+    await reporter.case_done("suite", "same-case", duration_seconds=35, trial_id="trial-1")
+    await reporter.report_progress()
+    output = capsys.readouterr().out
+    assert "CASE READY" in output
+    assert "scoring pending" in output
+    assert "executions 1/3" in output
+    assert "queued=1" in output and "scoring=1" in output
+    assert "oldest: suite :: same-case [trial 1] (scoring" in output
+    assert phases == {"queued": 5.0, "setup": 10.0, "agent": 20.0}
+    now[0] = 50.0
+    await reporter.case_scored("trial-1", error=scoring_error)
+    assert ("CASE ERROR" if scoring_error else "CASE DONE") in capsys.readouterr().out
+    assert reporter.has_case_errors() is (scoring_error is not None)
+    await reporter.finish_experiment("suite")
+    await reporter.report_progress()
+    assert "scoring=0" in capsys.readouterr().out
+    assert phases["scoring"] == 5.0
+
+
+@pytest.mark.asyncio
+async def test_periodic_progress_stops_with_its_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    loop = asyncio.get_running_loop()
+    reporter = ProgressReporter(total_suites=1)
+    sleeping = asyncio.Event()
+    release = asyncio.Event()
+    emitted = asyncio.Event()
+    cancelled = asyncio.Event()
+    lines: list[str] = []
+
+    async def pause(delay: float) -> None:
+        assert delay == 30
+        sleeping.set()
+        try:
+            await release.wait()
+            release.clear()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    def capture(text: str) -> None:
+        lines.append(text)
+        loop.call_soon_threadsafe(emitted.set)
+
+    monkeypatch.setattr(reporting.asyncio, "sleep", pause)
+    monkeypatch.setattr(reporting, "_emit", capture)
+    async with reporter.live_updates():
+        await sleeping.wait()
+        sleeping.clear()
+        release.set()
+        await emitted.wait()
+        await sleeping.wait()
+    assert len(lines) == 1 and lines[0].startswith("PROGRESS")
+    assert cancelled.is_set()
