@@ -26,15 +26,13 @@ from torch import nn
 from torch.nn import functional as F
 
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
-from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
+from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
 
 # text-embedding-3 vectors are unit length, so each component is about 1/sqrt(D). Scaling by
 # sqrt(D) gives the projection unit-variance inputs, which is what its initialization assumes.
 INPUT_SCALE = math.sqrt(EMBEDDING_DIMENSIONS)
 
 ONNX_OPSET = 17
-ONNX_INPUTS = ("report", "project", "has_history")
-ONNX_OUTPUT = "probabilities"
 
 
 class _Model(nn.Module):

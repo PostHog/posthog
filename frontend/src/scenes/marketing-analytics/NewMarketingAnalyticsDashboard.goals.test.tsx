@@ -1,5 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
 import {
     marketingAnalyticsLogic,
     MarketingAnalyticsTab,
@@ -57,6 +60,10 @@ describe('Dashboard goal suggestions', () => {
             },
         })
         initKeaTests()
+        const unmountFeatureFlags = featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]: true })
+        const unmountOnboarding = marketingOnboardingLogic.mount()
+        marketingOnboardingLogic.actions.completeOnboarding()
         localStorage.removeItem('marketing-goal-suggestions-expanded')
         const unmountMarketing = marketingAnalyticsLogic.mount()
         const unmountSetup = setupPlanLogic.mount()
@@ -90,8 +97,11 @@ describe('Dashboard goal suggestions', () => {
             await waitFor(() => expect(screen.queryByText('Suggested conversion goals (1)')).toBeNull())
         } finally {
             cleanup()
+            unmountFeatureFlags()
             setupPlanLogic.actions.restoreAllDismissed()
             localStorage.removeItem('marketing-goal-suggestions-expanded')
+            unmountOnboarding()
+            localStorage.removeItem('marketing-analytics-onboarding-completed')
             unmountSetup()
             unmountMarketing()
         }

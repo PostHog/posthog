@@ -91,6 +91,7 @@ def cleanup_expired_test_saved_queries() -> None:
 
 def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
     """Hard-delete a single saved query and all downstream objects."""
+    from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes
     from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
     from products.data_modeling.backend.models.node import Node
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -99,7 +100,7 @@ def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
 
     # 1. Delete the DAG node (must happen before saved query deletion due to PROTECT).
     #    EndpointVersion.saved_query has on_delete=SET_NULL, so Django handles that automatically.
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
+    delete_nodes(saved_query.team_id, Node.objects.filter(team=saved_query.team, saved_query=saved_query))
     # 2. Delete joins that reference this saved query by name
     DataWarehouseJoin.objects.filter(
         Q(team_id=saved_query.team_id)
