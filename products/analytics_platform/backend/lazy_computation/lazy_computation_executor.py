@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -175,7 +175,13 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
+def _get_insert_settings(
+    team_id: int,
+    *,
+    spill_to_disk: bool = False,
+    read_after_write: bool = True,
+    overrides: Mapping[str, int | str] | None = None,
+) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -218,6 +224,8 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
         # build hash tables past the cluster memory limit and fail with
         # MEMORY_LIMIT_EXCEEDED.
         settings["max_bytes_before_external_group_by"] = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+    if overrides:
+        settings.update(overrides)
     return settings
 
 
@@ -1617,6 +1625,7 @@ def ensure_precomputed(
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
     database: "Database | None" = None,
+    insert_settings: Mapping[str, int | str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1701,6 +1710,9 @@ def ensure_precomputed(
                       and CPU per job. A caller that ensures many windows for one team should
                       build it once, userless with warehouse access control bypassed and with
                       the same `modifiers`, and pass it here.
+        insert_settings: ClickHouse settings applied last to every INSERT, over the defaults
+                      and `spill_to_disk`. For a precompute kind whose INSERT needs more
+                      memory or time than the defaults allow.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1789,7 +1801,12 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
+                    settings=_get_insert_settings(
+                        t.id,
+                        spill_to_disk=spill_to_disk,
+                        read_after_write=read_after_write,
+                        overrides=insert_settings,
+                    ),
                 )
             )
         # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
