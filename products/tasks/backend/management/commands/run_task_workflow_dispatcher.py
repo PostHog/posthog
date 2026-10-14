@@ -8,6 +8,7 @@ from datetime import timedelta
 from functools import partial
 from pathlib import Path
 from time import monotonic
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -80,6 +81,14 @@ def _scheduled_run_usage_error(user: User, team_id: int) -> str | None:
     try:
         response = usage_limit_response(user, team_id)
         return str(response.data["error"]) if response is not None else None
+    finally:
+        close_old_connections()
+
+
+def _capture_run_feature_flags_in_worker_thread(run_id: str) -> dict[str, Any]:
+    close_old_connections()
+    try:
+        return _capture_run_feature_flags(run_id)
     finally:
         close_old_connections()
 
@@ -250,7 +259,9 @@ class Command(BaseCommand):
                         await sync_to_async(mark_dead)(dispatch.id, instance_id, usage_error, "usage_limit")
                         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                         return
-                run_state = await sync_to_async(_capture_run_feature_flags, thread_sensitive=False)(str(run.id))
+                run_state = await sync_to_async(_capture_run_feature_flags_in_worker_thread, thread_sensitive=False)(
+                    str(run.id)
+                )
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
                     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
