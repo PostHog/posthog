@@ -31,6 +31,9 @@ MAX_CHECKED_EVENTS = 1_000_000
 # keep fewer of the sampled events than the minimum, one larger sample is drawn that keeps about the second number.
 MIN_SAMPLED_EVENTS = 10_000
 RESAMPLED_EVENTS = 100_000
+# The larger sample reads at most this many times the events of the first, so a filter that keeps almost no
+# events does not read every event in the range.
+MAX_RESAMPLE_GROWTH = 10
 MAX_EXECUTION_SECONDS = 20
 
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
@@ -119,11 +122,13 @@ def run_insight_data_checks(query: Mapping[str, Any], team: Team, user: User) ->
         # A property that is hidden from `user` reads as empty, so a check would count none of what it looks for.
         if get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk):
             return _not_checked(InsightDataChecksStatus.UNSUPPORTED)
+        # With `debug` on, a failed query returns an error and no rows, which would read as no events.
+        modifiers = events.modifiers.model_copy(update={"debug": False})
         reader = _EventReader(
             team=team,
             user=user,
-            modifiers=events.modifiers,
-            database=Database.create_for(team=team, user=user, modifiers=events.modifiers, trigger="shared"),
+            modifiers=modifiers,
+            database=Database.create_for(team=team, user=user, modifiers=modifiers, trigger="shared"),
         )
         total = _count_events_in_range(events, reader)
         if total == 0:
@@ -163,7 +168,7 @@ def _count_events(events: ChartEvents, reader: _EventReader, *, total: int) -> D
     sampled = min(total, MAX_CHECKED_EVENTS)
     counts = _query_counts(events, reader, sampled=sampled, total=total)
     if sampled < total and counts.events < MIN_SAMPLED_EVENTS:
-        sampled = min(total, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
+        sampled = min(total, sampled * MAX_RESAMPLE_GROWTH, sampled * RESAMPLED_EVENTS // max(counts.events, 1))
         counts = _query_counts(events, reader, sampled=sampled, total=total)
     return counts
 
@@ -231,7 +236,7 @@ def _finding_level(share: float) -> InsightDataCheckLevel:
     return InsightDataCheckLevel.PROBLEM if share >= PROBLEM_SHARE else InsightDataCheckLevel.WARNING
 
 
-def _is_finding(count: int, share: float) -> bool:
+def _is_finding(count: float, share: float) -> bool:
     return count >= MIN_FINDING_EVENTS and share >= MIN_FINDING_SHARE
 
 
@@ -239,11 +244,16 @@ def _percent(share: float) -> str:
     return f"{round(share * 100)}%"
 
 
+def _estimate(count: int, counts: DataCheckCounts) -> float:
+    """A count from the sample, scaled up to every event of the insight."""
+    return count / counts.sample_rate
+
+
 def _event_count(count: int, counts: DataCheckCounts) -> str:
     """A count of the insight's events. From a sample it is an estimate, so it is scaled up and rounded."""
     if counts.sample_rate >= 1:
         return f"{count:,}"
-    estimate = round(count / counts.sample_rate)
+    estimate = round(_estimate(count, counts))
     magnitude = 10 ** max(len(str(estimate)) - 2, 0)
     return f"about {round(estimate / magnitude) * magnitude:,}"
 
@@ -258,7 +268,7 @@ def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:
     key = InsightDataCheckKey.LOCAL_DEVELOPMENT
     share = counts.local_events / counts.events
     # No minimum share: a local session also creates test persons and flag exposures, whatever its share.
-    if counts.local_events < MIN_FINDING_EVENTS:
+    if _estimate(counts.local_events, counts) < MIN_FINDING_EVENTS:
         return _passed(key, "local development events", counts.local_events, counts)
     amount = _percent(share) if share >= MIN_FINDING_SHARE else _event_count(counts.local_events, counts)
     return _check(
@@ -278,7 +288,7 @@ def _local_development_check(counts: DataCheckCounts) -> InsightDataCheck:
 def _bot_traffic_check(counts: DataCheckCounts) -> InsightDataCheck:
     key = InsightDataCheckKey.BOT_TRAFFIC
     share = counts.bot_events / counts.events
-    if not _is_finding(counts.bot_events, share):
+    if not _is_finding(_estimate(counts.bot_events, counts), share):
         return _passed(key, "bots or crawlers", counts.bot_events, counts)
     return _check(
         key,
