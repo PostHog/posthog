@@ -1076,7 +1076,7 @@ class GuestPermission(BasePermission):
             return True
         # A view opts guests in action by action. Views that share a scope object, such as every view scoped to
         # "project", stay closed unless they opt in too.
-        allowed = getattr(view, "guest_allowed_actions", frozenset())
+        allowed: frozenset[str] | str = getattr(view, "guest_allowed_actions", frozenset())
         return allowed == "all" or getattr(view, "action", None) in allowed
 
 

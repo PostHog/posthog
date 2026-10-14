@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import Http404
+from django.http import Http404, HttpRequest
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
@@ -43,6 +43,7 @@ GUEST_HIDDEN_PROJECT_FIELDS = frozenset(
 )
 
 _STATE_ATTRIBUTE = "_guest_state"
+_REFERENCES_ATTRIBUTE = "_guest_references"
 _LOOKUP_ERRORS = (AttributeError, KeyError, ValueError, NotFound, Http404, ObjectDoesNotExist, PermissionDenied)
 
 
@@ -64,12 +65,12 @@ def build_guest_state(membership: OrganizationMembership | None) -> GuestState:
     return GuestState(is_guest=True, organization=organization, enforced=api.guest_mode_active(organization.id))
 
 
-def remember_guest_state(request: Request, state: GuestState) -> GuestState:
+def remember_guest_state(request: Request | HttpRequest, state: GuestState) -> GuestState:
     setattr(request, _STATE_ATTRIBUTE, state)
     return state
 
 
-def guest_state(request: Request, organization: Organization | None) -> GuestState:
+def guest_state(request: Request | HttpRequest, organization: Organization | None) -> GuestState:
     """Return the guest state for a caller outside the permission stack, such as the app context."""
     cached = getattr(request, _STATE_ATTRIBUTE, None)
     if isinstance(cached, GuestState):
@@ -159,7 +160,7 @@ def guest_referenced_ids(request: Request, user: User, team_id: int) -> QueryRef
 
     The result is not cached across requests, so a revoked grant takes effect on the next request.
     """
-    cached = getattr(request, "_guest_references", None)
+    cached = getattr(request, _REFERENCES_ATTRIBUTE, None)
     if isinstance(cached, QueryReferences):
         return cached
     listed = api.list_resources(
@@ -175,7 +176,7 @@ def guest_referenced_ids(request: Request, user: User, team_id: int) -> QueryRef
             cohort_ids |= found.cohort_ids
             action_ids |= found.action_ids
     references = QueryReferences(cohort_ids=frozenset(cohort_ids), action_ids=frozenset(action_ids))
-    request._guest_references = references
+    setattr(request, _REFERENCES_ATTRIBUTE, references)
     return references
 
 
