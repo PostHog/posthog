@@ -461,8 +461,15 @@ def _sum_enabled_scanner_estimated_credits(
     return round(total)
 
 
-def _sum_active_backfill_remaining_credits(organization_id: UUID) -> tuple[int, int]:
-    """(paid, free-only) committed-but-unspent credits of the org's active backfills, at each frozen rate.
+@frozen
+class BackfillCommitments:
+    paid: int
+    # Committed by free-only scanners, which pause when the org's free credits run out.
+    free_only: int
+
+
+def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCommitments:
+    """Committed-but-unspent credits of the org's active backfills, priced at each backfill's frozen rate.
 
     Projection only: enforcement stays the per-observation creation check, identical for live and
     backfill applies. A new backfill's confirm dialog therefore sees earlier backfills' commitments
@@ -481,7 +488,10 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> tuple[int, 
         (max(0, total - dispatched - skipped) * price, free_only)
         for total, dispatched, skipped, price, free_only in rows
     ]
-    return sum(c for c, free_only in committed if not free_only), sum(c for c, free_only in committed if free_only)
+    return BackfillCommitments(
+        paid=sum(c for c, free_only in committed if not free_only),
+        free_only=sum(c for c, free_only in committed if free_only),
+    )
 
 
 def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:
@@ -514,7 +524,8 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
     `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus this
     proposal" forecast. Callers never touch the underlying scanner or backfill rows.
     """
-    paid_backfills, free_only_backfills = _sum_active_backfill_remaining_credits(organization_id)
+    backfills = _sum_active_backfill_remaining_credits(organization_id)
+    free_only_backfills = backfills.free_only
     if free_only_backfills:
         # A free-only backfill pauses when the free credits run out, so it commits only what is left of them.
         free_left = _free_credits_budget(organization_id, current_period_bounds(organization_id)).remaining
@@ -523,7 +534,7 @@ def spend_projection(organization_id: UUID, exclude_scanner_id: UUID | None = No
         scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(
             organization_id, exclude_scanner_id, free_credits_claimed=free_only_backfills
         ),
-        backfills_committed_credits=paid_backfills + free_only_backfills,
+        backfills_committed_credits=backfills.paid + free_only_backfills,
     )
 
 
