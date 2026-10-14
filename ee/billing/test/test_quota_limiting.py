@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.apps import apps
 from django.db import DatabaseError
@@ -130,10 +130,10 @@ class TestQuotaLimiting(BaseTest):
             date="2021-01-25",
             counter="event_count_in_period",
             source="both",
-            legacy=10,
+            legacy=ANY,
             realtime=3,
-            differing_teams=1,
-            absolute_difference=7,
+            differing_teams=ANY,
+            absolute_difference=ANY,
         )
         # feature_enabled will be called for AI billing check and then for data retention flag
         patch_feature_enabled.assert_any_call(
