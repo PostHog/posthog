@@ -7,11 +7,11 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { Survey, SurveyType } from '~/types'
 
-import { INTRO_SCREEN_PAGE_INDEX, NewSurvey } from './constants'
+import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { getNextPreviewPageIndex } from './surveyPreviewNavigation'
-import { clampPreviewPageIndex, getIntroScreenPageOptions } from './utils'
+import { clampPreviewPageIndex, getFirstPreviewPageIndex, getIntroScreenPageOptions } from './utils'
 
 interface SurveyFormAppearanceProps {
     previewPageIndex: number
@@ -44,12 +44,7 @@ export function SurveyFormAppearance({
                     }
                 }}
                 onPreviewBack={() =>
-                    handleSetSelectedPageIndex(
-                        Math.max(
-                            survey.appearance?.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0,
-                            effectivePageIndex - 1
-                        )
-                    )
+                    handleSetSelectedPageIndex(Math.max(getFirstPreviewPageIndex(survey), effectivePageIndex - 1))
                 }
             />
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
