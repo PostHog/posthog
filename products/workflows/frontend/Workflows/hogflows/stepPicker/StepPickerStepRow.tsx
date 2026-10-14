@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
 
 import { StepCatalogEntry } from './stepCatalog'
+import { StepPickerFavoriteToggle } from './StepPickerFavoriteToggle'
 import { stepPickerLogic } from './stepPickerLogic'
 import { stepTitle } from './stepPickerPresentation'
 import { StepPickerStepIcon } from './StepPickerStepIcon'
@@ -33,7 +34,8 @@ export function StepPickerStepRow({ entry, subtitle }: { entry: StepCatalogEntry
                     <span className="truncate text-xs font-normal text-secondary">{subtitle}</span>
                 </span>
             </LemonButton>
-            <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 @max-[44rem]/step-picker:opacity-100">
+            <span className="flex opacity-0 group-hover:opacity-100 focus-within:opacity-100 @max-[44rem]/step-picker:opacity-100">
+                <StepPickerFavoriteToggle entry={entry} iconOnly />
                 <LemonButton
                     size="small"
                     icon={<IconPlus />}

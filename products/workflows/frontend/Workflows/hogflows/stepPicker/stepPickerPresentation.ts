@@ -4,11 +4,16 @@ import { StepCategory, StepProduct } from './stepAttribution'
 import { StepCatalogEntry } from './stepCatalog'
 
 // pinned: view keys are sent in analytics events and data-attr values, renaming breaks dashboards
-export type StepPickerView = 'all' | 'highlights' | 'ai' | 'posthog' | 'flow'
+export type StepPickerView = 'all' | 'highlights' | 'ai' | 'favorites' | 'recents' | 'posthog' | 'flow'
 
 export type StepPickerSurface = 'tree' | 'side_panel'
 
 export type StepPickerPickVia = 'row' | 'detail'
+
+export type StepPickerPreferences = {
+    favoriteStepIds: string[]
+    recentStepIds: string[]
+}
 
 export type StepProvider = {
     id: string
@@ -26,6 +31,8 @@ export const STEP_PICKER_VIEW_LABELS: Record<StepPickerView, string> = {
     all: 'All steps',
     highlights: 'Highlights',
     ai: 'PostHog AI',
+    favorites: 'Favorites',
+    recents: 'Recently used',
     posthog: 'PostHog',
     flow: 'Flow control',
 }
@@ -124,12 +131,36 @@ export function groupProviders(entries: StepCatalogEntry[]): StepProviderGroups 
     return { posthog: productProviders(entries), thirdParty: vendorProviders(entries) }
 }
 
-export function stepsForView(view: StepPickerView, entries: StepCatalogEntry[]): StepCatalogEntry[] {
+export const STEP_PICKER_VIEWS: StepPickerView[] = [
+    'all',
+    'highlights',
+    'ai',
+    'favorites',
+    'recents',
+    'posthog',
+    'flow',
+]
+
+const ALWAYS_VISIBLE_VIEWS: StepPickerView[] = ['all', 'favorites', 'recents']
+
+function stepsWithIds(ids: string[], entries: StepCatalogEntry[]): StepCatalogEntry[] {
+    return ids
+        .map((id) => entries.find((entry) => entry.id === id))
+        .filter((entry): entry is StepCatalogEntry => !!entry)
+}
+
+export function stepsForView(
+    view: StepPickerView,
+    entries: StepCatalogEntry[],
+    preferences: StepPickerPreferences
+): StepCatalogEntry[] {
     switch (view) {
         case 'highlights':
-            return HIGHLIGHT_ORDER.map((id) => entries.find((entry) => entry.id === id)).filter(
-                (entry): entry is StepCatalogEntry => !!entry
-            )
+            return stepsWithIds(HIGHLIGHT_ORDER, entries)
+        case 'favorites':
+            return stepsWithIds(preferences.favoriteStepIds, entries)
+        case 'recents':
+            return stepsWithIds(preferences.recentStepIds, entries)
         case 'ai':
             return entries.filter((entry) => entry.category === 'ai')
         case 'flow':
@@ -139,6 +170,12 @@ export function stepsForView(view: StepPickerView, entries: StepCatalogEntry[]):
         case 'all':
             return entries
     }
+}
+
+export function visibleViews(entries: StepCatalogEntry[], preferences: StepPickerPreferences): StepPickerView[] {
+    return STEP_PICKER_VIEWS.filter(
+        (view) => ALWAYS_VISIBLE_VIEWS.includes(view) || stepsForView(view, entries, preferences).length > 0
+    )
 }
 
 type SearchableStep = {
