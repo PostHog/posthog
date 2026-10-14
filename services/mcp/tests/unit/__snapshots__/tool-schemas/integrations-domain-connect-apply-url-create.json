@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "integration_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the email integration (sender). Required when `context` is `email`."
+        },
+        "provider_endpoint": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS."
+        },
+        "redirect_uri": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Where the DNS host sends the user after they approve. Omit it when handing the URL to a person."
+        }
+    },
+    "required": ["integration_id"],
+    "type": "object"
+}

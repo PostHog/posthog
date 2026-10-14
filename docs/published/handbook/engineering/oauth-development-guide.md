@@ -237,6 +237,10 @@ See [Client Types](#client-types) section for detailed explanation.
    }
    ```
 
+## Domain Connect access
+
+The default-off `workflows-email-domain-agent-setup` flag enables OAuth tokens and Personal API Keys with `integration:write` to request an email Domain Connect apply URL. Scoped credentials cannot request reverse proxy apply URLs. Existing session calls for email and reverse proxy setup do not require this flag.
+
 ## Available Scopes
 
 OAuth supports all the same scopes as Personal API Keys. Each scope has a `read` and/or `write` action (e.g., `experiment:read`, `experiment:write`).
@@ -244,6 +248,14 @@ OAuth supports all the same scopes as Personal API Keys. Each scope has a `read`
 Project and environment detail responses return `live_events_token` only when the authenticated caller can read queries. For scoped credentials, this requires `query:read`, `query:write`, or `*`. A key with only `project:read` receives `null` for this field. List responses do not include `live_events_token`.
 
 For a complete list of available scopes, see [frontend/src/lib/scopes.tsx](https://github.com/PostHog/posthog/blob/master/frontend/src/lib/scopes.tsx#L15).
+
+### Email sender management
+
+When the default-off `workflows-email-domain-agent-setup` flag is enabled, OAuth tokens and Personal API Keys with `integration:write` can verify an existing email sender with `POST /api/projects/{project_id}/integrations/{id}/email/verify/` and update it with `PATCH /api/projects/{project_id}/integrations/{id}/email/`. Both operations require admin access to the project. Read-only scopes cannot perform them, and project restrictions still apply. Existing session access remains available when the flag is off.
+
+Verification returns the domain's verification status and DNS records, and persists successful verification. The update accepts a nested `config` with `email`, `name`, `provider`, and optional `mail_from_subdomain`. Supply the existing email address and provider; only the display name and MAIL FROM subdomain change. The update calls the existing provider configuration operation. Neither operation sends an email.
+
+The same flag exposes the MCP tools `integrations-email-verify-create` and `integrations-email-partial-update`. An organization's read-only MCP restriction still blocks both tools.
 
 ### OpenID Connect Scopes
 
