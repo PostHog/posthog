@@ -225,7 +225,7 @@ class TestDestinationEligibility(APIBaseTest):
         excluding_one_alert = self._function("template-slack", SLACK_INPUTS)
         HogFunction.objects.filter(pk=excluding_one_alert.pk).update(
             filters={
-                **excluding_one_alert.filters,
+                **(excluding_one_alert.filters or {}),
                 "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "is_not", "type": "event"}],
             }
         )
