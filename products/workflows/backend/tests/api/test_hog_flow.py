@@ -7466,6 +7466,28 @@ class TestReplayVisionActionValidation(APIBaseTest):
         assert "session recordings" in response.json()["detail"], response.json()
         create_invocation.assert_not_called()
 
+    def test_a_rerun_of_the_step_needs_the_callers_recording_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Rerun scan",
+            status="active",
+            trigger={"type": "event", "filters": {}},
+            actions=[_TRIGGER, self._VISION_STEP],
+        )
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.rerun_hog_invocations") as rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/rerun/",
+                {"filter": {"window_start": "2026-10-13T00:00:00Z", "window_end": "2026-10-14T00:00:00Z"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "session recordings" in response.json()["detail"], response.json()
+        rerun.assert_not_called()
+
     def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
         self._enable_access_control()
         AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")

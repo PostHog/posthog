@@ -4755,6 +4755,7 @@ class HogFlowViewSet(
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
         # `serializer.data` runs `to_representation`, which converts the
         # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
