@@ -15,7 +15,7 @@ const FLASH_FOR_OPTIONS_WITH_ICONS = FLASH_FOR_OPTIONS.map((option) => ({
     icon: <RuleStateIcon flashFor={option.value} />,
 }))
 
-/** Who gets automatic reviews, for the project settings and for a repository exception alike. */
+/** Who gets automatic reviews, for the project default and for a repository exception alike. */
 export function RuleControls({
     label,
     flashFor,

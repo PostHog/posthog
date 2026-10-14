@@ -85,7 +85,7 @@ export function RepositoryMyCell({
     return (
         <div className={`flex min-w-0 flex-col gap-1 px-4 py-2.5 ${className ?? ''}`}>
             <span className="text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:hidden">
-                Mine
+                My preference
             </span>
             {content}
             {hasChoice && !entry.in_project && (

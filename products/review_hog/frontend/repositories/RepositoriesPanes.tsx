@@ -122,11 +122,11 @@ export function RepositoriesPanes(): JSX.Element {
             </div>
             <div className="mt-4 grid grid-cols-1 overflow-hidden rounded border border-primary @min-[48rem]:grid-cols-[minmax(0,0.8fr)_minmax(0,1.15fr)_minmax(0,1fr)] [&>*:first-child]:border-t-0">
                 <RepositoryListToolbar />
-                {/* The same column names as the Deep settings tables. */}
-                {['Repository', 'Project', 'Mine'].map((column) => (
+                {/* The personal column uses the same name as the Deep settings tables. */}
+                {['Repository', 'Project', 'My preference'].map((column) => (
                     <div
                         key={column}
-                        className={`hidden px-4 py-1.5 text-xxs font-semibold tracking-wide text-secondary uppercase @min-[48rem]:block ${column === 'Mine' ? PANE_RIGHT : PANE_LEFT} ${PANE_ROW}`}
+                        className={`hidden px-4 py-1.5 text-xxs font-semibold tracking-wide text-secondary uppercase @min-[48rem]:block ${column === 'My preference' ? PANE_RIGHT : PANE_LEFT} ${PANE_ROW}`}
                     >
                         {column}
                     </div>

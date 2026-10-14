@@ -61,14 +61,14 @@ export function RepositoryProjectCell({
     } else if (!entry.in_project) {
         status = <span className="text-xs text-secondary">Not part of this project</span>
     } else if (entry.exception === null) {
-        // A row on the project rule carries no text, only the project icon: the project settings above say the rest once.
+        // A row on the project rule carries no text, only the project icon: the project default above says the rest once.
         const projectRule = FLASH_FOR_OPTIONS.find((option) => option.value === projectFlashFor)?.label
         const addExceptionButton = canEdit ? (
             <LemonButton
                 size="xsmall"
                 type="secondary"
                 icon={<IconPlus />}
-                tooltip="Add an exception, starting from the project settings"
+                tooltip="Add an exception, starting from the project default"
                 aria-label={`Add exception for ${name}`}
                 onClick={() => addException(entry)}
                 disabledReason={savingReason}
@@ -79,7 +79,7 @@ export function RepositoryProjectCell({
         ) : null
         status = (
             <>
-                <Tooltip title={`Follows the project settings: ${projectRule?.toLowerCase()}`}>
+                <Tooltip title={`Follows the project default: ${projectRule?.toLowerCase()}`}>
                     <span className="flex">
                         <RuleStateIcon flashFor={projectFlashFor} />
                     </span>

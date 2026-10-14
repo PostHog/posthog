@@ -56,7 +56,7 @@ export function RepositoryFoldRow({ summary }: { summary: FoldSummary }): JSX.El
             <div className={`flex min-w-0 items-center gap-2 px-4 py-2.5 text-xs ${PANE_LEFT} ${PANE_ROW}`}>
                 <RuleStateIcon flashFor={flashFor} />
                 <span>
-                    <span className="text-secondary">No exception, so the project settings apply:</span>{' '}
+                    <span className="text-secondary">No exception, so the project default applies:</span>{' '}
                     {rule.toLowerCase()}
                 </span>
             </div>
