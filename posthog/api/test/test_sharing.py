@@ -25,6 +25,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.api.sharing_publish_gate import dashboard_filter_leaves
+from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership
@@ -32,6 +33,7 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import browser_filtered_pageview_query
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
@@ -180,6 +182,7 @@ class TestSharing(APIBaseTest):
         mock_record_access.assert_called_once_with(expected_access_method)
 
     @patch("posthog.api.sharing.render_template")
+    @covers_authentication(SharingPasswordProtectedAuthentication)
     def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:
         sharing_configuration = SharingConfiguration.objects.create(
             team=self.team,

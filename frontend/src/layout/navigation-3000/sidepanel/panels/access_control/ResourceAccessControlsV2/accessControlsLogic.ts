@@ -44,7 +44,7 @@ import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLog
 import type { AccessControlUIVersion } from '../../../../../../lib/utils/accessControlUtils'
 import type { AccessControlResponseType, AccessControlUpdateType, RoleType } from '../../../../../../types'
 import { accessControlLogic } from '../accessControlLogic'
-import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
+import { isResourceShownInAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
 import {
@@ -774,7 +774,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const rows = defaults
                     ? Object.keys(defaults.resource_access_levels)
                           .filter((resource) =>
-                              isResourceRolledOut(resource as AccessControlResourceType, featureFlags)
+                              isResourceShownInAccessControls(resource as AccessControlResourceType, featureFlags)
                           )
                           .map((resource) => ({
                               key: resource as APIScopeObject,

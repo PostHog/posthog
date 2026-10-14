@@ -1,13 +1,24 @@
+import io
 import datetime
 from typing import Any
 
 import pytest
 
+import numpy as np
+import pandas as pd
 import dagster
 import pyarrow as pa
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.signals.backend.ranking import model_store
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.serving_manifest import (
+    SERVED_ROLE,
+    ServingManifest,
+    ServingManifestEntry,
+    serving_project_vectors_key,
+)
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA
@@ -18,6 +29,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     PROJECT_VECTORS_SCHEMA_VERSION,
     project_vectors,
 )
+from products.signals.dags.inbox_ranking.multihead.prototype import project_context
 
 AS_OF = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
 BEFORE = AS_OF - datetime.timedelta(days=3)
@@ -146,3 +158,47 @@ def test_the_asset_writes_only_teams_opted_in_to_ai_training(monkeypatch) -> Non
     assert captured["schema_version"] == PROJECT_VECTORS_SCHEMA_VERSION
     assert set(captured["table"].column("team_id").to_pylist()) == {7}
     assert set(captured["table"].column("as_of").to_pylist()) == {AS_OF}
+
+
+def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    reports = [(2, index, float(index + 1), BEFORE) for index in range(MIN_HISTORY_REPORTS)]
+    reports += [(3, 0, 7.0, BEFORE)]
+    engagements = [(2, index, "first_opened_at", BEFORE) for index in range(MIN_HISTORY_REPORTS)]
+    labels, embeddings = _labels(engagements), _embeddings(reports)
+    # Team 4 has no report vector, so the day has no row for it.
+    teams = [2, 3, 4]
+    rows = pd.DataFrame({"report_team_id": teams, "snapshot_date": [AS_OF.date()] * len(teams)})
+    training = project_context(rows, labels, embeddings)
+
+    # A report born on AS_OF's day reads the day before it, whose as_of is AS_OF.
+    key = serving_project_vectors_key("inbox_ranking", (AS_OF.date() - datetime.timedelta(days=1)).isoformat())
+    buffer = io.BytesIO()
+    pq.write_table(project_vectors(labels, embeddings, AS_OF), buffer)
+    monkeypatch.setattr(
+        model_store.object_storage,
+        "read_bytes",
+        lambda name, bucket=None, *, missing_ok=False: buffer.getvalue() if name == key else None,
+    )
+    entry = ServingManifestEntry(
+        key="nn@2026-07-29",
+        model_name="nn",
+        model_version="2026-07-29",
+        model_kind="onnx",
+        roles=[SERVED_ROLE],
+        prefix="inbox_ranking/serving/models/nn@2026-07-29",
+        heads=["open"],
+        model_file="model.onnx",
+        reads_project_vectors=True,
+    )
+    serving = model_store.load_project_vectors(
+        ServingManifest(manifest_version=AS_OF.isoformat(), models=[entry], project_vectors=key), teams
+    )
+
+    for position, team_id in enumerate(teams):
+        served = serving.for_team(team_id)
+        assert served is not None
+        pair = training.index[position]
+        np.testing.assert_array_equal(served.vectors[0], training.vectors[pair])
+        np.testing.assert_array_equal(served.has_history[0], training.has_history[pair])
+    assert training.has_history[training.index].tolist() == [[1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    assert not training.vectors[training.index[2]].any()
