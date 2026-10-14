@@ -51,7 +51,6 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-No TypeSafe caller exists on master yet. Each new local caller adds itself here with its lane and its feature flag.
 
 ## Rate-limit headers
 
