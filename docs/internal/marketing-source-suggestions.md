@@ -244,21 +244,36 @@ The full search connection card appears only when no search source is connected,
 The rescan cooldown uses the server scan time. Failed plan requests can retry without a fresh scan.
 Search controls and the Search Console connection action remain available during paid sync.
 
-## Gradual Bing Ads fallback retirement
+Source refresh failures preserve the last successful source list and retry with a bounded backoff while the onboarding flow is mounted.
+An initial connection failure offers a retry in both paid and search sections.
+The one-hour rescan cooldown uses the server's seven-day source scan timestamp; loading a cached plan does not start a new cooldown.
+A failed plan request can retry during the cooldown without forcing an event scan.
+Dashboard dismissals share Setup's restore controls; existing dashboard dismissals migrate to the shared list.
+When all detected platforms are dismissed, the card offers Restore suggestions instead of reporting no detections.
+Required tables that are missing, disabled, failed, paused, or canceled show Needs attention with a Manage source link before the first sync.
+Search date and comparison controls remain available with only Search Console connected, and Search Console can be connected while paid sources sync.
+Background source refreshes keep the Search performance table mounted.
+Manual source setup opens with the originating project in the URL.
 
-The backend flag `bing-ads-disable-legacy-oauth-fallback` disables the legacy credential retry for selected projects on PostHog Cloud.
-The flag defaults to off when it is missing, unavailable, or does not evaluate to boolean `true`.
-It uses local evaluation with the project UUID as the `project` group key and supplies the project `id` and `uuid` group properties.
-Configure project group targeting and add one project at a time rather than selecting individual users.
-The flag applies to every Bing Ads integration in the selected project.
+The redesigned dashboard preserves its existing source suggestions and dashboard view when source onboarding is disabled.
 
-Refreshes still try the primary OAuth credentials first.
-If that request fails while the flag is on, the integration reports `TOKEN_REFRESH_FAILED` and the `integration_oauth_refresh` counter records `reason="legacy_client_disabled"`.
-The stored tokens and legacy-client marker remain unchanged.
-These failures use the existing backoff without making the integration terminal, so turning the flag off restores fallback attempts on the next retry.
-Recovery can take up to one hour, plus feature flag polling and queue delays.
-The flag takes effect after a failed primary refresh; enabling it does not immediately invalidate tokens.
-The refresh marks the integration with `oauth_legacy_fallback_disabled`; Bing Ads syncs then fail with a retryable reconnect message so their schedules remain enabled.
-A successful refresh or reconnection clears that marker.
-The flag does not migrate tokens, disable source schedules, or affect other integration kinds.
-Keep the fallback credentials configured during the rollout and verify refresh success and source syncs before adding the next project.
+After ad data is ready, remaining source suggestions use a compact card without first-sync messages or already-ready connections.
+Connections needing attention remain actionable beside the suggestions.
+Source setup component stories cover panel states; source onboarding stories cover only dashboard integration, independent search sources, and flag rollback.
+
+Ad and Search setup cards use the same heading size and content inset.
+Source onboarding stories cover the current dashboard; they do not add snapshots for the experimental dashboard.
+
+A missing setup plan stays in the scanning state until a request fails.
+Manual retries bypass the event scan cache, including retries without a loaded plan.
+Managed external tables count as ready only when their schema sync status is completed; self-managed mapped tables remain available directly.
+
+The source onboarding header opens the in-app feedback form directly. The legacy feedback banner remains unchanged when source onboarding is disabled.
+
+## Bing Ads reconnection warning
+
+The `legacy-oauth-reconnect-warning` feature flag controls the reconnection banner in Marketing analytics and its settings.
+The banner only appears when a project has a Bing Ads integration marked with `oauth_uses_legacy_client`.
+It asks users to reconnect before November 30, 2026.
+The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
+Use project targeting to release the warning gradually.
