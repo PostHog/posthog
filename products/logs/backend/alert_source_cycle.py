@@ -578,13 +578,27 @@ def _as_configured_now(
         if alert is None or not alert.enabled:
             stopped.append(_stopped(check, now=now))
             continue
+        if not isinstance(alert.filters, dict):
+            # The copy cannot be built, and raising would stop every other check in the batch.
+            stopped.append(
+                _held(
+                    check,
+                    apply_broken_config(_snapshot(check, ())),
+                    skip=SkipReason.BROKEN_CONFIG,
+                    now=now,
+                    error_message="The alert's filters are not an object.",
+                )
+            )
+            continue
         upsert = platform_upsert_of(alert)
         if any(getattr(check, field) != getattr(upsert, field) for field in _SETTINGS_FIELDS):
             try:
                 refresh_settings(team_id, check.id, upsert)
             except Exception:
-                # The check still evaluates the current settings; only its history row reads stale.
+                # History records the stored copy, so the check evaluates that copy and stays true to it.
                 logger.exception("Failed to bring a platform logs copy up to date", check_id=str(check.id))
+                current.append(check)
+                continue
         current.append(replace(check, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
     return current, stopped
 

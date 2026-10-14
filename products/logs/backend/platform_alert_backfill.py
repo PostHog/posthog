@@ -139,4 +139,4 @@ def follow_logs_alert(alert: LogsAlertConfiguration) -> None:
     Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
     stay off the platform until the next backfill.
     """
-    upsert_if_running(platform_upsert_of(alert))
+    upsert_if_running(platform_upsert_of(alert), revive=True)

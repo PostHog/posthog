@@ -401,6 +401,25 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [len(first.outcomes), len(second.outcomes)] == [1, 1]
 
+    def test_a_logs_alert_with_unreadable_filters_breaks_alone(self) -> None:
+        unreadable, healthy = self._configuration(), self._configuration()
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[unreadable.id]).update(filters=[])
+
+        evaluation, _ = self._run(unreadable, healthy)
+
+        states = {o.configuration_id: o.new_state for o in evaluation.outcomes}
+        assert states == {unreadable.id: "broken", healthy.id: "firing"}
+
+    def test_a_check_whose_copy_cannot_be_updated_evaluates_the_stored_copy(self) -> None:
+        configuration = self._configuration()
+        # Copied as "above 10", which 500 logs breach. The logs alert now asks for over 1000.
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(threshold_count=1000)
+
+        with patch(f"{_MODULE}.refresh_settings", side_effect=RuntimeError("database blip")):
+            evaluation, _ = self._run(configuration)
+
+        assert [o.new_state for o in evaluation.outcomes] == ["firing"]
+
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
             team=self.team,
