@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { Heading } from '@posthog/quill'
-
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,9 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { WarehouseGettingStarted } from './WarehouseGettingStarted'
-import { WarehouseHealth } from './WarehouseHealth'
-import { WarehouseRecentRuns } from './WarehouseRecentRuns'
+import { WarehouseHome } from './WarehouseHome'
 
 export const scene: SceneExport = {
     component: WarehouseHomeScene,
@@ -36,18 +32,7 @@ export function WarehouseHomeScene(): JSX.Element {
                 description={sceneConfigurations[Scene.WarehouseHome].description}
                 resourceType={{ type: 'data_warehouse' }}
             />
-            <div data-quill className="@container/warehouse-home flex flex-col gap-6">
-                <WarehouseGettingStarted />
-                <section aria-labelledby="warehouse-overview" className="flex flex-col gap-2">
-                    <Heading render={<h2 id="warehouse-overview" />} size="base" className="m-0">
-                        Overview
-                    </Heading>
-                    <div className="grid gap-4 @3xl/warehouse-home:grid-cols-2">
-                        <WarehouseHealth />
-                        <WarehouseRecentRuns />
-                    </div>
-                </section>
-            </div>
+            <WarehouseHome />
         </SceneContent>
     )
 }
