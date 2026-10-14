@@ -146,7 +146,10 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                         )}
                     </div>
                     {pausedByFreeCredits && (
-                        <div className="pl-4 pt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <div className="pl-4 pt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <span className="text-xs text-muted">
+                                Turn it off to keep scanning now. Scans past your free credits are billed.
+                            </span>
                             <LemonSwitch
                                 checked
                                 onChange={() =>
@@ -154,8 +157,8 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                         title: 'Turn off free credits only?',
                                         description:
                                             scanner.credit_limit != null
-                                                ? `This scanner keeps scanning past your free credits, and its scans are billed up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
-                                                : "This scanner keeps scanning past your free credits, and its scans are billed up to your organization's spend limit.",
+                                                ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
+                                                : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
                                         primaryButton: { children: 'Turn off', onClick: () => turnOffFreeOnly() },
                                         secondaryButton: { children: 'Cancel' },
                                     })
@@ -168,16 +171,13 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 data-attr="vision-scanner-status-turn-off-free-only"
                                 data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                             />
-                            <span className="text-xs text-muted">
-                                Turn it off to keep scanning now. Scans past your free credits are billed.
-                            </span>
                         </div>
                     )}
                 </div>
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
                         <span className="font-semibold">
-                            {spend?.freeCredits ? 'Free credits only' : 'Spending limit for this scanner'}
+                            {spend?.freeCredits ? 'Free credits' : 'Spending limit for this scanner'}
                         </span>
                         {spend && <span className="text-xs text-muted tabular-nums">{spend.usedPct}%</span>}
                     </div>
