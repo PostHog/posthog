@@ -30,21 +30,31 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
         return null
     }
     const validationError = getBIFilterValidationError(filter)
-    if (filter.operator === 'in' || filter.operator === 'not_in') {
+    const multiple = filter.operator === 'in' || filter.operator === 'not_in'
+    if (multiple || (!isDateTimeBIField(filter.field) && filter.operator !== 'between')) {
         return (
-            <div className="flex min-w-0 flex-col gap-1">
+            <div
+                className="flex min-w-0 flex-col gap-1"
+                onInput={(event) => {
+                    if (!multiple && event.target instanceof HTMLInputElement && event.target.value === '') {
+                        setFilterValue(index, '')
+                    }
+                }}
+            >
                 <LemonInputSelect
-                    mode="multiple"
-                    value={filter.values ?? []}
+                    mode={multiple ? 'multiple' : 'single'}
+                    value={filter.values ?? (multiple || !filter.value ? [] : [filter.value])}
                     options={(options ?? []).map((value) => ({ key: value, label: value || '(empty string)' }))}
                     loading={optionsLoading}
                     status={validationError ? 'danger' : 'default'}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
-                    onChange={(values) => updateFilter(index, { values })}
+                    onChange={(values) =>
+                        updateFilter(index, multiple ? { values } : { values, value: values[0] ?? '' })
+                    }
                     onInputChange={setSearch}
                     disableFiltering
-                    placeholder={filter.operator === 'in' ? 'All values' : 'No excluded values'}
+                    placeholder={multiple ? (filter.operator === 'in' ? 'All values' : 'No excluded values') : 'Value'}
                     title={`Values for ${filter.field.name}`}
                     allowCustomValues
                     disableCommaSplitting
