@@ -144,5 +144,8 @@ describe('RefreshQueue', () => {
         await expect(queued).resolves.toMatchObject({ status: 'aborted' })
         await settle('b', OK)
         await expect(shared).resolves.toMatchObject({ status: 'ok' })
+
+        void queue.enqueue(request('a'))
+        expect(calls.map((call) => call.key)).toContain('a')
     })
 })

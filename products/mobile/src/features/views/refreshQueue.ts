@@ -65,8 +65,9 @@ export interface RefreshQueueOptions {
 
 /**
  * The one queue every Views data read goes through: at most 2 requests in flight, one queued or running request per
- * freshness key (a second caller joins the first), at most one request per item per minute, a pause per budget family
- * after a 429 or 503, and one retry 5 s after a rate-limited answer. It never polls.
+ * freshness key (a second caller joins the first), at most one request per item per minute (an aborted read that was
+ * not forced does not count), a pause per budget family after a 429 or 503, and one retry 5 s after a rate-limited
+ * answer. It never polls.
  */
 export class RefreshQueue {
     private readonly maxInFlight: number
@@ -267,6 +268,11 @@ export class RefreshQueue {
         }
         this.running -= 1
         job.controller = null
+        if (outcome !== 'retry' && outcome.status === 'aborted' && job.mode !== 'force_blocking') {
+            // A screen that left aborted the read, so no answer came back while the server still fills its shared
+            // cache. With the floor kept, that screen would find the item skipped on return and show stale values.
+            this.lastSent.delete(job.key)
+        }
         if (outcome === 'retry') {
             this.scheduleRetry(job)
         } else {
