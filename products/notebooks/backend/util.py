@@ -303,6 +303,13 @@ def extract_referenced_insight_short_ids(content: Any) -> set[str]:
     return short_ids
 
 
+def embeds_changed(previous: Any, current: Any) -> bool:
+    """Whether two notebook documents embed different insights or recordings."""
+    return extract_referenced_insight_short_ids(previous) != extract_referenced_insight_short_ids(
+        current
+    ) or extract_referenced_recording_ids(previous) != extract_referenced_recording_ids(current)
+
+
 def extract_inline_query_nodes(content: Any) -> list[tuple[str, dict[str, Any]]]:
     """Walk a notebook's ProseMirror document and collect every inline (non-saved-insight) query.
 

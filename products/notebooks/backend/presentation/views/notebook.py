@@ -191,6 +191,7 @@ from products.notebooks.backend.sql_v2_state import (
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
+from products.notebooks.backend.util import embeds_changed
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -2552,7 +2553,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             )
             notebook.refresh_from_db()
             # The queryset update fires no post_save, so queue the sync that keeps notebook embed access current.
-            authz_api.schedule_organization_sync(self.team.organization_id)
+            if embeds_changed(notebook_before.content, content):
+                authz_api.schedule_organization_sync(self.team.organization_id)
 
             # Snapshot diffs into the activity logs for history
             changes = changes_between("Notebook", previous=notebook_before, current=notebook)
