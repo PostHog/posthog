@@ -50,15 +50,18 @@ const testEvaluationConcurrencyController = new ConcurrencyController(TEST_EVALU
 // batch paths so groups/timestamp are parsed and validated identically. Throws on
 // invalid groups or timestamp. submitTestEvaluation checks the form with
 // testFormValidationError first, so this throw does not reach the loaders.
-function buildEvaluationRequest(formData: TestFormData, distinctId: string): FeatureFlagTestEvaluationRequestApi {
-    const data: FeatureFlagTestEvaluationRequestApi = {}
+function buildEvaluationRequest(
+    formData: TestFormData,
+    distinctId: string
+): FeatureFlagTestEvaluationRequestApi & { groups: Record<string, unknown> } {
+    const data: FeatureFlagTestEvaluationRequestApi & { groups: Record<string, unknown> } = {
+        groups: validateAndParseGroups(formData.groups || ''),
+    }
 
     const trimmedDistinctId = distinctId.trim()
     if (trimmedDistinctId) {
         data.distinct_id = trimmedDistinctId
     }
-
-    data.groups = validateAndParseGroups(formData.groups || '')
 
     if (formData.timestamp?.trim()) {
         data.timestamp = formData.timestamp.trim()
@@ -107,7 +110,7 @@ function evaluationErrorMessage(error: string, errorObject?: unknown): string {
     return message || 'An unexpected error occurred while testing the feature flag'
 }
 
-function validateAndParseGroups(groups: string): Record<string, any> {
+function validateAndParseGroups(groups: string): Record<string, unknown> {
     const trimmed = groups.trim()
     if (!trimmed) {
         return {}
