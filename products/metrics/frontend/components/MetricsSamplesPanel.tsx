@@ -117,6 +117,7 @@ const SCROLL_STEP_PX = 8
 /** Scrolls long labels sideways, with hold-to-scroll buttons on hover as in the logs table. */
 function HorizontalScroll({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
     const scrollRef = useRef<HTMLDivElement>(null)
+    const contentRef = useRef<HTMLDivElement>(null)
     const intervalRef = useRef<number | null>(null)
     const [canScroll, setCanScroll] = useState(false)
 
@@ -140,11 +141,16 @@ function HorizontalScroll({ children, className }: { children: React.ReactNode; 
             className={clsx('relative min-w-0 group/scroll', className)}
             onMouseEnter={() => {
                 const element = scrollRef.current
-                setCanScroll(!!element && element.scrollWidth > element.clientWidth)
+                const content = contentRef.current
+                setCanScroll(!!element && !!content && content.offsetWidth > element.clientWidth)
             }}
         >
             <div ref={scrollRef} className="overflow-x-auto hide-scrollbar whitespace-nowrap">
-                {children}
+                <div className="flex w-max">
+                    <div ref={contentRef}>{children}</div>
+                    {/* Lets the end of the text scroll clear of the buttons. */}
+                    {canScroll && <div className="w-20 shrink-0" />}
+                </div>
             </div>
             {canScroll && (
                 <LogRowScrollButtons
@@ -155,6 +161,10 @@ function HorizontalScroll({ children, className }: { children: React.ReactNode; 
             )}
         </div>
     )
+}
+
+function LabelValue({ value }: { value: string }): JSX.Element {
+    return value ? <>{value}</> : <span className="text-tertiary italic">(empty)</span>
 }
 
 /** Compact so the series column keeps its width. The tooltip has the exact value. */
@@ -230,7 +240,7 @@ function SeriesTab(): JSX.Element {
                                                 <span key={key}>
                                                     {index === 0 && row.prefix}
                                                     <span className="text-tertiary">{key}=</span>
-                                                    {value}
+                                                    <LabelValue value={value} />
                                                 </span>
                                             ))}
                                         </div>
@@ -242,7 +252,7 @@ function SeriesTab(): JSX.Element {
                                                       ...row.labels.map(([key, value], index) => (
                                                           <Fragment key={key}>
                                                               {index > 0 && <span className="text-tertiary"> · </span>}
-                                                              {value}
+                                                              <LabelValue value={value} />
                                                           </Fragment>
                                                       )),
                                                   ]
