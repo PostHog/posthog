@@ -927,7 +927,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             if (
                 kind === 'html' &&
                 (values.htmlPreview?.artifactId !== artifact.id ||
-                    (!values.htmlPreviewLoading && (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
+                    (!values.htmlPreviewLoading &&
+                        !values.htmlPreview?.error &&
+                        (values.htmlPreview?.expiresAt ?? 0) < Date.now()))
             ) {
                 actions.loadHtmlPreview(artifact)
             }

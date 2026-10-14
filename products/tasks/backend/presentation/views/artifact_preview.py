@@ -11,6 +11,7 @@ from django.http import Http404, HttpRequest, HttpResponse
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.csp_middleware import app_frame_ancestor_sources
+from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
@@ -41,7 +42,16 @@ def create_artifact_preview_url(
     return f"{tasks_facade.artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
 
 
-def _preview_claims(token: str) -> tuple[int, UUID, UUID, str, int | None]:
+@frozen
+class _PreviewClaims:
+    team_id: int
+    task_id: UUID
+    run_id: UUID
+    artifact_id: str
+    version: int | None
+
+
+def _preview_claims(token: str) -> _PreviewClaims:
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
         raise Http404
     raw_claims = cache.get(_cache_key(token))
@@ -53,7 +63,13 @@ def _preview_claims(token: str) -> tuple[int, UUID, UUID, str, int | None]:
             raise ValueError
         if version is not None and (not isinstance(version, int) or isinstance(version, bool) or version < 1):
             raise ValueError
-        return team_id, UUID(task_id), UUID(run_id), artifact_id, version
+        return _PreviewClaims(
+            team_id=team_id,
+            task_id=UUID(task_id),
+            run_id=UUID(run_id),
+            artifact_id=artifact_id,
+            version=version,
+        )
     except (TypeError, ValueError):
         raise Http404 from None
 
@@ -83,19 +99,21 @@ def _task_html_artifact_preview_csp() -> str:
 @xframe_options_exempt
 def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     tasks_facade.require_artifact_host(request.get_host())
-    team_id, task_id, run_id, artifact_id, version = _preview_claims(token)
-    if version is None:
-        artifact = tasks_facade.task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
+    claims = _preview_claims(token)
+    if claims.version is None:
+        artifact = tasks_facade.task_run_artifact_entry(
+            claims.run_id, claims.task_id, claims.team_id, artifact_id=claims.artifact_id
+        )
         if artifact is None or not is_html_artifact(
             str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
         ):
             raise Http404
         content, _, error = tasks_facade.read_task_run_artifact(
-            run_id, task_id, team_id, storage_path=str(artifact["storage_path"])
+            claims.run_id, claims.task_id, claims.team_id, storage_path=str(artifact["storage_path"])
         )
     else:
         living_content, error = tasks_facade.read_task_run_living_artifact_version(
-            run_id, task_id, team_id, artifact_id=artifact_id, version=version
+            claims.run_id, claims.task_id, claims.team_id, artifact_id=claims.artifact_id, version=claims.version
         )
         if living_content is None or not is_html_artifact(living_content.name, living_content.content_type):
             raise Http404

@@ -143,7 +143,7 @@ describe('taskRunArtifactsLogic', () => {
         await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 
-    it('loads each selected HTML preview once and ignores an old response', async () => {
+    it('loads the selected HTML preview once and retries failures only on request', async () => {
         runArtifacts = ['interactive.html', 'second.html'].map((name, index) => ({
             id: `html-${index + 1}`,
             name,
@@ -160,6 +160,16 @@ describe('taskRunArtifactsLogic', () => {
                 ? new Promise<Response>((resolve) => pending.push(resolve))
                 : fetch(input, init)
         )
+        const respond = (index: number, path: string, status = 200): void => {
+            pending[index](
+                new Response(
+                    JSON.stringify({
+                        url: `https://usercontent.example/canvas-artifacts/task-preview/${path}/index.html`,
+                    }),
+                    { status, headers: { 'Content-Type': 'application/json' } }
+                )
+            )
+        }
         const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
         logic.mount()
         await expectLogic(logic, () => logic.actions.setActiveTab('artifacts')).toFinishAllListeners()
@@ -174,34 +184,30 @@ describe('taskRunArtifactsLogic', () => {
         logic.actions.selectArtifact('second.html')
         logic.actions.ensureSelectedText()
         expect(pending).toHaveLength(2)
-        await expectLogic(logic, () =>
-            pending[1](
-                new Response(
-                    JSON.stringify({
-                        url: 'https://usercontent.example/canvas-artifacts/task-preview/second/index.html',
-                    }),
-                    {
-                        headers: { 'Content-Type': 'application/json' },
-                    }
-                )
-            )
-        )
+        await expectLogic(logic, () => respond(1, 'second'))
             .toDispatchActions(['loadHtmlPreviewSuccess'])
             .toMatchValues({
                 htmlPreviewLoading: false,
                 htmlPreview: expect.objectContaining({ artifactId: 'html-2' }),
             })
-        pending[0](
-            new Response(
-                JSON.stringify({ url: 'https://usercontent.example/canvas-artifacts/task-preview/first/index.html' }),
-                {
-                    headers: { 'Content-Type': 'application/json' },
-                }
-            )
-        )
+        respond(0, 'first')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.htmlPreview?.artifactId).toBe('html-2')
         expect(logic.values.htmlPreview?.url).toContain('/task-preview/second/')
+
+        const secondArtifact = logic.values.selectedArtifact as RunArtifact
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(2, 'failed', 503))
+            .toDispatchActions(['loadHtmlPreviewSuccess'])
+            .toMatchValues({
+                htmlPreviewLoading: false,
+                htmlPreview: expect.objectContaining({ url: null, error: expect.any(String) }),
+            })
+        logic.actions.ensureSelectedText()
+        expect(pending).toHaveLength(3)
+        logic.actions.loadHtmlPreview(secondArtifact)
+        await expectLogic(logic, () => respond(3, 'retry')).toFinishAllListeners()
+        expect(logic.values.htmlPreview?.url).toContain('/task-preview/retry/')
     })
 
     it.each([
