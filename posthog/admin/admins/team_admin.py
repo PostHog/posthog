@@ -660,7 +660,7 @@ class TeamAdmin(admin.ModelAdmin):
         if not team.pk:
             return "-"
         return format_html(
-            '<a class="button" href="/feature_flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
+            '<a class="button" href="/feature-flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
             team.pk,
         )
 

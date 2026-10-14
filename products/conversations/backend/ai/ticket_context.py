@@ -55,7 +55,7 @@ _SESSION_CONTEXT_FIELDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("os", "$os"), "OS"),
 )
 
-_FEATURE_FLAG_PATH = re.compile(r"/feature_flags/([^/?#\s]+)", re.IGNORECASE)
+_FEATURE_FLAG_PATH = re.compile(r"/feature[_-]flags/([^/?#\s]+)", re.IGNORECASE)
 _INSIGHT_PATH = re.compile(r"/insights/([^/?#\s]+)", re.IGNORECASE)
 _RECORDING_PATH = re.compile(
     r"/(?:replay|session-recordings|recordings)/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
