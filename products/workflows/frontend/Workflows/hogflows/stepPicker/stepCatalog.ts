@@ -17,6 +17,7 @@ import {
     StepProduct,
     unclassifiedDestinationAttribution,
 } from './stepAttribution'
+import { stepCatalogIdOf, templateIdOf } from './stepCatalogId'
 import {
     ACTION_NODES_TO_SHOW,
     AI_TASK_ACTION_NODE,
@@ -72,23 +73,13 @@ const BUILT_IN_STEPS: BuiltInStep[] = [
     ...[...DELAY_NODES_TO_SHOW, ...LOGIC_NODES_TO_SHOW, ...POSTHOG_NODES_TO_SHOW].map((action) => ({ action })),
 ]
 
-function templateIdOf(action: CreateActionType): string | null {
-    return 'template_id' in action.config && typeof action.config.template_id === 'string'
-        ? action.config.template_id
-        : null
-}
-
-function catalogIdOf(action: CreateActionType): string {
-    return templateIdOf(action) ?? `step-${action.type}`
-}
-
 function toEntry(
     action: CreateActionType,
     attribution: StepAttribution,
     { tags, status }: Pick<StepCatalogEntry, 'tags' | 'status'>
 ): StepCatalogEntry {
     return {
-        id: catalogIdOf(action),
+        id: stepCatalogIdOf(action),
         action,
         name: action.name,
         operation: attribution.operation,
@@ -104,7 +95,7 @@ function toEntry(
 }
 
 function stepEntry(action: CreateActionType): StepCatalogEntry {
-    const attribution = STEP_ATTRIBUTION[catalogIdOf(action)] ?? unclassifiedDestinationAttribution(action.name, [])
+    const attribution = STEP_ATTRIBUTION[stepCatalogIdOf(action)] ?? unclassifiedDestinationAttribution(action.name, [])
     return toEntry(action, attribution, { tags: [], status: null })
 }
 

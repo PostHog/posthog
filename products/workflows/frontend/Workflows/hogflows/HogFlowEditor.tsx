@@ -32,7 +32,8 @@ import { HogFlowActionEdge, HogFlowActionNode } from './types'
 function HogFlowGraphEditor(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isZoomedOutFar } = useValues(hogFlowEditorLogic)
+    const { nodes, edges, dropzoneNodes, isMovingNode, isCopyingNode, isPlacingNewStep, isZoomedOutFar } =
+        useValues(hogFlowEditorLogic)
     const {
         onEdgesChange,
         onNodesChange,
@@ -114,12 +115,15 @@ function HogFlowGraphEditor(): JSX.Element {
                 >
                     <Background gap={36} variant={BackgroundVariant.Dots} />
 
-                    {(isMovingNode || isCopyingNode) && (
+                    {(isMovingNode || isCopyingNode || isPlacingNewStep) && (
                         <Panel position="bottom-left">
                             {/* Offset right of the zoom controls so the hint sits beside them */}
                             <div className="flex flex-wrap items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
                                 <IconInfo className="text-base text-muted shrink-0" />
-                                <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
+                                <span>
+                                    Click a highlighted spot to {isMovingNode ? 'move' : isCopyingNode ? 'copy' : 'add'}{' '}
+                                    this step
+                                </span>
                                 <span className="text-muted">· press Esc to cancel</span>
                             </div>
                         </Panel>
