@@ -21,6 +21,7 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
+    SuggestedReply,
     clear_open_suggestions,
     remember_open_suggestions,
     reply_suggestions_block,
@@ -984,7 +985,7 @@ class SlackThreadHandler:
             logger.warning("slack_app_reply_suggestions_actor_lookup_failed", exc_info=True)
             return None
 
-    def _offered_suggestions(self, answer_markdown: str) -> list[str]:
+    def _offered_suggestions(self, answer_markdown: str) -> list[SuggestedReply]:
         if not is_slack_app_reply_suggestions_enabled(self._get_integration()):
             return []
         posthog_user = self._actor_posthog_user_or_none()
@@ -1044,7 +1045,7 @@ class SlackThreadHandler:
         if isinstance(ts, str):
             self._record_suggestions_placed(ts, suggestions, placement="separate")
 
-    def _record_suggestions_placed(self, message_ts: str, suggestions: list[str], *, placement: str) -> None:
+    def _record_suggestions_placed(self, message_ts: str, suggestions: list[SuggestedReply], *, placement: str) -> None:
         integration = self._get_integration()
         clear_open_suggestions(self._get_client(), integration.id, self.context.channel, self.context.thread_ts)
         remember_open_suggestions(integration.id, self.context.channel, self.context.thread_ts, message_ts)

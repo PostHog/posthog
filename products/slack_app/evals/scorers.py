@@ -417,7 +417,7 @@ class SuggestedRepliesFit(JudgedScorer):
         return {
             "output": {
                 "answer": (output or {}).get("prompt", ""),
-                "replies": "\n".join(f"- {reply}" for reply in suggestions),
+                "replies": "\n".join(f'- button "{s["label"]}" sends "{s["reply"]}"' for s in suggestions),
             }
         }
 
@@ -437,7 +437,8 @@ Offered replies:
 {{output.replies}}
 </replies>
 
-Every reply must:
+Each reply has a short button label and the full text the button sends. Every reply must:
+- have a label that means the same as the text it sends
 - be written by the person, to the agent, as their next message in the thread
 - make sense on its own, without the person typing more
 - ask only for actions the answer names or clearly implies

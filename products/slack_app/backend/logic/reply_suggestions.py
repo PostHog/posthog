@@ -24,8 +24,10 @@ REPLY_SUGGESTIONS_CLASSIFIER = "reply_suggestions"
 OPEN_SUGGESTIONS_TTL_SECONDS = 60 * 60 * 24 * 7
 
 MAX_SUGGESTIONS = 3
-# Slack rejects a button label over 75 characters, and the whole message goes down with it.
-MAX_SUGGESTION_CHARS = 75
+# Slack rejects a button label or an accessibility label over 75 characters, and the whole message
+# goes down with it. Slack cuts a label well before that, so the prompt asks for a short one.
+MAX_LABEL_CHARS = 75
+MAX_REPLY_CHARS = 300
 
 SUGGESTIONS_MODEL = "gpt-5.6-luna"
 # A reasoning model spends its thinking and the JSON reply from one token budget.
@@ -59,11 +61,17 @@ If the answer waits for the person, write up to 3 replies that the person will m
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
 - Make each reply a different choice. Do not offer two replies that mean the same thing.
 - Put the most likely reply first.
-- Keep each reply under 60 characters.
 - Write in the language of the answer.
 - Do not write replies that only say thanks or close the conversation.
 
-Answer only with JSON, for example {"suggestions": ["Yes, open the pull request", "No, keep it local"]}."""
+Each suggestion has two parts:
+- "label": the button text. Keep it under 30 characters, because Slack cuts longer labels.
+- "reply": the full message the person sends to the agent. Keep it under 150 characters. \
+It must mean the same as the label and can add the detail the label leaves out.
+
+Answer only with JSON, for example \
+{"suggestions": [{"label": "Yes, open the PR", "reply": "Yes, open the pull request with the fix"}, \
+{"label": "No, keep it local", "reply": "No, keep the change local for now"}]}."""
 
 
 @frozen
@@ -73,6 +81,12 @@ class ReplySuggestionAttribution:
     distinct_id: str | None = None
     task_id: str | None = None
     run_id: str | None = None
+
+
+@frozen
+class SuggestedReply:
+    label: str
+    reply: str
 
 
 @frozen
@@ -90,7 +104,17 @@ _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
         "strict": True,
         "schema": {
             "type": "object",
-            "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}},
+            "properties": {
+                "suggestions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"label": {"type": "string"}, "reply": {"type": "string"}},
+                        "required": ["label", "reply"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
             "required": ["suggestions"],
             "additionalProperties": False,
         },
@@ -104,22 +128,25 @@ def _clip_answer(answer: str) -> str:
     return f"{answer[:ANSWER_HEAD_CHARS]}\n…\n{answer[-ANSWER_TAIL_CHARS:]}"
 
 
-def _clean_suggestions(raw: object) -> list[str]:
-    """A label Slack would reject is dropped, not cut, because the label is also the text the agent receives."""
+def _clean_suggestions(raw: object) -> list[SuggestedReply]:
+    """A label Slack would reject is dropped, not cut, because a cut label can say something the reply does not."""
     if not isinstance(raw, list):
         return []
-    suggestions: list[str] = []
+    suggestions: list[SuggestedReply] = []
     for item in raw:
-        if not isinstance(item, str):
+        if not isinstance(item, dict):
             continue
-        text = " ".join(item.split())
-        if not text or len(text) > MAX_SUGGESTION_CHARS or text in suggestions:
+        label = " ".join(str(item.get("label") or "").split())
+        reply = " ".join(str(item.get("reply") or "").split()) or label
+        if not label or len(label) > MAX_LABEL_CHARS or len(reply) > MAX_REPLY_CHARS:
             continue
-        suggestions.append(text)
+        if any(s.label == label or s.reply == reply for s in suggestions):
+            continue
+        suggestions.append(SuggestedReply(label=label, reply=reply))
     return suggestions[:MAX_SUGGESTIONS]
 
 
-def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
+def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[SuggestedReply]:
     """Raises on a failed call, so the offline eval can tell a failure from an answer that asks nothing."""
     if not answer_markdown.strip():
         return []
@@ -153,7 +180,7 @@ def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestion
     return _clean_suggestions(parsed.get("suggestions"))
 
 
-def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
+def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[SuggestedReply]:
     """Any failure returns no replies: a missing button costs the reader one typed reply, and a
     wrong one sends the agent an instruction nobody gave."""
     try:
@@ -163,11 +190,15 @@ def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttributio
         return []
 
 
-def reply_suggestions_block(integration_id: int, suggestions: list[str], trace_id: str | None) -> dict[str, Any]:
+def reply_suggestions_block(
+    integration_id: int, suggestions: list[SuggestedReply], trace_id: str | None
+) -> dict[str, Any]:
     """Slack needs a unique action id for each element in a block, so the index is part of the id.
 
-    The integration lets the cross-region interactivity router claim the click, and the trace id
-    joins the click event to the generation that suggested the reply.
+    The value carries the full reply, which is what a click sends. The integration lets the
+    cross-region interactivity router claim the click, and the trace id joins the click event to
+    the generation that suggested the reply. Slack has no tooltip on a button, so the full reply
+    reaches only screen readers, through the accessibility label.
     """
     return {
         "type": "actions",
@@ -176,20 +207,21 @@ def reply_suggestions_block(integration_id: int, suggestions: list[str], trace_i
             {
                 "type": "button",
                 "action_id": f"{REPLY_SUGGESTION_ACTION_ID_PREFIX}{index}",
-                "text": {"type": "plain_text", "text": text, "emoji": True},
-                "value": json.dumps({"integration_id": integration_id, "trace_id": trace_id, "text": text}),
+                "text": {"type": "plain_text", "text": suggestion.label, "emoji": True},
+                "accessibility_label": suggestion.reply[:MAX_LABEL_CHARS],
+                "value": json.dumps({"integration_id": integration_id, "trace_id": trace_id, "text": suggestion.reply}),
             }
-            for index, text in enumerate(suggestions)
+            for index, suggestion in enumerate(suggestions)
         ],
     }
 
 
-def reply_suggestions_fallback_text(suggestions: list[str]) -> str:
-    return "Suggested replies: " + ", ".join(suggestions)
+def reply_suggestions_fallback_text(suggestions: list[SuggestedReply]) -> str:
+    return "Suggested replies: " + ", ".join(suggestion.label for suggestion in suggestions)
 
 
 def chosen_reply_text(slack_user_id: str, text: str) -> str:
-    return f"<@{slack_user_id}> replied: *{text}*"
+    return f"<@{slack_user_id}> picked a suggested reply: *{text}*"
 
 
 def is_reply_suggestion_action(action_id: object) -> bool:

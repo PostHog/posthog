@@ -160,11 +160,8 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
             )
         except Exception as error:
             return {"model": model, "suggestions": None, "error": f"{type(error).__name__}: {error}"}
-        return {
-            "model": model,
-            "suggestions": suggestions,
-            "last_message": f"{model}: {suggestions}",
-        }
+        offered = [{"label": s.label, "reply": s.reply} for s in suggestions]
+        return {"model": model, "suggestions": offered, "last_message": f"{model}: {offered}"}
 
     await OneShotPublicEval(
         experiment_name="slack-app-reply-suggestions",

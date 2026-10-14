@@ -106,7 +106,6 @@ from products.slack_app.backend.services.slack_messages import (
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
     app_home_url,
-    context_block,
     parse_slack_file_refs,
     post_slack_ephemeral,
     post_slack_thread_reply,
@@ -3923,13 +3922,26 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
     # Forgotten first, so the follow-up does not clear the buttons this click is about to replace.
     reply_suggestions.forget_open_suggestions(integration.id, channel, thread_ts, message_ts)
-    # The message that holds the buttons stands in for the reply: its ts carries the reactions
-    # that show progress, and it keys the follow-up's idempotent message id.
+    client = slack.client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+
+    # The reply goes in a message of its own, so the thread reads in order: the question, the
+    # reply, the next answer. Its ts carries the reactions that show progress and keys the
+    # follow-up's idempotent message id. Without it, the answer's ts stands in.
+    chosen = reply_suggestions.chosen_reply_text(clicker_slack_user_id, clicked.text)
+    reply_ts = message_ts
+    try:
+        posted = client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=chosen)
+        if isinstance(posted.get("ts"), str):
+            reply_ts = posted["ts"]
+    except Exception:
+        logger.warning("slack_app_reply_suggestion_post_failed", integration_id=integration.id, exc_info=True)
+
     event = {
         "type": "message",
         "user": clicker_slack_user_id,
         "channel": channel,
-        "ts": message_ts,
+        "ts": reply_ts,
         "thread_ts": thread_ts,
         "text": clicked.text,
     }
@@ -3943,18 +3955,13 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         untagged_followup_confirmed=True,
     )
 
-    chosen = reply_suggestions.chosen_reply_text(clicker_slack_user_id, clicked.text)
-    blocks = message.get("blocks") or []
-    at = next(
-        (i for i, b in enumerate(blocks) if b.get("block_id") == reply_suggestions.REPLY_SUGGESTIONS_BLOCK_ID),
-        len(blocks),
-    )
-    # The answer keeps every other block, and the chosen reply takes the buttons' place.
-    rewritten = [*blocks[:at], context_block(chosen), *blocks[at + 1 :]]
-    client = slack.client
-    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+    # Slack can only replace a message whole, so the answer is sent back with every block but the buttons.
+    blocks = reply_suggestions.without_reply_suggestions(message.get("blocks") or [])
     try:
-        client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or chosen, blocks=rewritten)
+        if blocks:
+            client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or chosen, blocks=blocks)
+        else:
+            client.chat_delete(channel=channel, ts=message_ts)
     except Exception:
         logger.warning("slack_app_reply_suggestion_update_failed", integration_id=integration.id, exc_info=True)
 

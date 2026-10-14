@@ -17,6 +17,7 @@ from posthog.models.user import User
 from products.slack_app.backend.logic.reply_suggestions import (
     REPLY_SUGGESTIONS_BLOCK_ID,
     ReplySuggestionAttribution,
+    SuggestedReply,
     clear_open_suggestions,
     remember_open_suggestions,
     reply_suggestions_block,
@@ -28,6 +29,12 @@ from products.slack_app.backend.tests.helpers import sign_slack_request
 
 ANSWER_BLOCK = {"type": "markdown", "text": "Should I open a pull request?"}
 FOOTER_BLOCK = {"type": "context", "elements": [{"type": "mrkdwn", "text": "Claude Opus 5"}]}
+OPEN_PR = SuggestedReply(label="Yes, open the PR", reply="Yes, open the pull request with the fix")
+KEEP_LOCAL = SuggestedReply(label="No, keep it local", reply="No, keep the change local for now")
+
+
+def _suggestion(label: str, reply: str) -> dict[str, str]:
+    return {"label": label, "reply": reply}
 
 
 def _completion(content: str) -> MagicMock:
@@ -41,21 +48,44 @@ class TestSuggestReplies(SimpleTestCase):
         [
             (
                 "keeps_order_and_caps_count",
-                json.dumps({"suggestions": ["Yes, open the PR", "Add tests too", "Use option 2", "No"]}),
-                ["Yes, open the PR", "Add tests too", "Use option 2"],
+                json.dumps(
+                    {
+                        "suggestions": [
+                            _suggestion(OPEN_PR.label, OPEN_PR.reply),
+                            _suggestion(KEEP_LOCAL.label, KEEP_LOCAL.reply),
+                            _suggestion("Add tests", "Add tests for the empty case too"),
+                            _suggestion("Use option 2", "Use option 2"),
+                        ]
+                    }
+                ),
+                [OPEN_PR, KEEP_LOCAL, SuggestedReply(label="Add tests", reply="Add tests for the empty case too")],
             ),
             (
                 # Slack rejects the whole message for one label over 75 characters.
                 "drops_overlong_and_duplicate_labels",
-                json.dumps({"suggestions": ["x" * 76, "Yes, open the PR", "Yes,  open the PR", ""]}),
-                ["Yes, open the PR"],
+                json.dumps(
+                    {
+                        "suggestions": [
+                            _suggestion("x" * 76, "x"),
+                            _suggestion(OPEN_PR.label, OPEN_PR.reply),
+                            _suggestion("Yes,  open the PR", "Yes, open it"),
+                            _suggestion("", "No label"),
+                        ]
+                    }
+                ),
+                [OPEN_PR],
+            ),
+            (
+                "a_missing_reply_sends_the_label",
+                json.dumps({"suggestions": [_suggestion("Use option 2", "")]}),
+                [SuggestedReply(label="Use option 2", reply="Use option 2")],
             ),
             ("answer_asks_nothing", json.dumps({"suggestions": []}), []),
             ("prose_instead_of_json", "Sure, here are some ideas", []),
             ("wrong_shape", json.dumps({"suggestions": "Yes"}), []),
         ]
     )
-    def test_suggestions_from_model_reply(self, _name: str, content: str, expected: list[str]) -> None:
+    def test_suggestions_from_model_reply(self, _name: str, content: str, expected: list[SuggestedReply]) -> None:
         with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(content)
             assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == expected
@@ -111,7 +141,7 @@ class TestReplySuggestionClick(TestCase):
         )
 
     def _click(self, slack_user_id: str, index: int = 0) -> Any:
-        block = reply_suggestions_block(self.integration.id, ["Yes, open the PR", "No, keep it local"], "trace-1")
+        block = reply_suggestions_block(self.integration.id, [OPEN_PR, KEEP_LOCAL], "trace-1")
         action = block["elements"][index]
         payload = {
             "type": "block_actions",
@@ -148,6 +178,8 @@ class TestReplySuggestionClick(TestCase):
 
     def test_click_sends_the_reply_to_the_agent_once(self, mock_slack_cls: MagicMock) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        slack_client = mock_slack_cls.return_value.client
+        slack_client.chat_postMessage.return_value = {"ts": "1006.0000"}
 
         with (
             self._as_slack_user(self.member_user.email),
@@ -163,9 +195,9 @@ class TestReplySuggestionClick(TestCase):
             "type": "message",
             "user": "U_BOB",
             "channel": self.channel,
-            "ts": self.message_ts,
+            "ts": "1006.0000",
             "thread_ts": self.thread_ts,
-            "text": "No, keep it local",
+            "text": KEEP_LOCAL.reply,
         }
         # Without both, the click would face the classifier or start a new task in a thread with none.
         assert mock_start.call_args.kwargs["untagged_followup"] is True
@@ -173,14 +205,15 @@ class TestReplySuggestionClick(TestCase):
         # The trace id joins the click to the generation that suggested it.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["ai_trace_id"] == "trace-1"
+        # The reply is its own message in the thread, carrying the full text the label stood for.
+        posted = slack_client.chat_postMessage.call_args.kwargs
+        assert posted["thread_ts"] == self.thread_ts
+        assert KEEP_LOCAL.reply in posted["text"]
         # The buttons live in the answer, so the rewrite must keep the answer and its footer.
-        update = mock_slack_cls.return_value.client.chat_update.call_args.kwargs
+        update = slack_client.chat_update.call_args.kwargs
         assert update["ts"] == self.message_ts
         assert update["text"] == "Should I open a pull request?"
-        assert update["blocks"][0] == ANSWER_BLOCK
-        assert "No, keep it local" in update["blocks"][1]["elements"][0]["text"]
-        assert update["blocks"][2] == FOOTER_BLOCK
-        assert len(update["blocks"]) == 3
+        assert update["blocks"] == [ANSWER_BLOCK, FOOTER_BLOCK]
 
     def test_click_from_someone_outside_the_project_sends_nothing(self, mock_slack_cls: MagicMock) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -201,7 +234,7 @@ class TestReplySuggestionPlacement(SimpleTestCase):
         cache.clear()
 
     @patch("products.slack_app.backend.slack_thread.capture_slack_event")
-    @patch("products.slack_app.backend.slack_thread.suggest_replies", return_value=["Yes, open the PR"])
+    @patch("products.slack_app.backend.slack_thread.suggest_replies", return_value=[OPEN_PR])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_reply_suggestions_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_actor_posthog_user_or_none", return_value=None)
     @patch.object(SlackThreadHandler, "_get_integration")
@@ -240,7 +273,7 @@ class TestClearOpenSuggestions(SimpleTestCase):
         ]
     )
     def test_a_newer_message_removes_only_the_buttons(self, _name: str, blocks: list, kept: list | None) -> None:
-        buttons = reply_suggestions_block(7, ["Yes, open the PR"], None)
+        buttons = reply_suggestions_block(7, [OPEN_PR], None)
         message = {"ts": "2.0", "text": "answer", "blocks": [buttons if b == "buttons" else b for b in blocks]}
         client = MagicMock()
         client.conversations_replies.return_value = {"messages": [message]}
