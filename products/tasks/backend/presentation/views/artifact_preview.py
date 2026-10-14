@@ -2,7 +2,7 @@ import re
 import json
 import hashlib
 import secrets
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from django.http import Http404, HttpRequest, StreamingHttpResponse
 from django.utils.connection import ConnectionProxy
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from posthog.api.streaming import streaming_response
 from posthog.csp_middleware import app_frame_ancestor_sources
 from posthog.dataclasses import frozen
 
@@ -120,7 +121,7 @@ def _escape_html_attribute(chunk: bytes) -> bytes:
     return chunk
 
 
-def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> Iterator[bytes]:
+async def _task_html_artifact_shim(content: bytes, *, scripts: bool) -> AsyncIterator[bytes]:
     yield (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}</style>"
@@ -160,7 +161,7 @@ def task_artifact_preview(request: HttpRequest, token: str) -> StreamingHttpResp
     if error is not None or content is None or len(content) > TASK_RUN_ARTIFACT_MAX_SIZE_BYTES:
         raise Http404
     scripts = claims.script_digest is not None and hashlib.sha256(content).hexdigest() == claims.script_digest
-    response = StreamingHttpResponse(
+    response = streaming_response(
         _task_html_artifact_shim(content, scripts=scripts), content_type="text/html; charset=utf-8"
     )
     response["Content-Disposition"] = "inline"

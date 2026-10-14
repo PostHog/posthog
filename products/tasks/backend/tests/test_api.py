@@ -10273,7 +10273,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertTrue(static.json()["scripts_available"])
         static_preview = self.client.get(urlsplit(static.json()["url"]).path, HTTP_HOST="usercontent.example")
         static_csp = static_preview["Content-Security-Policy"]
-        self.assertIn('<iframe sandbox="" ', static_preview.getvalue().decode())
+        self.assertIn('<iframe sandbox="" ', b"".join(static_preview).decode())
         self.assertIn("sandbox;", static_csp)
         self.assertIn("script-src 'none'", static_csp)
         self.assertNotIn("allow-scripts", static_csp)
@@ -10288,7 +10288,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
 
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        served_page = preview.getvalue().decode()
+        served_page = b"".join(preview).decode()
         self.assertIn(
             f'<iframe sandbox="allow-scripts" title="Artifact" srcdoc="{escape(mock_read_bytes.return_value.decode())}">',
             served_page,
@@ -10384,7 +10384,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             minted = self.client.get(api_path)
             self.assertEqual(minted.status_code, status.HTTP_200_OK)
             served = self.client.get(urlsplit(minted.json()["url"]).path, HTTP_HOST="usercontent.example")
-            self.assertIn(escape(mock_read_bytes.return_value.decode()), served.getvalue().decode())
+            self.assertIn(escape(mock_read_bytes.return_value.decode()), b"".join(served).decode())
             return served["Content-Security-Policy"]
 
         self.assertIn("sandbox allow-scripts", served_csp())
@@ -10553,7 +10553,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         preview_path = urlsplit(minted.json()["url"]).path
         preview = self.client.get(preview_path, HTTP_HOST="usercontent.example")
         self.assertEqual(preview.status_code, status.HTTP_200_OK)
-        self.assertIn(escape(versions[1]["content"]), preview.getvalue().decode())
+        self.assertIn(escape(versions[1]["content"]), b"".join(preview).decode())
         self.assertEqual(self.client.get(f"{api_path}?version=1").status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self.client.get(f"{api_path}?version={'9' * 21}").status_code, status.HTTP_400_BAD_REQUEST)
 

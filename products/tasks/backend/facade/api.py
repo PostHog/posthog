@@ -4156,19 +4156,28 @@ def _earlier_versions_run_scripts(manifest: list[dict], name: str) -> bool:
     return all(isinstance(e.get(ARTIFACT_SCRIPT_SHA256_KEY), str) for e in manifest if e.get("name") == name)
 
 
-def _latest_version(manifest: list[dict], name: str) -> dict | None:
-    return next((e for e in reversed(manifest) if e.get("name") == name), None)
+def _new_version_may_run_scripts(manifest: list[dict], name: str, base: dict | None, budget: int) -> tuple[bool, int]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        stored_bytes_match_digest,
+    )
+
+    if not _earlier_versions_run_scripts([*manifest, *([base] if base else [])], name):
+        return False, 0
+    previous = base or next((e for e in reversed(manifest) if e.get("name") == name), None)
+    if previous is None:
+        return True, 0
+    size = previous.get("size")
+    if not isinstance(size, int) or size > budget:
+        return False, 0
+    return stored_bytes_match_digest(previous.get("storage_path"), previous.get(ARTIFACT_SCRIPT_SHA256_KEY)), size
 
 
-def _stored_bytes_match_script_record(entry: dict) -> bool:
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    digest = entry.get(ARTIFACT_SCRIPT_SHA256_KEY)
-    storage_path = entry.get("storage_path")
-    if not isinstance(digest, str) or not isinstance(storage_path, str):
-        return False
-    stored = object_storage.read_bytes(storage_path, missing_ok=True)
-    return stored is not None and hashlib.sha256(stored).hexdigest() == digest
+def _append_versions(manifest: list[dict], entries: list[dict]) -> list[dict]:
+    for entry in entries:
+        if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(manifest, entry["name"]):
+            del entry[ARTIFACT_SCRIPT_SHA256_KEY]
+        manifest.append(entry)
+    return manifest
 
 
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
@@ -4215,17 +4224,13 @@ def upload_task_run_artifacts(
         if content_type:
             extras["ContentType"] = content_type
 
-        script_sha256 = hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None
-        if script_sha256 is not None and is_html_artifact(safe_name, content_type or ""):
-            previous = _latest_version([*(run.artifacts or []), *uploaded], safe_name)
-            previous_size = previous.get("size") if previous is not None else 0
-            hash_cost = previous_size if isinstance(previous_size, int) else hash_budget + 1
-            if hash_cost > hash_budget:
-                script_sha256 = None
-            else:
-                hash_budget -= hash_cost
-                if previous is not None and not _stored_bytes_match_script_record(previous):
-                    script_sha256 = None
+        may_run_scripts = written_with_open_network
+        if may_run_scripts and is_html_artifact(safe_name, content_type or ""):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                [*(run.artifacts or []), *uploaded], safe_name, None, hash_budget
+            )
+            hash_budget -= spent
+        script_sha256 = hashlib.sha256(content_bytes).hexdigest() if may_run_scripts else None
 
         object_storage.write(storage_path, content_bytes, extras or None)
         _tag_artifact_object(run, storage_path)
@@ -4257,11 +4262,9 @@ def upload_task_run_artifacts(
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
         uploaded_ids = {entry["id"] for entry in uploaded}
-        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
-        for entry in uploaded:
-            if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(manifest, entry["name"]):
-                del entry[ARTIFACT_SCRIPT_SHA256_KEY]
-            manifest.append(entry)
+        manifest = _append_versions(
+            [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids], uploaded
+        )
         _save_artifact_manifest(run, manifest)
 
     if uploaded_by == "agent":
@@ -4498,23 +4501,19 @@ def finalize_task_run_artifact_uploads(
         script_sha256 = None
         base_artifact_id = artifact.get("base_artifact_id")
         base_entry = next((e for e in manifest if e.get("id") == base_artifact_id), None) if base_artifact_id else None
-        base_runs_scripts = (
-            (base_artifact_id is None or base_entry is not None)
-            and (base_entry is None or isinstance(base_entry.get(ARTIFACT_SCRIPT_SHA256_KEY), str))
-            and _earlier_versions_run_scripts(manifest, safe_name)
-        )
-        if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
-            previous = base_entry or _latest_version(manifest, safe_name)
-            previous_size = previous.get("size") if previous is not None else 0
-            hash_cost = content_length + (previous_size if isinstance(previous_size, int) else hash_budget + 1)
-            if hash_cost > hash_budget:
-                base_runs_scripts = False
-            else:
-                hash_budget -= hash_cost
-                base_runs_scripts = previous is None or _stored_bytes_match_script_record(previous)
-        if written_with_open_network and base_runs_scripts and is_html_artifact(safe_name, content_type):
-            uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
-            script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
+        if (
+            written_with_open_network
+            and (base_artifact_id is None or base_entry is not None)
+            and is_html_artifact(safe_name, content_type)
+            and content_length <= hash_budget
+        ):
+            may_run_scripts, spent = _new_version_may_run_scripts(
+                manifest, safe_name, base_entry, hash_budget - content_length
+            )
+            hash_budget -= content_length + spent
+            if may_run_scripts:
+                uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
+                script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
 
         entry = _build_artifact_manifest_entry(
             artifact_id=artifact_id,
@@ -4543,11 +4542,9 @@ def finalize_task_run_artifact_uploads(
         with transaction.atomic():
             locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
             new_ids = {entry["id"] for entry in new_entries}
-            merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
-            for entry in new_entries:
-                if ARTIFACT_SCRIPT_SHA256_KEY in entry and not _earlier_versions_run_scripts(merged, entry["name"]):
-                    del entry[ARTIFACT_SCRIPT_SHA256_KEY]
-                merged.append(entry)
+            merged = _append_versions(
+                [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids], new_entries
+            )
             _save_artifact_manifest(locked_run, merged)
         # Count versions from the locked merge, or a concurrent same-named finalize is missed.
         manifest = merged
@@ -4605,6 +4602,44 @@ def get_task_run_living_artifact(
     return serialized
 
 
+_LivingVersionResult = TypeVar("_LivingVersionResult")
+
+
+def _task_run_living_artifact_version(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    artifact_id: str | UUID,
+    version: int,
+    load: Callable[[Any, int], _LivingVersionResult | None],
+) -> tuple[_LivingVersionResult | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        LivingArtifactVersionTooLarge,
+        get_task_artifact_for_run,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return None, "not_found"
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        result = load(artifact, version)
+    except LivingArtifactVersionTooLarge:
+        return None, "too_large"
+    except Exception:
+        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
+        return None, "read_failed"
+    if result is None:
+        return None, "not_found"
+    return result, None
+
+
 def read_task_run_living_artifact_version(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
 ) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
@@ -4615,65 +4650,25 @@ def read_task_run_living_artifact_version(
     over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
     """
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
-        LivingArtifactVersionTooLarge,
-        get_task_artifact_for_run,
         read_living_artifact_version,
     )
 
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None, None
-    try:
-        UUID(str(artifact_id))
-    except ValueError:
-        return None, "not_found"
-    artifact = get_task_artifact_for_run(run, artifact_id)
-    if artifact is None:
-        return None, "not_found"
-    try:
-        content = read_living_artifact_version(artifact, version)
-    except LivingArtifactVersionTooLarge:
-        return None, "too_large"
-    except Exception:
-        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
-        return None, "read_failed"
-    if content is None:
-        return None, "not_found"
-    return content, None
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, read_living_artifact_version
+    )
 
 
 def describe_task_run_living_artifact_version(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
 ) -> tuple[contracts.LivingArtifactVersionPreview | None, str | None]:
-    """Describe one living artifact version for a preview, without reading its stored bytes.
-
-    Returns ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the artifact or version
-    isn't found or keeps no content, ``(None, "too_large")`` if a stored version is over the preview limit,
-    else ``(preview, None)``.
-    """
+    """Describe one living artifact version for a preview, without reading its stored bytes. Errors as in the read."""
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
-        LivingArtifactVersionTooLarge,
         describe_living_artifact_version,
-        get_task_artifact_for_run,
     )
 
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None, None
-    try:
-        UUID(str(artifact_id))
-    except ValueError:
-        return None, "not_found"
-    artifact = get_task_artifact_for_run(run, artifact_id)
-    if artifact is None:
-        return None, "not_found"
-    try:
-        preview = describe_living_artifact_version(artifact, version)
-    except LivingArtifactVersionTooLarge:
-        return None, "too_large"
-    if preview is None:
-        return None, "not_found"
-    return preview, None
+    return _task_run_living_artifact_version(
+        run_id, task_id, team_id, artifact_id, version, describe_living_artifact_version
+    )
 
 
 def presign_task_run_living_artifact_version_download(

@@ -1173,7 +1173,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     return
                 }
                 if (typeof text !== 'string') {
-                    if (kind === 'html' && !values.artifactTextLoading) {
+                    if (kind === 'html') {
                         cache.editAfterTextLoads = artifact.id
                         actions.loadArtifactText(artifact)
                     }

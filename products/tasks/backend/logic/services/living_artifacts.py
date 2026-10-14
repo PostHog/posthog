@@ -177,17 +177,24 @@ def create_living_artifact(
     return artifact
 
 
-def _stored_version_matches_hash(artifact: TaskArtifact, version: int) -> bool:
-    resolved = resolve_living_artifact_version(artifact, version)
-    if resolved is None:
+def stored_bytes_match_digest(storage_path: object, digest: object) -> bool:
+    if not isinstance(storage_path, str) or not isinstance(digest, str):
         return False
-    if not resolved.storage_path:
-        return True
-    digest = resolved.record.get("content_sha256")
-    if not isinstance(digest, str):
+    try:
+        stored = object_storage.read_bytes(storage_path, missing_ok=True)
+    except Exception:
+        logger.warning("task_artifact.script_digest_read_failed", storage_path=storage_path)
         return False
-    stored = object_storage.read_bytes(resolved.storage_path, missing_ok=True)
     return stored is not None and hashlib.sha256(stored).hexdigest() == digest
+
+
+def _version_may_keep_scripts(artifact: TaskArtifact, version: int) -> bool:
+    resolved = resolve_living_artifact_version(artifact, version)
+    if resolved is None or resolved.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is not True:
+        return False
+    return not resolved.storage_path or stored_bytes_match_digest(
+        resolved.storage_path, resolved.record.get("content_sha256")
+    )
 
 
 def _source_runs_scripts(content: ArtifactContent) -> bool:
@@ -236,7 +243,7 @@ def edit_living_artifact(
         content=content_payload,
     )
     base_version_number = int(artifact.current_version or 0)
-    base_bytes_unchanged = written_with_open_network and _stored_version_matches_hash(artifact, base_version_number)
+    base_keeps_scripts = written_with_open_network and _version_may_keep_scripts(artifact, base_version_number)
     existing_content = selected_adapter.open(artifact)
     next_content = selected_adapter.apply_edit(existing_content, content_payload.body)
     commit = selected_adapter.commit(
@@ -260,7 +267,7 @@ def edit_living_artifact(
             {
                 **commit.version,
                 ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network
-                and base_bytes_unchanged
+                and base_keeps_scripts
                 and locked.current_version == base_version_number
                 and base_version is not None
                 and base_version.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is True
