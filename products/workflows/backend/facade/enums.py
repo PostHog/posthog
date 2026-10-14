@@ -65,6 +65,7 @@ class WorkflowIdeaStatus(LabeledStrEnum):
 class WorkflowIdeaSource(LabeledStrEnum):
     MANUAL = "manual", "Manual"
     SCOUT = "scout", "Scout"
+    DATA_SUGGESTIONS = "data_suggestions", "Data suggestions"
 
 
 class HogFlowState(LabeledStrEnum):
@@ -78,6 +79,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
 
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
+    IDEAS = "ideas", "Ideas"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):

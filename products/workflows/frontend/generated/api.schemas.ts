@@ -329,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `ideas` - Ideas
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    Ideas: 'ideas',
 } as const
 
 /**
@@ -676,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `ideas` - Ideas */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -777,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `ideas` - Ideas */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -878,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `ideas` - Ideas */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2070,6 +2075,13 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionAcceptRequestApi {
+    /** The id of the suggestion the draft was built from. */
+    suggestion_id: string
+    /** The draft workflow created from the built suggestion, with origin_product 'ideas'. */
+    hog_flow_id: string
+}
+
 export interface DataSuggestionBuildRequestApi {
     /** The id of a suggestion from the list endpoint. */
     suggestion_id: string
@@ -2229,6 +2241,16 @@ export interface DataSuggestionsResponseApi {
     suggestions: DataSuggestionApi[]
     /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
     readonly email_sender_ready: boolean
+}
+
+export interface DataSuggestionDismissRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+    /**
+     * Optional reason the person gave.
+     * @maxLength 2000
+     */
+    reason?: string
 }
 
 export interface DataSuggestionGenerateRequestApi {
@@ -2459,6 +2481,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
+    Ideas: 'ideas',
     Loops: 'loops',
 } as const
 

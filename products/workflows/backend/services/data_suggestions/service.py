@@ -27,7 +27,9 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionNotFound,
     DataSuggestionsResult,
     MissingInput,
+    NewWorkflowIdea,
 )
+from products.workflows.backend.facade.enums import WorkflowIdeaSource
 from products.workflows.backend.services.data_suggestions import team_context
 from products.workflows.backend.services.data_suggestions.builder import (
     BuildContext,
@@ -56,6 +58,7 @@ from products.workflows.backend.services.data_suggestions.stages import (
     classify_event_stages,
 )
 from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
+from products.workflows.backend.services.workflow_ideas import create_ideas, list_open_ideas
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -96,7 +99,8 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     # Checked before the cache, so a refresh in progress reads as generating rather than as the old cards.
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
-    return _read_cache(team) or _UNAVAILABLE
+    cached = _read_cache(team)
+    return _with_open_ideas(team, cached) if cached is not None else _UNAVAILABLE
 
 
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
@@ -106,7 +110,7 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
         return unavailable
     cached = _read_cache(team)
     if cached is not None and not refresh:
-        return cached
+        return _with_open_ideas(team, cached)
     # Visits that arrive while a run is going would each repeat the queries and the model calls.
     lock_token = str(uuid.uuid4())
     if not cache.add(_generation_lock_key(team), lock_token, _GENERATION_LOCK_SECONDS):
@@ -150,6 +154,8 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
         # A newer run owns the cache once this run lost the lock, and its suggestion ids must stay.
         if _lost_lock(lock_key, lock_token):
             return
+        # Each card is kept as an idea, so a dismissal or a draft made from it outlasts the cache.
+        _store_ideas(team.id, result.suggestions)
         # Written before the lock is released, so the next visit reads it instead of starting another run.
         cache.set(_cache_key(team), _to_cache(result), ttl)
     finally:
@@ -385,7 +391,8 @@ def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
 
 
 def _cache_key(team: Team) -> str:
-    return f"workflows:data_suggestions:v4:{team.id}"
+    # v5: the cards are read from stored ideas, so a v4 entry, whose cards were never stored, must not count.
+    return f"workflows:data_suggestions:v5:{team.id}"
 
 
 def _generation_lock_key(team: Team) -> str:
@@ -457,10 +464,57 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
 
 
 def _cached_suggestion(team: Team, suggestion_id: str) -> DataSuggestion | None:
-    cached = _read_cache(team)
-    if cached is None:
-        return None
-    return next((item for item in cached.suggestions if item.id == suggestion_id), None)
+    return next((item for item in _open_suggestions(team) if item.id == suggestion_id), None)
+
+
+def _store_ideas(team_id: int, suggestions: tuple[DataSuggestion, ...]) -> None:
+    create_ideas(
+        team_id=team_id,
+        items=[
+            NewWorkflowIdea(
+                # A project is offered one idea per event and stage, so a dismissed one is never offered again.
+                key=f"{suggestion.stage}:{suggestion.trigger_event}",
+                title=suggestion.name,
+                rationale=suggestion.description,
+                definition={},
+                evidence={
+                    "reason": suggestion.reason,
+                    "trigger_event": suggestion.trigger_event,
+                    "weekly_count": suggestion.weekly_count,
+                    "stage": suggestion.stage,
+                    "step_outline": list(suggestion.step_outline),
+                },
+            )
+            for suggestion in suggestions
+        ],
+        source=WorkflowIdeaSource.DATA_SUGGESTIONS,
+    )
+
+
+def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
+    """The stored ideas still waiting for a decision, ranked like a fresh run ranks its cards."""
+    suggestions = [
+        DataSuggestion(
+            id=str(idea.id),
+            name=idea.title,
+            description=idea.rationale,
+            reason=idea.evidence.get("reason", ""),
+            trigger_event=idea.evidence.get("trigger_event", ""),
+            weekly_count=int(idea.evidence.get("weekly_count") or 0),
+            stage=idea.evidence.get("stage", "other"),
+            step_outline=tuple(idea.evidence.get("step_outline") or ()),
+        )
+        for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+    ]
+    ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
+    return tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS))
+
+
+def _with_open_ideas(team: Team, cached: DataSuggestionsResult) -> DataSuggestionsResult:
+    # The cache still says whether a run finished and which events a build can use; the cards come from the ideas.
+    if cached.status != "ready":
+        return cached
+    return dataclasses.replace(cached, suggestions=_open_suggestions(team))
 
 
 @contextmanager

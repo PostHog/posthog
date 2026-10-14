@@ -13,8 +13,10 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    DataSuggestionAcceptRequestApi,
     DataSuggestionBuildRequestApi,
     DataSuggestionBuildResponseApi,
+    DataSuggestionDismissRequestApi,
     DataSuggestionGenerateRequestApi,
     DataSuggestionsResponseApi,
     EmailDraftApi,
@@ -1321,6 +1323,26 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getWorkflowDataSuggestionsAcceptUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/accept/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsAccept = async (
+    projectId: string,
+    dataSuggestionAcceptRequestApi: DataSuggestionAcceptRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkflowDataSuggestionsAcceptUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionAcceptRequestApi),
+    })
+}
+
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/build/`
 }
@@ -1355,6 +1377,26 @@ export const workflowDataSuggestionsCurrent = async (
     return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWorkflowDataSuggestionsDismissUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/dismiss/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsDismiss = async (
+    projectId: string,
+    dataSuggestionDismissRequestApi: DataSuggestionDismissRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWorkflowDataSuggestionsDismissUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionDismissRequestApi),
     })
 }
 

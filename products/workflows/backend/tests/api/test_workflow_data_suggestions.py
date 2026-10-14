@@ -22,6 +22,7 @@ from products.messaging.backend.facade.testing import create_message_template_fo
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.workflow_idea import WorkflowIdea as StoredIdea
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
@@ -412,6 +413,58 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
         assert self._list() == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
+
+    @patch(f"{SERVICE}.classify_event_stages", return_value={"trial_started": "trial"})
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_dismissed_card_stays_gone_after_a_refresh(self, suggest_ideas: MagicMock, _classify, _flag) -> None:
+        suggest_ideas.return_value = [_idea("trial_started"), _idea("query executed")]
+        [dismissed, kept] = self._list()["suggestions"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/dismiss/",
+            {"suggestion_id": dismissed["id"], "reason": "We send this already"},
+            format="json",
+        )
+
+        assert response.status_code == 204
+        assert [s["id"] for s in self._list(refresh=True)["suggestions"]] == [kept["id"]]
+        idea = StoredIdea.objects.for_team(self.team.id).get(id=dismissed["id"])
+        assert (idea.status, idea.dismiss_reason, idea.source) == (
+            "dismissed",
+            "We send this already",
+            "data_suggestions",
+        )
+
+    @parameterized.expand(
+        [
+            ("a draft made from the suggestion", "ideas", 204, "accepted"),
+            ("a workflow not made from a suggestion", None, 400, "suggested"),
+        ]
+    )
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_accept_links_only_a_draft_made_from_the_suggestion(
+        self,
+        _name: str,
+        origin_product: str | None,
+        status_code: int,
+        idea_status: str,
+        suggest_ideas: MagicMock,
+        _flag,
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        [suggestion] = self._list()["suggestions"]
+        flow = HogFlow.objects.create(team=self.team, name="Draft", origin_product=origin_product)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/accept/",
+            {"suggestion_id": suggestion["id"], "hog_flow_id": str(flow.id)},
+            format="json",
+        )
+
+        assert response.status_code == status_code
+        idea = StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"])
+        assert idea.status == idea_status
+        assert (self._list()["suggestions"] == []) is (idea_status == "accepted")
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

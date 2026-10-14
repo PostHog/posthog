@@ -30164,6 +30164,13 @@ export namespace Schemas {
       step_outline: DataSuggestionStepKindEnum[];
     }
 
+    export interface DataSuggestionAcceptRequest {
+      /** The id of the suggestion the draft was built from. */
+      suggestion_id: string;
+      /** The draft workflow created from the built suggestion, with origin_product 'ideas'. */
+      hog_flow_id: string;
+    }
+
     export interface DataSuggestionBuildRequest {
       /** The id of a suggestion from the list endpoint. */
       suggestion_id: string;
@@ -30214,6 +30221,16 @@ export namespace Schemas {
       workflow_id: string | null;
       /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
       missing_inputs: DataSuggestionMissingInput[];
+    }
+
+    export interface DataSuggestionDismissRequest {
+      /** The id of a suggestion from the list endpoint. */
+      suggestion_id: string;
+      /**
+         * Optional reason the person gave.
+         * @maxLength 2000
+         */
+      reason?: string;
     }
 
     export interface DataSuggestionGenerateRequest {
@@ -55191,6 +55208,7 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `ideas` - Ideas
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -55198,6 +55216,7 @@ export namespace Schemas {
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
+      Ideas: 'ideas',
     } as const;
 
     export interface HogFlowMasking {
@@ -55515,7 +55534,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -56068,7 +56088,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -81745,7 +81766,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -125471,6 +125493,7 @@ export namespace Schemas {
 
     export const HogFlowsListOriginProduct = {
       Broadcasts: 'broadcasts',
+      Ideas: 'ideas',
       Loops: 'loops',
     } as const;
 

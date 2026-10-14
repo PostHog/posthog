@@ -4,9 +4,9 @@ from django.db import models
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,7 +15,13 @@ from posthog.event_usage import get_event_source
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
+from products.workflows.backend.facade.contracts import (
+    DataSuggestionNotFound,
+    DataSuggestionsResult,
+    WorkflowIdeaAlreadyResolved,
+    WorkflowIdeaNotFound,
+    WorkflowIdeaWorkflowMismatch,
+)
 from products.workflows.backend.facade.data_suggestions import (
     build_caller,
     email_sender_ready,
@@ -25,6 +31,7 @@ from products.workflows.backend.facade.data_suggestions import (
     start_build,
     start_data_suggestions,
 )
+from products.workflows.backend.facade.workflow_ideas import accept_idea, dismiss_idea
 
 # pinned: feature flag key - the frontend gates the same surfaces on it
 FEATURE_FLAG_KEY = "workflows-data-suggestions"
@@ -118,6 +125,20 @@ class DataSuggestionBuildRequestSerializer(serializers.Serializer):
     )
 
 
+class DataSuggestionDismissRequestSerializer(serializers.Serializer):
+    suggestion_id = serializers.CharField(help_text="The id of a suggestion from the list endpoint.")
+    reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000, help_text="Optional reason the person gave."
+    )
+
+
+class DataSuggestionAcceptRequestSerializer(serializers.Serializer):
+    suggestion_id = serializers.CharField(help_text="The id of the suggestion the draft was built from.")
+    hog_flow_id = serializers.UUIDField(
+        help_text="The draft workflow created from the built suggestion, with origin_product 'ideas'."
+    )
+
+
 class DataSuggestionBuildStatus(models.TextChoices):
     READY = "ready"
     BUILDING = "building"
@@ -164,7 +185,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = True
     scope_object_read_actions = ["current"]
     # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
-    scope_object_write_actions = ["generate", "build"]
+    scope_object_write_actions = ["generate", "build", "dismiss", "accept"]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # The cards carry the project's event names and weekly counts, so a key also needs the scope that reads them.
@@ -245,6 +266,58 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
         return Response(DataSuggestionBuildResponseSerializer(built).data)
+
+    @extend_schema(
+        operation_id="workflow_data_suggestions_dismiss",
+        request=DataSuggestionDismissRequestSerializer,
+        responses={204: None},
+    )
+    @action(detail=False, methods=["post"])
+    def dismiss(self, request: Request, **kwargs: Any) -> Response:
+        user = self._user_with_feature(request)
+        payload = DataSuggestionDismissRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            dismiss_idea(
+                team_id=self.team_id,
+                idea_id=payload.validated_data["suggestion_id"],
+                user_id=user.id,
+                reason=payload.validated_data.get("reason", ""),
+            )
+        except WorkflowIdeaNotFound:
+            raise NotFound("This suggestion no longer exists.")
+        except WorkflowIdeaAlreadyResolved:
+            return Response(
+                {"detail": "This suggestion was already used or dismissed."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        operation_id="workflow_data_suggestions_accept",
+        request=DataSuggestionAcceptRequestSerializer,
+        responses={204: None},
+    )
+    @action(detail=False, methods=["post"])
+    def accept(self, request: Request, **kwargs: Any) -> Response:
+        user = self._user_with_feature(request)
+        payload = DataSuggestionAcceptRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            accept_idea(
+                team_id=self.team_id,
+                idea_id=payload.validated_data["suggestion_id"],
+                hog_flow_id=str(payload.validated_data["hog_flow_id"]),
+                user_id=user.id,
+            )
+        except WorkflowIdeaNotFound:
+            raise NotFound("This suggestion no longer exists.")
+        except WorkflowIdeaWorkflowMismatch:
+            raise ValidationError({"hog_flow_id": "That workflow was not created from a suggestion in this project."})
+        except WorkflowIdeaAlreadyResolved:
+            return Response(
+                {"detail": "This suggestion was already used or dismissed."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user
