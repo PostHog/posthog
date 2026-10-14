@@ -71,6 +71,7 @@ class AwsCostExplorerResumeConfig:
 
     window_start: str
     next_page_token: Optional[str] = None
+    dimension: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -130,6 +131,8 @@ def resolve_start_date(
     periods until the bill finalizes, but never before the user's configured start date.
     """
     floor = coerce_date(configured_start_date) or (end - dt.timedelta(days=DEFAULT_LOOKBACK_DAYS))
+    if endpoint_config.max_lookback_days is not None:
+        floor = max(floor, end - dt.timedelta(days=endpoint_config.max_lookback_days))
 
     start = floor
     if should_use_incremental_field:
@@ -152,12 +155,22 @@ def build_windows(start: dt.date, end: dt.date, window_days: int) -> list[TimeWi
 
 
 def build_payload(
-    endpoint_config: CostExplorerEndpointConfig, window: TimeWindow, page_token: Optional[str]
+    endpoint_config: CostExplorerEndpointConfig,
+    window: TimeWindow,
+    page_token: Optional[str],
+    dimension: Optional[str] = None,
+    services: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "TimePeriod": {"Start": window.start.isoformat(), "End": window.end.isoformat()},
-        "Granularity": endpoint_config.granularity,
     }
+    if endpoint_config.granularity:
+        payload["Granularity"] = endpoint_config.granularity
+    if dimension:
+        payload["Dimension"] = dimension
+        payload["Context"] = "COST_AND_USAGE"
+    if services is not None:
+        payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": services}}
     if endpoint_config.metrics:
         payload["Metrics"] = list(endpoint_config.metrics)
     if endpoint_config.group_by:
@@ -212,7 +225,22 @@ def _cost_rows(
     return rows
 
 
-def normalize_results(endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any]) -> list[dict[str, Any]]:
+def _dimension_rows(dimension: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in body.get("DimensionValues") or []:
+        # LINKED_ACCOUNT values carry the account name as a `description` attribute.
+        row: dict[str, Any] = {"dimension": dimension, "value": item.get("Value")}
+        row.update(_flatten("", item.get("Attributes") or {}))
+        rows.append(row)
+    return rows
+
+
+def normalize_results(
+    endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], dimension: Optional[str] = None
+) -> list[dict[str, Any]]:
+    if dimension is not None:
+        return _dimension_rows(dimension, body)
+
     rows: list[dict[str, Any]] = []
 
     for result in body.get(endpoint_config.result_key) or []:
@@ -223,7 +251,7 @@ def normalize_results(endpoint_config: CostExplorerEndpointConfig, body: dict[st
             "granularity": endpoint_config.granularity,
         }
 
-        if endpoint_config.metrics:
+        if not endpoint_config.nested_keys:
             # Recent periods come back estimated and are restated later; the lookback rewind
             # re-merges them once finalized. Only the cost operations report it.
             base["estimated"] = result.get("Estimated")
@@ -322,7 +350,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
     "ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetReservationUtilization and ce:GetSavingsPlansUtilization to the IAM user or role.",
+    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetCostAndUsageWithResources, ce:GetDimensionValues, ce:GetReservationUtilization, ce:GetReservationCoverage, ce:GetSavingsPlansUtilization and ce:GetSavingsPlansCoverage to the IAM user or role.",
     "DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
@@ -374,17 +402,35 @@ def validate_credentials(
 
 
 def _resume_index(
-    windows: list[TimeWindow], resume: Optional[AwsCostExplorerResumeConfig]
+    slices: list[tuple[TimeWindow, Optional[str]]], resume: Optional[AwsCostExplorerResumeConfig]
 ) -> tuple[int, Optional[str]]:
-    """Where to pick up. A saved window that no longer exists (the range moved) restarts the run."""
+    """Where to pick up. A saved slice that no longer exists (the range moved) restarts the run."""
     if resume is None:
         return 0, None
 
-    for index, window in enumerate(windows):
-        if window.start.isoformat() == resume.window_start:
+    for index, (window, dimension) in enumerate(slices):
+        if window.start.isoformat() == resume.window_start and dimension == resume.dimension:
             return index, resume.next_page_token
 
     return 0, None
+
+
+def list_window_services(session: requests.Session, credentials: Credentials, window: TimeWindow) -> list[str]:
+    services: list[str] = []
+    page_token: Optional[str] = None
+    while True:
+        payload: dict[str, Any] = {
+            "TimePeriod": {"Start": window.start.isoformat(), "End": window.end.isoformat()},
+            "Dimension": "SERVICE",
+            "Context": "COST_AND_USAGE",
+        }
+        if page_token:
+            payload["NextPageToken"] = page_token
+        body = send_operation(session, credentials, "GetDimensionValues", payload)
+        services.extend(item["Value"] for item in body.get("DimensionValues") or [] if item.get("Value"))
+        page_token = body.get("NextPageToken")
+        if not page_token:
+            return services
 
 
 def get_rows(
@@ -416,17 +462,30 @@ def get_rows(
         resumable_source_manager.clear_state()
         return
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    index, page_token = _resume_index(windows, resume)
-    if resume is not None:
-        logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={windows[index].start}")
+    dimensions: tuple[Optional[str], ...] = endpoint_config.dimensions or (None,)
+    slices = [(window, dimension) for window in windows for dimension in dimensions]
 
-    for window in windows[index:]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    index, page_token = _resume_index(slices, resume)
+    if resume is not None:
+        logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={slices[index][0].start}")
+
+    for window, dimension in slices[index:]:
+        services: Optional[list[str]] = None
+        if endpoint_config.filter_by_window_services:
+            services = list_window_services(session, credentials, window)
+            if not services:
+                page_token = None
+                continue
+
         while True:
             body = send_operation(
-                session, credentials, endpoint_config.operation, build_payload(endpoint_config, window, page_token)
+                session,
+                credentials,
+                endpoint_config.operation,
+                build_payload(endpoint_config, window, page_token, dimension, services),
             )
-            rows = normalize_results(endpoint_config, body)
+            rows = normalize_results(endpoint_config, body, dimension)
             if rows:
                 yield rows
 
@@ -434,7 +493,9 @@ def get_rows(
             # Saved after yielding: a crash re-yields the last batch, which merges away on the
             # primary key, rather than skipping it.
             resumable_source_manager.save_state(
-                AwsCostExplorerResumeConfig(window_start=window.start.isoformat(), next_page_token=page_token)
+                AwsCostExplorerResumeConfig(
+                    window_start=window.start.isoformat(), next_page_token=page_token, dimension=dimension
+                )
             )
 
             if not page_token:
@@ -472,8 +533,8 @@ def aws_cost_explorer_source(
             logger=logger,
         ),
         primary_keys=endpoint_config.primary_key,
-        partition_keys=["period_start"],
-        partition_mode="datetime",
-        partition_format="month",
+        partition_keys=None if endpoint_config.dimensions else ["period_start"],
+        partition_mode=None if endpoint_config.dimensions else "datetime",
+        partition_format=None if endpoint_config.dimensions else "month",
         sort_mode="asc",
     )
