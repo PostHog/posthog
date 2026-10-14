@@ -150,6 +150,8 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
             skip_agent_review=event.skip_agent_review,
         )
         return
+    # A worker on an older deploy rejects an unknown keyword, so a Standard request leaves it out.
+    full_kwargs = {"full": True} if event.is_full_label_request else {}
     process_label_event.delay(
         installation_id=event.installation_id,
         repository=event.repository,
@@ -159,5 +161,5 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
         head_branch=event.head_branch,
         labeler_login=event.sender_login or "",
         labeled_by_bot=event.sender_is_bot,
-        full=event.is_full_label_request,
+        **full_kwargs,
     )

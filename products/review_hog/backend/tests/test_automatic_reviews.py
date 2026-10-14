@@ -257,7 +257,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 head_branch="feature",
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
-                full=expected_full,
+                **({"full": True} if expected_full else {}),
             )
         else:
             label_enqueue.assert_not_called()
