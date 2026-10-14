@@ -19,6 +19,50 @@ class PostHogSlackInboxOnboardingInputs:
 
 
 @frozen
+class SlackUnfurlChartRequest:
+    url: str
+    insight_id: int
+    title: str
+
+
+@frozen
+class SlackAppUnfurlChartsWorkflowInputs:
+    team_id: int
+    integration_id: int
+    user_id: int
+    slack_user_id: str
+    channel: str
+    message_ts: str
+    unfurl_id: str | None
+    source: str | None
+    # The cards the webhook already posted, keyed by url. chat.unfurl replaces the unfurls it is
+    # given, so the charts go out together with the cards from the first call.
+    unfurls: dict[str, Any]
+    charts: list[SlackUnfurlChartRequest]
+    # Read from settings by the starter, because a workflow body must not read settings.
+    export_task_queue: str
+
+
+@frozen
+class SlackUnfurlChartAsset:
+    insight_id: int
+    asset_id: int
+
+
+@frozen
+class SlackAppUnfurlChartsPrepared:
+    distinct_id: str
+    assets: list[SlackUnfurlChartAsset]
+
+
+@frozen
+class SlackAppUnfurlChartsPostInput:
+    request: SlackAppUnfurlChartsWorkflowInputs
+    rendered: list[SlackUnfurlChartAsset]
+    elapsed_ms: int
+
+
+@frozen
 class SlackAppForkThreadInputs:
     """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
 
