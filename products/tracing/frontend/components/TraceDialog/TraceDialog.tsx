@@ -13,6 +13,8 @@ import { MissingParentSpanNotice } from 'products/tracing/frontend/components/Tr
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import { TRACE_DIALOG_MAX_SPANS, traceDialogLogic } from './traceDialogLogic'
+import { TraceDialogOpenedFromLog } from './TraceDialogOpenedFromLog'
+import { TraceDialogShortcuts } from './TraceDialogShortcuts'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
 export function TraceDialog(): JSX.Element | null {
@@ -66,19 +68,23 @@ export function TraceDialog(): JSX.Element | null {
             width="90vw"
             maxWidth={1600}
             footer={
-                <LemonButton
-                    type="secondary"
-                    icon={<IconExternal />}
-                    to={traceUrl(trace)}
-                    data-attr="trace-dialog-open-in-tracing"
-                >
-                    Open in Tracing
-                </LemonButton>
+                <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+                    <TraceDialogShortcuts />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconExternal />}
+                        to={traceUrl(trace)}
+                        data-attr="trace-dialog-open-in-tracing"
+                    >
+                        Open in Tracing
+                    </LemonButton>
+                </div>
             }
         >
             <FloatingContainerContext.Provider value={floatingContainer}>
                 {/* The span list virtualizes, so it needs a definite height to measure against. */}
                 <div className="flex flex-col gap-2 h-[65vh]">
+                    <TraceDialogOpenedFromLog />
                     {traceSpans?.truncated && (
                         <LemonBanner type="info">
                             Showing the first {TRACE_DIALOG_MAX_SPANS.toLocaleString()} spans. Open this trace in
