@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -332,9 +333,15 @@ def _fetch_fingerprint_documents(
     return {row[0]: row[1] for row in response.results if row[1]}
 
 
+@frozen
+class JudgeDocuments:
+    source: str
+    candidate: str
+
+
 def _judge_documents(
     team: Team, inputs: FingerprintEmbeddingResultInputs, candidate: SimilarFingerprintDistance
-) -> tuple[str, str] | str:
+) -> JudgeDocuments | str:
     """Both documents to judge, or the reason they can't be sent."""
     # Consent can be withdrawn between embedding and this (possibly retried) activity.
     if not team.organization.is_ai_data_processing_approved:
@@ -352,7 +359,7 @@ def _judge_documents(
     candidate_document = documents.get(candidate.fingerprint)
     if source_document is None or candidate_document is None:
         return "missing_document"
-    return source_document, candidate_document
+    return JudgeDocuments(source=source_document, candidate=candidate_document)
 
 
 def _judge_candidate(
@@ -373,7 +380,7 @@ def _judge_candidate(
         error = documents
     else:
         try:
-            verdict = ask_judge(team.id, *documents, config.judge_timeout_seconds)
+            verdict = ask_judge(team.id, documents.source, documents.candidate, config.judge_timeout_seconds)
             score, latency_ms = verdict.score, verdict.latency_ms
         except JudgeUnavailableError as err:
             error = str(err)
