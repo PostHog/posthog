@@ -758,7 +758,7 @@ Ubidots fail:rate-limit-budget,safe-point,stall-budget
 UkCompaniesHouse fail:stall-budget
 Unleash fail:safe-point,stall-budget
 Unstructured fail:rate-limit-budget,stall-budget
-UpPromote not-checkable:database
+UpPromote fail:stall-budget
 Upstash fail:stall-budget
 Uptimerobot fail:stall-budget
 UsBea fail:rate-limit-budget,stall-budget
