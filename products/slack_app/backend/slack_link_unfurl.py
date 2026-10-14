@@ -5,6 +5,7 @@ Ticket subjects and messages are customer-authored, so every one goes through `e
 
 from __future__ import annotations
 
+import re
 import asyncio
 import dataclasses
 from collections.abc import Callable
@@ -67,6 +68,8 @@ logger = structlog.get_logger(__name__)
 _MAX_BODY_CHARS = 200
 _MAX_TITLE_CHARS = 150
 _MAX_CHART_LINES = 4
+_DATE_RANGE_UNITS = {"h": "hour", "d": "day", "w": "week", "m": "month", "y": "year"}
+_NAMED_DATE_RANGES = {"dStart": "Today", "mStart": "This month", "yStart": "This year", "all": "All time"}
 _MAX_GRID_TILES = 6
 _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
@@ -88,7 +91,7 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
 
 _KIND_EMOJI: dict[str, str] = {
     "insight": "📈",
-    "dashboard": "🧭",
+    "dashboard": "📊",
     "ticket": "🎫",
     "task": "🤖",
     "canvas": "🎨",
@@ -558,7 +561,10 @@ def _tile_grid(names: list[str]) -> str | None:
     width = _CHART_WIDTH + 2
     cells = [f"▪ {_truncate(name.replace('`', "'"), width)}" for name in names[:_MAX_GRID_TILES]]
     rows = [cells[index : index + 2] for index in range(0, len(cells), 2)]
-    return "\n".join("   ".join(cell.ljust(width + 2) for cell in row).rstrip() for row in rows)
+    lines = ["   ".join(cell.ljust(width + 2) for cell in row).rstrip() for row in rows]
+    if len(names) > _MAX_GRID_TILES:
+        lines.append(f"+ {len(names) - _MAX_GRID_TILES} more")
+    return "\n".join(lines)
 
 
 def _question_list(questions: object) -> str | None:
@@ -571,6 +577,25 @@ def _question_list(questions: object) -> str | None:
 
 def _by(user: User | None) -> tuple[str, ...]:
     return (f"By {user.first_name}",) if user and user.first_name else ()
+
+
+def _user(user_id: int | None) -> User | None:
+    return User.objects.filter(id=user_id).only("first_name").first() if user_id else None
+
+
+def _date_range(query: object) -> str | None:
+    source = query.get("source") if isinstance(query, dict) else None
+    date_range = source.get("dateRange") if isinstance(source, dict) else None
+    date_from = date_range.get("date_from") if isinstance(date_range, dict) else None
+    if not isinstance(date_from, str):
+        return None
+    if date_from in _NAMED_DATE_RANGES:
+        return _NAMED_DATE_RANGES[date_from]
+    match = re.fullmatch(r"-(\d+)([hdwmy])", date_from)
+    if not match:
+        return None
+    amount, unit = int(match[1]), _DATE_RANGE_UNITS[match[2]]
+    return f"Last {unit}" if amount == 1 else f"Last {_count(amount, unit)}"
 
 
 def _primary_metric(metrics: object) -> str | None:
@@ -597,7 +622,7 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
-        details=_by(insight.created_by),
+        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
@@ -674,13 +699,14 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     except Exception:
         logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=ctx.team.pk)
     pr_url = tasks_facade.get_latest_pr_url_by_task([task.id]).get(str(task.id))
-    repository = next((dto.repository for dto in tasks_facade.get_tasks_by_ids([task.id], [ctx.team.pk])), None)
+    dto = next(iter(tasks_facade.get_tasks_by_ids([task.id], [ctx.team.pk])), None)
     return _UnfurlCard(
         label="Task",
         title=task.title,
         status=task.latest_run_status,
-        details=(repository,) if repository else (),
+        details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
+        timestamp=dto.updated_at if dto else None,
     )
 
 
@@ -690,7 +716,8 @@ def _canvas_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         return "not_found"
     if not canvas_access.canvas_is_visible(team_id=ctx.team.pk, canvas_id=ref, user_id=ctx.user.id):
         return "no_access"
-    return _UnfurlCard(label="Canvas", title=summary.name, details=(f"Space: {summary.channel_name}",))
+    owner = _user(canvas_access.canvas_owner_id(team_id=ctx.team.pk, canvas_id=ref))
+    return _UnfurlCard(label="Canvas", title=summary.name, details=(f"Space: {summary.channel_name}", *_by(owner)))
 
 
 def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
@@ -773,6 +800,8 @@ def _survey_status(survey: Survey) -> str:
         return "Archived"
     if survey.end_date:
         return "Completed"
+    if survey.start_date and survey.start_date > timezone.now():
+        return "Scheduled"
     return "Running" if survey.start_date else "Draft"
 
 

@@ -41,6 +41,7 @@ from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
+    _date_range,
     _flag_chart,
     _insight_resource_label,
     _question_list,
@@ -126,7 +127,7 @@ class TestInsightResourceLabel:
         assert _insight_resource_label(insight) == "Insight"
 
 
-class TestFlagChart:
+class TestCardText:
     @parameterized.expand(
         [
             (
@@ -168,7 +169,7 @@ class TestFlagChart:
             (
                 "more_than_shown",
                 [f"Tile {index}" for index in range(8)],
-                "▪ Tile 4                   ▪ Tile 5",
+                "+ 2 more",
             ),
             ("empty", [], None),
         ]
@@ -179,6 +180,19 @@ class TestFlagChart:
             assert grid is not None and grid.splitlines()[-1] == expected
         else:
             assert (grid.splitlines() if grid else None) == expected
+
+    @parameterized.expand(
+        [
+            ("relative_days", "-30d", "Last 30 days"),
+            ("single_month", "-1m", "Last month"),
+            ("named", "mStart", "This month"),
+            ("absolute_date", "2026-01-01", None),
+            ("missing", None, None),
+        ]
+    )
+    def test_date_range(self, _name: str, date_from: str | None, expected: str | None) -> None:
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "dateRange": {"date_from": date_from}}}
+        assert _date_range(query) == expected
 
     def test_question_list_numbers_and_caps_questions(self) -> None:
         questions = [{"question": f"Question {index}"} for index in range(7)]
