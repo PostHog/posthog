@@ -9,6 +9,7 @@ describe('usableId', () => {
         ['an empty id', '', null],
         ['a value with path characters', 'a/b', null],
         ['a value that is not hex', 'notatrace', null],
+        ['an odd-length hex value', 'abc', null],
     ])('resolves %s', (_name, value, expected) => {
         expect(usableId(value)).toBe(expected)
     })
