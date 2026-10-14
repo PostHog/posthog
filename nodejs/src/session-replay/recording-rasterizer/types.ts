@@ -61,6 +61,7 @@ export interface NavigationChange {
     video_s: number // position in the rendered file where the change first shows
     session_s: number // recording time of that frame
     window_id: string // the recording's own window id, as its analytics events carry it
+    window_number: number // the number the footer shows for the window
     url: string // without query string, as the footer draws it
 }
 

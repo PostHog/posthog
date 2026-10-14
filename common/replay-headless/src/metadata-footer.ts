@@ -1,10 +1,9 @@
 import type { RecordingSegment } from '@posthog/replay-shared'
 
-import { footerUrl } from './footer-url'
-import type { PageUrls } from './page-urls'
 import type { PlaybackController } from './playback-controller'
 import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
 import type { ReplayerWindow } from './replayer-factory'
+import type { WindowLabels } from './window-labels'
 
 /**
  * Renders an overlay footer showing the recording time offset, which window is on screen, that window's
@@ -12,7 +11,6 @@ import type { ReplayerWindow } from './replayer-factory'
  * context.
  */
 export class MetadataFooter {
-    private numberByWindow = new Map<number, number>()
     private footerEl: HTMLElement | null
     private metaUrlEl: HTMLElement | null
     private metaRectEl: HTMLElement | null
@@ -24,7 +22,7 @@ export class MetadataFooter {
         private segments: RecordingSegment[],
         private firstTimestamp: number,
         private controller: PlaybackController,
-        private pageUrls: PageUrls
+        private labels: WindowLabels
     ) {
         this.footerEl = document.getElementById('metadata-footer')
         this.metaUrlEl = document.getElementById('meta-url')
@@ -32,7 +30,6 @@ export class MetadataFooter {
         this.metaWindowEl = document.getElementById('meta-window')
         this.metaStatusEl = document.getElementById('meta-status')
 
-        windows.forEach((tab, index) => this.numberByWindow.set(tab.windowId, index + 1))
         // The footer's own frame callback runs before the controller's, so without this the frame that switches
         // windows would show the new window's page under the old window's number and URL.
         this.controller.onWindowChange(() => this.update())
@@ -61,8 +58,8 @@ export class MetadataFooter {
         const active = this.controller.activeWindow
         const sessionMs = Math.max(0, this.controller.currentSessionMs())
         this.metaRectEl.textContent = (sessionMs / 1000).toFixed(0)
-        this.metaWindowEl.textContent = `${this.numberByWindow.get(active.windowId)} of ${this.windows.length}`
-        this.metaUrlEl.textContent = footerUrl(this.pageUrls.urlOf(active.windowId))
+        this.metaWindowEl.textContent = `${this.labels.numberOf(active.windowId)} of ${this.windows.length}`
+        this.metaUrlEl.textContent = this.labels.urlOf(active.windowId)
 
         if (this.controller.isStopped) {
             this.metaStatusEl.className = 'status-ended'

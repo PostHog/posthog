@@ -1,10 +1,10 @@
-import { footerUrl } from './footer-url'
-import type { PageUrls } from './page-urls'
 import type { PlaybackController } from './playback-controller'
 import { PLAYER_NAVIGATION_KEY, type NavigationSample } from './protocol'
+import type { WindowLabels } from './window-labels'
 
 /** Bounds what one render writes into its asset. */
 export const MAX_NAVIGATION_SAMPLES = 2000
+const MAX_URL_LENGTH = 500
 
 /** Reads the state the footer draws, so it lists what the video shows rather than what analytics events claim. */
 export class NavigationTimeline {
@@ -12,7 +12,7 @@ export class NavigationTimeline {
 
     constructor(
         private controller: PlaybackController,
-        private pageUrls: PageUrls,
+        private labels: WindowLabels,
         private windowUuidById: Map<number, string>
     ) {}
 
@@ -28,8 +28,9 @@ export class NavigationTimeline {
         }
         const tab = this.controller.activeWindow
         const windowUuid = this.windowUuidById.get(tab.windowId)
-        const url = footerUrl(this.pageUrls.urlOf(tab.windowId))
-        if (!windowUuid || !url) {
+        const windowNumber = this.labels.numberOf(tab.windowId)
+        const url = this.labels.urlOf(tab.windowId).slice(0, MAX_URL_LENGTH)
+        if (!windowUuid || windowNumber === undefined || !url) {
             return
         }
         const last = this.samples[this.samples.length - 1]
@@ -40,6 +41,7 @@ export class NavigationTimeline {
             sample,
             session_ms: Math.round(this.controller.currentSessionMs()),
             window_id: windowUuid,
+            window_number: windowNumber,
             url,
         })
     }

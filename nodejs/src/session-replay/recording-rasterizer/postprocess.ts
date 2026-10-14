@@ -1,5 +1,4 @@
-import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
-import { NavigationSample } from '@posthog/replay-headless/protocol'
+import { METADATA_FOOTER_HEIGHT_PX, NavigationSample } from '@posthog/replay-headless/protocol'
 
 import {
     InactivityPeriod,
@@ -119,21 +118,25 @@ export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityP
 
 export function navigationFromFrames(
     samples: NavigationSample[],
-    frameSessionMs: number[],
+    videoDurationS: number,
     fps: number,
-    preRollFrames = 0
+    preRollFrames: number
 ): NavigationChange[] {
     if (fps <= 0) {
         return []
     }
-    return samples
-        .filter((entry) => entry.sample >= 0 && entry.sample < frameSessionMs.length)
-        .map((entry) => ({
-            video_s: (preRollFrames + entry.sample) / fps,
-            session_s: entry.session_ms / 1000,
-            window_id: entry.window_id,
-            url: entry.url,
-        }))
+    return (
+        samples
+            .map((entry) => ({
+                video_s: (preRollFrames + entry.sample) / fps,
+                session_s: entry.session_ms / 1000,
+                window_id: entry.window_id,
+                window_number: entry.window_number,
+                url: entry.url,
+            }))
+            // A trimmed capture keeps sampling briefly after the encoder stops writing.
+            .filter((change) => change.video_s < videoDurationS)
+    )
 }
 
 /** The render's output metadata, shared by the Temporal activity and the file CLI so the two cannot drift. */
@@ -155,7 +158,7 @@ export function renderOutputFields(
         ),
         navigation: navigationFromFrames(
             result.navigation_samples,
-            result.frame_session_ms,
+            result.capture_duration_s,
             result.output_fps,
             result.pre_roll_frames
         ),

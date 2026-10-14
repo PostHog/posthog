@@ -36,7 +36,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange, navigation_from_export_context
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
@@ -64,7 +64,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_provider_call,
     record_tool_round,
 )
-from products.replay_vision.backend.temporal.navigation import navigation_from_export_context, navigation_timeline
+from products.replay_vision.backend.temporal.navigation import navigation_timeline
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.network_tool import NetworkIndex, build_network_index
 from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
@@ -273,7 +273,7 @@ async def run_scan(
     # Built before the preamble so one object decides both the wording and what a network lookup returns, which
     # keeps the prompt from promising network data the scan does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
-    navigation_entries, navigation_dropped = navigation_timeline(navigation, llm_inputs.window_mapping)
+    navigation_entries, navigation_dropped = navigation_timeline(navigation)
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     scanner = scanner.bind_session(video_clock, duration_ms)
 

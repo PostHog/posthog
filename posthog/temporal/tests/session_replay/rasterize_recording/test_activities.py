@@ -403,7 +403,16 @@ class TestBuildRasterizationCache:
         cached_asset = _make_asset(
             pk=50,
             export_context=self._ctx_with_render(
-                fp, navigation=[{"video_s": 3.0, "session_s": 95.5, "window_id": "w-a", "url": "https://ex.com/b"}]
+                fp,
+                navigation=[
+                    {
+                        "video_s": 3.0,
+                        "session_s": 95.5,
+                        "window_id": "w-a",
+                        "window_number": 1,
+                        "url": "https://ex.com/b",
+                    }
+                ],
             ),
             content_location="exports/mp4/team-1/task-50/video.mp4",
         )
@@ -420,7 +429,7 @@ class TestBuildRasterizationCache:
         assert result.cached_output.truncated is False
         assert result.cached_output.inactivity_periods == []
         assert result.cached_output.navigation == [
-            NavigationChange(video_s=3.0, session_s=95.5, window_id="w-a", url="https://ex.com/b")
+            NavigationChange(video_s=3.0, session_s=95.5, window_id="w-a", window_number=1, url="https://ex.com/b")
         ]
 
     def test_cache_hit_reports_started_and_success(self, reported_events):
@@ -593,7 +602,11 @@ class TestFinalizeRasterization:
 
     def test_happy_path(self):
         asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
-        navigation = [NavigationChange(video_s=3.0, session_s=95.5, window_id="w-a", url="https://ex.com/billing")]
+        navigation = [
+            NavigationChange(
+                video_s=3.0, session_s=95.5, window_id="w-a", window_number=1, url="https://ex.com/billing"
+            )
+        ]
         result = self._make_result(file_size_bytes=12345, truncated=True, navigation=navigation)
 
         patches, _ = _patches(asset)

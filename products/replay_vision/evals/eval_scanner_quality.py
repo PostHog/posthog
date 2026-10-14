@@ -21,6 +21,8 @@ from google.genai import (
     types as genai_types,
 )
 
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
+
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
@@ -28,7 +30,6 @@ from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags, run_scan
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
-from products.replay_vision.backend.temporal.navigation import navigation_from_export_context
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 from products.replay_vision.evals.dataset import (
@@ -160,7 +161,7 @@ async def _scan_task(
                 # A case collected before the map was captured scores as if nothing was cut.
                 video_clock=video_clock_from_export_context({"inactivity_periods": golden.inactivity_periods})
                 or VideoClock(spans=()),
-                navigation=navigation_from_export_context({"navigation": golden.navigation}),
+                navigation=[NavigationChange.model_validate(change) for change in golden.navigation],
             )
         except ScannerFailureError as exc:
             # A scan the model cannot complete is a prompt-quality signal (broken schema compliance),

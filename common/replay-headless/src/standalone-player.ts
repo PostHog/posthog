@@ -2,12 +2,12 @@ import { DataLoadError } from './data-loader'
 import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
 import { NavigationTimeline } from './navigation-timeline'
-import { PageUrls } from './page-urls'
 import { PlaybackController } from './playback-controller'
 import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
 import { createReplayers } from './replayer-factory'
 import type { PlayerConfig } from './types'
 import { ViewportScaler } from './viewport-scaler'
+import { WindowLabels } from './window-labels'
 
 async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
@@ -51,10 +51,10 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         scaler.fitReplayer(onScreen.replayer)
     })
 
-    const pageUrls = new PageUrls(windows)
-    new NavigationTimeline(controller, pageUrls, windowUuidById).start()
+    const labels = new WindowLabels(windows)
+    new NavigationTimeline(controller, labels, windowUuidById).start()
     if (config.showMetadataFooter) {
-        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller, pageUrls)
+        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller, labels)
         footer.start()
     }
 

@@ -1,8 +1,9 @@
 import hashlib
+import contextlib
 from datetime import timedelta
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 # Retry envelope for the Node rasterize activity (scheduled in workflow._run). Shared so the relayed
 # recording-api token's TTL (rasterize.py) is derived from the same numbers and can't silently drift.
@@ -84,7 +85,18 @@ class NavigationChange(BaseModel, frozen=True):
     session_s: float
     # The recording's own window id, the same `$window_id` its analytics events carry.
     window_id: str
+    # The number the footer shows for the window, `WINDOW: <n> of ...`.
+    window_number: int
     url: str
+
+
+def navigation_from_export_context(export_context: dict[str, Any] | None) -> list[NavigationChange]:
+    changes: list[NavigationChange] = []
+    for raw in (export_context or {}).get("navigation") or []:
+        # The timeline is optional context, so a malformed entry is dropped rather than failing the read.
+        with contextlib.suppress(ValidationError):
+            changes.append(NavigationChange.model_validate(raw))
+    return changes
 
 
 class ActivityTimings(BaseModel, frozen=True):

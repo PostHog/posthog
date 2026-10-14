@@ -210,18 +210,23 @@ describe('videoTimestampsFromFrames', () => {
 })
 
 describe('navigationFromFrames', () => {
-    it('places a change on the frame it first shows on, after the frames captured before playback', () => {
-        const frameSessionMs = [0, 333, 1720580, 1902862]
+    it('places a change on the frame it first shows on, and drops one past the end of the file', () => {
         const samples = [
-            { sample: 0, session_ms: 0, window_id: 'w-a', url: 'https://ex.com/flags' },
+            { sample: 0, session_ms: 0, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
             // Frame 2 sampled before the skip; the change it shows happened after it.
-            { sample: 2, session_ms: 1902529, window_id: 'w-b', url: 'https://ex.com/billing' },
-            { sample: 9, session_ms: 1950000, window_id: 'w-a', url: 'https://ex.com/flags' },
+            { sample: 2, session_ms: 1902529, window_id: 'w-b', window_number: 2, url: 'https://ex.com/billing' },
+            { sample: 9, session_ms: 1950000, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
         ]
 
-        expect(navigationFromFrames(samples, frameSessionMs, 3, 6)).toEqual([
-            { video_s: 2, session_s: 0, window_id: 'w-a', url: 'https://ex.com/flags' },
-            { video_s: 8 / 3, session_s: 1902.529, window_id: 'w-b', url: 'https://ex.com/billing' },
+        expect(navigationFromFrames(samples, 4, 3, 6)).toEqual([
+            { video_s: 2, session_s: 0, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
+            {
+                video_s: 8 / 3,
+                session_s: 1902.529,
+                window_id: 'w-b',
+                window_number: 2,
+                url: 'https://ex.com/billing',
+            },
         ])
     })
 })

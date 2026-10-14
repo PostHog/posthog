@@ -213,17 +213,6 @@ class SessionIdentity(BaseModel, frozen=True):
         return self.model_dump(mode="json")
 
 
-class NavigationEntry(BaseModel, frozen=True):
-    """One change of the page or tab on screen, as the prompt's navigation timeline shows it."""
-
-    vid_t: int = Field(ge=0)
-    # `window_N` token, matching what the event lookups return for the same tab.
-    window: str
-    url: str
-    # The first entry for a tab other than the one the recording starts in (a tab or window opening).
-    new_window: bool = False
-
-
 class ScannerLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 

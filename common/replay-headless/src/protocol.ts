@@ -55,6 +55,7 @@ export interface NavigationSample {
     /** Taken after any skip or tab switch, unlike the frame timeline, so it is the time the frame shows. */
     session_ms: number
     window_id: string
+    window_number: number
     url: string
 }
 

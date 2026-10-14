@@ -256,25 +256,20 @@ export class PlayerController {
     /** Read the frame timeline off the page. Works for a capture that was trimmed or timed out, where
      * the replayer never finished and so never pushed it. Falls back to whatever was pushed. */
     async readFrameTimeline(): Promise<number[]> {
-        try {
-            const samples = await this.capturePage.page.evaluate(
-                (key: string) => (window as unknown as Record<string, number[]>)[key] ?? [],
-                PLAYER_FRAME_TIMELINE_KEY
-            )
-            if (samples.length > 0) {
-                return samples
-            }
-        } catch {
-            // Page already gone: use whatever the player managed to push before teardown.
-        }
-        return this.state.frameSessionMs
+        const samples = await this.readPageArray<number>(PLAYER_FRAME_TIMELINE_KEY)
+        // Empty when the page is already gone: use whatever the player managed to push before teardown.
+        return samples.length > 0 ? samples : this.state.frameSessionMs
     }
 
     async readNavigation(): Promise<NavigationSample[]> {
+        return this.readPageArray<NavigationSample>(PLAYER_NAVIGATION_KEY)
+    }
+
+    private async readPageArray<T>(key: string): Promise<T[]> {
         try {
             return await this.capturePage.page.evaluate(
-                (key: string) => (window as unknown as Record<string, NavigationSample[]>)[key] ?? [],
-                PLAYER_NAVIGATION_KEY
+                (windowKey: string) => (window as unknown as Record<string, T[]>)[windowKey] ?? [],
+                key
             )
         } catch {
             return []

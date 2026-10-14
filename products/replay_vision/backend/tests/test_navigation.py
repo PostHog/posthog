@@ -1,29 +1,27 @@
-from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
+from parameterized import parameterized
+
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange, navigation_from_export_context
 
 from products.replay_vision.backend.temporal.navigation import navigation_timeline
 
 
-def _change(video_s: float, url: str, window_id: str = "w-a") -> NavigationChange:
-    return NavigationChange(video_s=video_s, session_s=video_s * 10, window_id=window_id, url=url)
+def _change(video_s: float, url: str, window_number: int = 1) -> NavigationChange:
+    return NavigationChange(
+        video_s=video_s, session_s=video_s * 10, window_id=f"w-{window_number}", window_number=window_number, url=url
+    )
 
 
 class TestNavigationTimeline:
-    def test_tabs_carry_the_event_lookup_tokens_and_only_a_first_appearance_is_a_new_tab(self) -> None:
+    def test_only_a_tab_first_appearance_is_a_new_tab(self) -> None:
         changes = [
-            _change(0, "https://ex.com/flags", "w-a"),
-            _change(252.4, "https://ex.com/billing", "w-b"),
-            _change(259, "https://ex.com/flags", "w-a"),
-            _change(440, "https://ex.com/flags", "w-c"),
+            _change(0, "https://ex.com/flags", 1),
+            _change(252.4, "https://ex.com/billing", 2),
+            _change(259, "https://ex.com/flags", 1),
         ]
 
-        entries, dropped = navigation_timeline(changes, {"window_1": "w-a", "window_2": "w-b"})
+        entries, dropped = navigation_timeline(changes)
 
-        assert [(e.vid_t, e.window, e.new_window) for e in entries] == [
-            (0, "window_1", False),
-            (252, "window_2", True),
-            (259, "window_1", False),
-            (440, "window_3", True),
-        ]
+        assert [(e.vid_t, e.tab, e.new_window) for e in entries] == [(0, 1, False), (252, 2, True), (259, 1, False)]
         assert dropped == 0
 
     def test_drops_urls_that_could_escape_the_prompt_without_repeating_the_page_around_them(self) -> None:
@@ -36,15 +34,33 @@ class TestNavigationTimeline:
             _change(6, "https://ex.com/b"),
         ]
 
-        entries, _ = navigation_timeline(changes, {})
+        entries, _ = navigation_timeline(changes)
 
         assert [(e.vid_t, e.url) for e in entries] == [(1, "https://ex.com/a"), (6, "https://ex.com/b")]
 
-    def test_keeps_fifty_entries_and_counts_the_rest(self) -> None:
-        changes = [_change(i, f"https://ex.com/page-{i}") for i in range(60)]
+    @parameterized.expand(
+        [
+            ("entry count", [_change(i, f"https://ex.com/page-{i}") for i in range(60)], 50, 10),
+            ("total URL characters", [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(40)], 25, 15),
+        ]
+    )
+    def test_budget_keeps_the_head_and_counts_the_rest(
+        self, _name: str, changes: list[NavigationChange], kept: int, dropped: int
+    ) -> None:
+        entries, dropped_count = navigation_timeline(changes)
 
-        entries, dropped = navigation_timeline(changes, {})
+        assert (len(entries), dropped_count) == (kept, dropped)
 
-        assert len(entries) == 50
-        assert entries[-1].url == "https://ex.com/page-49"
-        assert dropped == 10
+    def test_truncates_a_long_url(self) -> None:
+        entries, _ = navigation_timeline([_change(0, "https://ex.com/" + "a" * 400)])
+
+        assert len(entries[0].url) == 201
+        assert entries[0].url.endswith("…")
+
+
+def test_a_malformed_stored_entry_is_dropped_rather_than_failing_the_read() -> None:
+    good = _change(3, "https://ex.com/b").model_dump()
+
+    assert navigation_from_export_context({"navigation": [None, {"url": "x"}, good]}) == [
+        NavigationChange.model_validate(good)
+    ]
