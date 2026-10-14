@@ -802,10 +802,6 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
         assert RemoteConfig.get_hypercache().get_from_cache(self.team.api_token) is not None
 
     def test_hypercache_uses_dedicated_cache_when_alias_registered(self):
-        from django.core.cache import caches
-
-        from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-
         # When cache_alias is set, HyperCache.__init__ calls get_cache_writer_url which
         # reads CACHES[alias]["LOCATION"]. Provide a stub URL to satisfy that lookup;
         # the in-memory backend ignores it.
