@@ -236,11 +236,11 @@ export function compareItem(context: ItemContext, base: InsightSnapshot, query: 
                     timezone: response.timezone,
                     resolved_date_range: response.resolved_date_range,
                 }
-                setSnapshot(
-                    context.client,
-                    queryKey,
-                    insightSnapshot(asInsight, previous, { readAt: Date.now(), serverNow: serverNow() })
-                )
+                setSnapshot(context.client, queryKey, {
+                    ...insightSnapshot(asInsight, previous, { readAt: Date.now(), serverNow: serverNow() }),
+                    createdBy: base.createdBy,
+                    createdAt: base.createdAt,
+                })
                 useItemErrors.getState().clear(key)
                 return outcomeOf(asInsight)
             } catch (error) {

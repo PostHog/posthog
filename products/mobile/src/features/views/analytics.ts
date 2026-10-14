@@ -30,7 +30,7 @@ export function trackViewOpened(props: {
 }
 
 export function trackViewOpenedInWeb(props: {
-    viewType: ViewKind | 'recordings'
+    viewType: ViewKind | 'recordings' | 'person'
     reason: 'web_only' | 'action'
 }): void {
     track('mobile_view_opened_in_web', { view_type: props.viewType, reason: props.reason })

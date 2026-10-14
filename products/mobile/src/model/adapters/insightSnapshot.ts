@@ -1,4 +1,4 @@
-import type { InsightApi, QueryStatusFieldsApi } from '@/api/insights'
+import type { InsightApi, QueryStatusFieldsApi, UserBasicApi } from '@/api/insights'
 import { parseBucketStart } from '@/lib/dates'
 import { asRecord, isRecord } from '@/lib/records'
 
@@ -366,6 +366,11 @@ function sqlNumber(result: unknown): number | null {
     return finite(Array.isArray(firstRow) ? firstRow[0] : undefined) ?? null
 }
 
+function userName(user: UserBasicApi | null | undefined): string | null {
+    const name = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim()
+    return name || user?.email || null
+}
+
 function resolvedRangeOf(response: InsightApi): ResolvedRange | null {
     const range = response.resolved_date_range
     return range?.date_from && range.date_to ? { from: range.date_from, to: range.date_to } : null
@@ -392,6 +397,9 @@ export function insightSnapshot(
         savedRange: savedRangeOf(query),
         usesOwnRange: context.usesOwnRange ?? usesOwnRange(context.tileOverrides, query),
         kindLabel: kindLabelOf(query),
+        // A response without an author, such as a compare read, keeps the last known one.
+        createdBy: userName(response.created_by) ?? previous?.createdBy ?? null,
+        createdAt: response.created_at ?? previous?.createdAt ?? null,
     }
     if (!hasGoodResult(response)) {
         const failed = Boolean(response.query_status?.error)

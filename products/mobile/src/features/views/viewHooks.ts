@@ -263,6 +263,10 @@ export interface InsightScreenState {
     /** True while the compare result shows. */
     comparing: boolean
     refresh: ViewRefresh
+    /** The cache entry of the shown snapshot, so a sheet can follow it while open. */
+    queryKey: QueryKey | null
+    /** The shown snapshot's freshness key, for `refresh.refreshItem`. */
+    itemKey: string | null
 }
 
 /**
@@ -337,7 +341,8 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     useRecordRecentView(base ? { kind: 'insight', ref: shortId, name: base.name } : null)
     useViewOpenedEvent('insight', options, () => [base])
 
-    const shown = compareSnapshot && compareBody ? compareSnapshot : base
+    const comparing = Boolean(compareSnapshot && compareBody)
+    const shown = comparing ? compareSnapshot : base
     const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
@@ -345,8 +350,10 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         error,
         range,
         compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
-        comparing: Boolean(compareSnapshot && compareBody),
+        comparing,
         refresh,
+        queryKey: comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target),
+        itemKey,
     }
 }
 

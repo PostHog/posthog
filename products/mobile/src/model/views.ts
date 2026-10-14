@@ -7,8 +7,8 @@ export type ViewKind = 'dashboard' | 'insight' | 'web_analytics' | 'notebook' | 
 
 export type PinDisplayMode = 'row' | 'number' | 'chart'
 
-/** Where a view was opened from, for `mobile_view_opened`. */
-export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link'
+/** Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. */
+export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard'
 
 export interface ViewRef {
     kind: ViewKind
@@ -152,6 +152,9 @@ export interface InsightSnapshot extends Freshness {
     kindLabel: string
     /** The last good response computed fresh instead of reading the cache. */
     computed: boolean
+    /** The author's name, for the About sheet. */
+    createdBy: string | null
+    createdAt: string | null
 }
 
 export interface DashboardTileView {
