@@ -239,7 +239,11 @@ def orphaned_table_nodes() -> QuerySet[Node]:
 
 
 def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
-    orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids)).delete()
+    orphans = orphaned_table_nodes().filter(team_id=team_id, id__in=list(node_ids))
+    with transaction.atomic():
+        for dag_id in sorted(set(orphans.values_list("dag_id", flat=True)), key=str):
+            lock_dag(team_id, dag_id)
+        orphans.delete()
 
 
 def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
@@ -253,6 +257,10 @@ def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
     delete_orphaned_table_nodes(team_id, source_ids)
+
+
+def delete_node(team_id: int, node_id: UUID) -> None:
+    delete_nodes(team_id, Node.objects.filter(team_id=team_id, pk=node_id))
 
 
 def replace_incoming_edges(
