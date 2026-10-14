@@ -5797,13 +5797,9 @@ class HogFlowViewSet(
         except Exception as error:
             capture_exception(error)
 
-    def _require_access_for_live_vision_test(
-        self, request: Request, payload: dict[str, Any], hog_flow: Optional[WorkflowEditState]
-    ) -> None:
-        # A live test runs the Replay Vision step as the workflow's owner, so the tester needs the access that
-        # saving the step needs.
-        configuration = payload.get("configuration") or {}
-        actions = configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+    def _require_replay_vision_caller_access(self, request: Request, actions: Any) -> None:
+        # A live test or a manual run starts the Replay Vision step as the workflow's owner, on sessions the caller
+        # can pick, so the caller needs the access that saving the step needs.
         for step in actions if isinstance(actions, list) else []:
             config = (step.get("config") or {}) if isinstance(step, dict) else {}
             if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
@@ -5856,7 +5852,10 @@ class HogFlowViewSet(
             payload["configuration"] = draft
 
         if not payload.get("mock_async_functions", True):
-            self._require_access_for_live_vision_test(request, payload, hog_flow)
+            configuration = payload.get("configuration") or {}
+            self._require_replay_vision_caller_access(
+                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            )
 
         res = create_hog_flow_invocation_test(
             team_id=self.team_id,
@@ -6610,6 +6609,7 @@ class HogFlowViewSet(
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
         variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])

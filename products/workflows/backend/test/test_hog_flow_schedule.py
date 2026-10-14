@@ -11,6 +11,9 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -595,6 +598,37 @@ class TestHogFlowRun(APIBaseTest):
             hog_flow_id=str(workflow.id),
             variables={"greeting": "Hello", "name": "Overridden"},
         )
+
+    def _run_replay_vision_workflow(self, mock_invocation, recording_access):
+        self._mock_success(mock_invocation)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+        workflow = self._create_workflow()
+        workflow.actions = [
+            {
+                "id": "vision",
+                "name": "vision",
+                "type": "function",
+                "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+            }
+        ]
+        workflow.save()
+        return self.client.post(self._run_url(workflow.id), {"variables": {"session": "s1"}}, format="json")
+
+    def test_run_with_a_replay_vision_step_runs_for_a_caller_who_can_view_recordings(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "viewer")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_invocation.assert_called_once()
+
+    def test_run_with_a_replay_vision_step_is_refused_without_the_callers_recording_access(self, mock_invocation):
+        response = self._run_replay_vision_workflow(mock_invocation, "none")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_invocation.assert_not_called()
 
     def test_run_rejects_non_schedule_trigger(self, mock_invocation):
         workflow = self._create_workflow(trigger_type="batch")
