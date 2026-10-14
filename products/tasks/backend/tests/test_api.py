@@ -14317,6 +14317,32 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(heartbeat.call_count, expected_heartbeats)
 
+    @parameterized.expand(
+        [
+            ("same_sequence", [5, 5], 1),
+            ("different_sequences", [5, 6], 2),
+            ("no_sequence", [None, None], 2),
+        ]
+    )
+    def test_agent_callback_drops_a_retried_turn_result(self, _name, sequences, expected_signals):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": True}
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch.object(TaskRun, "signal_agent_turn_completed") as turn_completed:
+            for sequence in sequences:
+                body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True}
+                if sequence is not None:
+                    body["sequence"] = sequence
+                response = client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/", body, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(turn_completed.call_count, expected_signals)
+
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
         other_user = self.create_organization_user("task-owner")

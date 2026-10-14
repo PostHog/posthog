@@ -2131,7 +2131,9 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(1)
         .optional()
-        .describe('Event sequence used to deduplicate a budget steer or a process kill.'),
+        .describe(
+            'Stream sequence of the event this callback reports, used to drop retried callbacks. Required for a budget steer or a process kill.'
+        ),
     timestamp: zod.iso.datetime({ offset: true }).optional().describe('Original event time, preserved across retries.'),
     stage: zod.string().optional().describe('Budget stage: warn or critical.'),
     mode: zod.string().optional().describe('Budget steer mode: publish or wrap_up.'),

@@ -58,10 +58,12 @@ import {
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
 import { attachmentFilePath } from "../utils/attachments";
+import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import {
+  AGENT_CALLBACK_SETTLE_BUDGET_MS,
   type AgentCallbackReporter,
   createAgentCallbackReporter,
 } from "./agent-callback-reporter";
@@ -227,7 +229,6 @@ export class PiAgentServer {
     this.agentCallbacks = config.eventIngestToken
       ? createAgentCallbackReporter({
           eventIngestToken: config.eventIngestToken,
-          eventIngestBaseUrl: config.eventIngestBaseUrl,
           logger: this.logger.child("AgentCallback"),
           send: (callback) =>
             this.posthogAPI.sendAgentCallback(
@@ -235,9 +236,9 @@ export class PiAgentServer {
               config.runId,
               callback,
             ),
-          flushEvents: async () => {
-            await this.eventStreamSender?.flushNow();
-          },
+          awaitEventAck: () =>
+            this.eventStreamSender?.awaitAckOfLastEvent() ??
+            Promise.resolve(null),
         })
       : null;
     this.eventStreamSender = config.eventIngestToken
@@ -245,7 +246,7 @@ export class PiAgentServer {
           apiUrl: config.apiUrl,
           eventIngestBaseUrl: config.eventIngestBaseUrl,
           keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-          callbackReporter: this.agentCallbacks,
+          agentSendsCallbacks: this.agentCallbacks !== null,
           projectId: config.projectId,
           taskId: config.taskId,
           runId: config.runId,
@@ -363,6 +364,10 @@ export class PiAgentServer {
     );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    await withTimeout(
+      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      AGENT_CALLBACK_SETTLE_BUDGET_MS,
+    );
     this.server?.close();
     this.server = null;
   }
@@ -406,6 +411,10 @@ export class PiAgentServer {
       );
     await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+    await withTimeout(
+      this.agentCallbacks?.settled() ?? Promise.resolve(),
+      AGENT_CALLBACK_SETTLE_BUDGET_MS,
+    );
   }
 
   private async emitRtkSavings(): Promise<void> {
@@ -866,11 +875,13 @@ export class PiAgentServer {
     }
     if (event.type !== "turn_completed") {
       if (PI_ACTIVITY_EVENTS.has(event.type)) {
-        this.agentCallbacks.agentActivity();
+        this.agentCallbacks.agentActivity(true);
       }
       return;
     }
-    if (event.stopReason !== PI_STOP_REASON_ERROR) {
+    if (event.stopReason === PI_STOP_REASON_ERROR) {
+      this.agentCallbacks.turnFailed();
+    } else {
       this.agentCallbacks.turnCompleted(event.stopReason ?? "");
     }
   }

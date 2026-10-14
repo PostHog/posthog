@@ -136,6 +136,7 @@ import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
 import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import {
+  AGENT_CALLBACK_SETTLE_BUDGET_MS,
   type AgentCallbackReporter,
   createAgentCallbackReporter,
 } from "./agent-callback-reporter";
@@ -306,6 +307,28 @@ function budgetSnapshotFromUsageUpdate(
   return typeof budget === "object" && budget !== null
     ? (budget as Record<string, unknown>)
     : undefined;
+}
+
+const GENERATING_SESSION_UPDATES = new Set([
+  "agent_message",
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+]);
+
+function isGeneratingUpdate(params: unknown): boolean {
+  if (typeof params !== "object" || params === null || !("update" in params)) {
+    return false;
+  }
+  const { update } = params;
+  return (
+    typeof update === "object" &&
+    update !== null &&
+    "sessionUpdate" in update &&
+    typeof update.sessionUpdate === "string" &&
+    GENERATING_SESSION_UPDATES.has(update.sessionUpdate)
+  );
 }
 
 export function isTurnCompleteNotification(message: unknown): boolean {
@@ -720,7 +743,6 @@ export class AgentServer {
     if (config.eventIngestToken) {
       this.agentCallbacks = createAgentCallbackReporter({
         eventIngestToken: config.eventIngestToken,
-        eventIngestBaseUrl: config.eventIngestBaseUrl,
         logger: this.logger.child("AgentCallback"),
         send: (callback) =>
           this.posthogAPI.sendAgentCallback(
@@ -728,15 +750,15 @@ export class AgentServer {
             config.runId,
             callback,
           ),
-        flushEvents: async () => {
-          await this.eventStreamSender?.flushNow();
-        },
+        awaitEventAck: () =>
+          this.eventStreamSender?.awaitAckOfLastEvent() ??
+          Promise.resolve(null),
       });
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
         keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-        callbackReporter: this.agentCallbacks,
+        agentSendsCallbacks: this.agentCallbacks !== null,
         projectId: config.projectId,
         taskId: config.taskId,
         runId: config.runId,
@@ -1086,6 +1108,7 @@ export class AgentServer {
     };
     if (this.session) {
       this.broadcastAndPersistNotification(notification);
+      this.agentCallbacks?.processKilled(params);
       return;
     }
     this.pendingProcessKills.push(params);
@@ -1101,6 +1124,7 @@ export class AgentServer {
         method: POSTHOG_NOTIFICATIONS.PROCESS_KILLED,
         params,
       });
+      this.agentCallbacks?.processKilled(params);
     }
   }
 
@@ -1247,6 +1271,10 @@ export class AgentServer {
           : (this.eventStreamSender?.stop({ complete: false }) ??
               Promise.resolve()),
         5_000,
+      );
+      await withTimeout(
+        this.agentCallbacks?.settled() ?? Promise.resolve(),
+        AGENT_CALLBACK_SETTLE_BUDGET_MS,
       );
       // An abort during initialization leaves the root span open with no session
       // to carry it, and the caller exits the process as soon as this returns.
@@ -5710,7 +5738,7 @@ export class AgentServer {
       params?: unknown;
     };
     if (method === "session/update") {
-      this.agentCallbacks.agentActivity();
+      this.agentCallbacks.agentActivity(isGeneratingUpdate(params));
     } else if (method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE) {
       const stopReason =
         typeof params === "object" && params !== null && "stopReason" in params
@@ -5719,6 +5747,12 @@ export class AgentServer {
       this.agentCallbacks.turnCompleted(
         typeof stopReason === "string" ? stopReason : "",
       );
+    } else if (
+      method === POSTHOG_NOTIFICATIONS.BUDGET_STEER &&
+      typeof params === "object" &&
+      params !== null
+    ) {
+      this.agentCallbacks.budgetSteer(params as Record<string, unknown>);
     }
   }
 
@@ -5800,6 +5834,7 @@ export class AgentServer {
       method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
       params: {},
     });
+    this.agentCallbacks?.commandDispatched();
   }
 
   private flushPreSessionEvents(): void {

@@ -10,7 +10,10 @@ import {
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
 import packageJson from "../package.json" with { type: "json" };
-import type { AgentCallback } from "./server/agent-callback-reporter";
+import {
+  AGENT_CALLBACK_TIMEOUT_MS,
+  type AgentCallback,
+} from "./server/agent-callback-reporter";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
@@ -66,8 +69,6 @@ export class PostHogAPIError extends Error {
     return this.status >= 500 || this.status === 408 || this.status === 429;
   }
 }
-
-const AGENT_CALLBACK_TIMEOUT_MS = 10_000;
 
 export class PostHogAPIClient {
   private readonly http: PostHogHttpClient;
@@ -376,8 +377,8 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     callback: AgentCallback,
-  ): Promise<void> {
-    await this.apiRequest(
+  ): Promise<boolean> {
+    const response = await this.apiRequest<{ dispatched?: unknown }>(
       `/api/projects/${this.getTeamId()}/tasks/${taskId}/runs/${runId}/agent_callback/`,
       {
         method: "POST",
@@ -385,6 +386,7 @@ export class PostHogAPIClient {
         signal: AbortSignal.timeout(AGENT_CALLBACK_TIMEOUT_MS),
       },
     );
+    return response?.dispatched === true;
   }
 
   async appendTaskRunLog(

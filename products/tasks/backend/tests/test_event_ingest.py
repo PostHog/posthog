@@ -114,12 +114,14 @@ class TestTaskRunEventIngest(TestCase):
         token: str,
         lines: Sequence[dict],
         path: str | None = None,
+        extra_headers: Sequence[tuple[bytes, bytes]] = (),
     ) -> tuple[int, dict]:
         body = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
         return self._call_ingest_chunks(
             token,
             [body[: len(body) // 2], body[len(body) // 2 :]],
             path=path,
+            extra_headers=extra_headers,
         )
 
     def _call_ingest_chunks(
@@ -127,6 +129,7 @@ class TestTaskRunEventIngest(TestCase):
         token: str,
         chunks: Sequence[bytes],
         path: str | None = None,
+        extra_headers: Sequence[tuple[bytes, bytes]] = (),
     ) -> tuple[int, dict]:
         async def _call() -> tuple[int, dict]:
             messages = [
@@ -141,7 +144,7 @@ class TestTaskRunEventIngest(TestCase):
             async def send(message: dict) -> None:
                 sent.append(message)
 
-            headers = [(b"authorization", f"Bearer {token}".encode())]
+            headers = [(b"authorization", f"Bearer {token}".encode()), *extra_headers]
 
             handled = await handle_task_run_event_ingest(
                 {
@@ -1166,6 +1169,47 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(status, 413)
         self.assertEqual(body["error"], "Too many events in request")
         self.assertEqual(body["last_accepted_seq"], MAX_EVENTS_PER_REQUEST)
+
+    @parameterized.expand([("agent_sends_callbacks", True), ("ingest_sends_callbacks", False)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_ingest_reports_turn_lifecycle_only_for_agents_that_do_not(
+        self, _case_name: str, agent_sends_callbacks: bool
+    ) -> None:
+        token = self._create_token()
+        lines = [
+            {
+                "seq": 1,
+                "event": {
+                    "type": "notification",
+                    "notification": {
+                        "method": "session/update",
+                        "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                    },
+                },
+            },
+            {
+                "seq": 2,
+                "event": {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": "end_turn"}},
+                },
+            },
+        ]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_turn_completed") as turn_completed,
+        ):
+            status, body = self._call_ingest(
+                token,
+                lines,
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_sends_callbacks else [],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(heartbeat_workflow.called, not agent_sends_callbacks)
+        self.assertEqual(turn_completed.called, not agent_sends_callbacks)
 
     @parameterized.expand(
         [

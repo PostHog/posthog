@@ -5054,7 +5054,10 @@ class AgentCallbackRequestSerializer(serializers.Serializer):
     sequence = serializers.IntegerField(
         required=False,
         min_value=1,
-        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
+        help_text=(
+            "Stream sequence of the event this callback reports, used to drop retried callbacks. "
+            "Required for a budget steer or a process kill."
+        ),
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")

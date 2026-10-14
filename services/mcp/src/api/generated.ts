@@ -11672,7 +11672,7 @@ export namespace Schemas {
       /** Whether 'awaiting_input' reports a turn that ended with the 'end_turn' stop reason. False for any other stop reason. */
       turn_succeeded?: boolean;
       /**
-         * Event sequence used to deduplicate a budget steer or a process kill.
+         * Stream sequence of the event this callback reports, used to drop retried callbacks. Required for a budget steer or a process kill.
          * @minimum 1
          */
       sequence?: number;

@@ -76,6 +76,9 @@ WSGIStartResponse = Callable[[str, list[tuple[str, str]]], object]
 WSGI_READ_CHUNK_BYTES = 64 * 1024
 
 
+AGENT_CALLBACKS_HEADER = b"x-posthog-agent-callbacks"
+
+
 class ClientDisconnected(Exception):
     pass
 
@@ -161,6 +164,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
             redis_stream,
             claims,
             receive,
+            agent_sends_callbacks=_get_header(scope, AGENT_CALLBACKS_HEADER) == "1",
         )
     except ClientDisconnected:
         logger.info("task_run_event_ingest_client_disconnected", run_id=claims.run_id)
@@ -244,6 +248,8 @@ async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
     claims: SandboxEventIngestTokenPayload,
     receive: ASGIReceive,
+    *,
+    agent_sends_callbacks: bool = False,
 ) -> EventIngestResult:
     result = EventIngestResult(last_accepted_seq=await redis_stream.get_last_sequence())
 
@@ -268,8 +274,8 @@ async def _ingest_event_lines(
             sequence = parsed_line.sequence
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
-            budget_steer_properties = _parse_budget_steer_properties(claims, event)
-            process_killed = parse_process_killed(event)
+            budget_steer_properties = None if agent_sends_callbacks else _parse_budget_steer_properties(claims, event)
+            process_killed = None if agent_sends_callbacks else parse_process_killed(event)
             pending_side_effect = None
             if rtk_savings_properties is not None:
                 pending_side_effect = RTK_SAVINGS_SIDE_EFFECT
@@ -294,7 +300,8 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
-            await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
+            if not agent_sends_callbacks:
+                await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:
             error.last_accepted_seq = result.last_accepted_seq
