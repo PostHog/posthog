@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import type { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isSceneDeniedToGuest } from 'lib/utils/guestAccess'
 import { toSentenceCase } from 'lib/utils/strings'
 import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
@@ -318,6 +319,10 @@ export const getProductAccessDisabledReason = (item: {
 }): string | undefined => {
     if (!item.sceneKey) {
         return undefined
+    }
+    // Nav products are project scenes, so a guest gets every product except the ones shared with them disabled.
+    if (isSceneDeniedToGuest(item.sceneKey, true)) {
+        return `Guests can't open ${item.displayLabel || item.path || 'this product'}`
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
     const resources = Array.isArray(resourceType) ? resourceType : resourceType ? [resourceType] : []

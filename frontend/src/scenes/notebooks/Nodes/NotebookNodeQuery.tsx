@@ -240,7 +240,11 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
-            context={isInsightVizNode(modifiedQuery) ? { insightProps: dataframeInsightProps } : undefined}
+            context={{
+                ...(isInsightVizNode(modifiedQuery) ? { insightProps: dataframeInsightProps } : {}),
+                // An inline node has no insight, so a guest's query names the notebook and the node.
+                queryReference: { notebook_short_id: notebookLogic.props.shortId, node_id: nodeId },
+            }}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({

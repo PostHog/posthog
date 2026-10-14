@@ -22,6 +22,7 @@ import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditB
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -96,6 +97,7 @@ export function DashboardIntervalFilter(): JSX.Element {
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
+    const { isGuest } = useValues(organizationLogic)
     const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setMetricFilters, setDashboardEditing } =
         useActions(dashboardLogic)
@@ -204,43 +206,51 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
+                        // A guest cannot filter with HogQL, which could test any column.
+                        ...(isGuest ? [] : [TaxonomicFilterGroupType.HogQLExpression]),
                         TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     ]}
                 />
             </DashboardControlSlot>
-            <DashboardControlSlot
-                control="breakdown"
-                hasValue={!!effectiveEditBarFilters.breakdown_filter}
-                className={clsx('content-end', { 'h-[61px]': hasVariables })}
-            >
-                <BindLogic logic={insightLogic} props={insightProps}>
-                    <TaxonomicBreakdownFilter
-                        insightProps={insightProps}
-                        breakdownFilter={effectiveEditBarFilters.breakdown_filter}
-                        isTrends={false}
-                        isFunnels={false}
-                        showLabel={false}
-                        updateBreakdownFilter={(breakdown_filter) => {
-                            if (!dashboardEditing?.filters) {
-                                setDashboardEditing(
-                                    { filters: true, layout: false },
-                                    DashboardEventSource.DashboardFilters
-                                )
-                            }
-                            let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
-                            // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
-                            if (breakdown_filter && !breakdown_filter.breakdown_type && !breakdown_filter.breakdowns) {
-                                saved_breakdown_filter = null
-                            }
-                            setBreakdownFilter(saved_breakdown_filter)
-                        }}
-                        updateDisplay={() => {}}
-                        disablePropertyInfo
-                        size="small"
-                    />
-                </BindLogic>
-            </DashboardControlSlot>
+            {/* A guest cannot change a breakdown, which could list values such as emails. */}
+            {!isGuest && (
+                <DashboardControlSlot
+                    control="breakdown"
+                    hasValue={!!effectiveEditBarFilters.breakdown_filter}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <BindLogic logic={insightLogic} props={insightProps}>
+                        <TaxonomicBreakdownFilter
+                            insightProps={insightProps}
+                            breakdownFilter={effectiveEditBarFilters.breakdown_filter}
+                            isTrends={false}
+                            isFunnels={false}
+                            showLabel={false}
+                            updateBreakdownFilter={(breakdown_filter) => {
+                                if (!dashboardEditing?.filters) {
+                                    setDashboardEditing(
+                                        { filters: true, layout: false },
+                                        DashboardEventSource.DashboardFilters
+                                    )
+                                }
+                                let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
+                                // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object
+                                if (
+                                    breakdown_filter &&
+                                    !breakdown_filter.breakdown_type &&
+                                    !breakdown_filter.breakdowns
+                                ) {
+                                    saved_breakdown_filter = null
+                                }
+                                setBreakdownFilter(saved_breakdown_filter)
+                            }}
+                            updateDisplay={() => {}}
+                            disablePropertyInfo
+                            size="small"
+                        />
+                    </BindLogic>
+                </DashboardControlSlot>
+            )}
 
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>

@@ -13,6 +13,7 @@ import {
     HogQLVariable,
     NodeKind,
     PersonsNode,
+    QueryReference,
     QueryStatus,
     RefreshType,
     WebStatsTableQueryResponse,
@@ -236,7 +237,9 @@ async function executeQuery<N extends DataNode>(
      */
     acceptStaleCache = false,
     /** True on the retry below, so a failed retry cannot start another one. */
-    retriedAfterExpiry = false
+    retriedAfterExpiry = false,
+    /** The saved item this query renders. A guest's query must name one. */
+    reference?: QueryReference
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
@@ -262,6 +265,7 @@ async function executeQuery<N extends DataNode>(
                         filtersOverride,
                         variablesOverride,
                         limitContext,
+                        reference,
                     })
                 } catch (error) {
                     retryStatus = error instanceof ApiError ? (error.status ?? null) : null
@@ -347,7 +351,8 @@ async function executeQuery<N extends DataNode>(
             false,
             limitContext,
             acceptStaleCache,
-            true
+            true,
+            reference
         )
     }
     submitTelemetry.retry_recovered =
@@ -366,7 +371,9 @@ export async function performQuery<N extends DataNode>(
     variablesOverride?: Record<string, HogQLVariable> | null,
     pollOnly = false,
     limitContext?: 'posthog_ai',
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    /** The saved item this query renders. A guest's query must name one, and the server runs the item's query. */
+    reference?: QueryReference
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -395,7 +402,9 @@ export async function performQuery<N extends DataNode>(
                 variablesOverride,
                 pollOnly,
                 limitContext,
-                acceptStaleCache
+                acceptStaleCache,
+                false,
+                reference
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

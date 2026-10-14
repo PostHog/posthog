@@ -182,6 +182,7 @@ export function DataTable({
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         maxPaginationRows: context?.dataTableMaxPaginationRows,
         limitContext: context?.limitContext,
+        reference: context?.queryReference,
     }
     const {
         response,

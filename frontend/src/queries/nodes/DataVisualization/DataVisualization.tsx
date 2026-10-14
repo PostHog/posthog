@@ -140,6 +140,7 @@ export function DataTableVisualization({
         variablesOverride: variablesOverride ?? insightProps.variablesOverride,
         filtersOverride: filtersOverride ?? insightProps.filtersOverride,
         limitContext: context?.limitContext,
+        reference: context?.queryReference,
     }
 
     // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic

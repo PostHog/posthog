@@ -112,6 +112,39 @@ describe('query', () => {
         })
     })
 
+    it('sends the query reference in the request body', async () => {
+        let body: Record<string, any> | null = null
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    body = (await request.json()) as Record<string, any>
+                    return [200, {}]
+                },
+            },
+        })
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+        await performQuery(
+            q,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            false,
+            undefined,
+            false,
+            {
+                insight_id: 5,
+            }
+        )
+        expect(body).toMatchObject({ insight_id: 5 })
+    })
+
     it('emits a specific event on a HogQLQuery', async () => {
         const captureSpy = jest.spyOn(posthog, 'capture')
         const q: HogQLQuery = setLatestVersionsOnQuery({

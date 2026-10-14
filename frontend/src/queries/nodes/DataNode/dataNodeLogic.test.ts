@@ -210,6 +210,8 @@ describe('dataNodeLogic', () => {
             undefined,
             undefined,
             false,
+            undefined,
+            false,
             undefined
         )
     })
@@ -729,6 +731,8 @@ describe('dataNodeLogic', () => {
             { date_from: '2022-12-24T17:00:41.165000Z' },
             undefined,
             false,
+            undefined,
+            false,
             undefined
         )
     })
@@ -763,6 +767,8 @@ describe('dataNodeLogic', () => {
             undefined,
             { test_1: { code_name: 'some_name', value: 'hello world', variableId: 'some_id' } },
             false,
+            undefined,
+            false,
             undefined
         )
     })
@@ -787,6 +793,8 @@ describe('dataNodeLogic', () => {
             expect.any(String),
             expect.any(Function),
             undefined,
+            undefined,
+            false,
             undefined,
             false,
             undefined
@@ -815,6 +823,8 @@ describe('dataNodeLogic', () => {
             undefined,
             undefined,
             false,
+            undefined,
+            false,
             undefined
         )
     })
@@ -841,7 +851,9 @@ describe('dataNodeLogic', () => {
             undefined,
             undefined,
             false,
-            'posthog_ai'
+            'posthog_ai',
+            false,
+            undefined
         )
     })
 
@@ -869,6 +881,8 @@ describe('dataNodeLogic', () => {
             expect.any(String),
             expect.any(Function),
             undefined,
+            undefined,
+            false,
             undefined,
             false,
             undefined

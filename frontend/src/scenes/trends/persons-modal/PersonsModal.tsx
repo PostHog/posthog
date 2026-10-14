@@ -31,6 +31,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { isGroupType, isSessionType } from 'lib/utils/guards'
+import { isGuestUser } from 'lib/utils/guestAccess'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
@@ -659,7 +660,8 @@ export function MissingPersonsAlert({
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    if (isSharedView()) {
+    // Guests cannot list persons, so the modal would only ever show an error.
+    if (isSharedView() || isGuestUser()) {
         // Shared/exported views authenticate with a sharing token, which can never run the
         // person-level queries this modal needs — it would only ever render an error state.
         return
