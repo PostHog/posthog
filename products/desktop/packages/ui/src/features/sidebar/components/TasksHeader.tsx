@@ -27,7 +27,6 @@ import {
 import type { WorkspaceMode } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";

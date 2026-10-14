@@ -3,7 +3,8 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 
 /**
  * The single gate for the new channels layout — read this, not the raw flag.
- * No dev default, so dev matches prod.
+ * Dev builds default it on unless the dev kill switch forces it off (see
+ * devFlagOverrides).
  */
 export function useChannelsLayout(): boolean {
   return useFeatureFlag(CHANNELS_LAYOUT_FLAG, import.meta.env.DEV);
