@@ -79,16 +79,60 @@ steps:
     - echo: Tap the chart. Expect a pinned tooltip. Tap it. Expect the point sheet
     - tap: { id: chart-demo-ins-dau }
     - await: { idle: true }
-    - await: { visible: { id: chart-demo-ins-dau-tooltip } }
-    - tap: { id: chart-demo-ins-dau-tooltip }
+    - await: { visible: { id: chart-tooltip } }
+    - tap: { id: chart-tooltip }
     - await: { visible: { id: point-sheet } }
     - await: { idle: true }
 
-    - echo: Close the point sheet and go back twice. Expect Views
+    - echo: Close the point sheet. Open the chart full screen. Expect the compare series in the legend
     - tap: { id: sheet-done }
     - await: { hidden: { id: point-sheet } }
+    - tap: { id: view-fullscreen }
+    - await: { visible: { id: chart-fullscreen-chart } }
+    - await: { visible: { text: Previous period, within: { id: chart-fullscreen-legend } } }
+    - await: { idle: true }
+
+    - echo: Close full screen and go back. Expect the dashboard
+    - tap: { id: chart-fullscreen-back }
+    - await: { visible: { id: insight-scroll } }
     - tap: { id: view-back }
     - await: { visible: { id: dashboard-tiles } }
+    - await: { idle: true }
+
+    - echo: On the dashboard. Tap the first chart. Expect a pinned tooltip
+    - tap: { id: chart-demo-tile-1 }
+    - await: { visible: { id: chart-tooltip } }
+    - await: { idle: true }
+
+    - echo: Scroll to the bar list. Tap the second row. Expect its share of the total
+    - scroll-to: { target: { id: chart-demo-tile-7-row-1 } }
+    - tap: { id: chart-demo-tile-7-row-1 }
+    - await: { visible: { text: of the total } }
+    - await: { idle: true }
+
+    - echo: Scroll to the funnel. Tap step 2. Expect the step to stay selected
+    - scroll-to: { target: { id: view-tile-fullscreen-8 } }
+    - scroll-to: { target: { id: chart-demo-tile-8-step-1 } }
+    - tap: { id: chart-demo-tile-8-step-1 }
+    - await: { visible: { text: Median time from the previous step } }
+    - await: { idle: true }
+
+    - echo: Open the funnel full screen. Expect the full-screen funnel. Go back
+    - tap: { id: view-tile-fullscreen-8 }
+    - await: { visible: { id: chart-fullscreen-funnel } }
+    - await: { idle: true }
+    - tap: { id: chart-fullscreen-back }
+    - await: { visible: { id: view-tile-fullscreen-8 } }
+    - await: { idle: true }
+
+    - echo: Scroll to the retention grid. Tap a cell. Expect the callout under the grid
+    - scroll-to: { target: { id: chart-demo-tile-9-cell-3-2 } }
+    - tap: { id: chart-demo-tile-9-cell-3-2 }
+    - scroll-to: { target: { id: chart-demo-tile-9-callout } }
+    - assert: { text: { in: { id: chart-demo-tile-9-callout }, contains: Sep 13 cohort } }
+    - await: { idle: true }
+
+    - echo: Go back. Expect Views
     - tap: { id: view-back }
     - await: { visible: { id: views-screen } }
     - await: { idle: true }
