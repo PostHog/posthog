@@ -12,6 +12,7 @@ from products.workflows.backend.presentation.views import (
     people_imports,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_ideas,
     workflow_scout_runs,
     workflow_tasks,
 )
@@ -35,6 +36,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_data_suggestions",
         workflow_data_suggestions.WorkflowDataSuggestionsViewSet,
         "project_workflow_data_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_ideas",
+        workflow_ideas.WorkflowIdeaViewSet,
+        "project_workflow_ideas",
         ["team_id"],
     )
     routers.projects.register(

@@ -1,6 +1,6 @@
 """Whole workflows PostHog suggests to a project, and what a person does with them."""
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from uuid import UUID
 
 from django.db import transaction
@@ -16,7 +16,12 @@ from products.workflows.backend.facade.contracts import (
     WorkflowIdeaRecord,
     WorkflowIdeaWorkflowMismatch,
 )
+from products.workflows.backend.facade.enums import WorkflowIdeaSource
 from products.workflows.backend.models import HogFlow, WorkflowIdea
+
+# The ideas list API renders these for every idea it lists, so one missing key would break the whole list.
+# Data suggestion ideas carry their own evidence and are listed through the data suggestions API instead.
+REQUIRED_EVIDENCE_KEYS = frozenset({"trigger_event", "goal_events", "baseline_rate", "reachable_people", "measured_at"})
 
 
 def _record(row: WorkflowIdea) -> WorkflowIdeaRecord:
@@ -35,10 +40,24 @@ def _record(row: WorkflowIdea) -> WorkflowIdeaRecord:
     )
 
 
-def list_open_ideas(*, team_id: int, source: str) -> list[WorkflowIdeaRecord]:
-    """Ideas from `source` still waiting for a decision, oldest first."""
-    rows = WorkflowIdea.objects.for_team(team_id).filter(status=WorkflowIdea.Status.SUGGESTED, source=source)
-    return [_record(row) for row in rows.order_by("created_at")]
+def list_open_ideas(*, team_id: int, sources: Collection[str]) -> list[WorkflowIdeaRecord]:
+    """Ideas from `sources` still waiting for a decision, the best first bet for the project first."""
+    rows = list(
+        WorkflowIdea.objects.for_team(team_id)
+        .filter(status=WorkflowIdea.Status.SUGGESTED, source__in=list(sources))
+        .order_by("created_at")
+    )
+    # The idea's own priority first: the author ranks the best first bet for this project.
+    rows.sort(key=lambda row: row.evidence.get("priority") or 99)
+    return [_record(row) for row in rows]
+
+
+def mark_viewed(*, team_id: int, idea_ids: Iterable[str]) -> int:
+    return (
+        WorkflowIdea.objects.for_team(team_id)
+        .filter(id__in=list(idea_ids), first_viewed_at__isnull=True)
+        .update(first_viewed_at=timezone.now())
+    )
 
 
 def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRecord | None:
@@ -63,6 +82,11 @@ def create_ideas(
         raise ValueError("Every workflow idea needs a non-blank key.")
     # The model saves rows on the project, so the lookup and the insert must both use the project id.
     project_id = resolve_effective_team_id(team_id)
+    if source != WorkflowIdeaSource.DATA_SUGGESTIONS:
+        for item in items:
+            missing = REQUIRED_EVIDENCE_KEYS - item.evidence.keys()
+            if missing:
+                raise ValueError(f"Workflow idea {item.key!r} is missing evidence: {', '.join(sorted(missing))}.")
     created = []
     for item in items:
         row, was_created = WorkflowIdea.objects.for_team(project_id, canonical=True).get_or_create(
@@ -96,7 +120,13 @@ def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
 
 
 def accept_idea(
-    *, team_id: int, idea_id: str, hog_flow_id: str, user_id: int, access: UserAccessControl
+    *,
+    team_id: int,
+    idea_id: str,
+    hog_flow_id: str,
+    user_id: int,
+    access: UserAccessControl,
+    site_url: str | None = None,
 ) -> WorkflowIdeaRecord:
     """Records the draft a person created from the idea. The draft itself goes through the workflow API."""
     with transaction.atomic():
@@ -117,7 +147,9 @@ def accept_idea(
         row.hog_flow = hog_flow
         row.resolved_at = timezone.now()
         row.resolved_by_id = user_id
-        row.save(update_fields=["status", "hog_flow", "resolved_at", "resolved_by"])
+        if site_url:
+            row.evidence = {**row.evidence, "site_url": site_url}
+        row.save(update_fields=["status", "hog_flow", "resolved_at", "resolved_by", "evidence"])
     return _record(row)
 
 

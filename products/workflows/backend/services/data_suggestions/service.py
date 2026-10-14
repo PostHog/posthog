@@ -533,7 +533,7 @@ def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     used_events = team_context.used_trigger_events(team)
     suggestions = [
         _to_suggestion(idea)
-        for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+        for idea in list_open_ideas(team_id=team.id, sources=[WorkflowIdeaSource.DATA_SUGGESTIONS])
         if idea.evidence.get("trigger_event") not in used_events
     ]
     ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)

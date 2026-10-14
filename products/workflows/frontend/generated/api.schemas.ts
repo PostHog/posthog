@@ -2345,6 +2345,117 @@ export interface EmailDraftApi {
     template_reason: EmailDraftFallbackReasonEnumApi | null
 }
 
+/**
+ * * `suggested` - Suggested
+ * * `accepted` - Accepted
+ * * `dismissed` - Dismissed
+ */
+export type WorkflowIdeaStatusEnumApi = (typeof WorkflowIdeaStatusEnumApi)[keyof typeof WorkflowIdeaStatusEnumApi]
+
+export const WorkflowIdeaStatusEnumApi = {
+    Suggested: 'suggested',
+    Accepted: 'accepted',
+    Dismissed: 'dismissed',
+} as const
+
+export interface WorkflowIdeaEvidenceApi {
+    /** The project event that starts the workflow. */
+    trigger_event: string
+    /** Events that count as the workflow's goal. Reaching one exits it. */
+    goal_events: string[]
+    /**
+     * Share of people who reach the goal within 7 days with no message, from 0 to 1. Null when unmeasured.
+     * @nullable
+     */
+    baseline_rate: number | null
+    /** People a month with an email address who hit the trigger and did not reach the goal. */
+    reachable_people: number
+    /** ISO date the numbers were measured. */
+    measured_at: string
+    /** Who enters the workflow, in plain words, e.g. 'people who start checkout'. */
+    audience?: string
+    /** What the workflow asks people to do, e.g. 'subscribe'. */
+    goal?: string
+    /** What one goal reached is called, plural, e.g. 'subscriptions'. */
+    goal_unit?: string
+    /** Estimated emails the workflow sends a month at today's volume. */
+    emails_per_month?: number
+    /**
+     * Where the email buttons link to. Null when no site was found.
+     * @nullable
+     */
+    site_url?: string | null
+    /** The wait before each email, e.g. ['1h', '1d']. */
+    waits?: string[]
+    /** A person enters the workflow at most once in this many days. */
+    once_per_person_days?: number
+    /** 1 is the idea to try first in this project. Orders the ideas. */
+    priority?: number
+    /** Something to check before turning the workflow on, such as a legal requirement. */
+    review_note?: string
+}
+
+/**
+ * The workflow to create, in the shape the workflow create endpoint takes. Nothing is saved until the caller creates it there and then calls accept.
+ */
+export type WorkflowIdeaApiDefinition = { [key: string]: unknown }
+
+export interface WorkflowIdeaApi {
+    /** The idea's id. */
+    readonly id: string
+    /** Stable name of the idea within the project. */
+    key: string
+    /** Short name of the suggested workflow. */
+    title: string
+    /** Why this workflow is worth running. */
+    rationale: string
+    /** Where the idea stands.
+     *
+     * * `suggested` - Suggested
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed */
+    status: WorkflowIdeaStatusEnumApi
+    /** The numbers behind the idea. */
+    evidence: WorkflowIdeaEvidenceApi
+    /** The workflow to create, in the shape the workflow create endpoint takes. Nothing is saved until the caller creates it there and then calls accept. */
+    definition: WorkflowIdeaApiDefinition
+    /** When PostHog made the idea. */
+    readonly created_at: string
+    /**
+     * The draft workflow made from this idea, once it is used.
+     * @nullable
+     */
+    readonly hog_flow_id: string | null
+}
+
+export interface WorkflowIdeaListApi {
+    /** Ideas still waiting for a decision, the one to try first at the top. */
+    results: WorkflowIdeaApi[]
+}
+
+export interface WorkflowIdeaAcceptApi {
+    /** The draft workflow created from this idea's definition, with origin_product 'ideas'. */
+    hog_flow_id: string
+    /**
+     * The website the person entered for the email buttons, when PostHog had none for the project.
+     * @nullable
+     */
+    site_url?: string | null
+}
+
+export interface WorkflowIdeaDismissApi {
+    /**
+     * Optional reason the person gave.
+     * @maxLength 2000
+     */
+    reason?: string
+}
+
+export interface WorkflowIdeaViewedApi {
+    /** Ideas that were shown on screen. */
+    ids: string[]
+}
+
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
 
 export interface PeopleImportCreateApi {

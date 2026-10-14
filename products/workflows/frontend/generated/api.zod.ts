@@ -3303,6 +3303,35 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const WorkflowIdeasAcceptBody = /* @__PURE__ */ zod.object({
+    hog_flow_id: zod
+        .uuid()
+        .describe("The draft workflow created from this idea's definition, with origin_product 'ideas'."),
+    site_url: zod
+        .url()
+        .nullish()
+        .describe('The website the person entered for the email buttons, when PostHog had none for the project.'),
+})
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const workflowIdeasDismissBodyReasonMax = 2000
+
+export const WorkflowIdeasDismissBody = /* @__PURE__ */ zod.object({
+    reason: zod.string().max(workflowIdeasDismissBodyReasonMax).optional().describe('Optional reason the person gave.'),
+})
+
+/**
+ * Whole workflows PostHog suggests to the project. Accepting one records the draft made from it.
+ */
+export const WorkflowIdeasViewedBody = /* @__PURE__ */ zod.object({
+    ids: zod.array(zod.uuid()).describe('Ideas that were shown on screen.'),
+})
+
+/**
  * @summary Create or update people from rows and add them to a new static cohort
  */
 export const workflowPeopleImportsCreateBodyNameMax = 400
