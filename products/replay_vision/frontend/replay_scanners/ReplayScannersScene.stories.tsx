@@ -609,6 +609,7 @@ const estimate = {
     credits_per_observation: 1,
     estimated_credits_per_month: 92,
     other_enabled_scanners_monthly_credits: 5108,
+    free_only_monthly_credits_left: 2500,
     sampling_rate: 0.05,
 }
 
@@ -2113,16 +2114,25 @@ const freeOnlyLimitReachedScanner: ReplayScannerApi = {
 // Large enough that the free credits left, not the estimate, bound the forecast.
 const largeEstimate = { ...estimate, estimated_observations_per_month: 3000, estimated_credits_per_month: 3000 }
 
-const freeOnlyEditorDecorator = (quotaResponse: VisionQuotaApi): ReturnType<typeof mswDecorator> =>
+// The headroom is the free credits left as a monthly rate over the 20 days to June 1.
+const freeOnlyEditorDecorator = (
+    quotaResponse: VisionQuotaApi,
+    freeHeadroom: number
+): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
             '/api/projects/:team_id/vision/scanners/:id/': freeOnlyScanner,
             '/api/projects/:team_id/vision/quota/': quotaResponse,
         },
-        post: { '/api/projects/:team_id/vision/scanners/estimate/': largeEstimate },
+        post: {
+            '/api/projects/:team_id/vision/scanners/estimate/': {
+                ...largeEstimate,
+                free_only_monthly_credits_left: freeHeadroom,
+            },
+        },
     })
 
-// The list tags a free-only scanner that ran out as "Free credits used", not "Limit reached".
+// The list shows a free-only scanner that ran out as stopped, with the free-credits reason on hover.
 export const ScannersListFreeCreditsUsed: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
@@ -2154,13 +2164,13 @@ export const ScannerOverviewFreeCreditsUsed: StoryObj = {
 // Plenty of free credits left: the forecast still caps this scanner at what they cover.
 export const ScannerEditorBudgetFreeOnly: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
-    decorators: [freeOnlyEditorDecorator(freeCreditsLeftQuota)],
+    decorators: [freeOnlyEditorDecorator(freeCreditsLeftQuota, 2850)],
 }
 
 // 100 free credits left: the forecast shrinks to what they cover instead of warning about the org limit.
 export const ScannerEditorBudgetFreeOnlyNearlyUsed: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
-    decorators: [freeOnlyEditorDecorator(quota)],
+    decorators: [freeOnlyEditorDecorator(quota, 150)],
 }
 
 // The goal flow with "Set a budget" picked instead of the free default.

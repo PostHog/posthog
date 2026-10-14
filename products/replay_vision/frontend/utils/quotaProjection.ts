@@ -67,16 +67,6 @@ export function freeCreditsLeft(quota: VisionQuotaApi | null): number | null {
     return Math.max(0, Math.min(quota.free_monthly_credits, quota.credit_limit ?? Infinity) - quota.credits_used)
 }
 
-/** A free-only scanner's monthly rate, capped so its share of the days left fits in the free credits left. */
-export function freeOnlyMonthlyRate(quota: VisionQuotaApi | null, monthlyCredits: number): number {
-    const left = freeCreditsLeft(quota)
-    if (!quota || left === null) {
-        return monthlyCredits
-    }
-    const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
-    return daysRemaining > 0 ? Math.min(monthlyCredits, (left * ESTIMATE_MONTH_DAYS) / daysRemaining) : monthlyCredits
-}
-
 /** How much of a month a monthly allowance covers at a monthly rate, for example "the first 3 weeks". */
 export function freeCreditsCoverage(allowance: number, monthlyCredits: number): string {
     const days = Math.max(1, Math.floor((allowance / monthlyCredits) * ESTIMATE_MONTH_DAYS))

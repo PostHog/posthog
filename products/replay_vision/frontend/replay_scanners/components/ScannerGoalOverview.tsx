@@ -407,10 +407,17 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     <StatRow label={freeCreditsOnly ? 'Free credits' : 'Cost estimate'}>
                         {monthlyCredits != null ? (
                             freeCreditsOnly ? (
-                                <span>
-                                    uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
-                                    <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
-                                </span>
+                                overBudget ? (
+                                    <span>
+                                        uses all <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> of your free
+                                        credits a month
+                                    </span>
+                                ) : (
+                                    <span>
+                                        uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
+                                        <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
+                                    </span>
+                                )
                             ) : (
                                 <span>
                                     about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})

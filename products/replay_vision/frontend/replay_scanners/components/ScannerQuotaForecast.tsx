@@ -15,12 +15,7 @@ import {
     QUOTA_STATUS_CLASS,
     buildQuotaMeter,
 } from '../../utils/quotaContributions'
-import {
-    QUOTA_STATUS_STYLES,
-    type QuotaStatus,
-    daysUntilCapReached,
-    freeOnlyMonthlyRate,
-} from '../../utils/quotaProjection'
+import { QUOTA_STATUS_STYLES, type QuotaStatus, daysUntilCapReached } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { QuotaMeter } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
@@ -50,9 +45,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // The estimate already applies the quality filter and sampling rate backend-side.
     const projectedObservations = scannerEstimate?.estimated_observations_per_month ?? null
     const projectedCredits = scannerEstimate?.estimated_credits_per_month ?? null
-    // A free-only scanner stops when the free credits run out, so it adds at most what they cover.
+    // A free-only scanner stops when the free credits run out, and shares them with the other free-only scanners.
     const thisScannerCredits =
-        projectedCredits !== null && scanner.free_only ? freeOnlyMonthlyRate(quota, projectedCredits) : projectedCredits
+        projectedCredits !== null && scanner.free_only && scannerEstimate
+            ? Math.min(projectedCredits, scannerEstimate.free_only_monthly_credits_left)
+            : projectedCredits
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
 
