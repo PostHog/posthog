@@ -230,6 +230,11 @@ Flooring to the minute loses nothing that load spreading provides: `compute_shar
 whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
 than within one.
 
+A source can set `schedule_group` on an outcome to spread by team and group instead of by configuration, through `compute_team_shard_offset_seconds`.
+A team's alerts with one group and one cadence then share a batch key.
+Logs sets the group to the query shape (window, evaluation periods, projection eligibility), so alerts that can share a cohort query land in one batch, and alerts that cannot spread across slots.
+That keeps a batch under `MAX_COHORTS_PER_CYCLE` in the common case, where one slot per team would push a team with many shapes over it.
+
 ## Source evaluation bindings
 
 `products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.

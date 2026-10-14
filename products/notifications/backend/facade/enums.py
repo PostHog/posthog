@@ -22,6 +22,7 @@ class NotificationType(str, Enum):
     MATERIALIZATION_FAILURE = "materialization_failure"
     NOTIFICATION_SETTINGS_CHANGED = "notification_settings_changed"
     DATA_QUALITY_CHECK_FAILURE = "data_quality_check_failure"
+    WORKFLOW_SUGGESTION = "workflow_suggestion"
 
 
 class Priority(str, Enum):

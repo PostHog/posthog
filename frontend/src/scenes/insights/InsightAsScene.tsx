@@ -25,6 +25,7 @@ import { insightLogic } from './insightLogic'
 import { InsightQueryScanBanner } from './InsightQueryScanBanner'
 import { InsightSceneHeader } from './InsightSceneHeader'
 import { insightVizDataLogic } from './insightVizDataLogic'
+import { InsightWarehouseSyncBanner } from './InsightWarehouseSyncBanner'
 import { SqlInsightFilters } from './SqlInsightFilters'
 
 export interface InsightAsSceneProps {
@@ -102,6 +103,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <InsightFlagCalledBanner insightProps={insightProps} />
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
+
+                <InsightWarehouseSyncBanner insightProps={insightProps} />
 
                 {!isEditing && !!insight.id && <SubscriptionSummaries insightId={insight.id} />}
 

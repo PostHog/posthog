@@ -82,6 +82,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
+    // Notebooks and dashboards are views, list pages included, so they never open the Products pane.
     if (
         isUnder(path, urls.views()) ||
         isUnder(path, '/canvases') ||
@@ -333,7 +334,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 phoneLayout: boolean,
                 mobileLayout: boolean,
                 sidebarVisible: boolean
-            ): boolean => todayRailEnabled && !phoneLayout && (mobileLayout || !sidebarVisible),
+            ): boolean =>
+                // Only a docked, hidden sidebar needs the crumb. Below the docking width the rail tile opens the
+                // overlay sidebar, and the crumb would only crowd the title row.
+                todayRailEnabled && !phoneLayout && !mobileLayout && !sidebarVisible,
         ],
     }),
     subscriptions(({ actions }) => ({

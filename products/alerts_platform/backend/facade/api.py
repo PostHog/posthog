@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
     SourceKind,
 )
 from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
@@ -42,6 +43,11 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     """Copy one of a source's own configurations in. True when it created the row."""
     return platform_lifecycle.upsert_configuration(upsert)
+
+
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
+    """Makes the platform the owner of a copied alert, carrying on from the source's state."""
+    return platform_lifecycle.take_ownership(handover)
 
 
 def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:

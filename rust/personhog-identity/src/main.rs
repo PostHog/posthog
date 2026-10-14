@@ -273,7 +273,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.router_http2_windows(),
         )
         .expect("Invalid router URL")
-        .with_client_name("personhog-identity"),
+        .with_client_name("personhog-identity")
+        .with_attempts(config.leader_request_attempts),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
@@ -336,6 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // callers are insulated from any future split.
     let merge_entrance = MergeEntrance::new(
         storage.clone(),
+        property_writer.clone(),
         property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),

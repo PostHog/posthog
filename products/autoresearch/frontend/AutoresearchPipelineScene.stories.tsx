@@ -164,6 +164,7 @@ const onlinePerformance = {
         likely_lift: 3,
         base_rate: 0.03,
         base_rate_dates: 5,
+        base_rate_source: 'realized',
         champion_mean_p_y: 0.033,
         champion_base_rate: 0.03,
         scores_miscalibrated: false,

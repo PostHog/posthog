@@ -1,3 +1,5 @@
+import { Survey } from '~/types'
+
 import { SURVEY_SDK_REQUIREMENTS, SurveySdkType } from './surveyVersionRequirements'
 
 const ALL_SDK_TYPES: SurveySdkType[] = [
@@ -21,4 +23,13 @@ describe('SURVEY_SDK_REQUIREMENTS', () => {
             expect(missing).toEqual([])
         }
     )
+
+    it.each([
+        ['an intro that renders', { displayIntroScreen: true, introScreenHeader: 'Welcome' }, true],
+        ['an intro with no header or description', { displayIntroScreen: true }, false],
+    ])('flags the Intro screen requirement for %s', (_name, appearance, expected) => {
+        const requirement = SURVEY_SDK_REQUIREMENTS.find((req) => req.feature === 'Intro screen')
+
+        expect(requirement?.check({ appearance } as Survey)).toBe(expected)
+    })
 })

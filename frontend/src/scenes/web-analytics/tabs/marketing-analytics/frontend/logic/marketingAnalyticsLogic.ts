@@ -1409,7 +1409,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         hasSyncedMarketingSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (externalTables: ExternalTable[], nativeSources: NativeSource[]): boolean =>
-                externalTables.length > 0 ||
+                externalTables.some(
+                    (table) =>
+                        table.external_type === DataWarehouseSettingsTab.SelfManaged ||
+                        table.schema_status === ExternalDataSchemaStatus.Completed
+                ) ||
                 nativeSources.some(({ source }) => {
                     const requiredFields =
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]

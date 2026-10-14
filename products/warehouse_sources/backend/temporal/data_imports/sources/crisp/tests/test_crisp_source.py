@@ -2,6 +2,7 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.source import CrispSource
@@ -41,6 +42,15 @@ def test_credential_probe_maps_workspace_and_table_errors(
         else f"/v1/website/{config.website_id}/{'conversations/1' if schema == 'messages' else 'people/profiles/1'}"
     )
     assert request.headers["x-crisp-tier"] == "website"
+
+
+def test_credential_probe_does_not_wait_out_a_rate_limit_like_a_sync(config: CrispSourceConfig) -> None:
+    with scripted_network(
+        always(ScriptedResponse(status=429, json={"error": True, "reason": "rate_limited"}))
+    ) as network:
+        with pytest.raises(Exception):
+            CrispSource().validate_credentials(config, team_id=1)
+    assert len(network.requests_log) <= 5
 
 
 @pytest.mark.parametrize(

@@ -11,7 +11,7 @@ import datetime
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
-from itertools import batched
+from itertools import batched, zip_longest
 from operator import or_
 from typing import Literal
 from urllib.parse import urlsplit
@@ -2048,6 +2048,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             continue
     # Each URL is written once. A second outcome for a new URL would insert the same chunk ids again.
     safe_urls = list(dict.fromkeys(safe_urls))
+
+    new_urls = [u for u in safe_urls if u not in existing_by_url]
+    stored_urls = [u for u in safe_urls if u in existing_by_url]
+    safe_urls = [u for pair in zip_longest(new_urls, stored_urls) for u in pair if u is not None]
 
     def _etag_for(u: str) -> str | None:
         existing = existing_by_url.get(u)

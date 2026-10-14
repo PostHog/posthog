@@ -365,12 +365,82 @@ describe('marketingAnalyticsLogic', () => {
                     marketing_analytics_config: { conversion_goals: [goal] },
                 })
             ).toFinishAllListeners()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+            })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
             search.actions.setMetrics('conversions')
             expect(search.values.query.includePostHogConversions).toBe(false)
+            for (const sourceType of ['GoogleAds', 'BingAds'] as const) {
+                await expectLogic(logic, () =>
+                    logic.actions.loadSourcesSuccess({
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: 'search-ads',
+                                source_type: sourceType,
+                                source_id: 'example-account',
+                                connection_id: 'example-search',
+                                status: ExternalDataJobStatus.Completed,
+                                prefix: null,
+                                description: 'Example search ads',
+                                created_via: 'web',
+                                latest_error: null,
+                                sync_frequency: '24hour',
+                                job_inputs: {},
+                                user_access_level: AccessControlLevel.Admin,
+                                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                                schemas: (sourceType === 'GoogleAds'
+                                    ? ['keyword', 'keyword_stats']
+                                    : ['keyword_performance_report']
+                                ).map(
+                                    (name) =>
+                                        ({
+                                            id: name,
+                                            name,
+                                            should_sync: true,
+                                            status: ExternalDataSchemaStatus.Completed,
+                                            last_synced_at: dayjs(),
+                                            table: { name, hogql_name: name },
+                                        }) as ExternalDataSourceSchema
+                                ),
+                            } as ExternalDataSource,
+                        ],
+                    })
+                ).toFinishAllListeners()
+                expect(search.values.query.includePostHogConversions).toBe(true)
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.displayMetrics).toBe('conversions')
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(true)
+                logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                logic.actions.setAdPerformanceConversionGoals(true)
+            }
             search.actions.setBreakdown('page')
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+            })
+            expect(logic.values.includeConversionGoals).toBe(true)
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            expect(search.values.displayMetrics).toBe('traffic')
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
             expect(search.values.query.includePostHogConversions).toBe(true)
             search.actions.selectRow({
                 page: 'https://example.com/pricing',
@@ -470,6 +540,7 @@ describe('marketingAnalyticsLogic', () => {
             logic.actions.setTileColumnSelection(MarketingAnalyticsColumnsSchemaNames.ReportedConversion)
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
@@ -511,6 +582,7 @@ describe('marketingAnalyticsLogic', () => {
                     legacyState === 'other-tab' ? MarketingAnalyticsTab.DASHBOARD : MarketingAnalyticsTab.AD_PERFORMANCE
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: legacyState !== 'flag-off',
                 })
                 expect(logic.values.includeConversionGoals).toBe(true)
@@ -530,7 +602,10 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
@@ -753,37 +828,33 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        databaseTableListLogic.actions.loadDatabaseSuccess({
-            tables: {
-                example_campaigns: {
-                    id: tableId,
-                    name: 'example_campaigns',
-                    type: 'data_warehouse',
-                    url_pattern: 'https://example.s3.amazonaws.com/campaigns',
-                    ...(type === 'managed'
-                        ? {
-                              schema: {
-                                  id: sourceId,
-                                  name: 'example_campaigns',
-                                  should_sync: true,
-                                  incremental: false,
-                                  status: ExternalDataSchemaStatus.Completed,
-                              },
-                              source: {
-                                  id: 'example-source',
-                                  source_type: 'BigQuery',
-                                  status: 'Completed',
-                                  prefix: '',
-                              },
-                          }
-                        : {}),
-                    fields: {
-                        cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
-                    },
-                } satisfies DatabaseSchemaDataWarehouseTable,
+        const table: DatabaseSchemaDataWarehouseTable = {
+            id: tableId,
+            name: 'example_campaigns',
+            type: 'data_warehouse',
+            url_pattern: 'https://example.s3.amazonaws.com/campaigns',
+            ...(type === 'managed'
+                ? {
+                      schema: {
+                          id: sourceId,
+                          name: 'example_campaigns',
+                          should_sync: true,
+                          incremental: false,
+                          status: ExternalDataSchemaStatus.Completed,
+                      },
+                      source: {
+                          id: 'example-source',
+                          source_type: 'BigQuery',
+                          status: 'Completed',
+                          prefix: '',
+                      },
+                  }
+                : {}),
+            fields: {
+                cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
             },
-            joins: [],
-        })
+        }
+        databaseTableListLogic.actions.loadDatabaseSuccess({ tables: { example_campaigns: table }, joins: [] })
 
         for (const sourceMap of [{}, { campaign: 'campaign' }] as SourceMap[]) {
             await expectLogic(logic, () =>
@@ -820,6 +891,17 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.allAvailableSourcesWithStatus).toEqual([
             expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
         ])
+        expect(logic.values.hasSyncedMarketingSources).toBe(true)
+        if (type === 'managed') {
+            for (const status of [ExternalDataSchemaStatus.Running, ExternalDataSchemaStatus.Failed, undefined]) {
+                databaseTableListLogic.actions.loadDatabaseSuccess({
+                    tables: { example_campaigns: { ...table, schema: { ...table.schema!, status } } },
+                    joins: [],
+                })
+                expect(logic.values.validExternalTables).toHaveLength(1)
+                expect(logic.values.hasSyncedMarketingSources).toBe(false)
+            }
+        }
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
@@ -872,6 +954,7 @@ describe('marketingAnalyticsLogic', () => {
     it('carries dashboard view, breakdown and filters in the URL', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
         })
         logic = marketingAnalyticsLogic()

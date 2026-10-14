@@ -65,6 +65,8 @@ export function TodayViewsSidebar(): JSX.Element {
     const path = removeProjectIdIfPresent(location.pathname)
     const failedTypes = recentViews.failedTypes
     const showAll = matchesPaneQuery('All views', recentQuery)
+    const showAllDashboards = matchesPaneQuery('All dashboards', recentQuery)
+    const showAllNotebooks = matchesPaneQuery('All notebooks', recentQuery)
 
     const retryButton = (size: 'sm' | 'xs'): JSX.Element => (
         <Button
@@ -113,6 +115,34 @@ export function TodayViewsSidebar(): JSX.Element {
                             to={urls.views()}
                             active={path === urls.views()}
                             dataAttr="today-views-all"
+                        />
+                    )}
+                    {showAllDashboards && (
+                        <TodayPaneRow
+                            value="all-dashboards"
+                            label="All dashboards"
+                            icon={
+                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO.dashboard.color]}>
+                                    <ViewTypeIcon type="dashboard" />
+                                </ProductIconWrapper>
+                            }
+                            to={urls.dashboards()}
+                            active={path === urls.dashboards()}
+                            dataAttr="today-views-all-dashboards"
+                        />
+                    )}
+                    {showAllNotebooks && (
+                        <TodayPaneRow
+                            value="all-notebooks"
+                            label="All notebooks"
+                            icon={
+                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO.notebook.color]}>
+                                    <ViewTypeIcon type="notebook" />
+                                </ProductIconWrapper>
+                            }
+                            to={urls.notebooks()}
+                            active={path === urls.notebooks()}
+                            dataAttr="today-views-all-notebooks"
                         />
                     )}
                     {recentUnavailable || !recentReady ? (
