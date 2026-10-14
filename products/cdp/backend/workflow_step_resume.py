@@ -49,7 +49,8 @@ def cap_value(value: Any, budget: int) -> Any:
                 break
             # An explicit null stays, so every answer reaches the step with the same keys.
             if item is None:
-                result[key] = None
+                if available >= len("null"):
+                    result[key] = None
                 continue
             capped = cap_value(item, available)
             if capped is not None and _json_size(capped) <= available:

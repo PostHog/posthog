@@ -144,6 +144,7 @@ def test_a_failed_emit_does_not_raise() -> None:
         {"final_message": "漢" * 1500, "error_message": "字" * 1500},
         {"pr_urls": [f"https://example.com/pr/{index}" for index in range(1000)]},
         {"nested": {"text": '\\"\n' * 1500}, "pr_urls": ["https://example.com/" + "x" * 6000]},
+        {"a": "x" * 1500, "b": "y" * 1500, "c": "z" * 1066, "d": None},
     ],
 )
 def test_result_fits_the_serialized_byte_budget(result) -> None:
