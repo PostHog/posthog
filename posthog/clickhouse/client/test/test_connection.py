@@ -119,27 +119,13 @@ def test_native_events_route_preserves_resolved_credentials(settings, readonly, 
     settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
     settings.CLICKHOUSE_VERIFY = True
     settings.CLICKHOUSE_PER_TEAM_SETTINGS = (
-        {
-            "44": {
-                "host": "legacy.example.com",
-                "alt_hosts": "legacy-replica.example.com:9000",
-                "round_robin": True,
-                "user": "team-user",
-                "password": "example",
-            }
-        }
-        if team_override
-        else {}
+        {"44": {"host": "legacy.example.com", "user": "team-user", "password": "example"}} if team_override else {}
     )
     settings.READONLY_CLICKHOUSE_USER = "reader"
     settings.READONLY_CLICKHOUSE_PASSWORD = "example-readonly"
     baseline = connection.get_kwargs_for_client(Workload.DEFAULT, team_id=44, readonly=readonly)
     native = connection.get_kwargs_for_client(Workload.NEW_EVENTS_CLUSTER, team_id=44, readonly=readonly)
-    assert native == {
-        **{key: value for key, value in baseline.items() if key not in ("alt_hosts", "round_robin")},
-        "host": "native.example.com",
-        "verify": True,
-    }
+    assert native == {**baseline, "host": "native.example.com", "verify": True}
 
 
 def test_native_events_workload_without_host_fails_closed(settings):

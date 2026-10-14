@@ -435,11 +435,8 @@ def get_kwargs_for_client(
         host = get_new_events_cluster_host()
         if not host:
             raise ValueError("Native events ClickHouse host is not configured")
-        kwargs = get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user)
-        kwargs.pop("alt_hosts", None)
-        kwargs.pop("round_robin", None)
         return {
-            **kwargs,
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
             "host": host,
             "verify": settings.CLICKHOUSE_VERIFY,
         }
