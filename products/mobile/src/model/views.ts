@@ -111,6 +111,70 @@ export interface SavedRange {
     dateTo: string | null
 }
 
+/** One funnel step and the people who reached it. */
+export interface FunnelStepView {
+    key: string
+    /** The step's custom name, else its event or action name. */
+    name: string
+    count: number
+    /** Percent of the people who entered the funnel at step 1. Null when nobody entered. */
+    percentOfFirst: number | null
+    /** Percent of the people who reached the step before. Null for step 1. */
+    percentOfPrevious: number | null
+    /** People who reached the step before but not this one. Null for step 1. */
+    droppedOff: number | null
+    /** Median seconds from the step before. Null for step 1, or when nobody converted. */
+    medianSeconds: number | null
+}
+
+export interface FunnelView {
+    steps: FunnelStepView[]
+    /** Percent of step 1 that reached the last step. */
+    conversion: number | null
+    /** The breakdown values the steps add up. 0 without a breakdown. */
+    breakdownValues: number
+}
+
+export type RetentionPeriodUnit = 'hour' | 'day' | 'week' | 'month'
+
+export interface RetentionCellView {
+    count: number
+    /** 0 to 100, of the cohort size, or of the period before for `reference: 'previous'`. */
+    percent: number
+}
+
+export interface RetentionCohortView {
+    key: string
+    /** Start of the cohort's period 0, ISO. */
+    date: string
+    /** People in the cohort: the count of period 0. */
+    size: number
+    /** From period 0, every period that has started. Periods still in the future are left out. */
+    cells: RetentionCellView[]
+}
+
+export interface RetentionView {
+    period: RetentionPeriodUnit
+    /** "Week 0", "Week 1" and so on: one per period column. */
+    periodLabels: string[]
+    cohorts: RetentionCohortView[]
+    reference: 'total' | 'previous'
+}
+
+/** One value of a ranking: a breakdown value, or a series when there is no breakdown. */
+export interface RankedValueView {
+    key: string
+    label: string
+    value: number
+}
+
+export interface RankingView {
+    /** Highest first. */
+    rows: RankedValueView[]
+    /** The sum of the rows, or null when the math counts distinct people, whom several rows can share. */
+    total: number | null
+}
+
 export interface InsightCapabilities {
     number: boolean
     chart: boolean
@@ -142,7 +206,13 @@ export interface InsightSnapshot extends Freshness {
     /** The first current series, for the sparkline and the compact chart. */
     series: MetricSeries | null
     allSeries: InsightSeriesView[]
+    /** Line or bar for a trends display over time, with any number of series and breakdowns. */
     chartKind: MetricChartKind | null
+    /** Funnel steps of a `FunnelsQuery` in the steps layout. */
+    funnel: FunnelView | null
+    retention: RetentionView | null
+    /** Totals per breakdown value or series, for value bars, tables and pies. */
+    ranking: RankingView | null
     /** Start of the bucket that contains now. It is never complete. */
     inProgressFrom: string | null
     /** On a dashboard: the tile ignores the dashboard range. */

@@ -4,7 +4,7 @@ import { insightSnapshot, usesOwnRange } from './insightSnapshot'
 
 const NOW = Date.parse('2026-10-14T12:00:00Z')
 
-function trends(math: string | undefined, display = 'ActionsLineGraph'): unknown {
+function trends(math: string | undefined, display = 'ActionsLineGraph', extra: Record<string, unknown> = {}): unknown {
     return {
         kind: 'InsightVizNode',
         source: {
@@ -13,6 +13,7 @@ function trends(math: string | undefined, display = 'ActionsLineGraph'): unknown
             series: [{ kind: 'EventsNode', event: '$pageview', ...(math ? { math } : {}) }],
             trendsFilter: { display },
             dateRange: { date_from: '-7d' },
+            ...extra,
         },
     }
 }
@@ -63,16 +64,16 @@ describe('insightSnapshot', () => {
         })
     })
 
-    test.each<[string, string | undefined, unknown[], Record<string, unknown>]>([
+    test.each<[string, unknown, unknown[], Record<string, unknown>]>([
         [
             'the last complete bucket against the one before it, skipping today',
-            'dau',
+            trends('dau'),
             [{ days: DAYS, data: [10, 20, 30, 5] }],
             { value: 30, valueAt: '2026-10-13', delta: { previous: 20, basis: 'previous_bucket' } },
         ],
         [
             'window totals of a summable series against the previous period',
-            undefined,
+            trends(undefined),
             [
                 { days: DAYS, data: [1, 2, 3, 4], compare_label: 'current', action: { order: 0 } },
                 { days: DAYS, data: [1, 1, 1, 1], compare_label: 'previous', action: { order: 0 } },
@@ -81,7 +82,7 @@ describe('insightSnapshot', () => {
         ],
         [
             'distinct users bucket by bucket against the previous period, never a sum',
-            'weekly_active',
+            trends('weekly_active'),
             [
                 { days: DAYS, data: [100, 110, 120, 30], compare_label: 'current', action: { order: 0 } },
                 { days: DAYS, data: [90, 95, 100, 98], compare_label: 'previous', action: { order: 0 } },
@@ -90,12 +91,39 @@ describe('insightSnapshot', () => {
         ],
         [
             'the server aggregate of a big number',
-            'dau',
+            trends('dau'),
             [{ aggregated_value: 412, action: { order: 0 } }],
             { value: 412, valueAt: null, delta: null },
         ],
-    ])('reads %s', (_name, math, result, expected) => {
-        const snapshot = insightSnapshot(insight({ query: trends(math), result }), undefined, CONTEXT)
+        [
+            'ranked breakdown totals with "Other" last and no big number, since no one value stands for the insight',
+            trends(undefined, 'ActionsBarValue', { breakdownFilter: { breakdown: '$browser' } }),
+            [
+                {
+                    aggregated_value: 80,
+                    label: '$$_posthog_breakdown_other_$$',
+                    breakdown_value: '$$_posthog_breakdown_other_$$',
+                    action: { order: 0 },
+                },
+                { aggregated_value: 20, label: 'Safari', breakdown_value: 'Safari', action: { order: 0 } },
+                { aggregated_value: 50, label: 'Chrome', breakdown_value: 'Chrome', action: { order: 0 } },
+            ],
+            {
+                value: null,
+                delta: null,
+                capabilities: { number: false },
+                ranking: {
+                    rows: [
+                        { label: 'Chrome', value: 50 },
+                        { label: 'Safari', value: 20 },
+                        { label: 'Other', value: 80 },
+                    ],
+                    total: 150,
+                },
+            },
+        ],
+    ])('reads %s', (_name, query, result, expected) => {
+        const snapshot = insightSnapshot(insight({ query, result }), undefined, CONTEXT)
 
         expect(snapshot).toMatchObject(expected)
     })
