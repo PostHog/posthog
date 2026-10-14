@@ -40,8 +40,9 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
 
-// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
-type AwaitRequest = { maxWait: Duration; label: string }
+// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`. When the
+// job already finished, `'result': {...}` in the request hands over its answer as a wake would, without parking.
+type AwaitRequest = { maxWait: Duration; label: string; settled: Record<string, unknown> | null }
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
@@ -56,7 +57,11 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     if (typeof request !== 'object') {
         throw new Error(`await must be an object, got ${typeof request}`)
     }
-    const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
+    const {
+        max_wait: maxWait,
+        label,
+        result: settled,
+    } = request as { max_wait?: unknown; label?: unknown; result?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
         throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
@@ -65,6 +70,10 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     return {
         maxWait: requested > AWAIT_MAX_WAIT_CEILING ? AWAIT_MAX_WAIT_CEILING : requested,
         label: typeof label === 'string' && label ? label : 'run',
+        settled:
+            settled && typeof settled === 'object' && !Array.isArray(settled)
+                ? (settled as Record<string, unknown>)
+                : null,
     }
 }
 
@@ -224,6 +233,19 @@ export class HogFunctionHandler implements ActionHandler {
                     timestamp: DateTime.now(),
                     message: `${actionIdForLogging(action)} Ignored the template's wait request: ${(error as Error).message}`,
                 })
+            }
+        }
+        if (awaitRequest?.settled) {
+            const { await: _await, ...dispatch } = functionResult.execResult as Record<string, unknown>
+            // Sized like a woken step's answer, so it fits the variables the run already holds.
+            return {
+                nextAction: findContinueAction(invocation),
+                result: capWorkflowStepResult(
+                    { ...dispatch, status: 'completed' },
+                    awaitRequest.settled,
+                    result.invocation.state.variables ?? {},
+                    action.output_variable
+                ),
             }
         }
         if (awaitRequest) {

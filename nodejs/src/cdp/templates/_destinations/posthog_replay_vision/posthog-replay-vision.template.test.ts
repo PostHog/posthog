@@ -49,10 +49,17 @@ describe('posthog replay vision template', () => {
             { request_id: 'r1', await: { max_wait: '8h', label: 'Replay Vision scan' } },
         ],
         [
-            'returns a settled answer in the shape a wake brings',
+            'hands a settled answer to the engine to size, as a wake would',
             202,
             { request_id: 'r1', status: 'completed', state: 'succeeded', output: { tag: 'checkout' }, warnings: [] },
-            { state: 'succeeded', output: { tag: 'checkout' }, warnings: [] },
+            {
+                request_id: 'r1',
+                await: {
+                    max_wait: '8h',
+                    label: 'Replay Vision scan',
+                    result: { state: 'succeeded', output: { tag: 'checkout' }, warnings: [] },
+                },
+            },
         ],
         [
             'skips the event at a daily limit',

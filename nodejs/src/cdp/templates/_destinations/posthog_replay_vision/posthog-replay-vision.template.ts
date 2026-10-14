@@ -37,11 +37,13 @@ if (response.status >= 400) {
 }
 
 let scan := response.body
-if (scan.status == 'running') {
-  // Park the step until the scan settles: up to 6 hours for the session to end, the scan itself, and slack for the wake.
-  return { 'request_id': scan.request_id, 'await': { 'max_wait': '8h', 'label': 'Replay Vision scan' } }
+// Park the step until the scan settles: up to 6 hours for the session to end, the scan itself, and slack for the wake.
+let wait := { 'max_wait': '8h', 'label': 'Replay Vision scan' }
+if (scan.status != 'running') {
+  // An answer already settled goes through the same sizing a wake gets.
+  wait.result := { 'state': scan.state, 'output': scan.output, 'warnings': scan.warnings }
 }
-return { 'state': scan.state, 'output': scan.output, 'warnings': scan.warnings }
+return { 'request_id': scan.request_id, 'await': wait }
 `,
     inputs_schema: [
         {
