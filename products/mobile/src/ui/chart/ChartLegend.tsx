@@ -113,9 +113,20 @@ export function ChartLegend({
     )
 }
 
+const DASH_SEGMENTS = [0, 1, 2]
+
 function Swatch({ series, visible }: { series: ChartSeries; visible: boolean }): ReactElement {
     if (isCompareSeries(series)) {
-        return <View style={[styles.dash, { borderTopColor: visible ? PREVIOUS_PERIOD_COLOR : colors.hairline }]} />
+        // iOS draws a dashed border only when all four sides share one width, so a top-only dashed border is blank.
+        // Three short segments draw the same dashed line on every platform.
+        const color = visible ? PREVIOUS_PERIOD_COLOR : colors.border
+        return (
+            <View style={styles.dash}>
+                {DASH_SEGMENTS.map((segment) => (
+                    <View key={segment} style={[styles.dashSegment, { backgroundColor: color }]} />
+                ))}
+            </View>
+        )
     }
     return <View style={[styles.swatch, visible ? { backgroundColor: series.color } : styles.swatchHidden]} />
 }
@@ -182,8 +193,13 @@ const styles = StyleSheet.create({
     },
     dash: {
         width: 14,
-        height: 0,
-        borderTopWidth: 2,
-        borderStyle: 'dashed',
+        height: 2,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    dashSegment: {
+        width: 4,
+        height: 2,
+        borderRadius: 1,
     },
 })

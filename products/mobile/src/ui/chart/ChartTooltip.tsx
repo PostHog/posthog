@@ -8,6 +8,12 @@ import type { TooltipContent } from './chartSeries'
 
 export const TOOLTIP_MAX_WIDTH = 204
 
+/**
+ * The same id on every chart. A screen pins one chart at a time, so the id finds the open tooltip without naming
+ * its chart.
+ */
+export const CHART_TOOLTIP_TEST_ID = 'chart-tooltip'
+
 interface ChartTooltipProps {
     content: TooltipContent
     formatValue: (value: number) => string
