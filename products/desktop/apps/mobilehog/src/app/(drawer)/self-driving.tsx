@@ -7,6 +7,7 @@ import {
   Text as SwiftText,
 } from "@expo/ui/swift-ui";
 import {
+  accessibilityLabel,
   frame,
   glassEffect,
   pickerStyle,
@@ -186,6 +187,7 @@ export default function SelfDrivingScreen() {
                   glass: { variant: "regular", interactive: true },
                   shape: "circle",
                 }),
+                accessibilityLabel("Report scope"),
               ]}
             >
               {REPORT_SCOPES.map((option) => (
