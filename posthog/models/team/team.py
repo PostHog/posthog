@@ -1252,23 +1252,27 @@ class Team(UUIDTClassicModel):
 
         # General case: resolve each active member through `SubjectAccessControl`, seeding its
         # pool from the single team-rules fetch so N subjects share one query rather than running
-        # N of them.
+        # N of them. Only load the user columns subject resolution actually reads (its id).
         memberships = list(
-            OrganizationMembership.objects.filter(
-                organization_id=self.organization_id, user__is_active=True
-            ).select_related("user")
+            OrganizationMembership.objects.filter(organization_id=self.organization_id, user__is_active=True)
+            .select_related("user")
+            .only("id", "user_id", "level", "user__id")
         )
 
         # Roles the facade uses to resolve each user. User-keyed rather than keyed on the
         # `organization_member` FK because that FK is NULL on legacy `RoleMembership` rows, so
         # the enforced API gate (which goes through `user.role_memberships`) would honor a role
-        # rule we would silently drop and the two resolvers would disagree.
+        # rule we would silently drop and the two resolvers would disagree. Only roles a project
+        # rule names here can change an answer, so filter at the query to that set.
+        named_role_ids = {row.role_id for row in team_rows if row.role_id is not None}
         role_ids_by_user: dict[int, list[str]] = defaultdict(list)
-        if role_based_access_supported:
+        if role_based_access_supported and named_role_ids:
             role_lookup_user_ids: list[int] = [m.user_id for m in memberships]
             for user_id, role_id in (
                 RoleMembership.objects.filter(
-                    user_id__in=role_lookup_user_ids, role__organization_id=self.organization_id
+                    user_id__in=role_lookup_user_ids,
+                    role_id__in=named_role_ids,
+                    role__organization_id=self.organization_id,
                 )
                 .valid_for_authorization()
                 .values_list("user_id", "role_id")
