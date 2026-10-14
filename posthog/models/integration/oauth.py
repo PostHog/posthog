@@ -19,10 +19,12 @@ from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
+from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
@@ -1619,7 +1621,25 @@ class OauthIntegration:
         # this integration already can't read, adding another layer to the stored value.
         self.integration.save(update_fields=["errors", "config"])
 
-    def refresh_access_token(self):
+    def _legacy_oauth_fallback_disabled(self) -> bool:
+        if self.integration.kind != "bing-ads" or not is_cloud():
+            return False
+
+        team = self.integration.team
+        project_uuid = str(team.uuid)
+        return (
+            get_feature_flag_or_none(
+                "bing-ads-disable-legacy-oauth-fallback",
+                project_uuid,
+                groups={"project": project_uuid},
+                group_properties={"project": {"id": str(team.id), "uuid": project_uuid}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+
+    def refresh_access_token(self) -> None:
         """
         Refresh the access token for the integration if necessary
         """
@@ -1632,6 +1652,7 @@ class OauthIntegration:
         res: requests.Response | None = None
         config: dict = {}
         used_fallback = False
+        fallback_disabled = False
         try:
             res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
             config = self._parse_token_refresh_response(res)
@@ -1653,18 +1674,20 @@ class OauthIntegration:
         if (
             res is None or res.status_code != 200 or not config.get("access_token")
         ) and oauth_config.client_secret_fallback:
-            try:
-                res = self._post_token_refresh(
-                    oauth_config,
-                    oauth_config.client_id_fallback or oauth_config.client_id,
-                    oauth_config.client_secret_fallback,
-                )
-                config = self._parse_token_refresh_response(res)
-                used_fallback = True
-            except requests.RequestException as e:
-                logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
-                res = None
-                config = {}
+            fallback_disabled = self._legacy_oauth_fallback_disabled()
+            if not fallback_disabled:
+                try:
+                    res = self._post_token_refresh(
+                        oauth_config,
+                        oauth_config.client_id_fallback or oauth_config.client_id,
+                        oauth_config.client_secret_fallback,
+                    )
+                    config = self._parse_token_refresh_response(res)
+                    used_fallback = True
+                except requests.RequestException as e:
+                    logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                    res = None
+                    config = {}
 
         if res is None or res.status_code != 200 or not config.get("access_token"):
             logger.warning(
@@ -1676,6 +1699,12 @@ class OauthIntegration:
                 if res is not None
                 else refresh_tracking.REFRESH_FAILURE_REASON_NETWORK
             )
+            if fallback_disabled:
+                # Withheld fallback credentials may still be valid; keep retries recoverable on rollback.
+                reason = refresh_tracking.REFRESH_FAILURE_REASON_LEGACY_CLIENT_DISABLED
+                self.integration.config[refresh_tracking.CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED] = True
+            else:
+                self.integration.config.pop(refresh_tracking.CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED, None)
             attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt

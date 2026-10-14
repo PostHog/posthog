@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.refresh_tracking import CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -176,6 +177,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
 
     def get_retryable_errors(self) -> set[str]:
         return {
+            "Bing Ads connection needs to be reconnected",
             # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
             # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
             # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
@@ -361,6 +363,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         inputs: SourceInputs,
     ) -> SourceResponse:
         integration = self.get_oauth_integration(config.bing_ads_integration_id, inputs.team_id)
+
+        # Authentication errors disable sync schedules, so a rollout pause must stay retryable.
+        if integration.config.get(CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED) is True:
+            raise RuntimeError(
+                "Bing Ads connection needs to be reconnected. Reconnect your Bing Ads integration to resume syncing."
+            )
 
         if not integration.access_token:
             raise ValueError(f"Bing Ads access token not found for job {inputs.job_id}")

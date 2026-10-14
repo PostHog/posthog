@@ -280,3 +280,22 @@ The banner only appears when a project has a Bing Ads integration marked with `o
 It asks users to reconnect before November 30, 2026.
 The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
 Use project targeting to release the warning gradually.
+
+## Gradual Bing Ads fallback retirement
+
+The backend flag `bing-ads-disable-legacy-oauth-fallback` disables the legacy credential retry for selected projects on PostHog Cloud.
+The flag defaults to off when it is missing, unavailable, or does not evaluate to boolean `true`.
+It uses local evaluation with the project UUID as the `project` group key and supplies the project `id` and `uuid` group properties.
+Configure project group targeting and add one project at a time rather than selecting individual users.
+The flag applies to every Bing Ads integration in the selected project.
+
+Refreshes still try the primary OAuth credentials first.
+If that request fails while the flag is on, the integration reports `TOKEN_REFRESH_FAILED` and the `integration_oauth_refresh` counter records `reason="legacy_client_disabled"`.
+The stored tokens and legacy-client marker remain unchanged.
+These failures use the existing backoff without making the integration terminal, so turning the flag off restores fallback attempts on the next retry.
+Recovery can take up to one hour, plus feature flag polling and queue delays.
+The flag takes effect after a failed primary refresh; enabling it does not immediately invalidate tokens.
+The refresh marks the integration with `oauth_legacy_fallback_disabled`; Bing Ads syncs then fail with a retryable reconnect message so their schedules remain enabled.
+A successful refresh or reconnection clears that marker.
+The flag does not migrate tokens, disable source schedules, or affect other integration kinds.
+Keep the fallback credentials configured during the rollout and verify refresh success and source syncs before adding the next project.

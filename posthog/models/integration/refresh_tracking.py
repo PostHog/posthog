@@ -42,6 +42,7 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
 CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED = "oauth_legacy_fallback_disabled"
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
@@ -53,6 +54,8 @@ REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
 REFRESH_FAILURE_REASON_NETWORK = "network"
 
 REFRESH_FAILURE_REASON_RATE_LIMITED = "rate_limited"
+
+REFRESH_FAILURE_REASON_LEGACY_CLIENT_DISABLED = "legacy_client_disabled"
 
 REFRESH_FAILURE_REASON_OTHER = "other"
 
@@ -146,7 +149,13 @@ def record_refresh_failure(integration: "model.Integration", *, reason: str = RE
 
 
 def record_refresh_success(integration: "model.Integration") -> None:
-    for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
+    for key in (
+        "refresh_failure_count",
+        "refresh_invalid_grant_count",
+        "refresh_next_attempt_at",
+        "refresh_terminal",
+        CONFIG_LEGACY_OAUTH_FALLBACK_DISABLED,
+    ):
         integration.config.pop(key, None)
 
 
