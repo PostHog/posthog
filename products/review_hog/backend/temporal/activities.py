@@ -121,6 +121,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     PushGate,
     PushGateDecision,
     apply_draft_rule,
+    apply_next_push_rule,
     apply_throttle,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -2284,6 +2285,7 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
             "own_commits": decision.own_commits,
             "own_code_lines": decision.own_code_lines,
             "pr_draft": draft,
+            "next_push_probability": decision.next_push_probability,
         },
         groups=groups(team=report.team),
     )
@@ -2330,6 +2332,15 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         ):
             draft = False
             decision = push_decision
+        if not draft:
+            # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
+            # count is the completed turns after the first review, which also includes label, UI,
+            # and other human turns.
+            decision = apply_next_push_rule(
+                decision,
+                follow_up=input.run_index - 1,
+                pr_lines=current.pr_metadata.additions + current.pr_metadata.deletions,
+            )
     decision = apply_throttle(decision, report_id=input.report_id, head_sha=input.head_sha)
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)

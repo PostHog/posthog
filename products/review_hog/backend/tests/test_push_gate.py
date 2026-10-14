@@ -16,8 +16,11 @@ from products.review_hog.backend.reviewer.push_gate import (
     PUSH_GATE_MODEL,
     PushGate,
     PushGateDecision,
+    _NextPushCell,
     apply_draft_rule,
+    apply_next_push_rule,
     apply_throttle,
+    next_push_probability,
 )
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
@@ -83,7 +86,12 @@ def _github(responses: dict[str, dict[str, Any] | None]):
 
 
 def _decide(
-    responses: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None, *, draft: bool = False
+    responses: dict[str, dict[str, Any] | None],
+    system_one: MagicMock | None = None,
+    *,
+    draft: bool = False,
+    follow_up: int | None = None,
+    pr_lines: int | None = None,
 ) -> PushGateDecision:
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
@@ -93,7 +101,9 @@ def _decide(
         decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
             previous_head_sha="old", head_sha="new", base_branch="master"
         )
-        return apply_draft_rule(decision, draft=draft)
+    if draft:
+        return apply_draft_rule(decision, draft=True)
+    return apply_next_push_rule(decision, follow_up=follow_up, pr_lines=pr_lines)
 
 
 def _system_one(probability: float) -> MagicMock:
@@ -325,7 +335,8 @@ def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
     responses: dict[str, dict[str, Any] | None],
     expected: tuple[bool, bool, str, float | None, str | None, int | None],
 ) -> None:
-    decision = _decide(responses, _system_one(0.8), draft=True)
+    decision = _decide(responses, _system_one(0.8), draft=True, follow_up=7, pr_lines=150)
+    assert decision.next_push_probability is None
     assert (
         decision.skip,
         decision.would_skip,
@@ -388,3 +399,56 @@ def test_push_gate_reviews_the_push_when_redis_is_down(empty_redis: None) -> Non
     reviewed = PushGateDecision(skip=False, would_skip=False, reason="system_one_above_threshold")
     with patch(f"{_MODULE}.consume", return_value=BucketUnavailable(error="down")):
         assert apply_throttle(reviewed, report_id="pr-a", head_sha="a1") == reviewed
+
+
+@parameterized.expand(
+    [
+        ("size_cell", 1, 150, {}, 0.559),
+        ("size_band_upper_edge", 1, 200, {}, 0.559),
+        ("capped_at_the_eighth_follow_up", 12, 5000, {}, 0.842),
+        ("small_cell_falls_back", 7, 150, {(7, "<=200"): _NextPushCell(probability=0.900, prs=9)}, 0.842),
+        ("no_follow_up_yet", 0, 150, {}, None),
+    ]
+)
+def test_next_push_probability_reads_the_size_cell_or_falls_back(
+    _name: str, follow_up: int, pr_lines: int, cells: dict[Any, _NextPushCell], expected: float | None
+) -> None:
+    with patch.dict(f"{_MODULE}._NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE", cells):
+        assert next_push_probability(follow_up=follow_up, pr_lines=pr_lines) == expected
+
+
+_DOCS_PUSH = _push(
+    new_commits=[_commit("a"), _commit("c")],
+    pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+    own_commit_files=[_file("README.md")],
+)
+
+
+@parameterized.expand(
+    [
+        ("below_threshold_runs", _CODE_PUSH, 0.8, 1, 150, (False, False, "system_one_above_threshold", 0.559)),
+        ("at_threshold_shadow_skip", _CODE_PUSH, 0.8, 8, 5000, (False, True, "next_push_likely", 0.842)),
+        ("unknown_size_runs", _CODE_PUSH, 0.8, 7, None, (False, False, "system_one_above_threshold", None)),
+        ("docs_only_shadow_keeps_reason", _DOCS_PUSH, 0.8, 7, 150, (False, True, "docs_only", 0.900)),
+        ("system_one_shadow_keeps_reason", _CODE_PUSH, 0.1, 7, 150, (False, True, "system_one_below_threshold", 0.900)),
+        (
+            "skipping_rule_keeps_reason",
+            _push(new_commits=[_commit("a")], pr_files=[_file("posthog/billing.py", _BILLING)]),
+            0.8,
+            7,
+            150,
+            (True, True, "no_new_commits", 0.900),
+        ),
+    ]
+)
+def test_push_gate_records_a_likely_next_push_without_skipping(
+    _name: str,
+    responses: dict[str, dict[str, Any] | None],
+    system_one_probability: float,
+    follow_up: int,
+    pr_lines: int | None,
+    expected: tuple[bool, bool, str, float | None],
+) -> None:
+    with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.842):
+        decision = _decide(responses, _system_one(system_one_probability), follow_up=follow_up, pr_lines=pr_lines)
+    assert (decision.skip, decision.would_skip, decision.reason, decision.next_push_probability) == expected
