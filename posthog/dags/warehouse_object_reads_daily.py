@@ -21,7 +21,6 @@ from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
 from posthog.dags.common.resources import SatelliteClickhouseClusterResource
 from posthog.dags.slack_alerts import notification_channel_per_team, send_slack_alert
-from posthog.run_mode import run_mode
 
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
@@ -31,6 +30,7 @@ from products.web_analytics.dags.web_preaggregated_utils import (
 )
 
 TEMPORAL_QUERY_KIND = "temporal"
+DEPLOYED_CLOUD_REGIONS = ("US", "EU", "DEV")
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 30 * 60
 ONE_GIB = 1024**3
@@ -86,7 +86,7 @@ daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DAT
 
 def query_log_clusters() -> tuple[str, ...]:
     # Warehouse reads run on the main, logs and endpoints clusters in the cloud. Local stacks have only the main one.
-    if run_mode().is_deployed_cloud:
+    if settings.CLOUD_DEPLOYMENT in DEPLOYED_CLOUD_REGIONS:
         return (settings.CLICKHOUSE_CLUSTER, "logs", "endpoints")
     return (settings.CLICKHOUSE_CLUSTER,)
 
