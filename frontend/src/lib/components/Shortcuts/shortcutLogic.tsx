@@ -170,6 +170,10 @@ export const shortcutLogic = kea<shortcutLogicType>([
         cache.sequenceLastKeyTime = 0
 
         cache.onKeyDown = (event: KeyboardEvent) => {
+            // Chrome can dispatch a keydown without a key, for example during form autofill
+            if (typeof event.key !== 'string') {
+                return
+            }
             const target = event.composedPath()[0]
             if (target instanceof HTMLElement && target.closest('[data-shortcuts-ignore="all"]')) {
                 cache.sequenceKeys = []
