@@ -27,7 +27,7 @@ const PLACEHOLDER = /\{([^}]+)\}/g
 
 // Skills shipped before error tracking moved to /error-tracking still pass `/error_tracking...` templates.
 function resolveTemplate(template: string): string {
-    return SCOPE_BY_TEMPLATE.has(template) ? template : template.replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
+    return template.replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
 }
 
 function placeholdersOf(template: string): string[] {
