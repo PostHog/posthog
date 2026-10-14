@@ -704,6 +704,15 @@ class ErrorTrackingQueryBuilder:
                 )
             )
 
+        if self.query.severity:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=self._issue_state_expr("issue_severity"),
+                    right=ast.Constant(value=self.query.severity.value),
+                )
+            )
+
         if self.query.assignee:
             if self.query.assignee.type == "user":
                 exprs.append(
@@ -917,6 +926,15 @@ class ErrorTrackingQueryBuilder:
                     op=ast.CompareOperationOp.Eq,
                     left=self._legacy_issue_state_expr("issue_status"),
                     right=ast.Constant(value=self.query.status),
+                )
+            )
+
+        if self.query.severity:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=self._legacy_issue_state_expr("issue_severity"),
+                    right=ast.Constant(value=self.query.severity.value),
                 )
             )
 

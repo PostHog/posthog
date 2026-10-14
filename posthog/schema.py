@@ -32593,6 +32593,7 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=("Free-text search across exception type, message, and stack frames."),
     )
+    severity: ErrorTrackingQueryIssueSeverity | None = Field(default=None, description="Filter by issue severity.")
     status: ErrorTrackingIssueStatus | str | None = Field(
         default=None,
         description="Filter by issue status.",

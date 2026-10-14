@@ -10666,6 +10666,8 @@ export namespace Schemas {
       response?: ErrorTrackingQueryResponse | null;
       /** Free-text search across exception type, message, and stack frames. */
       searchQuery?: string | null;
+      /** Filter by issue severity. */
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;

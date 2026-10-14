@@ -24636,6 +24636,17 @@
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
+                "severity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingQueryIssueSeverity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue severity."
+                },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingQueryStatus",
                     "description": "Filter by issue status."
