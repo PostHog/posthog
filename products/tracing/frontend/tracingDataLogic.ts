@@ -1401,6 +1401,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        loadTraceSpansSuccess: ({ traceSpans }) => {
+            if (traceSpans.length === 0) {
+                posthog.capture('tracing trace unavailable')
+            }
+        },
         handleFilterChange: ({ filterType, extraProps }) => {
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()

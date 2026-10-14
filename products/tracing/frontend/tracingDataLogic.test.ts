@@ -195,9 +195,15 @@ describe('tracingDataLogic', () => {
                 event: 'tracing no results returned',
                 properties: { query_type: 'aggregation' },
             },
+            {
+                name: 'a trace with no spans',
+                dispatch: (l: typeof logic) => l.actions.loadTraceSpansSuccess([]),
+                event: 'tracing trace unavailable',
+                properties: undefined,
+            },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
-            expect(captureSpy).toHaveBeenCalledWith(event, properties)
+            expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
         })
     })
 
