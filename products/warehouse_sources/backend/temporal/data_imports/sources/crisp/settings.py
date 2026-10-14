@@ -17,9 +17,7 @@ class CrispEndpoint:
     partition_key: str | None = None
     pagination: Literal["path", "messages", "single"] = "path"
     params: dict[str, str | int] = field(default_factory=dict)
-    # Sent in place of `params` on an incremental sync.
     incremental_params: dict[str, str | int] = field(default_factory=dict)
-    # Server-side filter that takes the incremental watermark. None means full refresh only.
     updated_since_param: str | None = None
     fanout: DependentEndpointConfig | None = None
     should_sync_default: bool = True
@@ -48,8 +46,7 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
         primary_keys=("session_id",),
         partition_key="created_at",
         params={**CONVERSATION_PARAMS, "order_date_created": "1"},
-        # A conversation that changes during the sync moves to a page that the sync already read
-        # when the order is by update date. The sync can read a row twice, but it cannot skip one.
+        # A conversation that changes mid-sync moves to a page already read, so no row is skipped.
         incremental_params={**CONVERSATION_PARAMS, "order_date_updated": "1"},
         updated_since_param="filter_date_start",
         incremental_fields=[_datetime_incremental_field("updated_at")],
@@ -71,8 +68,7 @@ ENDPOINTS: dict[str, CrispEndpoint] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
         should_sync_default=False,
-        # The message endpoint has no filter across conversations. The watermark is the update
-        # time of the conversation, so the sync reads messages only for conversations that changed.
+        # Messages have no date filter, so the conversation update time bounds which ones are read.
         incremental_fields=[_datetime_incremental_field("conversation_updated_at")],
         default_incremental_field="conversation_updated_at",
     ),

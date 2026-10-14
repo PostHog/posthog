@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 @frozen
 class CrispResumeConfig:
     paginator_state: dict[str, Any]
+    started_at: str | None = None
 
 
 class CrispPathPaginator(PageNumberPaginator):
@@ -135,13 +136,9 @@ def endpoint_config(endpoint: CrispEndpoint, website_id: str) -> Endpoint:
     }
 
 
-def format_updated_since(value: Any) -> str:
-    if isinstance(value, datetime):
-        utc = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    if isinstance(value, date):
-        return format_updated_since(datetime.combine(value, datetime.min.time(), tzinfo=UTC))
-    return str(value)
+def format_updated_since(value: datetime) -> str:
+    utc = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def list_params(endpoint: CrispEndpoint, inputs: SourceInputs) -> dict[str, Any]:
@@ -180,6 +177,14 @@ def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def defer_updated_after(row: dict[str, Any], started_at: datetime) -> dict[str, Any] | list[dict[str, Any]]:
+    # A resumed attempt skips the conversations that an earlier attempt finished, even when they
+    # changed since then. A row from a conversation that changed after the run started could move
+    # the watermark past that change, so the next run reads the conversation instead.
+    updated_at = row.get("conversation_updated_at")
+    return [] if isinstance(updated_at, datetime) and updated_at > started_at else row
+
+
 def normalize_operator(row: dict[str, Any]) -> dict[str, Any]:
     # Pending invitations include credentials, so only joined operators enter the warehouse.
     return {"type": row["type"], **row["details"]}
@@ -214,10 +219,19 @@ def crisp_source(
 ) -> SourceResponse:
     settings = schema_for_resource(ENDPOINTS, inputs.schema_name)
     resume = manager.load_state()
+    incremental = inputs.should_use_incremental_field and bool(settings.incremental_fields)
+    defer_changed = incremental and settings.fanout is not None
+    started_at = (
+        datetime.fromisoformat(resume.started_at)
+        if resume is not None and resume.started_at is not None
+        else datetime.now(UTC)
+    )
 
     def save_state(state: dict[str, Any] | None) -> None:
         if state is not None:
-            manager.save_state(CrispResumeConfig(paginator_state=state))
+            manager.save_state(
+                CrispResumeConfig(paginator_state=state, started_at=started_at.isoformat() if defer_changed else None)
+            )
 
     initial_state = resume.paginator_state if resume is not None else None
     if settings.fanout is not None:
@@ -230,7 +244,6 @@ def crisp_source(
             *settings.fanout.child_response_actions,
             *(child_endpoint.get("response_actions") or []),
         ]
-        incremental = inputs.should_use_incremental_field and bool(settings.incremental_fields)
         resource = build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=settings.name,
@@ -271,6 +284,8 @@ def crisp_source(
         resource.add_filter(lambda row: row.get("type") in ("operator", "sandbox"))
         resource.add_map(normalize_operator)
     resource.add_map(normalize_row)
+    if defer_changed:
+        resource.add_map(lambda row: defer_updated_after(row, started_at))
     return SourceResponse(
         name=settings.name,
         items=lambda: resource,

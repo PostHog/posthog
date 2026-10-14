@@ -103,6 +103,39 @@ def test_incremental_sync_filters_conversations_by_update_date(
     assert [row[cursor] for row in result.rows] == [datetime.fromtimestamp(2, UTC)]
 
 
+def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_started(
+    config: CrispSourceConfig,
+) -> None:
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    after_start = int(started_at.timestamp() * 1000) + 1000
+    root = f"website/{config.website_id}/conversation"
+    result = SourceDriver(CrispSource(), config).run(
+        "messages",
+        [
+            page(
+                [
+                    {"session_id": "finished", "updated_at": after_start},
+                    {"session_id": "changed", "updated_at": after_start},
+                    {"session_id": "unchanged", "updated_at": after_start - 86_400_000},
+                ]
+            ),
+            page([{"fingerprint": 1, "timestamp": after_start}]),
+            page([]),
+            page([{"fingerprint": 2, "timestamp": 1000}]),
+            page([]),
+        ],
+        incremental_field="conversation_updated_at",
+        db_incremental_field_last_value=datetime(2025, 12, 1),
+        resume_state=CrispResumeConfig(
+            paginator_state={"completed": [f"{root}/finished/messages"], "current": None, "child_state": None},
+            started_at=started_at.isoformat(),
+        ),
+    )
+    assert result.raised is None
+    assert [row["session_id"] for row in result.rows] == ["unchanged"]
+    assert all(state.started_at == started_at.isoformat() for state in result.saved_states)
+
+
 def test_path_resume_uses_saved_page_after_interruption(config: CrispSourceConfig) -> None:
     driver = SourceDriver(CrispSource(), config)
     stopped = driver.run("visitors", [page([{"session_id": "one"}]), RunStopped("handoff")])
