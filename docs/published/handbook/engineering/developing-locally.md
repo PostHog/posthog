@@ -227,6 +227,22 @@ Bootstrap the OpenFGA store first, then backfill existing data with `python mana
 You can set `OPENFGA_STORE_ID` and `OPENFGA_AUTHORIZATION_MODEL_ID` to pin the target store and model.
 Without these values, the client uses the named store and its latest model.
 
+Authorization and synchronization reuse one SDK client and its HTTP connection pool per thread and configuration.
+The configuration includes the API URL, credentials, store selector, authorization model, and default consistency.
+Changing the configuration closes the idle client; nested calls with a different configuration use a separate temporary client.
+Clients are released when their thread or process exits, and inherited clients are replaced after a fork.
+Bootstrap and status checks use separate owned clients because bootstrap changes the selected store and status checks must repeat store discovery.
+
+The SDK client defaults to `MINIMIZE_LATENCY`, which permits OpenFGA to use cached results.
+Pass `consistency="HIGHER_CONSISTENCY"` to `get_openfga_client` or `pooled_openfga_client` to select a fresh-read default.
+Individual SDK requests can also override the default with `{"consistency": "HIGHER_CONSISTENCY"}`.
+Do not close or change the store or model on a borrowed pooled client.
+
+Authorization enforcement and synchronization explicitly use `HIGHER_CONSISTENCY`.
+Freshness is required for permission revocations, role or member removal, and changes to public sharing, not only for synchronization.
+A Redis revision check does not invalidate OpenFGA results cached before that revision.
+The internal authorization check and listing helpers accept a `consistency` override for diagnostics that can tolerate stale results.
+
 AccessControl, dashboard, project, organization, organization-membership, role, and role-membership saves and deletes enqueue reconciliation after the database transaction commits.
 Dashboard soft deletion and restoration use the same hook.
 Soft-deleted dashboards keep their authorization grants so editors can restore them.
@@ -309,6 +325,25 @@ Service credentials retain project-wide access within their API scopes because t
 Request-context overrides and principals other than users and share links are not wired yet and raise rather than being ignored.
 The relationship-write, subject-listing, and explanation methods remain unimplemented.
 Use the existing AccessControl write APIs as the database source of truth.
+
+#### Authorization benchmark
+
+Run the benchmark against the local OpenFGA service:
+
+```bash
+python manage.py benchmark_authorization --batch-size 1 --requests 250
+python manage.py benchmark_authorization --batch-size 1 --requests 250 --consistency HIGHER_CONSISTENCY
+```
+
+The benchmark creates temporary database data and a separate OpenFGA store, then removes them after the run.
+It requires `DEBUG` and does not change the rollout flag.
+It defaults to `MINIMIZE_LATENCY` because the benchmark does not change grants during measurement.
+Use `--consistency HIGHER_CONSISTENCY` to measure the consistency used by authorization enforcement.
+Each mode reports end-to-end latency.
+The shadow and v2 modes also report OpenFGA-only and legacy component timings, excluding warmup batches.
+Component timings include scope lookups, readiness checks, and SDK calls; they are not server-only timings.
+The v2 total includes the synchronous legacy comparison.
+With batch sizes greater than one, latency is batch wall time divided by the number of checks, and percentiles describe batches.
 
 Run the real-server integration tests against the local OpenFGA service:
 
