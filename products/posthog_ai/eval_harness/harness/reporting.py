@@ -117,7 +117,7 @@ class ProgressReporter:
                 lines.append(
                     f"  oldest: {oldest.label()} ({oldest.phase}, {_format_duration(time.monotonic() - oldest.phase_started)})"
                 )
-            _emit("\n".join(lines))
+            await asyncio.to_thread(_emit, "\n".join(lines))
 
     async def case_started(self, experiment: str, name: str, trial_id: str, trial_index: int) -> dict[str, float]:
         async with self._lock:
@@ -126,7 +126,7 @@ class ProgressReporter:
                 experiment=experiment, name=name, trial_index=trial_index, started=now, phase_started=now
             )
             self._active_cases[trial_id] = case
-            _emit(f"CASE START  {case.label()}  queued; id={trial_id}")
+            await asyncio.to_thread(_emit, f"CASE START  {case.label()}  queued; id={trial_id}")
             return case.durations
 
     async def case_phase(self, trial_id: str, phase: CasePhase) -> None:
@@ -135,7 +135,7 @@ class ProgressReporter:
             if case is None or case.phase == phase:
                 return
             case.transition(phase)
-            _emit(f"CASE PHASE  {case.label()}  {phase}")
+            await asyncio.to_thread(_emit, f"CASE PHASE  {case.label()}  {phase}")
 
     async def case_scored(self, trial_id: str, *, error: str | None = None) -> None:
         async with self._lock:
@@ -149,7 +149,7 @@ class ProgressReporter:
             marker = (
                 "ERROR" if error is not None else {"ok": "DONE", "timeout": "TIMEOUT", "error": "ERROR"}[case.status]
             )
-            _emit(f"CASE {marker:<7} {case.label()}  results ready")
+            await asyncio.to_thread(_emit, f"CASE {marker:<7} {case.label()}  results ready")
 
     async def finish_cases(self, trial_ids: Sequence[str]) -> None:
         async with self._lock:
@@ -192,13 +192,13 @@ class ProgressReporter:
 
     async def suite_started(self, suite_id: str) -> None:
         async with self._lock:
-            _emit(f"SUITE START  {suite_id}")
+            await asyncio.to_thread(_emit, f"SUITE START  {suite_id}")
 
     async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
         async with self._lock:
             self._experiment_totals[experiment_name] = planned_cases
             self._log_dirs[experiment_name] = log_dir
-            _emit(f"EXPERIMENT START  {experiment_name}  [{planned_cases} cases]")
+            await asyncio.to_thread(_emit, f"EXPERIMENT START  {experiment_name}  [{planned_cases} cases]")
 
     async def case_done(
         self,
@@ -230,8 +230,9 @@ class ProgressReporter:
                     case.transition("scoring")
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
-            _emit(
-                f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}{detail}"
+            await asyncio.to_thread(
+                _emit,
+                f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}{detail}",
             )
 
     async def case_setup_retry(
@@ -246,20 +247,27 @@ class ProgressReporter:
     ) -> None:
         async with self._lock:
             self._setup_retry_count += 1
-            _emit(
+            await asyncio.to_thread(
+                _emit,
                 f"CASE RETRY   {experiment_name} :: {case_name}  setup attempt {next_attempt}/{total_attempts} "
-                f"in {delay_seconds:.1f}s ({error_type}). No action required."
+                f"in {delay_seconds:.1f}s ({error_type}). No action required.",
             )
 
     async def suite_finished(self, result: SuiteRunResult) -> None:
         async with self._lock:
             self._finished_suites += 1
             marker = "DONE" if result.status == "passed" else "CRASH"
-            _emit(
+            await asyncio.to_thread(
+                _emit,
                 f"SUITE {marker:<5} {result.suite_id}  "
                 f"[{self._finished_suites}/{self._total_suites} suites]  "
-                f"{_format_duration(result.duration_seconds)}"
+                f"{_format_duration(result.duration_seconds)}",
             )
+
+    @staticmethod
+    def _append_summary(summary: EvalSummary) -> None:
+        with open(EVAL_RESULTS_JSONL, "a", encoding="utf-8") as f:
+            f.write(summary.as_json() + "\n")
 
     async def record_summary(
         self,
@@ -274,11 +282,10 @@ class ProgressReporter:
             self._trial_stats[experiment_name] = trial_stats
             self._summary_error_counts[experiment_name] = error_count
             if os.getenv("EXPORT_EVAL_RESULTS"):
-                with open(EVAL_RESULTS_JSONL, "a", encoding="utf-8") as f:
-                    f.write(summary.as_json() + "\n")
+                await asyncio.to_thread(self._append_summary, summary)
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
-            _emit(f"EXPERIMENT DONE  {experiment_name}  {progress}")
+            await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
     async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
         async with self._lock:

@@ -681,6 +681,14 @@ def test_console_detail_does_not_remove_transcript_logs(
 async def test_progress_tracks_trials_and_keeps_scoring_distinct(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], scoring_error: str | None
 ) -> None:
+    loop_thread = get_ident()
+    emit = reporting._emit
+
+    def worker_emit(text: str) -> None:
+        assert get_ident() != loop_thread
+        emit(text)
+
+    monkeypatch.setattr(reporting, "_emit", worker_emit)
     now = [10.0]
     monkeypatch.setattr(reporting.time, "monotonic", lambda: now[0])
     reporter = ProgressReporter(total_suites=1)
@@ -713,6 +721,7 @@ async def test_progress_tracks_trials_and_keeps_scoring_distinct(
 
 @pytest.mark.asyncio
 async def test_periodic_progress_stops_with_its_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    loop = asyncio.get_running_loop()
     reporter = ProgressReporter(total_suites=1)
     sleeping = asyncio.Event()
     release = asyncio.Event()
@@ -732,13 +741,15 @@ async def test_periodic_progress_stops_with_its_context(monkeypatch: pytest.Monk
 
     def capture(text: str) -> None:
         lines.append(text)
-        emitted.set()
+        loop.call_soon_threadsafe(emitted.set)
 
     monkeypatch.setattr(reporting.asyncio, "sleep", pause)
     monkeypatch.setattr(reporting, "_emit", capture)
     async with reporter.live_updates():
         await sleeping.wait()
+        sleeping.clear()
         release.set()
         await emitted.wait()
+        await sleeping.wait()
     assert len(lines) == 1 and lines[0].startswith("PROGRESS")
     assert cancelled.is_set()

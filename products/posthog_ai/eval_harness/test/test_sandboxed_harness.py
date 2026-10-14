@@ -266,7 +266,10 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
 
 
 @pytest.mark.asyncio
-async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+async def test_success_waits_for_workflow_cleanup_before_returning(
+    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
     _patch_runner_boundaries(
@@ -283,6 +286,8 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
 
     async def on_cleanup() -> None:
         cleanup_started.set()
+        if reporting_error is not None:
+            raise reporting_error
 
     case_task = asyncio.create_task(
         runner.run_eval_case(
@@ -305,7 +310,10 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+async def test_poll_failure_is_preserved_after_workflow_cleanup(
+    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=True)
     provider = _Provider()
     _patch_runner_boundaries(monkeypatch, handle, AsyncMock(side_effect=RuntimeError("poll failed")))
@@ -315,6 +323,7 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=AsyncMock(side_effect=reporting_error),
         )
 
     assert handle.signals[0][0] == "failed"
@@ -322,7 +331,10 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+async def test_cancellation_finishes_workflow_before_propagating(
+    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+) -> None:
     poll_started = asyncio.Event()
     never_finishes = asyncio.Event()
 
@@ -338,6 +350,7 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=AsyncMock(side_effect=reporting_error),
         )
     )
     await asyncio.wait_for(poll_started.wait(), timeout=1)

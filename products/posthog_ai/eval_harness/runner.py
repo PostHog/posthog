@@ -118,6 +118,14 @@ class EvalCaseResult:
     lines could not be split (malformed lines); scorers self-skip on it."""
 
 
+async def _report_cleanup(on_cleanup: Callable[[], Awaitable[None]] | None) -> None:
+    if on_cleanup is not None:
+        try:
+            await on_cleanup()
+        except Exception:
+            logger.warning("Could not report eval cleanup progress", exc_info=True)
+
+
 async def run_eval_case(
     case: SandboxedEvalCase,
     context: CustomPromptSandboxContext,
@@ -156,8 +164,7 @@ async def run_eval_case(
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
-        if on_cleanup is not None:
-            await on_cleanup()
+        await _report_cleanup(on_cleanup)
         completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
@@ -170,8 +177,7 @@ async def run_eval_case(
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
-        if on_cleanup is not None:
-            await on_cleanup()
+        await _report_cleanup(on_cleanup)
         cleanup_confirmed = False
         if completion_task is not None:
             # A case timeout can arrive while successful workflow cleanup is

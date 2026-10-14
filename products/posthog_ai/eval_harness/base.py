@@ -416,6 +416,11 @@ class _BaseEvalRun:
         except OSError:
             logger.exception("Failed to export per-case results for '%s'", self.experiment_name)
 
+    async def _report_results(self, result: ExperimentResult) -> None:
+        for case_result in result.results:
+            if trial_id := case_result.metadata.get("trial_id"):
+                await self.ctx.reporter.case_scored(trial_id, error=case_result.error)
+
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
 
@@ -437,11 +442,10 @@ class _BaseEvalRun:
                     # Experiment names stay runtime/model-agnostic so history lines up across
                     # runs; the metadata is what lets an engine filter or compare by them.
                     metadata=self._experiment_metadata(),
+                    on_results=self._report_results,
                 )
             )
-            for case_result in result.results:
-                if trial_id := case_result.metadata.get("trial_id"):
-                    await self.ctx.reporter.case_scored(trial_id, error=case_result.error)
+            await self._report_results(result)
         finally:
             await self.ctx.reporter.finish_experiment(self.experiment_name)
 

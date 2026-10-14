@@ -93,6 +93,7 @@ class ExperimentSpec:
     is_public: bool
     no_send_logs: bool
     metadata: dict[str, Any]
+    on_results: Callable[[ExperimentResult], Awaitable[None]] | None = None
 
 
 @dataclass
