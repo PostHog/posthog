@@ -730,7 +730,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",  # Compat with TeamSerializer
             "data_attributes",  # Compat with TeamSerializer
             "person_display_name_properties",  # Compat with TeamSerializer
-            "correlation_config",  # Compat with TeamSerializer
             "autocapture_opt_out",  # Compat with TeamSerializer
             "autocapture_exceptions_opt_in",  # Compat with TeamSerializer
             "autocapture_web_vitals_opt_in",  # Compat with TeamSerializer
@@ -843,7 +842,6 @@ class ProjectBackwardCompatSerializer(
             "timezone",
             "data_attributes",
             "person_display_name_properties",
-            "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
             "autocapture_web_vitals_opt_in",

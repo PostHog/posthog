@@ -750,12 +750,6 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface CorrelationConfigType {
-    excluded_person_property_names?: string[]
-    excluded_event_property_names?: string[]
-    excluded_event_names?: string[]
-}
-
 export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
@@ -908,12 +902,6 @@ export interface TeamType extends TeamBasicType {
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 
-    /** Used to exclude person properties from correlation analysis results.
-     *
-     * For example can be used to exclude properties that have trivial causation.
-     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
-     */
-    correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
@@ -3384,9 +3372,7 @@ export interface FunnelsFilterType extends FilterType {
     drop_off?: boolean
     funnel_step?: number
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -3721,31 +3707,6 @@ export interface FlattenedFunnelStepByBreakdown {
     }
     steps?: FunnelStepWithConversionMetrics[]
     significant?: boolean
-}
-
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
 }
 
 export enum BreakdownAttributionType {

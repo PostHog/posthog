@@ -98,7 +98,6 @@ export enum NodeKind {
     ActorsQuery = 'ActorsQuery',
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
-    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
@@ -139,7 +138,6 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
-    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics + Web Vitals queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -384,7 +382,6 @@ export type QuerySchema =
     | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
-    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -1736,6 +1733,7 @@ interface InsightVizNodeViewProps {
     full?: boolean
     showHeader?: boolean
     showTable?: boolean
+    /** @deprecated Funnel correlation was removed. The value is ignored. */
     showCorrelationTable?: boolean
     showLastComputation?: boolean
     showLastComputationRefresh?: boolean
@@ -2107,8 +2105,6 @@ export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
     | keyof FilterType
     | 'funnel_step_breakdown'
-    | 'funnel_correlation_person_entity'
-    | 'funnel_correlation_person_converted'
     | 'entrance_period_start'
     | 'drop_off'
     | 'funnel_step'
@@ -3014,7 +3010,6 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?:
         | InsightActorsQuery
         | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
@@ -6460,14 +6455,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     compare?: 'current' | 'previous'
 }
 
-export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.FunnelCorrelationActorsQuery
-    source: FunnelCorrelationQuery
-    funnelCorrelationPersonConverted?: boolean
-    funnelCorrelationPersonEntity?: AnyEntityNode
-    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
-}
-
 /** The kind of journey grid element a PathsV2ActorsQuery drills into. */
 export enum PathsV2ElementType {
     Node = 'node',
@@ -6515,58 +6502,6 @@ export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.PathsV2ActorsQuery
     source: PathsV2Query
     element: PathsV2ElementSelector
-}
-
-export interface EventDefinition {
-    event: string
-    properties: Record<string, any>
-    elements: any[]
-}
-
-export interface EventOddsRatioSerialized {
-    event: EventDefinition
-    success_count: integer
-    failure_count: integer
-    odds_ratio: number
-    correlation_type: 'success' | 'failure'
-}
-
-export interface FunnelCorrelationResult {
-    events: EventOddsRatioSerialized[]
-    skewed: boolean
-}
-
-export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase {
-    results: FunnelCorrelationResult
-    columns?: any[]
-    types?: any[]
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-export type CachedFunnelCorrelationResponse = FunnelCorrelationResponse & CachedRetentionQueryResponse
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
-}
-
-export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> {
-    kind: NodeKind.FunnelCorrelationQuery
-    source: FunnelsActorsQuery
-    funnelCorrelationType: FunnelCorrelationResultsType
-
-    /* Events */
-    funnelCorrelationExcludeEventNames?: string[]
-
-    /* Events with properties */
-    funnelCorrelationEventNames?: string[]
-    funnelCorrelationEventExcludePropertyNames?: string[]
-
-    /* Properties */
-    funnelCorrelationNames?: string[]
-    funnelCorrelationExcludeNames?: string[]
 }
 
 /**  @format date-time */
@@ -6619,13 +6554,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source:
-        | InsightActorsQuery
-        | FunnelsActorsQuery
-        | FunnelCorrelationActorsQuery
-        | StickinessActorsQuery
-        | ExperimentActorsQuery
-        | PathsV2ActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | StickinessActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {

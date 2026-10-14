@@ -63,7 +63,6 @@ import {
     ExperimentHoldoutType,
     ExperimentIdType,
     ExperimentStatsMethod,
-    FunnelCorrelation,
     MultipleSurveyQuestion,
     OnboardingStepKey,
     ProductTour,
@@ -78,7 +77,7 @@ import { captureBIWorksheetAction } from 'products/business_intelligence/fronten
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
+import type { Realm, UserType } from '../../types'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -846,24 +845,6 @@ export interface eventUsageLogicActions {
     }
     reportBounceRatePageViewModeUpdated: (mode: string) => {
         mode: string
-    }
-    reportCorrelationInteraction: (
-        correlationType: FunnelCorrelation['result_type'],
-        action: string,
-        props?: Record<string, any>
-    ) => {
-        action: string
-        correlationType: FunnelCorrelationResultsType
-        props: Record<string, any> | undefined
-    }
-    reportCorrelationViewed: (
-        query: Node | null,
-        delay?: number,
-        propertiesTable?: boolean
-    ) => {
-        delay: number | undefined
-        propertiesTable: boolean | undefined
-        query: Node<Record<string, any>> | null
     }
     reportCreatedDashboardFromModal: () => {
         value: true
@@ -1849,17 +1830,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             excludedDaysOfWeekCount: number
         ) => ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }),
         reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
-        // insight funnel correlation
-        reportCorrelationViewed: (query: Node | null, delay?: number, propertiesTable?: boolean) => ({
-            query,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
-            propertiesTable,
-        }),
-        reportCorrelationInteraction: (
-            correlationType: FunnelCorrelation['result_type'],
-            action: string,
-            props?: Record<string, any>
-        ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportProjectNoticeShown: (variant: string) => ({ variant }),
@@ -2566,20 +2536,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 insight_type: insightType,
                 ...(presetKey ? { preset_key: presetKey } : {}),
             })
-        },
-        reportCorrelationInteraction: ({ correlationType, action, props }) => {
-            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
-        },
-        reportCorrelationViewed: ({ delay, query, propertiesTable }) => {
-            const payload = sanitizeQuery(query)
-            if (delay === 0) {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, payload)
-            } else {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
-                    ...payload,
-                    delay,
-                })
-            }
         },
         reportExperimentWizardStarted: () => {
             posthog.capture('experiment wizard started')

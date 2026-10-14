@@ -1345,7 +1345,6 @@
 2 products/marketing_analytics/backend/services/campaign_field_suggester.py
 2 products/marketing_analytics/backend/services/event_suggestions.py
 2 products/notebooks/backend/collab.py
-2 products/product_analytics/backend/hogql_queries/funnels/funnel_correlation_query_runner.py
 2 products/product_analytics/backend/hogql_queries/stickiness/test/test_stickiness_query_runner.py
 2 products/review_hog/backend/reviewer/progress.py
 2 products/review_hog/backend/reviewer/tools/select_perspectives.py

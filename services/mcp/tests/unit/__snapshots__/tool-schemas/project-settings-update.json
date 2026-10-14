@@ -318,7 +318,6 @@
                 }
             ]
         },
-        "correlation_config": {},
         "customer_analytics_config": {
             "properties": {
                 "account_group_type_index": {
