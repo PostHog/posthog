@@ -149,7 +149,7 @@ def join_with_group_n_table(
     # groups subquery. Without this filter, the LEFT JOIN materializes a hash table containing
     # every group of this type for the team, decompressing the (very wide) `group_properties`
     # blob row by row — on high-volume teams that's enough to OOM the whole query even when
-    # only a handful of events are actually being selected. With the filter, the hash table is
+    # only a handful of rows are actually being selected. With the filter, the hash table is
     # bounded by the distinct `$group_N` values present in the matched rows.
     outer_prefilter = _outer_prefilter(node, context)
     if outer_prefilter is not None:
@@ -185,12 +185,11 @@ def join_with_group_n_table(
     return join_expr
 
 
-# Static events-table aliases that resolve to a lazy join. Cloning a WHERE that references one
+# Static source-table aliases that resolve to a lazy join. Cloning a WHERE that references one
 # into the inner `SELECT $group_N FROM <source table>` subquery re-triggers the same lazy join during
 # resolution and recurses, so the prefilter is skipped in that case (see `_guarded_aliases`,
 # which also picks up the per-project group-type-name aliases dynamically).
-# posthog.flag_evaluations declares these same names for its person, group and session fields.
-EVENTS_LAZY_JOIN_ALIASES = frozenset(
+LAZY_JOIN_ALIASES = frozenset(
     {
         "person",
         "person_id",
@@ -212,12 +211,9 @@ EVENTS_LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-# The outer FROM tables whose WHERE the groups subquery can reuse, keyed by table chain. The value is
-# the only alias the outer FROM may carry, which is also the name a WHERE can qualify the table's fields by.
-_PREFILTER_SOURCE_ALIASES: dict[tuple[str, ...], str] = {
-    ("events",): "events",
-    ("posthog", "flag_evaluations"): "flag_evaluations",
-}
+# The outer FROM tables whose WHERE the groups subquery can reuse. The last part of a chain is the only alias the
+# outer FROM may carry.
+_PREFILTER_SOURCE_CHAINS: frozenset[tuple[str, ...]] = frozenset({("events",), ("posthog", "flag_evaluations")})
 
 
 def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozenset[str]:
@@ -226,13 +222,13 @@ def _guarded_aliases(context: HogQLContext, source_chain: list[str]) -> frozense
     aliases like `organization`; the always-present `person`/`person_id` traversers are already in
     the static set, so the union just dedupes them)."""
     if context.database is None:
-        return EVENTS_LAZY_JOIN_ALIASES
+        return LAZY_JOIN_ALIASES
     try:
         source_table = context.database.get_table(source_chain)
     except Exception:
-        return EVENTS_LAZY_JOIN_ALIASES
+        return LAZY_JOIN_ALIASES
     traversers = frozenset(name for name, field in source_table.fields.items() if isinstance(field, FieldTraverser))
-    return EVENTS_LAZY_JOIN_ALIASES | traversers
+    return LAZY_JOIN_ALIASES | traversers
 
 
 def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr, ast.JoinExpr] | None:
@@ -240,15 +236,15 @@ def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr
     Extract a clone of the outer query's WHERE that we can safely embed inside the groups
     join subquery, together with the FROM that the subquery reads. We only return it when:
 
-    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_ALIASES`, either unaliased or aliased
-       as that table's entry. Anything else (custom alias like `FROM events AS e` in funnels,
+    1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_CHAINS`, either unaliased or aliased
+       by the last part of its chain. Anything else (custom alias like `FROM events AS e` in funnels,
        JOINed tables on the outer, or a subquery) means the WHERE may reference symbols
        (`e.timestamp`, `p.id`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
        subquery — cloning a WHERE that names them would raise `Unable to resolve field` when the
        resolver walks the clone.
-    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched event
+    2. The WHERE references the `timestamp` field — cheap heuristic for "the matched row
        set is bounded by a date range." Without that guard, a query whose WHERE is only
-       `team_id = X` (or empty) would push a key subquery that scans every event for the
+       `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
     3. The WHERE does not reference any lazy-join alias on the source table — including the
        per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
@@ -269,28 +265,29 @@ def _outer_prefilter(node: SelectQuery, context: HogQLContext) -> tuple[ast.Expr
     table = select_from.table
     if not isinstance(table, ast.Field):
         return None
-    source_chain = [str(part) for part in table.chain]
-    source_alias = _PREFILTER_SOURCE_ALIASES.get(tuple(source_chain))
-    if source_alias is None:
+    source_chain = tuple(str(part) for part in table.chain)
+    if source_chain not in _PREFILTER_SOURCE_CHAINS:
         return None
-    if select_from.alias is not None and select_from.alias != source_alias:
+    if select_from.alias is not None and select_from.alias != source_chain[-1]:
         return None
 
     if not _references_timestamp(where):
         return None
-    guarded_aliases = _guarded_aliases(context, source_chain)
-    if any(_chain_hits_guarded_alias(chain, guarded_aliases, source_alias) for chain in find_field_chains(where)):
+    guarded_aliases = _guarded_aliases(context, list(source_chain))
+    if any(_chain_hits_guarded_alias(chain, guarded_aliases, source_chain) for chain in find_field_chains(where)):
         return None
     # The subquery repeats the outer FROM's alias. A WHERE that qualifies a field by that alias then still resolves.
-    return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=source_chain), alias=select_from.alias)
+    return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
 
 
-def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_alias: str) -> bool:
-    # Condition #1 guarantees the outer FROM's qualifier is `source_alias`, so a leading
-    # `source_alias` segment is transparent: `events.organization.x` names the same lazy join as
-    # `organization.x`. Peel it before matching, or the qualified form slips past the guard.
-    if len(chain) > 1 and chain[0] == source_alias:
-        chain = chain[1:]
+def _chain_hits_guarded_alias(chain: list, guarded: frozenset[str], source_chain: tuple[str, ...]) -> bool:
+    # Condition #1 guarantees the outer FROM's qualifier is the source table, so a leading qualifier is
+    # transparent: `events.organization.x` names the same lazy join as `organization.x`. Peel it before matching,
+    # or the qualified form slips past the guard. The qualifier is the full chain or its last part.
+    for qualifier in (list(source_chain), [source_chain[-1]]):
+        if len(chain) > len(qualifier) and chain[: len(qualifier)] == qualifier:
+            chain = chain[len(qualifier) :]
+            break
     return bool(chain) and isinstance(chain[0], str) and chain[0] in guarded
 
 

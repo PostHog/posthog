@@ -3206,7 +3206,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
         if database.has_table(["posthog", "flag_evaluations"])
         else None
     )
-    flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"]) if flag_evaluations is not None else None
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
@@ -3216,8 +3215,6 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
-        if flag_evaluations_poe is not None:
-            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
     with timings.measure("initial_channel_type"):
         field_name = "$virt_initial_channel_type"
         persons_table.fields[field_name] = create_initial_channel_type(
@@ -3229,7 +3226,9 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
-        if flag_evaluations_poe is not None:
+    if flag_evaluations is not None:
+        flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"])
+        for field_name in ("$virt_initial_referring_domain_type", "$virt_initial_channel_type"):
             flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
 
     with timings.measure("traffic_type_virtual_fields"):
