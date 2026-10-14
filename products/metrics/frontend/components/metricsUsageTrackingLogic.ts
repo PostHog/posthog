@@ -151,6 +151,9 @@ export interface metricsUsageTrackingLogicActions {
     sampleRowExpanded: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
+    seriesRowExpanded: () => {
+        value: true
+    }
     tracePivotClicked: (sample: _MetricEventSampleApi) => {
         sample: _MetricEventSampleApi
     }
@@ -226,6 +229,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
     })),
     actions({
         // Component-only interactions with no source-logic action to listen to.
+        seriesRowExpanded: true,
         sampleRowExpanded: (sample: _MetricEventSampleApi) => ({ sample }),
         tracePivotClicked: (sample: _MetricEventSampleApi) => ({ sample }),
         exemplarDotClicked: (hasSpanId: boolean) => ({ hasSpanId }),
@@ -371,6 +375,9 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 sample_count: samples.length,
                 trace_coverage: samples.length ? Math.round((100 * withTrace) / samples.length) : 0,
             })
+        },
+        seriesRowExpanded: () => {
+            posthog.capture('metrics series row expanded')
         },
         sampleRowExpanded: ({ sample }) => {
             posthog.capture('metrics sample row expanded', {

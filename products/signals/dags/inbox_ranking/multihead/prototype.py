@@ -28,18 +28,18 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import xgboost as xgb
-import pyarrow.compute as pc
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS, REPORT_EMBEDDINGS_FEATURE_SET, Extras
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.dataset.project_vectors import (
-    MIN_HISTORY_REPORTS,
-    VECTOR_KINDS,
-    project_vectors,
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+    Extras,
+    project_inputs,
 )
+from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS, project_vectors
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs, ProjectContext
 from products.signals.dags.inbox_ranking.training.calibration import calibration_buckets, expected_calibration_error
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
@@ -81,11 +81,23 @@ class ExampleTable:
         return self.rows["report_team_id"].to_numpy(dtype=object)[rows]
 
 
-def example_table(snapshots: Mapping[datetime.date, Snapshot], extras: Extras, *, holdout_days: int) -> ExampleTable:
-    """The moments of every prototype head, joined on the report moment."""
+def example_table(
+    snapshots: Mapping[datetime.date, Snapshot],
+    extras: Extras,
+    *,
+    holdout_days: int,
+    head_moments: Mapping[str, pd.DataFrame] | None = None,
+) -> ExampleTable:
+    """The moments of every prototype head, joined on the report moment. `head_moments` holds each
+    head's capped moments by name, when the caller already built them."""
     frames = []
     for head in PROTOTYPE_HEADS:
-        moments = cap_examples(example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head)
+        if head_moments is not None:
+            moments = head_moments[head.name]
+        else:
+            moments = cap_examples(
+                example_moments(snapshots, head, FEATURE_SET, extras), FEATURE_SET.max_examples_per_head
+            )
         frames.append(
             moments.assign(holdout=holdout_mask(moments, holdout_days).to_numpy())
             .set_index(["report_id", "snapshot_date"])[["label", "holdout"]]
@@ -116,7 +128,8 @@ def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) 
     """The project vectors each row reads: its team's, as of the start of its snapshot day.
 
     One `project_vectors()` call per snapshot day, and only the needed teams' rows are kept from it,
-    so the context holds a vector per (team, day) rather than one per example row.
+    so the context holds a vector per (team, day) rather than one per example row. `project_inputs`
+    turns a day into vectors, the same function the scoring sweep reads the published day with.
     """
     kinds = len(VECTOR_KINDS)
     pair_keys = rows[["report_team_id", "snapshot_date"]].drop_duplicates().reset_index(drop=True)
@@ -125,28 +138,12 @@ def project_context(rows: pd.DataFrame, labels: pa.Table, embeddings: pa.Table) 
     pair_of: dict[tuple[int, datetime.date], int] = {}
     for date, group in pair_keys.groupby("snapshot_date", sort=True):
         as_of, _ = snapshot_bounds(date.isoformat())
-        teams = {int(team_id): int(pair) for pair, team_id in group["report_team_id"].items()}
-        pair_of.update({(team_id, date): pair for team_id, pair in teams.items()})
-        day = project_vectors(labels, embeddings, as_of)
-        day_vectors = (
-            pc.list_flatten(day.column("vector").combine_chunks())
-            .to_numpy(zero_copy_only=False)
-            .reshape(-1, EMBEDDING_DIMENSIONS)
-        )
-        for position, (team_id, kind, n_reports) in enumerate(
-            zip(
-                day.column("team_id").to_numpy(),
-                day.column("kind").to_pylist(),
-                day.column("n_reports").to_numpy(),
-                strict=True,
-            )
-        ):
-            pair = teams.get(int(team_id))
-            if pair is None:
-                continue
-            kind_index = VECTOR_KINDS.index(kind)
-            vectors[pair, kind_index] = day_vectors[position]
-            has_history[pair, kind_index] = float(int(n_reports) >= MIN_HISTORY_REPORTS)
+        pairs = group.index.to_numpy()
+        team_ids = [int(team_id) for team_id in group["report_team_id"]]
+        pair_of.update({(team_id, date): int(pair) for team_id, pair in zip(team_ids, pairs, strict=True)})
+        day = project_inputs(project_vectors(labels, embeddings, as_of).to_pandas(), team_ids)
+        vectors[pairs] = day.vectors
+        has_history[pairs] = day.has_history
     index = np.array(
         [pair_of[(int(team_id), date)] for team_id, date in zip(rows["report_team_id"], rows["snapshot_date"])],
         dtype=np.int64,
