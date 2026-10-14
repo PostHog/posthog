@@ -982,6 +982,17 @@ impl PersonLookup for PostgresStorage {
         // is constant (not per-distinct_id), so the lock window stays short; the
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
+        // A held mark or row means a merge, delete or split in flight: fail fast, rolled back, under the
+        // router's deadline instead of committing after the caller gave up and retried.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        // The source's mark serializes this split with the other writers that move its distinct ids away
+        // (other splits, ingestion merges, the tombstone RPC), so the check below that one id stays cannot
+        // pass in two splits at once. The manual detach_distinct_id job claims no mark. Marks go before any
+        // row lock, as everywhere else.
+        let mark_op_id = claim_split_mark(&mut tx, team_id, person_id).await?;
 
         // No FOR UPDATE on the source person: deletes lock PDI rows before person
         // rows, so locking the person first here would invert that order and risk
@@ -1030,6 +1041,27 @@ impl PersonLookup for PostgresStorage {
                 .collect();
             return Err(StorageError::NotFound(format!(
                 "distinct_ids {unknown:?} do not belong to person_id={person_id} (team_id={team_id})"
+            )));
+        }
+
+        // A fresh statement after the claim, so it sees every split that committed while this one waited.
+        // A requested id whose derived uuid is the source's own stays on the source, but counts as leaving.
+        let keeps_a_distinct_id: bool = sqlx::query_scalar!(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM posthog_persondistinctid
+                WHERE team_id = $1 AND person_id = $2 AND is_deleted = false AND NOT (distinct_id = ANY($3))
+            ) as "exists!"
+            "#,
+            team_id as i32,
+            person_id,
+            distinct_ids_to_split
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !keeps_a_distinct_id {
+            return Err(StorageError::FailedPrecondition(format!(
+                "the split would leave person_id={person_id} (team_id={team_id}) with no live distinct id"
             )));
         }
 
@@ -1165,6 +1197,7 @@ impl PersonLookup for PostgresStorage {
             )));
         }
 
+        release_lifecycle_marks(&mut tx, team_id, mark_op_id, "merge").await?;
         tx.commit().await?;
 
         let results: Vec<SplitResult> = dids
@@ -1618,7 +1651,7 @@ async fn tombstone_persons_by_uuids(
     tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
     if let Some(op_id) = mark_op_id {
-        release_delete_marks(&mut tx, team_id, op_id).await?;
+        release_lifecycle_marks(&mut tx, team_id, op_id, "delete").await?;
     }
     tx.commit().await?;
     tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
@@ -1692,21 +1725,84 @@ async fn claim_delete_marks(
     Ok((Some(op_id), person_ids))
 }
 
-async fn release_delete_marks(
+/// Claims the split source's mark as a 'merge' op, the type ingestion uses for moving distinct ids between
+/// persons. Fails like the tombstone RPC when another lifecycle operation holds the person.
+async fn claim_split_mark(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
-    op_id: Uuid,
-) -> StorageResult<()> {
+    person_id: i64,
+) -> StorageResult<Uuid> {
+    let person_uuid = sqlx::query_scalar!(
+        r#"
+        SELECT uuid as "uuid!"
+        FROM posthog_person
+        WHERE team_id = $1 AND id = $2
+        "#,
+        team_id as i32,
+        person_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| StorageError::NotFound(format!("person_id={person_id} (team_id={team_id})")))?;
+
+    let op_id = Uuid::new_v4();
     sqlx::query!(
         r#"
-        DELETE FROM lifecycle_op
-        WHERE op_id = $1 AND team_id = $2 AND op_type = 'delete'
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
+        VALUES ($1, 'merge', $2, 'completed', '{"source": "personhog-replica-split"}'::jsonb, now())
         "#,
         op_id,
         team_id as i32
     )
     .execute(&mut **tx)
     .await?;
+    let claimed = sqlx::query_scalar!(
+        r#"
+        INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+        VALUES ($1, $2, $3, $4, 'source', 'marked', true)
+        ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
+        RETURNING person_id
+        "#,
+        op_id,
+        team_id as i32,
+        person_id,
+        person_uuid
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    if claimed.is_none() {
+        return Err(StorageError::FailedPrecondition(format!(
+            "person_id={person_id} (team_id={team_id}) is claimed by another lifecycle operation"
+        )));
+    }
+    Ok(op_id)
+}
+
+/// Deletes the op inside the claiming transaction, so committed state never holds its marks.
+async fn release_lifecycle_marks(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    op_id: Uuid,
+    op_type: &str,
+) -> StorageResult<()> {
+    let deleted = sqlx::query!(
+        r#"
+        DELETE FROM lifecycle_op
+        WHERE op_id = $1 AND team_id = $2 AND op_type = $3
+        "#,
+        op_id,
+        team_id as i32,
+        op_type
+    )
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    // Committing without the delete would leave the marks held for good.
+    if deleted != 1 {
+        return Err(StorageError::Query(format!(
+            "releasing lifecycle op {op_id} deleted {deleted} rows (team_id={team_id})"
+        )));
+    }
     Ok(())
 }
 
