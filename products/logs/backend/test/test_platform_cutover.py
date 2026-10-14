@@ -161,7 +161,7 @@ class TestPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("never_moved", False, NOW + timedelta(days=8), RollbackSkip.NOT_MOVED),
-            ("logs_check_due_during_shadow", True, NOW + timedelta(minutes=10), RollbackSkip.CHECK_DUE),
+            ("logs_check_due_during_shadow", True, NOW + timedelta(minutes=10), RollbackSkip.LOGS_CHECK_DUE),
         ]
     )
     def test_an_alert_that_cannot_move_back_now_stays(

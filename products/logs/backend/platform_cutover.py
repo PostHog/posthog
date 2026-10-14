@@ -17,11 +17,15 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import HandbackRefusal, PlatformOwnershipHandover
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
-from products.logs.backend.alert_state_machine import FIRING_STATES, AlertState, ControlPlaneOutcome, apply_outcome
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_alert_backfill import PLATFORM_HANDOVER_STATE, platform_upsert_of
+from products.logs.backend.platform_alert_backfill import (
+    PLATFORM_HANDOVER_STATE,
+    logs_state_after_handback,
+    platform_upsert_of,
+)
 
 State = LogsAlertConfiguration.State
 
@@ -45,12 +49,27 @@ class AlertCutover:
     skipped: CutoverSkip | None
 
 
-def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
-    """Hands every logs alert of one team to the platform, or says why one stays."""
-    alert_ids = list(
+def _team_alert_ids(team_id: int) -> list[UUID]:
+    return list(
         LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id").values_list("id", flat=True)
     )
-    return tuple(AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in alert_ids)
+
+
+def _logs_check_owed(alert_id: UUID, at: datetime) -> bool:
+    # A logs check advances `next_check_at` when it saves, so an alert the scheduler does not owe
+    # a check under the caller's lock has no logs check between reading it and notifying for it.
+    return (
+        LogsAlertConfiguration.objects.filter(id=alert_id)
+        .filter(due_alerts_q(at, broken_state=State.BROKEN, snoozed_state=State.SNOOZED))
+        .exists()
+    )
+
+
+def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
+    """Hands every logs alert of one team to the platform, or says why one stays."""
+    return tuple(
+        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in _team_alert_ids(team_id)
+    )
 
 
 def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
@@ -62,13 +81,7 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
             return CutoverSkip.ALREADY_MOVED
         if alert.state in FIRING_STATES:
             return CutoverSkip.FIRING
-        # A logs check advances `next_check_at` when it saves, so an alert the scheduler does not
-        # owe a check under this lock has no logs check between reading it and notifying for it.
-        if (
-            LogsAlertConfiguration.objects.filter(id=alert.id)
-            .filter(due_alerts_q(at, broken_state=State.BROKEN, snoozed_state=State.SNOOZED))
-            .exists()
-        ):
+        if _logs_check_owed(alert.id, at):
             return CutoverSkip.CHECK_DUE
 
         savepoint = transaction.savepoint()
@@ -100,64 +113,58 @@ class RollbackSkip(StrEnum):
     """Why an alert stays with the platform for now."""
 
     NOT_MOVED = "not_moved"
-    # The logs stack still shadows this alert and owes it a check, which may already be running.
-    CHECK_DUE = "check_due"
+    # During the shadow the logs stack still checks the alert, and a check it started would save
+    # over the state carried back.
+    LOGS_CHECK_DUE = "logs_check_due"
+    PLATFORM_FIRING = "platform_firing"
+    PLATFORM_CHECK_DUE = "platform_check_due"
+    NOT_PORTABLE = "not_portable"
+
+
+_ROLLBACK_SKIP: dict[HandbackRefusal, RollbackSkip] = {
+    HandbackRefusal.FIRING: RollbackSkip.PLATFORM_FIRING,
+    HandbackRefusal.CHECK_DUE: RollbackSkip.PLATFORM_CHECK_DUE,
+    HandbackRefusal.NOT_PORTABLE: RollbackSkip.NOT_PORTABLE,
+}
 
 
 @frozen
 class AlertRollback:
     alert_id: UUID
-    skipped: RollbackSkip | HandbackRefusal | None
+    skipped: RollbackSkip | None
 
 
 def roll_back_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertRollback, ...]:
     """Hands every logs alert of one team back from the platform, or says why one stays."""
     at = now or timezone.now()
-    alert_ids = list(
-        LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id").values_list("id", flat=True)
+    return tuple(
+        AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(alert_id, at))
+        for alert_id in _team_alert_ids(team_id)
     )
-    return tuple(AlertRollback(alert_id=alert_id, skipped=_roll_back_alert(alert_id, at)) for alert_id in alert_ids)
 
 
-def _roll_back_alert(alert_id: UUID, at: datetime) -> RollbackSkip | HandbackRefusal | None:
+def _roll_back_alert(alert_id: UUID, at: datetime) -> RollbackSkip | None:
     with transaction.atomic():
         alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
         if not alert.platform_owned:
             return RollbackSkip.NOT_MOVED
-        # During the shadow the logs stack still checks this alert, and a check it started would
-        # save over the state carried back.
-        if (
-            LogsAlertConfiguration.objects.filter(id=alert.id)
-            .filter(due_alerts_q(at, broken_state=State.BROKEN, snoozed_state=State.SNOOZED))
-            .exists()
-        ):
-            return RollbackSkip.CHECK_DUE
+        if _logs_check_owed(alert.id, at):
+            return RollbackSkip.LOGS_CHECK_DUE
 
         handback = give_back_ownership(team_id=alert.team_id, legacy_configuration_id=alert.id, at=at)
-        if handback.refused is not None:
-            return handback.refused
+        if isinstance(handback, HandbackRefusal):
+            return _ROLLBACK_SKIP[handback]
 
-        update_fields = ["owner", "owner_changed_at", "last_notified_at", "next_check_at"]
-        # The logs API kept writing snoozes to this row, so an active one stays as the logs state.
-        if not (alert.state == State.SNOOZED and alert.snooze_until is not None and alert.snooze_until > at):
-            update_fields += apply_outcome(
-                alert,
-                ControlPlaneOutcome(
-                    new_state=_LOGS_STATE[handback.state or PlatformAlertState.NOT_FIRING],
-                    consecutive_failures=handback.consecutive_failures,
-                ),
-            )
+        update_fields = apply_outcome(
+            alert,
+            ControlPlaneOutcome(
+                new_state=logs_state_after_handback(alert, handback.state, at),
+                consecutive_failures=handback.consecutive_failures,
+            ),
+        )
         alert.owner = PlatformAlertOwner.SOURCE
         alert.owner_changed_at = at
         alert.last_notified_at = handback.last_notified_at
         alert.next_check_at = handback.next_check_at
-        alert.save(update_fields=update_fields)
+        alert.save(update_fields=[*update_fields, "owner", "owner_changed_at", "last_notified_at", "next_check_at"])
     return None
-
-
-_LOGS_STATE: dict[PlatformAlertState, AlertState] = {
-    PlatformAlertState.NOT_FIRING: AlertState.NOT_FIRING,
-    PlatformAlertState.SNOOZED: AlertState.NOT_FIRING,
-    PlatformAlertState.ERRORED: AlertState.ERRORED,
-    PlatformAlertState.BROKEN: AlertState.BROKEN,
-}

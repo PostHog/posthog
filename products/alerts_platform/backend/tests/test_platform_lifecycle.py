@@ -135,16 +135,22 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("not_owned", {"owner": "source"}, {}, HandbackRefusal.NOT_OWNED),
             ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
+            (
+                "snoozed_inside_a_firing",
+                {},
+                {"state": "snoozed", "firing_started_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                HandbackRefusal.FIRING,
+            ),
+            ("broken_is_never_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {"state": "broken"}, None),
             ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
             (
                 "calendar_schedule",
                 {"recurrence_unit": "daily", "anchor_time": "09:00"},
                 {},
-                HandbackRefusal.PLATFORM_ONLY,
+                HandbackRefusal.NOT_PORTABLE,
             ),
-            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.PLATFORM_ONLY),
+            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
         ]
     )
     def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
@@ -152,7 +158,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         configuration_fields: dict[str, Any],
         alert_fields: dict[str, Any],
-        refusal: HandbackRefusal,
+        refusal: HandbackRefusal | None,
     ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
@@ -168,9 +174,9 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         handback = give_back_ownership(team_id=self.team.id, legacy_configuration_id=legacy_id, at=self.cutoff)
 
-        assert handback.refused == refusal
+        assert (handback if isinstance(handback, HandbackRefusal) else None) == refusal
         self.configuration.refresh_from_db()
-        assert self.configuration.owner == configuration_fields.get("owner", "platform")
+        assert self.configuration.owner == ("platform" if refusal else "source")
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)

@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    HandbackRefusal,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
@@ -51,7 +52,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     return platform_lifecycle.take_ownership(handover)
 
 
-def give_back_ownership(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> PlatformHandback:
+def give_back_ownership(
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it."""
     return platform_lifecycle.give_back_ownership(
         team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at
