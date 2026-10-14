@@ -4,12 +4,30 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog import redis
 
+from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Context, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.authz.backend.logic import authorization, sync_state
+
+
+class TestResourceKeys(SimpleTestCase):
+    @parameterized.expand(list(RESOURCE_INHERITANCE_MAP.items()))
+    def test_inherited_categories_use_the_parent_policy(self, child: str, parent: str) -> None:
+        organization_id = uuid4()
+        for project_id in (1, 2):
+            resource = Resource(type=ResourceType(child), project_id=project_id)
+            assert authorization.object_key(resource, org_id=organization_id) == (
+                f"resource:{organization_id}/{project_id}/{parent}"
+            )
+        with self.assertRaises(ValueError):
+            authorization.object_key(Resource(type=ResourceType(child)), org_id=organization_id)
+        with self.assertRaises(NotImplementedError):
+            authorization.object_key(Resource(type=ResourceType(child), id="123", project_id=1), org_id=organization_id)
 
 
 class TestAuthorizationFailures(SimpleTestCase):

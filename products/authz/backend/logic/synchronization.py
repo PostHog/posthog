@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, SharingConfiguration, Team
 
 from products.access_control.backend.facade.authorization import authorization_roles, authorization_rules
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.dashboards.backend.facade.authorization import authorization_dashboards
 
 from ..client import get_openfga_client
@@ -117,10 +118,10 @@ class OrganizationProjection:
             project_key = self.key("project", team.id)
             self.add(self.organization_key, "organization", project_key)
             resource_keys = {}
-            for resource_type in ("dashboard", "insight"):
-                resource_key = self.key("resource", f"{team.id}/{resource_type}")
-                resource_policy_key = self.key("access_policy", f"{team.id}/{resource_type}/default")
-                resource_keys[resource_type] = resource_key
+            for category in ACCESS_CONTROL_RESOURCES:
+                resource_key = self.key("resource", f"{team.id}/{category}")
+                resource_policy_key = self.key("access_policy", f"{team.id}/{category}/default")
+                resource_keys[category] = resource_key
                 self.add(project_key, "project", resource_key)
                 self.add(resource_policy_key, "policy", resource_key)
                 self.add(self.organization_key, "organization", resource_policy_key)
@@ -179,10 +180,11 @@ class OrganizationProjection:
                     levels = {"none", "member", "admin"}
                 else:
                     resource_type = rule.resource
-                    resource_ids = dashboard_ids if resource_type == "dashboard" else insight_ids
-                    if resource_type not in ("dashboard", "insight") or (
-                        rule.resource_id is not None and rule.resource_id not in resource_ids
-                    ):
+                    if rule.resource_id is not None:
+                        resource_ids = {"dashboard": dashboard_ids, "insight": insight_ids}.get(resource_type, set())
+                        if rule.resource_id not in resource_ids:
+                            continue
+                    elif resource_type not in resource_keys:
                         continue
                     policy_key = self.key("access_policy", f"{team.id}/{resource_type}/{rule.resource_id or 'default'}")
                     levels = {"none", "viewer", "editor", "manager"}

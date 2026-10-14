@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.authorization import authorization_roles
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -111,33 +112,27 @@ class LegacyAuthorization:
                 access.team, "member" if action == Action.VIEW else "admin"
             )
         level = dashboard_level(action)
+        if resource.id is None:
+            if not access.has_project_access:
+                return False
+            category = cast(APIScopeObject, authorization.resource_category(resource.type).value)
+            if action == Action.MANAGE_ACCESS:
+                assert access.team is not None
+                return access.check_can_modify_access_levels_for_object(
+                    access.team
+                ) or access.check_access_level_for_resource(category, "manager")
+            return access.check_access_level_for_resource(category, level)
         if resource.type == ResourceType.INSIGHT:
             if not access.has_project_access:
                 return False
             assert access.team is not None
-            if resource.id is None:
-                if action == Action.MANAGE_ACCESS:
-                    assert access.team is not None
-                    return access.check_can_modify_access_levels_for_object(
-                        access.team
-                    ) or access.check_access_level_for_resource("insight", "manager")
-                return access.check_access_level_for_resource("insight", level)
             from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
                 authorization_insights,
             )
 
             insight = next(iter(authorization_insights(access.team.id, (int(resource.id),))), None)
             return insight is not None and self.check_insight(access, action, insight)
-        if resource.id is not None:
-            return self.dashboard_access(access).check(resource.id, level)
-        if not access.has_project_access:
-            return False
-        if action == Action.MANAGE_ACCESS:
-            assert access.team is not None
-            return access.check_can_modify_access_levels_for_object(
-                access.team
-            ) or access.check_access_level_for_resource("dashboard", "manager")
-        return access.check_access_level_for_resource("dashboard", level)
+        return self.dashboard_access(access).check(resource.id, level)
 
     def list_resources(
         self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
@@ -157,8 +152,8 @@ class LegacyAuthorization:
         if not access.has_project_access:
             return ResourceIds(ids=frozenset(), complete=True)
         if resource.type == ResourceType.DASHBOARD:
-            ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
-            return ResourceIds(ids=ids or frozenset(), complete=ids is not None)
+            dashboard_ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
+            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
 
         assert access.team is not None
         ids: set[str] = set()

@@ -8,12 +8,18 @@ from openfga_sdk.client.models import ClientCheckRequest, ClientListObjectsReque
 
 from posthog.models import Team
 
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
+)
 from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
 
 from ..client import get_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, Level, ResourceType
 from . import request_context, sync_state
+
+RESOURCE_CATEGORIES = {ResourceType(child): ResourceType(parent) for child, parent in RESOURCE_INHERITANCE_MAP.items()}
 
 
 def ready_state(organization_id: UUID) -> bytes | None:
@@ -67,6 +73,10 @@ def organization_id(resource: Resource, *, projects: Mapping[int, UUID] | None =
     return resource.organization_id
 
 
+def resource_category(resource_type: ResourceType) -> ResourceType:
+    return RESOURCE_CATEGORIES.get(resource_type, resource_type)
+
+
 def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
     org_id = org_id or organization_id(resource)
     if resource.type == ResourceType.ORGANIZATION:
@@ -80,6 +90,13 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         if resource.id is None:
             raise ValueError("Provide a role id")
         return f"role:{org_id}/{UUID(resource.id)}"
+    if resource.id is None:
+        category = resource_category(resource.type)
+        if category not in ACCESS_CONTROL_RESOURCES:
+            raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
+        if resource.project_id is None:
+            raise ValueError(f"Provide a project id for {resource.type} authorization")
+        return f"resource:{org_id}/{resource.project_id}/{category}"
     if resource.type not in (
         ResourceType.DASHBOARD,
         ResourceType.INSIGHT,
@@ -89,8 +106,6 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
     if resource.project_id is None:
         raise ValueError(f"Provide a project id for {resource.type} authorization")
-    if resource.id is None:
-        return f"resource:{org_id}/{resource.project_id}/{resource.type}"
     if resource.type == ResourceType.NOTEBOOK:
         id = str(UUID(resource.id))
     elif resource.type == ResourceType.SESSION_RECORDING:

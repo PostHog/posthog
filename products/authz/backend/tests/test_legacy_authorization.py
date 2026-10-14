@@ -67,6 +67,21 @@ class TestLegacyAuthorization(BaseTest):
         assert listed.ids == (frozenset({str(self.dashboard_id)}) if Action.VIEW in expected else frozenset())
         assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
 
+    @parameterized.expand(
+        [
+            ("recording_playlist", ResourceType.SESSION_RECORDING_PLAYLIST, "session_recording"),
+            ("dashboard_template", ResourceType.DASHBOARD_TEMPLATE, "dashboard"),
+            ("warehouse_table", ResourceType.WAREHOUSE_TABLE, "warehouse_objects"),
+            ("llm_prompt", ResourceType.LLM_PROMPT, "llm_analytics"),
+        ]
+    )
+    def test_inherited_category_permissions_use_the_parent_resource(
+        self, _name: str, child: ResourceType, parent: str
+    ) -> None:
+        access_testing.create_access_control(team_id=self.team.id, resource=parent, access_level="viewer")
+        resource = Resource(type=child, project_id=self.team.id)
+        assert api.permissions(resource=resource, subject=self.subject) == frozenset({Action.VIEW, Action.LIST})
+
     def test_project_denial_tenant_scope_and_missing_objects_fail_closed(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         wrong_scope = Resource(type=ResourceType.DASHBOARD, id=str(self.dashboard_id), project_id=other_team.id)

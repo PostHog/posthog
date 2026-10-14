@@ -25,6 +25,7 @@ from products.authz.backend.client import get_openfga_client
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
+from products.authz.backend.logic import authorization
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -191,6 +192,38 @@ class TestOpenFgaDashboardMirror(BaseTest):
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
         editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
         assert editable.complete and not editable.ids
+
+    def test_playlist_category_inherits_recording_grants_and_revocations(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            rule_id = access_control_testing.create_access_control(
+                team_id=self.team.id, resource="session_recording", access_level="none"
+            )
+            access_control_testing.create_access_control(
+                team_id=self.team.id, resource="session_recording_playlist", access_level="manager"
+            )
+        resources = [
+            Resource(type=resource_type, project_id=self.team.id)
+            for resource_type in (ResourceType.SESSION_RECORDING_PLAYLIST, ResourceType.SESSION_RECORDING)
+        ]
+        requests = [
+            CheckRequest(resource=resource, action=action, subject=self.subject)
+            for resource in resources
+            for action in (Action.VIEW, Action.LIST, Action.CREATE, Action.MANAGE_ACCESS)
+        ]
+        for level, expected in (
+            ("none", [False, False, False, False]),
+            ("viewer", [True, True, False, False]),
+            ("editor", [True, True, True, False]),
+            ("manager", [True, True, True, True]),
+            ("none", [False, False, False, False]),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                access_control_testing.set_access_control_level(
+                    team_id=self.team.id, rule_id=rule_id, access_level=level
+                )
+            assert authorization.check(requests, None) == expected * len(resources)
+            assert api.check(requests) == expected * len(resources)
+            assert not self._check(Action.VIEW)
 
     def test_insight_access_uses_its_rules_and_attached_dashboard_permissions(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
