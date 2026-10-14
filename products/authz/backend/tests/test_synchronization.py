@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from posthog.models import OrganizationMembership, User
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.authz.backend.logic.synchronization import OrganizationProjection, Relationship
@@ -48,6 +49,7 @@ class TestOrganizationProjection(BaseTest):
                     {"type": "ph-query", "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}}},
                     {"type": "ph-query", "attrs": {"query": {"kind": "SavedInsightNode", "shortId": "missing"}}},
                     {"type": "ph-recording", "attrs": {"id": "session-1"}},
+                    {"type": "ph-recording", "attrs": {"id": "bad id#1"}},
                 ],
             },
         )
@@ -84,5 +86,27 @@ class TestOrganizationProjection(BaseTest):
         assert not {
             relationship
             for relationship in relationships
-            if relationship.user == notebook_key and relationship.object.endswith("/missing")
+            if relationship.user == notebook_key and relationship.object.endswith(("/missing", "#1"))
         }
+
+    def test_a_rule_on_an_embedded_recording_reaches_its_policy(self) -> None:
+        recording = SessionRecording.objects.create(team=self.team, session_id="session-1")
+        Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            content={"type": "doc", "content": [{"type": "ph-recording", "attrs": {"id": "session-1"}}]},
+        )
+        access_control_testing.create_access_control(
+            team_id=self.team.id,
+            resource="session_recording",
+            resource_id=str(recording.id),
+            access_level="none",
+            organization_member_id=self.guest_membership.id,
+        )
+        relationships = OrganizationProjection(self.organization.id).build()
+        recording_key = self._key("session_recording", f"{self.team.id}/session-1")
+        policy = self._key("access_policy", f"{self.team.id}/session_recording/session-1")
+        assert {
+            Relationship(user=policy, relation="policy", object=recording_key),
+            Relationship(user=self._member(self.guest_membership), relation="member_none", object=policy),
+        } <= relationships
