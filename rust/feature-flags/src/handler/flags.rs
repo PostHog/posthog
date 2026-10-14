@@ -398,12 +398,26 @@ pub async fn evaluate_for_request(
         detailed_analysis: detailed_analysis.unwrap_or(false),
         only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
         persons_db_deadline: state.config.persons_db_deadline(),
-        personhog_hash_key_reader: state.personhog_client.clone().filter(|_| {
-            state
-                .config
-                .personhog_hash_key_override_read_team_ids
-                .includes_team(team_id)
-        }),
+        personhog_hash_key_reader: state
+            .personhog_client
+            .as_ref()
+            .filter(|_| {
+                state
+                    .config
+                    .personhog_hash_key_override_read_team_ids
+                    .includes_team(team_id)
+            })
+            .cloned(),
+        personhog_hash_key_writer: state
+            .personhog_client
+            .as_ref()
+            .filter(|_| {
+                state
+                    .config
+                    .personhog_hash_key_override_write_team_ids
+                    .includes_team(team_id)
+            })
+            .cloned(),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await
