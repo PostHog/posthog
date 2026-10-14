@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
     IncrementalBatchRangeReader,
     IncrementalHandoffCheckpoint,
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LanedPipelineV3,
     _LaneWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     StagedSchemeWithoutResetError,
@@ -921,9 +923,11 @@ class TestLaneFanOut:
 
         assert [len(writer.batch_results) for writer in writers] == [1, 0]
 
-    async def test_each_lane_ends_with_its_own_final_batch(self) -> None:
+    @pytest.mark.parametrize("always_final_marker", [False, True], ids=["temporal", "queue"])
+    async def test_each_lane_ends_with_its_own_final_batch(self, always_final_marker: bool) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
         pipeline = self._pipeline(writers)
+        pipeline._always_final_marker = always_final_marker
         await self._process(pipeline, pa.table({"id": pa.array([1], pa.int64())}))
 
         with (
@@ -936,6 +940,24 @@ class TestLaneFanOut:
 
         for writer in writers:
             cast(MagicMock, writer.pg_producer.send_final_batch).assert_called_once()
+            cast(MagicMock, writer.pg_producer.send_final_marker).assert_not_called()
+        assert pipeline._consumer_finalizes_this_run() is True
+
+    @pytest.mark.parametrize("always_final_marker", [False, True], ids=["temporal", "queue"])
+    async def test_a_laned_run_without_batches_marks_only_the_schema_job(self, always_final_marker: bool) -> None:
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
+        pipeline = self._pipeline(writers)
+        pipeline._always_final_marker = always_final_marker
+
+        with patch(f"{_PIPELINE}.update_sync_type_config_keys", new=MagicMock()):
+            await pipeline._finalize(row_count=0)
+
+        primary_marker = cast(MagicMock, writers[0].pg_producer.send_final_marker)
+        assert primary_marker.call_count == (1 if always_final_marker else 0)
+        cast(MagicMock, writers[1].pg_producer.send_final_marker).assert_not_called()
+        for writer in writers:
+            cast(MagicMock, writer.pg_producer.send_final_batch).assert_not_called()
+        assert pipeline._consumer_finalizes_this_run() is always_final_marker
 
     async def test_a_lane_with_nothing_to_write_sends_no_final_batch(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]
@@ -1336,10 +1358,12 @@ class TestDescWatermarkAcrossResumedAttempts:
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:
+    @pytest.mark.parametrize("always_final_marker", [False, True], ids=["temporal", "queue"])
     @pytest.mark.asyncio
-    async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self) -> None:
+    async def test_a_run_that_extracted_nothing_still_counts_as_a_full_run(self, always_final_marker: bool) -> None:
         pipeline = _make_pipeline()
         pipeline._batch_results = []
+        pipeline._always_final_marker = always_final_marker
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_sync_type_config_keys",
@@ -1365,6 +1389,33 @@ class TestZeroBatchRunStampsTheFullRunMarker:
 
         schema.update_source_cursor.assert_called_once_with(payload)
         schema.stage_source_cursor.assert_not_called()
+        cast(MagicMock, pipeline._pg_producer.send_final_marker).assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_queue_run_that_extracted_nothing_stages_its_cursor_before_the_marker(self) -> None:
+        # The loader promotes the staged cursor when it completes the job from the marker. A cursor
+        # stored directly would move even when the run is cancelled before the loader gets to it.
+        pipeline = _make_pipeline()
+        pipeline._batch_results = []
+        pipeline._always_final_marker = True
+        pipeline._s3_batch_writer = MagicMock(
+            get_run_uuid=MagicMock(return_value="run-1"), get_data_folder=MagicMock(return_value="s3://data")
+        )
+        payload = {"kind": "postgres_xmin", "data": {}}
+        pipeline._source_cursor_manager = MagicMock(staged_payload=MagicMock(return_value=payload))
+        order: list[str] = []
+        schema = MagicMock()
+        schema.stage_source_cursor.side_effect = lambda *_a: order.append("stage")
+        pipeline._schema = schema
+        cast(MagicMock, pipeline._pg_producer.send_final_marker).side_effect = lambda **_k: order.append("marker")
+
+        with patch(f"{_PIPELINE}.update_sync_type_config_keys", new=MagicMock()):
+            await pipeline._finalize(row_count=0)
+
+        assert order == ["stage", "marker"]
+        schema.stage_source_cursor.assert_called_once_with("run-1", payload)
+        schema.update_source_cursor.assert_not_called()
+        cast(MagicMock, pipeline._pg_producer.send_final_marker).assert_called_once_with(data_folder="s3://data")
 
     @pytest.mark.asyncio
     async def test_a_bookkeeping_failure_does_not_fail_the_sync(self) -> None:
@@ -1896,7 +1947,9 @@ class TestResumeCursorCommit:
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]
 
 
-def _recording_producer(events: list[str] | None = None, *, is_resume: bool = False) -> PostgresProducer:
+def _recording_producer(
+    events: list[str] | None = None, *, is_resume: bool = False, sync_type: SyncTypeLiteral = "full_refresh"
+) -> PostgresProducer:
     """A real producer over a mocked queue connection, so the rows it inserts can be read back."""
     with patch(f"{_PRODUCER}.psycopg") as mock_psycopg:
         conn = MagicMock()
@@ -1910,12 +1963,20 @@ def _recording_producer(events: list[str] | None = None, *, is_resume: bool = Fa
             schema_id="schema-1",
             source_id="source-1",
             resource_name="test_table",
-            sync_type="full_refresh",
+            sync_type=sync_type,
             run_uuid="run-1",
             logger=MagicMock(),
             is_resume=is_resume,
         )
     return producer
+
+
+def _marker_flags(producer: PostgresProducer) -> list[bool]:
+    return [
+        json.loads(call.args[1]["metadata"]).get("marker_only", False)
+        for call in cast(MagicMock, producer._conn.execute).call_args_list
+        if "INSERT INTO" in call.args[0]
+    ]
 
 
 def _queue_rows(producer: PostgresProducer) -> list[tuple[int, bool]]:
@@ -1975,7 +2036,7 @@ class TestFinalMarkerIsTheLastDataRow:
         pipeline._process_batch = AsyncMock(side_effect=stage_only)  # type: ignore[method-assign]
         return pipeline
 
-    async def _run(self, pipeline: PipelineV3, redis: MagicMock | None = None) -> None:
+    async def _run(self, pipeline: PipelineV3, redis: MagicMock | None = None) -> PipelineResult:
         with ExitStack() as stack:
             stack.enter_context(
                 patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis or MagicMock()))
@@ -1992,7 +2053,7 @@ class TestFinalMarkerIsTheLastDataRow:
                 stack.enter_context(patch(f"{_PIPELINE}.{name}"))
             stack.enter_context(patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0))
             stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
-            await pipeline.run()
+            return await pipeline.run()
 
     @pytest.mark.asyncio
     async def test_a_zero_batch_continuation_finalizes_the_earlier_queue_run(self) -> None:
@@ -2008,24 +2069,44 @@ class TestFinalMarkerIsTheLastDataRow:
         assert pipeline._consumer_finalizes_this_run() is True
 
     @pytest.mark.parametrize(
-        "ids,expected_rows",
+        "ids,always_final_marker,sync_type,expected_rows,expected_markers",
         [
-            ([], []),
-            (["a"], [(0, True)]),
-            (["a", "b", "c"], [(0, False), (1, False), (2, True)]),
+            ([], False, "full_refresh", [], []),
+            ([], True, "full_refresh", [(0, True)], [True]),
+            ([], True, "cdc", [(0, True)], [True]),
+            (["a"], False, "full_refresh", [(0, True)], [False]),
+            (["a"], True, "full_refresh", [(0, True)], [False]),
+            (["a", "b", "c"], True, "full_refresh", [(0, False), (1, False), (2, True)], [False] * 3),
         ],
-        ids=["zero_rows", "single_batch", "three_batches"],
+        ids=[
+            "zero_rows_temporal",
+            "zero_rows_queue",
+            "zero_rows_buffered_cdc_queue",
+            "single_batch_temporal",
+            "single_batch_queue",
+            "three_batches_queue",
+        ],
     )
     @pytest.mark.asyncio
     async def test_a_run_enqueues_one_row_per_batch_with_the_last_one_final(
-        self, ids: list[str], expected_rows: list[tuple[int, bool]]
+        self,
+        ids: list[str],
+        always_final_marker: bool,
+        sync_type: SyncTypeLiteral,
+        expected_rows: list[tuple[int, bool]],
+        expected_markers: list[bool],
     ) -> None:
         pipeline = self._staging_pipeline(ids)
+        pipeline._pg_producer = _recording_producer(sync_type=sync_type)
+        pipeline._always_final_marker = always_final_marker
         producer = pipeline._pg_producer
 
-        await self._run(pipeline)
+        result = await self._run(pipeline)
 
         assert _queue_rows(producer) == expected_rows
+        assert _marker_flags(producer) == expected_markers
+        # Whoever gets no final row must finalize the run: the workflow on the Temporal path.
+        assert result["consumer_manages_job_status"] is bool(expected_rows)
 
     @pytest.mark.asyncio
     async def test_a_resumable_source_enqueues_each_row_before_its_cursor_and_ends_with_a_marker(self) -> None:

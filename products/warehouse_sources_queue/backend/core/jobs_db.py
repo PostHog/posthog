@@ -1049,6 +1049,7 @@ class PendingBatch:
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
             "external_destination_ids": self.metadata.get("external_destination_ids"),
+            "marker_only": bool(self.metadata.get("marker_only", False)),
         }
 
 
