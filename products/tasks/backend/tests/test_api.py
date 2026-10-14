@@ -14318,6 +14318,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("different_sequences", [5, 6], [True, True], [200, 200], 2),
             ("no_sequence", [None, None], [True, True], [200, 200], 2),
             ("retry_after_failed_signal", [5, 5], [False, True], [503, 200], 2),
+            ("retry_after_dispatch_error", [5, 5], [RuntimeError("database down"), True], [503, 200], 2),
         ]
     )
     def test_agent_callback_drops_a_retried_turn_result(

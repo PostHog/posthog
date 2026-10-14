@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 AgentBootMilestone = Literal["agent_command_dispatched", "agent_activity_observed"]
 
-RETRYABLE_KINDS = frozenset({"budget_steer", "process_killed"})
+RETRYABLE_KINDS = frozenset({"awaiting_input", "turn_failed", "budget_steer", "process_killed"})
 
 
 class CallbackRejected(Exception):
