@@ -231,6 +231,10 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     listeners(({ actions, values, props, cache }) => {
         // Both the first call and every poll land here: keep polling while the background run goes on.
         const handleResult = (aiResult: DataSuggestionsResponseApi | null): void => {
+            // A response that lands after the lane was hidden neither polls nor counts as shown.
+            if (values.hidden) {
+                return
+            }
             if (aiResult?.status === 'generating') {
                 if (Date.now() > cache.pollDeadline) {
                     actions.giveUpPolling()
@@ -330,6 +334,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     return
                 }
                 actions.setHidden(String(values.currentTeamId), true)
+                cache.disposables.dispose('poll')
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestions hidden', { surface: props.surface })
             },
@@ -340,7 +345,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 actions.setHidden(String(values.currentTeamId), false)
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestions unhidden', { surface: props.surface })
-                if (values.aiResult === null) {
+                if (values.aiResult === null || values.aiResult.status === 'generating') {
                     actions.loadAiResult()
                 }
             },

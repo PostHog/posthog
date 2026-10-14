@@ -368,13 +368,13 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     jev_stages = classify_event_stages(team_id=team.id, event_names=used + [name for name, _ in candidates])
     covered_stages = {jev_stages.get(name, guess_stage(name)) for name in used_events} - {"other"}
     weights = STAGE_WEIGHTS if is_new else FLAT_WEIGHTS
-    prompt_events = [
-        (name, count)
-        for name, count in select_prompt_events(
-            counts, limit=_PROMPT_EVENTS_LIMIT * 2, stages=jev_stages, weights=weights
-        )
-        if jev_stages.get(name, guess_stage(name)) not in covered_stages
-    ][:_PROMPT_EVENTS_LIMIT]
+    # Covered stages go before the limit, so busy events of a covered stage cannot crowd out an uncovered one.
+    uncovered_counts = {
+        name: count for name, count in counts.items() if jev_stages.get(name, guess_stage(name)) not in covered_stages
+    }
+    prompt_events = select_prompt_events(
+        uncovered_counts, limit=_PROMPT_EVENTS_LIMIT, stages=jev_stages, weights=weights
+    )
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}

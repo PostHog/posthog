@@ -178,6 +178,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("trial_started", "trial"),
         ]
 
+    @patch(f"{SERVICE}._PROMPT_EVENTS_LIMIT", 1)
+    @patch(f"{SERVICE}.weekly_counts", return_value={"signup_a": 500, "signup_b": 400, "trial_started": 10})
+    @patch(f"{SERVICE}.classify_event_stages")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_busy_events_of_a_covered_moment_do_not_crowd_out_an_uncovered_one(
+        self, suggest_ideas: MagicMock, classify: MagicMock, _counts: MagicMock, _flag
+    ) -> None:
+        classify.return_value = {
+            "signed_up": "signup",
+            "signup_a": "signup",
+            "signup_b": "signup",
+            "trial_started": "trial",
+        }
+        self._add_sign_up_workflow()
+        suggest_ideas.return_value = [_idea("trial_started")]
+
+        self._list()
+
+        assert dict(suggest_ideas.call_args.kwargs["context"].events) == {"trial_started": 10}
+
     @patch(f"{SERVICE}.MAX_CLASSIFIED_EVENTS", 2)
     @patch(f"{SERVICE}.classify_event_stages")
     @patch(f"{SERVICE}.suggest_ideas")
