@@ -41,11 +41,13 @@ from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
+    _card_blocks,
     _date_range,
     _flag_chart,
     _insight_resource_label,
     _question_list,
     _tile_grid,
+    _UnfurlCard,
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
@@ -128,6 +130,20 @@ class TestInsightResourceLabel:
 
 
 class TestCardText:
+    @parameterized.expand([("full", False), ("compact", True)])
+    def test_card_blocks_stay_within_slack_text_limits(self, _name: str, compact: bool) -> None:
+        card = _UnfurlCard(label="Insight", title="T" * 5000, details=("D" * 5000,))
+        url = "https://us.posthog.com/project/2/insights/abc123?dashboard=1#q=" + "x" * 5000
+
+        blocks = _card_blocks(card, kind="insight", url=url, compact=compact)
+
+        texts = [block["text"]["text"] for block in blocks if "text" in block]
+        texts += [element["text"] for block in blocks if block["type"] == "context" for element in block["elements"]]
+        links = [element["url"] for block in blocks if block["type"] == "actions" for element in block["elements"]]
+        assert all(len(text) <= 3000 for text in texts)
+        assert "/insights/abc123?dashboard=1&utm_source=slack" in texts[0]
+        assert all(len(link) <= 3000 and "/insights/abc123" in link for link in links)
+
     @parameterized.expand(
         [
             (
@@ -156,7 +172,7 @@ class TestCardText:
         ]
     )
     def test_chart(self, _name: str, filters: dict, expected_lines: list[str] | None) -> None:
-        chart = _flag_chart(filters)
+        chart = _flag_chart(filters["groups"], filters.get("multivariate", {}).get("variants", []))
         assert (chart.splitlines() if chart else None) == expected_lines
 
     @parameterized.expand(
@@ -587,6 +603,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                         {"url": f"http://testserver/project/{self.team.pk}/insights/nosuchid"},
                         {"url": f"http://testserver/project/{self.team.pk}/dashboard/424242"},
                         {"url": "https://example.com/somewhere-else"},
+                        {"url": f"http://testserver/project/{self.team.pk}/sql?open_query=SELECT%20secret"},
                     ],
                 },
                 self.integration,
@@ -598,6 +615,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert result["skipped"] == [
             {"kind": "insight", "ref": "nosuchid", "reason": "not_found"},
             {"kind": "dashboard", "ref": "424242", "reason": "not_found"},
+            {"kind": "hogql", "reason": "unsupported"},
         ]
 
     @patch("products.slack_app.backend.api.resolve_slack_user")

@@ -49,6 +49,8 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -67,6 +69,8 @@ logger = structlog.get_logger(__name__)
 # Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
 _MAX_BODY_CHARS = 200
 _MAX_TITLE_CHARS = 150
+_MAX_DETAIL_CHARS = 100
+_MAX_LINK_CHARS = 1000
 _MAX_CHART_LINES = 4
 _DATE_RANGE_UNITS = {"h": "hour", "d": "day", "w": "week", "m": "month", "y": "year"}
 _NAMED_DATE_RANGES = {"dStart": "Today", "mStart": "This month", "yStart": "This year", "all": "All time"}
@@ -316,6 +320,9 @@ class _UnfurlCard:
 
 def _tracked_url(url: str, kind: str) -> str:
     parts = urlsplit(url)
+    for trimmed in ("fragment", "query"):
+        if len(urlunsplit(parts)) > _MAX_LINK_CHARS:
+            parts = parts._replace(**{trimmed: ""})
     params = [*parse_qsl(parts.query), ("utm_source", "slack"), ("utm_medium", "unfurl"), ("utm_content", kind)]
     return urlunsplit(parts._replace(query=urlencode(params)))
 
@@ -325,7 +332,7 @@ def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
     if card.status:
         parts.append(f"*{escape_slack_mrkdwn(card.status)}*")
     if not compact:
-        parts.extend(escape_slack_mrkdwn(detail) for detail in card.details)
+        parts.extend(escape_slack_mrkdwn(_truncate(detail, _MAX_DETAIL_CHARS)) for detail in card.details)
     if card.timestamp:
         label = card.timestamp_label
         parts.append(f"<!date^{int(card.timestamp.timestamp())}^{label} {{ago}}|{label} {card.timestamp:%Y-%m-%d}>")
@@ -544,11 +551,18 @@ def _capped_lines(lines: list[str]) -> list[str]:
     return [*lines[:kept], f"+ {len(lines) - kept} more"]
 
 
-def _chart_rows(rows: list[tuple[str, str, str]]) -> str | None:
+@frozen
+class _ChartRow:
+    label: str
+    bar: str
+    value: str
+
+
+def _chart_rows(rows: list[_ChartRow]) -> str | None:
     if not rows:
         return None
-    width = max(len(label) for label, _, _ in rows)
-    lines = [f"{label.ljust(width)}  {graphic}  {value}".rstrip() for label, graphic, value in rows]
+    width = max(len(row.label) for row in rows)
+    lines = [f"{row.label.ljust(width)}  {row.bar}  {row.value}".rstrip() for row in rows]
     return "\n".join(_capped_lines(lines))
 
 
@@ -601,12 +615,22 @@ def _primary_metric(metrics: object) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
-def _variant_rows(filters: dict) -> list[tuple[str, str, str]]:
-    variants = (filters.get("multivariate") or {}).get("variants") or []
+def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
     return [
-        (_chart_label(variant["key"]), _bar(variant["rollout_percentage"] / 100), f"{variant['rollout_percentage']}%")
+        _ChartRow(
+            label=_chart_label(variant["key"]),
+            bar=_bar(variant["rollout_percentage"] / 100),
+            value=f"{variant['rollout_percentage']}%",
+        )
         for variant in variants
     ]
+
+
+def _flag_variants(flag: FeatureFlag) -> list[dict]:
+    try:
+        return flag.variants
+    except ConfigFormatError:
+        return []
 
 
 def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
@@ -736,13 +760,11 @@ def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Sk
     )
 
 
-def _flag_chart(filters: dict) -> str | None:
-    groups = filters.get("groups") or []
-    rows = _variant_rows(filters)
-    if len(groups) == 1 and not groups[0].get("properties"):
-        rollout = groups[0].get("rollout_percentage")
-        rollout = 100 if rollout is None else rollout
-        rows.insert(0, ("Rollout", _bar(rollout / 100), f"{rollout}% of users"))
+def _flag_chart(conditions: list[dict], variants: list[dict]) -> str | None:
+    rows = _variant_rows(variants)
+    if len(conditions) == 1 and not conditions[0].get("properties"):
+        rollout = condition_rollout_percentage(conditions[0])
+        rows.insert(0, _ChartRow(label="Rollout", bar=_bar(rollout / 100), value=f"{rollout}% of users"))
     return _chart_rows(rows)
 
 
@@ -752,13 +774,17 @@ def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
         return "not_found"
     if not ctx.uac.check_access_level_for_object(flag, required_level="viewer"):
         return "no_access"
-    groups = flag.filters.get("groups") or []
+    try:
+        conditions: list[dict] | None = flag.conditions
+    except ConfigFormatError:
+        conditions = None
+    condition_count = _count(len(conditions), "release condition") if conditions is not None else None
     return _UnfurlCard(
         label="Feature flag",
         title=flag.key,
         status="Active" if flag.active else "Disabled",
-        details=(_count(len(groups), "release condition"), *_by(flag.created_by)),
-        chart=_flag_chart(flag.filters),
+        details=(*filter(None, [condition_count]), *_by(flag.created_by)),
+        chart=_flag_chart(conditions or [], _flag_variants(flag)),
         body=flag.name,
         timestamp=flag.updated_at,
     )
@@ -786,7 +812,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
         title=experiment.name,
         status=experiment.get_status_display() if experiment.status else None,
         details=tuple(details),
-        chart=_chart_rows(_variant_rows(experiment.feature_flag.filters)),
+        chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
         body=experiment.description,
         timestamp=experiment.updated_at,
     )
@@ -1063,7 +1089,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         if not ref:
             known = object_ref_for_url(raw_url)
             if known and known.kind not in _CARD_BUILDERS:
-                skipped.append({"kind": known.kind, "ref": known.id, "reason": "unsupported"})
+                skipped.append({"kind": known.kind, "reason": "unsupported"})
             continue
 
         # Resource ids repeat across regions, so a link for the other region would otherwise resolve
