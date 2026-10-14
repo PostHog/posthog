@@ -99,12 +99,13 @@ class RemoteConfig(UUIDTModel):
             expiry_sorted_set_key=REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
         )
 
-    def _build_session_recording_config(self, team: Team) -> dict:
+    def _build_session_recording_config(self, team: Team) -> dict | bool:
         """
         Build session recording configuration with V1/V2 support.
 
-        V2: If team.session_recording_trigger_groups holds a groups list, use new trigger groups format
+        V2: If team.session_recording_trigger_groups is set, use new trigger groups format
         V1: Otherwise, use legacy trigger fields for backward compatibility
+        Returns False when team.session_recording_trigger_groups is set but holds no readable group.
         """
         # Build base config (common to both V1 and V2)
         capture_console_logs = True if team.capture_console_log_opt_in else False
@@ -171,10 +172,17 @@ class RemoteConfig(UUIDTModel):
 
         # The Team API validates this column. Older rows can still hold malformed JSON.
         trigger_groups_config = team.session_recording_trigger_groups
-        groups = trigger_groups_config.get("groups") if isinstance(trigger_groups_config, dict) else None
 
         # V2: If trigger groups configured, send V2 + V1 fallback fields
-        if isinstance(groups, list):
+        if trigger_groups_config:
+            groups = trigger_groups_config.get("groups", []) if isinstance(trigger_groups_config, dict) else None
+            # posthog-js uses the V1 fields when triggerGroups is empty.
+            # A team that set up only trigger groups has empty V1 fields.
+            # Empty V1 fields record every session.
+            # This builder turns recording off when the config holds no readable group.
+            if not isinstance(groups, list):
+                return False
+
             # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
             # This future-proofs the contract so WHERE clauses (property filters on events)
             # can be added later without a breaking SDK change.
@@ -198,6 +206,9 @@ class RemoteConfig(UUIDTModel):
                 elif events is not None:
                     continue
                 normalized_groups.append(group)
+
+            if groups and not normalized_groups:
+                return False
 
             return {
                 **base_config,

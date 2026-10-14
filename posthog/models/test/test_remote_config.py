@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from posthog.test.base import BaseTest
@@ -358,19 +358,24 @@ class TestRemoteConfig(_RemoteConfigBase):
                 {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
                 [_SENT_GROUP],
             ),
-            ("column_not_an_object", ["not-a-config"], None),
-            ("groups_not_a_list", {"version": 2, "groups": None}, None),
+            ("groups_missing", {"version": 2}, []),
+            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False),
+            ("column_not_an_object", ["not-a-config"], False),
+            ("groups_not_a_list", {"version": 2, "groups": None}, False),
         ]
     )
     def test_session_recording_trigger_groups_send_only_readable_groups(
-        self, _name: str, stored: Any, expected_trigger_groups: list[dict] | None
+        self, _name: str, stored: Any, expected_trigger_groups: list[dict] | Literal[False]
     ) -> None:
         self.team.session_recording_trigger_groups = stored
         self.team.save()
         self.sync_remote_config()
         session_recording = self.remote_config.config["sessionRecording"]
-        assert session_recording["version"] == (1 if expected_trigger_groups is None else 2)
-        assert session_recording.get("triggerGroups") == expected_trigger_groups
+        if expected_trigger_groups is False:
+            assert session_recording is False
+        else:
+            assert session_recording["version"] == 2
+            assert session_recording["triggerGroups"] == expected_trigger_groups
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
