@@ -4,9 +4,10 @@ import { Linking, Platform, RefreshControl, SectionList, StyleSheet, Text, View,
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useNow } from '@/lib/useNow'
-import type { BrowseRow, PinDisplayMode, PinView, RecentView, ViewEntry } from '@/model/views'
+import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { ChartSelectionProvider, useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
+import type { ChartTooltipPoint } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -18,8 +19,9 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { type PinSource, trackViewOpenedInWeb } from '../analytics'
 import { useViewsSearch } from '../browseHooks'
 import { refreshHintText } from '../freshness'
-import { type DashboardSnapshot, dashboardQueryKey } from '../items'
+import { type DashboardSnapshot, dashboardQueryKey, insightItemKey, insightQueryKey, pinTarget } from '../items'
 import { pinModes, usePinActions, usePinData, useViewsList } from '../pinHooks'
+import { ChartSheetsProvider, useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
@@ -84,11 +86,13 @@ export function ViewsScreen(): ReactElement {
     }
     return (
         <View style={styles.screen} testID="views-screen">
-            <ChartSelectionProvider>
-                <ChartCanvasBudget>
-                    <ViewsBody />
-                </ChartCanvasBudget>
-            </ChartSelectionProvider>
+            <ChartSheetsProvider>
+                <ChartSelectionProvider>
+                    <ChartCanvasBudget>
+                        <ViewsBody />
+                    </ChartCanvasBudget>
+                </ChartSelectionProvider>
+            </ChartSheetsProvider>
         </View>
     )
 }
@@ -122,6 +126,7 @@ function ViewsBody(): ReactElement {
     const actions = usePinActions()
     const motion = useChartListMotion()
     const viewport = useCanvasBudgetViewport()
+    const sheets = useChartSheets()
     const flows = usePinFlows(actions)
     const [text, setText] = useState('')
     const [editing, setEditing] = useState(false)
@@ -143,8 +148,24 @@ function ViewsBody(): ReactElement {
     }).current
 
     // Row callbacks read the latest values through a ref, so they stay stable and memoized cards skip re-rendering.
-    const latest = useRef({ router, scope: context.scope, actions, flows, searching: search.active })
-    latest.current = { router, scope: context.scope, actions, flows, searching: search.active }
+    const latest = useRef({
+        router,
+        scope: context.scope,
+        actions,
+        flows,
+        sheets,
+        refreshItem: list.refresh.refreshItem,
+        searching: search.active,
+    })
+    latest.current = {
+        router,
+        scope: context.scope,
+        actions,
+        flows,
+        sheets,
+        refreshItem: list.refresh.refreshItem,
+        searching: search.active,
+    }
 
     const openPin = useCallback((pin: PinView) => {
         const { router: nav, scope } = latest.current
@@ -185,6 +206,22 @@ function ViewsBody(): ReactElement {
             trackViewOpenedInWeb({ viewType: 'recordings', reason: 'web_only' })
             Linking.openURL(url).catch(() => undefined)
         }
+    }, [])
+    // A Chart pin reads the saved range, so its Point sheet follows the same cache entry as the pin.
+    const openPinPoint = useCallback((pin: PinView, snapshot: InsightSnapshot, point: ChartTooltipPoint) => {
+        const { scope, sheets: chartSheets, refreshItem } = latest.current
+        const target = pinTarget(pin)
+        chartSheets.openPoint(
+            {
+                snapshot,
+                queryKey: target ? insightQueryKey(scope, target) : null,
+                itemKey: target ? insightItemKey(scope, target) : null,
+                refreshItem,
+                dashboardName: pin.kind === 'dashboard' ? pin.name : null,
+            },
+            point,
+            'tooltip'
+        )
     }, [])
     const showAs = useCallback((pin: PinView, mode: PinDisplayMode) => {
         if (latest.current.actions.setDisplayMode(pin, mode) === 'needs_tile' && mode !== 'row') {
@@ -355,6 +392,7 @@ function ViewsBody(): ReactElement {
                             onMenu={openPinMenu}
                             onChooseTile={openChooseTile}
                             onUnpin={unpinFromCard}
+                            onPressTooltip={openPinPoint}
                         />
                     )
                     return (
@@ -413,6 +451,7 @@ function ViewsBody(): ReactElement {
             openPinMenu,
             openChooseTile,
             unpinFromCard,
+            openPinPoint,
             unpinPin,
             rowHandlers,
             pinnedKeys,
