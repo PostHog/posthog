@@ -2,10 +2,11 @@ import os
 import time
 import uuid
 import random
+import asyncio
 import threading
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
+from contextlib import asynccontextmanager, contextmanager, suppress
 from enum import StrEnum
 from typing import Literal
 
@@ -378,12 +379,15 @@ class QueryRouter:
         limit: int,
         started_at: float,
         cancellation_key: str | None,
+        cancel_event: threading.Event | None = None,
     ) -> _Decision:
         deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise asyncio.CancelledError()
             if queued and cancellation_key is not None:
                 cancelled = self._redis.get(cancellation_key)
                 if cancelled:
@@ -405,7 +409,11 @@ class QueryRouter:
                 # The waiter at the head polls often, so it takes a freed slot almost at once. A waiter deep in
                 # the queue polls rarely, which bounds the Redis load of a long queue.
                 delay = min(_BASE_POLL_DELAY_SECONDS * (1 + reply.ahead), _MAX_POLL_DELAY_SECONDS)
-                self.sleep(min(delay * random.uniform(0.5, 1.0), remaining))
+                sleep_seconds = min(delay * random.uniform(0.5, 1.0), remaining)
+                if cancel_event is None:
+                    self.sleep(sleep_seconds)
+                else:
+                    cancel_event.wait(sleep_seconds)
             # A sleep can end late on a busy host. The waiter is dropped even when a slot has freed, so no
             # query waits longer than the budget.
             if self.get_time() >= deadline:
@@ -420,6 +428,7 @@ class QueryRouter:
         limits: Mapping[Pool, int],
         team_id: int | None,
         cancellation_key: str | None,
+        cancel_event: threading.Event | None = None,
     ) -> Admission:
         started_at = self.get_time()
         if mode == RouterMode.ERROR:
@@ -432,6 +441,7 @@ class QueryRouter:
                 limit=limits[slot.pool],
                 started_at=started_at,
                 cancellation_key=cancellation_key,
+                cancel_event=cancel_event,
             )
         except RedisError:
             admission = self._fail_open(slot, started_at)
@@ -475,6 +485,48 @@ class QueryRouter:
             raise ClickHouseAtCapacity(wait=retry_after)
         return Admission(outcome=decision.outcome, waited_ms=waited_ms)
 
+    @asynccontextmanager
+    async def aadmit(
+        self,
+        *,
+        pool: Pool,
+        query_class: QueryClass,
+        team_id: int | None = None,
+        cancellation_key: str | None = None,
+    ) -> AsyncIterator[Admission]:
+        cancel_event = threading.Event()
+        slot = self.admit(
+            pool=pool,
+            query_class=query_class,
+            team_id=team_id,
+            cancellation_key=cancellation_key,
+            cancel_event=cancel_event,
+        )
+        entry = asyncio.create_task(asyncio.to_thread(slot.__enter__))
+        try:
+            yield await asyncio.shield(entry)
+        finally:
+            cancel_event.set()
+
+            async def cleanup() -> None:
+                # The Redis call can finish after cancellation and add a slot, so release only after it returns.
+                try:
+                    await entry
+                except (Exception, asyncio.CancelledError):
+                    return
+                await asyncio.to_thread(slot.__exit__, None, None, None)
+
+            cleanup_task = asyncio.create_task(cleanup())
+            interrupted = False
+            while not cleanup_task.done():
+                try:
+                    await asyncio.shield(cleanup_task)
+                except asyncio.CancelledError:
+                    interrupted = True
+            cleanup_task.result()
+            if interrupted:
+                raise asyncio.CancelledError()
+
     @contextmanager
     def admit(
         self,
@@ -483,6 +535,7 @@ class QueryRouter:
         query_class: QueryClass,
         team_id: int | None = None,
         cancellation_key: str | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> Iterator[Admission]:
         """Hold a slot in the pool while the block runs.
 
@@ -497,7 +550,12 @@ class QueryRouter:
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
         admission = self._enter(
-            slot, mode=mode, limits=settings.limits, team_id=team_id, cancellation_key=cancellation_key
+            slot,
+            mode=mode,
+            limits=settings.limits,
+            team_id=team_id,
+            cancellation_key=cancellation_key,
+            cancel_event=cancel_event,
         )
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
