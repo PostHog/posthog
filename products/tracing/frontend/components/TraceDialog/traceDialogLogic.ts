@@ -163,7 +163,6 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                             if (!response.hasMore || response.nextOffset == null || fresh.length === 0) {
                                 return { spans, truncated: false }
                             }
-                            // Nobody is looking any more, so stop querying for further pages.
                             if (!values.isOpen) {
                                 return { spans, truncated: true }
                             }
