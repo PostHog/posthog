@@ -1430,6 +1430,7 @@ def claim_url_source(
             crawl_config=crawl_config or {},
             refresh_interval=refresh_interval or RefreshInterval.MANUAL,
             always_include=always_include,
+            processing_claim_id=uuid.uuid4(),
         )
     return source
 
@@ -1535,8 +1536,12 @@ def create_url_source(
     return _ingest_url_source(source=source, team_id=team_id) or source
 
 
+def _is_claimed_by_another_run(source: KnowledgeSource, claim_id: UUID | None) -> bool:
+    return claim_id is not None and source.processing_claim_id != claim_id
+
+
 @with_team_scope(canonical=True)
-def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+def ingest_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None) -> KnowledgeSource | None:
     """
     Background ingestion entry point for a freshly-claimed PROCESSING source.
 
@@ -1549,6 +1554,8 @@ def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+    if _is_claimed_by_another_run(source, claim_id):
+        return source
     if source.source_type != SourceType.URL or not source.source_url:
         return source
     if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
@@ -1557,13 +1564,14 @@ def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 
 @with_team_scope(canonical=True)
-def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
+def claim_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None) -> KnowledgeSource:
     """
     Mark a URL source PROCESSING so a background worker can refresh it.
 
     Acquires the per-team advisory lock and enforces the single-PROCESSING
     invariant. Raises `SourceBusyError` / `InvalidUrlError` synchronously so
     the API can return 409 / 400 before kicking off the workflow.
+    A retry that passes the `claim_id` already on the row gets the row back instead of `SourceBusyError`.
     """
     try:
         existing_source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
@@ -1572,23 +1580,25 @@ def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
     _ensure_user_managed_source(existing_source)
 
     with transaction.atomic():
+        _acquire_source_quota_lock(team_id)
+        source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
+        if claim_id is not None and source.status == SourceStatus.PROCESSING and source.processing_claim_id == claim_id:
+            return source
         _check_source_quota_locked(team_id, reject_if_processing=True)
-        try:
-            source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
-        except KnowledgeSource.DoesNotExist:
-            raise
+        source.refresh_from_db()
         _ensure_user_managed_source(source)
         if source.source_type != SourceType.URL or not source.source_url:
             raise InvalidUrlError("Only URL sources can be refreshed.")
         if source.status == SourceStatus.PROCESSING:
             raise SourceBusyError("This source is already refreshing.")
         source.status = SourceStatus.PROCESSING
-        source.save(update_fields=["status", "updated_at"])
+        source.processing_claim_id = claim_id or uuid.uuid4()
+        source.save(update_fields=["status", "processing_claim_id", "updated_at"])
     return source
 
 
 @with_team_scope(canonical=True)
-def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+def execute_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None) -> KnowledgeSource | None:
     """
     Actually re-fetch + rebuild a source that's already claimed PROCESSING.
 
@@ -1599,6 +1609,8 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+    if _is_claimed_by_another_run(source, claim_id):
+        return source
 
     _ensure_user_managed_source(source)
     try:
@@ -1628,16 +1640,19 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
 
 
 @with_team_scope(canonical=True)
-def release_failed_source(*, source_id: UUID, team_id: int, discard_documents: bool) -> None:
+def release_failed_source(*, source_id: UUID, team_id: int, claim_id: UUID | None, discard_documents: bool) -> None:
     """
     Move a source out of PROCESSING once its ingest or refresh activity is out of retries.
 
     A worker shutdown or heartbeat timeout skips the activity's own error handling, so the workflow calls this.
     `discard_documents` drops the partial index an unfinished ingest committed, so it never turns searchable.
+    Only the run holding `claim_id` may release: after the stale sweep, a newer run can own the same row.
     """
     with transaction.atomic():
         source = KnowledgeSource.objects.select_for_update().filter(id=source_id, team_id=team_id).first()
         if source is None or source.status != SourceStatus.PROCESSING:
+            return
+        if source.processing_claim_id != claim_id:
             return
         if discard_documents:
             _delete_crawl_documents(source=source, team_id=team_id)

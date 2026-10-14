@@ -75,12 +75,14 @@ REFRESH_COORDINATOR_WORKFLOW_V2 = "business-knowledge-refresh-coordinator-v2"
 class RefreshSourceInputs:
     team_id: int
     source_id: str
+    claim_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class IngestSourceInputs:
     team_id: int
     source_id: str
+    claim_id: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -88,6 +90,7 @@ class ReleaseFailedSourceInputs:
     team_id: int
     source_id: str
     discard_documents: bool
+    claim_id: str | None = None
 
 
 @activity.defn
@@ -384,6 +387,10 @@ def _crawl_activity_timeouts() -> tuple[timedelta, timedelta | None]:
     return timedelta(minutes=10), None
 
 
+def _parse_claim_id(claim_id: str | None) -> UUID | None:
+    return UUID(claim_id) if claim_id else None
+
+
 # Pre-patch histories never released failed sources and refreshed due sources in one activity; replay must match.
 _RELEASE_FAILED_SOURCE_PATCH = "bk-release-failed-source"
 
@@ -410,6 +417,7 @@ async def _refresh_due_source(
             heartbeat_timeout=heartbeat,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+    inputs = dataclasses.replace(inputs, claim_id=str(workflow.uuid4()))
     claimed = await workflow.execute_activity(
         claim_refresh_source_activity,
         inputs,
@@ -428,7 +436,12 @@ async def _refresh_due_source(
         )
     except ActivityError:
         await _release_failed_source(
-            ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=False)
+            ReleaseFailedSourceInputs(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                discard_documents=False,
+                claim_id=inputs.claim_id,
+            )
         )
         raise
 
@@ -470,7 +483,9 @@ async def claim_refresh_source_activity(inputs: RefreshSourceInputs) -> dict[str
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
     try:
         await database_sync_to_async(logic.claim_refresh_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            source_id=UUID(inputs.source_id),
+            team_id=inputs.team_id,
+            claim_id=_parse_claim_id(inputs.claim_id),
         )
     except logic.SourceBusyError:
         return {"status": "skipped", "reason": "busy"}
@@ -492,7 +507,7 @@ async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs)
     async with Heartbeater():
         try:
             await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
-                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id, claim_id=_parse_claim_id(inputs.claim_id)
             )
         except (
             logic.InvalidUrlError,
@@ -514,7 +529,10 @@ async def release_failed_source_activity(inputs: ReleaseFailedSourceInputs) -> N
         discard_documents=inputs.discard_documents,
     )
     await database_sync_to_async(logic.release_failed_source, thread_sensitive=False)(
-        source_id=UUID(inputs.source_id), team_id=inputs.team_id, discard_documents=inputs.discard_documents
+        source_id=UUID(inputs.source_id),
+        team_id=inputs.team_id,
+        claim_id=_parse_claim_id(inputs.claim_id),
+        discard_documents=inputs.discard_documents,
     )
 
 
@@ -532,7 +550,7 @@ async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[s
     async with Heartbeater():
         try:
             await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
-                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id, claim_id=_parse_claim_id(inputs.claim_id)
             )
         except (
             logic.InvalidUrlError,
@@ -560,7 +578,12 @@ class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
             )
         except ActivityError:
             await _release_failed_source(
-                ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=True)
+                ReleaseFailedSourceInputs(
+                    team_id=inputs.team_id,
+                    source_id=inputs.source_id,
+                    discard_documents=True,
+                    claim_id=inputs.claim_id,
+                )
             )
             raise
 
@@ -587,7 +610,12 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
             )
         except ActivityError:
             await _release_failed_source(
-                ReleaseFailedSourceInputs(team_id=inputs.team_id, source_id=inputs.source_id, discard_documents=False)
+                ReleaseFailedSourceInputs(
+                    team_id=inputs.team_id,
+                    source_id=inputs.source_id,
+                    discard_documents=False,
+                    claim_id=inputs.claim_id,
+                )
             )
             raise
 

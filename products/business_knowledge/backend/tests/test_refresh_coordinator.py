@@ -190,13 +190,13 @@ async def test_index_drain_stops_at_the_chunk_ceiling() -> None:
     [
         (
             BusinessKnowledgeRefreshSourceWorkflow,
-            RefreshSourceInputs(team_id=1, source_id="source-1"),
+            RefreshSourceInputs(team_id=1, source_id="source-1", claim_id="claim-1"),
             "execute_refresh_knowledge_source_activity",
             False,
         ),
         (
             BusinessKnowledgeIngestSourceWorkflow,
-            IngestSourceInputs(team_id=1, source_id="source-1"),
+            IngestSourceInputs(team_id=1, source_id="source-1", claim_id="claim-1"),
             "ingest_knowledge_source_activity",
             True,
         ),
@@ -239,7 +239,9 @@ async def test_source_workflow_releases_the_source_when_its_activity_fails(
                 )
 
     assert released == [
-        ReleaseFailedSourceInputs(team_id=1, source_id="source-1", discard_documents=expected_discard_documents)
+        ReleaseFailedSourceInputs(
+            team_id=1, source_id="source-1", discard_documents=expected_discard_documents, claim_id="claim-1"
+        )
     ]
 
 
@@ -250,6 +252,7 @@ async def test_coordinator_releases_only_the_source_whose_refresh_failed() -> No
 
     released: list[ReleaseFailedSourceInputs] = []
     execute_attempts_by_source_id: dict[str, int] = {}
+    claim_ids_by_source_id: dict[str, str | None] = {}
 
     @activity.defn(name="sweep_tombstoned_documents_activity")
     async def sweep() -> int:
@@ -260,7 +263,8 @@ async def test_coordinator_releases_only_the_source_whose_refresh_failed() -> No
         return [(1, "broken", "broken.example.com"), (1, "healthy", "healthy.example.com")]
 
     @activity.defn(name="claim_refresh_source_activity")
-    async def claim(_inputs: RefreshSourceInputs) -> dict[str, str]:
+    async def claim(inputs: RefreshSourceInputs) -> dict[str, str]:
+        claim_ids_by_source_id[inputs.source_id] = inputs.claim_id
         return {"status": "ok"}
 
     @activity.defn(name="execute_refresh_knowledge_source_activity")
@@ -305,7 +309,13 @@ async def test_coordinator_releases_only_the_source_whose_refresh_failed() -> No
                 execution_timeout=timedelta(minutes=2),
             )
 
-    assert released == [ReleaseFailedSourceInputs(team_id=1, source_id="broken", discard_documents=False)]
+    assert released == [
+        ReleaseFailedSourceInputs(
+            team_id=1, source_id="broken", discard_documents=False, claim_id=claim_ids_by_source_id["broken"]
+        )
+    ]
+    assert claim_ids_by_source_id["broken"] is not None
+    assert claim_ids_by_source_id["broken"] != claim_ids_by_source_id["healthy"]
     assert execute_attempts_by_source_id == {"broken": 2, "healthy": 1}
     assert result["sources_failed"] == 1
     assert result["sources_refreshed"] == 1

@@ -20,6 +20,7 @@ Design notes:
   test patches the narrowest layer it needs.
 """
 
+import uuid
 from collections.abc import Mapping
 
 from posthog.test.base import APIBaseTest, BaseTest
@@ -38,6 +39,8 @@ from products.business_knowledge.backend.models import (
     RefreshStatus,
     SourceStatus,
 )
+
+_CURRENT_CLAIM_ID = uuid.UUID("00000000-0000-0000-0000-00000000000a")
 
 
 def _sitemap_xml(urls: list[str]) -> str:
@@ -479,7 +482,15 @@ class TestCreateCrawlSource(APIBaseTest):
             chunks_before if expected_docs else 0
         )
 
-    def test_ingest_of_a_finished_source_keeps_its_rows(self) -> None:
+    @parameterized.expand(
+        [
+            ("finished_source", SourceStatus.READY, None),
+            ("source_a_newer_run_claimed", SourceStatus.PROCESSING, uuid.UUID("00000000-0000-0000-0000-00000000000b")),
+        ]
+    )
+    def test_ingest_leaves_rows_of_a_source_it_does_not_own(
+        self, _name: str, status_before: str, ingest_claim_id: uuid.UUID | None
+    ) -> None:
         urls = ["https://example.com/a"]
         behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
         with (
@@ -495,12 +506,15 @@ class TestCreateCrawlSource(APIBaseTest):
                 crawl_config={"max_pages": 10},
             )
         chunks_before = KnowledgeChunk.objects.unscoped().filter(source=source).count()
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(
+            status=status_before, processing_claim_id=_CURRENT_CLAIM_ID
+        )
 
         with patch.object(discover, "_http_get_text", side_effect=AssertionError("must not rediscover")):
-            again = ingest_source(source_id=source.id, team_id=self.team.id)
+            again = ingest_source(source_id=source.id, team_id=self.team.id, claim_id=ingest_claim_id)
 
         assert again is not None
-        assert again.status == SourceStatus.READY
+        assert again.status == status_before
         assert KnowledgeChunk.objects.unscoped().filter(source=source).count() == chunks_before
 
     def test_zero_safe_urls_returns_error_source(self) -> None:
@@ -660,6 +674,7 @@ class TestRefreshCrawlSource(APIBaseTest):
                 "refresh_keeps_written_documents_searchable",
                 False,
                 SourceStatus.PROCESSING,
+                _CURRENT_CLAIM_ID,
                 SourceStatus.READY,
                 RefreshStatus.ERROR,
                 True,
@@ -668,6 +683,7 @@ class TestRefreshCrawlSource(APIBaseTest):
                 "unfinished_ingest_discards_partial_documents",
                 True,
                 SourceStatus.PROCESSING,
+                _CURRENT_CLAIM_ID,
                 SourceStatus.ERROR,
                 RefreshStatus.ERROR,
                 False,
@@ -676,7 +692,17 @@ class TestRefreshCrawlSource(APIBaseTest):
                 "source_another_run_finished_is_left_alone",
                 True,
                 SourceStatus.READY,
+                _CURRENT_CLAIM_ID,
                 SourceStatus.READY,
+                RefreshStatus.SUCCESS,
+                True,
+            ),
+            (
+                "superseded_run_cannot_release_a_newer_claim",
+                True,
+                SourceStatus.PROCESSING,
+                uuid.UUID("00000000-0000-0000-0000-00000000000b"),
+                SourceStatus.PROCESSING,
                 RefreshStatus.SUCCESS,
                 True,
             ),
@@ -687,14 +713,22 @@ class TestRefreshCrawlSource(APIBaseTest):
         _name: str,
         discard_documents: bool,
         status_before: str,
+        released_claim_id: uuid.UUID,
         expected_status: str,
         expected_refresh_status: str,
         expect_documents_left: bool,
     ) -> None:
         source = self._seed(["https://example.com/a"])
-        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=status_before)
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(
+            status=status_before, processing_claim_id=_CURRENT_CLAIM_ID
+        )
 
-        logic.release_failed_source(source_id=source.id, team_id=self.team.id, discard_documents=discard_documents)
+        logic.release_failed_source(
+            source_id=source.id,
+            team_id=self.team.id,
+            claim_id=released_claim_id,
+            discard_documents=discard_documents,
+        )
 
         source.refresh_from_db()
         assert source.status == expected_status
@@ -705,14 +739,32 @@ class TestRefreshCrawlSource(APIBaseTest):
         from django.utils import timezone
 
         source = self._seed(["https://example.com/a"])
-        KnowledgeSource.objects.unscoped().filter(id=source.id).update(status=SourceStatus.PROCESSING)
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(
+            status=SourceStatus.PROCESSING, processing_claim_id=_CURRENT_CLAIM_ID
+        )
         KnowledgeDocument.objects.unscoped().filter(source=source).update(tombstoned_at=timezone.now())
 
-        logic.release_failed_source(source_id=source.id, team_id=self.team.id, discard_documents=False)
+        logic.release_failed_source(
+            source_id=source.id, team_id=self.team.id, claim_id=_CURRENT_CLAIM_ID, discard_documents=False
+        )
 
         source.refresh_from_db()
         assert source.status == SourceStatus.ERROR
         assert source.last_refresh_status == RefreshStatus.ERROR
+
+    def test_claim_refresh_retry_with_its_own_claim_id_continues_and_another_stays_busy(self) -> None:
+        source = self._seed(["https://example.com/a"])
+
+        logic.claim_refresh_source(source_id=source.id, team_id=self.team.id, claim_id=_CURRENT_CLAIM_ID)
+        logic.claim_refresh_source(source_id=source.id, team_id=self.team.id, claim_id=_CURRENT_CLAIM_ID)
+        with self.assertRaises(logic.SourceBusyError):
+            logic.claim_refresh_source(
+                source_id=source.id, team_id=self.team.id, claim_id=uuid.UUID("00000000-0000-0000-0000-00000000000b")
+            )
+
+        source.refresh_from_db()
+        assert source.status == SourceStatus.PROCESSING
+        assert source.processing_claim_id == _CURRENT_CLAIM_ID
 
     def test_vanished_url_is_tombstoned(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])
