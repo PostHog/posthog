@@ -11,9 +11,10 @@ from structlog.testing import capture_logs
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import CheckRequest
-from products.authz.backend.logic import rollout
-from products.authz.backend.management.commands.benchmark_authorization import summarize
+from products.authz.backend.logic import authorization, legacy_authorization, rollout
+from products.authz.backend.management.commands.benchmark_authorization import measure_checkers, summarize
 
 
 class TestAuthorizationBenchmarkStats(SimpleTestCase):
@@ -27,26 +28,44 @@ class TestAuthorizationBenchmarkStats(SimpleTestCase):
         self.assertAlmostEqual(summary["p95"], 3.85)
         self.assertAlmostEqual(summary["p99"], 3.97)
 
+    def test_component_timings_accumulate_separately_and_reset_for_each_batch(self) -> None:
+        with (
+            patch(
+                "products.authz.backend.management.commands.benchmark_authorization.time.perf_counter_ns",
+                side_effect=[0, 2_000_000, 2_000_000, 5_000_000, 5_000_000, 9_000_000],
+            ),
+            measure_checkers("HIGHER_CONSISTENCY") as timings,
+        ):
+            assert authorization.check([], None) == []
+            assert legacy_authorization.check([], None) == []
+            assert authorization.check([], None) == []
+        assert timings == {"OpenFGA": 6.0, "Legacy": 3.0}
+        with measure_checkers("MINIMIZE_LATENCY") as next_batch:
+            assert next_batch == {}
+
 
 @override_settings(DEBUG=True)
 class TestAuthorizationBenchmarkCommand(TestCase):
     def test_bootstraps_request_data_and_rolls_it_back_after_counting_batches(self) -> None:
         output = StringIO()
         organization_ids: list[UUID] = []
+        request_shapes: set[tuple[int, str | None]] = set()
         client = MagicMock()
         client.get_store_id.return_value = None
 
         def check(requests: Sequence[CheckRequest]) -> list[bool]:
-            request = requests[0]
-            organization = Organization.objects.get(id=request.resource.organization_id)
-            team = Team.objects.get(id=request.resource.project_id, organization=organization)
-            assert request.subject is not None
-            user = User.objects.get(id=request.subject.user_id)
-            membership = OrganizationMembership.objects.get(organization=organization, user=user)
-            organization_ids.append(organization.id)
-            self.assertEqual(team.organization_id, organization.id)
-            self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
-            self.assertTrue(user.is_active)
+            for request in requests:
+                organization = Organization.objects.get(id=request.resource.organization_id)
+                team = Team.objects.get(id=request.resource.project_id, organization=organization)
+                assert request.subject is not None
+                user = User.objects.get(id=request.subject.user_id)
+                membership = OrganizationMembership.objects.get(organization=organization, user=user)
+                organization_ids.append(organization.id)
+                request_shapes.add((user.id, request.resource.id))
+                self.assertEqual(team.organization_id, organization.id)
+                self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+                self.assertTrue(user.is_active)
+                self.assertGreater(AccessControl.objects.filter(team=team).count(), 100)
             rollout.logger.info("authz_decision_comparison", mode="test")
             return [True] * len(requests)
 
@@ -80,5 +99,8 @@ class TestAuthorizationBenchmarkCommand(TestCase):
         self.assertIn("5/5 allowed", output.getvalue())
         self.assertFalse(any(log["event"] == "authz_decision_comparison" for log in logs))
         self.assertTrue(organization_ids)
+        self.assertGreater(len({user_id for user_id, _ in request_shapes}), 1)
+        self.assertIn(None, {resource_id for _, resource_id in request_shapes})
+        self.assertGreater(len({resource_id for _, resource_id in request_shapes if resource_id}), 1)
         synchronize.assert_called_once_with(organization_ids[0])
         self.assertFalse(Organization.objects.filter(id=organization_ids[0]).exists())

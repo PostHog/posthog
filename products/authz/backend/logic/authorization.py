@@ -14,7 +14,7 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
 )
 
-from ..client import get_openfga_client
+from ..client import Consistency, pooled_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
 from ..facade.enums import Action, Level, ResourceType
 from . import request_context, sync_state
@@ -143,7 +143,9 @@ def action_relation(object: str, action: Action) -> str:
     return relation
 
 
-def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
+def check(
+    requests: Sequence[CheckRequest], context: Context | None, *, consistency: Consistency = "HIGHER_CONSISTENCY"
+) -> list[bool]:
     validate_context(context)
     team_ids = {
         id
@@ -165,12 +167,12 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
     revisions = {id: ready_state(id) for id in set(organizations)}
     if not any(revisions.values()):
         return [False] * len(checks)
-    client = get_openfga_client()
-    try:
+    # Enforcement must observe revocations even when a previous revision populated the server caches.
+    with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before checking authorization")
         # SDK-side batching also works with OpenFGA versions without the BatchCheck endpoint.
-        results = client.client_batch_check(checks, {"consistency": "HIGHER_CONSISTENCY"})
+        results = client.client_batch_check(checks, {"consistency": consistency})
         decisions = []
         for result in results:
             if result.error is not None:
@@ -183,8 +185,6 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
             allowed and revisions[id] is not None and revisions[id] == current_revisions[id]
             for id, allowed in zip(organizations, decisions, strict=True)
         ]
-    finally:
-        client.close()
 
 
 # Listing and querying rows gate on the same permission as viewing one row.
@@ -193,8 +193,6 @@ READ_ACTIONS = {Action.LIST: Action.VIEW, Action.QUERY: Action.VIEW}
 # Above this many ids the result is not worth inlining into a query, so the subject fails closed.
 MAX_IDS = 1000
 
-CONSISTENCY: dict[str, int | str | dict[str, int | str]] = {"consistency": "HIGHER_CONSISTENCY"}
-
 
 def list_resources(
     resource: Resource,
@@ -202,7 +200,8 @@ def list_resources(
     subject: Subject | None,
     context: Context | None,
     limit: int | None,
-    creator_exempt: bool = False,
+    *,
+    consistency: Consistency = "HIGHER_CONSISTENCY",
 ) -> ResourceIds:
     """The resources that differ from the project default for this subject.
 
@@ -232,11 +231,10 @@ def list_resources(
     revision = ready_state(org_id)
     if revision is None:
         return capped
-    client = get_openfga_client()
-    try:
+    with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
-        reader = _Reader(client, user, type_name, prefix, cap)
+        reader = _Reader(client, user, type_name, prefix, cap, consistency)
         if action in (Action.VIEW, Action.LIST, Action.QUERY) and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
@@ -247,8 +245,6 @@ def list_resources(
             if granted is None:
                 return capped
             result = build(granted, excluded=False)
-    finally:
-        client.close()
     if ready_state(org_id) != revision:
         # A sync landed while we read, so the answer may mix two generations of tuples.
         return capped
@@ -258,16 +254,19 @@ def list_resources(
 class _Reader:
     """The three OpenFGA calls a resource list is made of, for one user and one object type."""
 
-    def __init__(self, client: OpenFgaClient, user: str, type_name: str, prefix: str, cap: int) -> None:
+    def __init__(
+        self, client: OpenFgaClient, user: str, type_name: str, prefix: str, cap: int, consistency: Consistency
+    ) -> None:
         self.client = client
         self.user = user
         self.type_name = type_name
         self.prefix = prefix
         self.cap = cap
+        self.options: dict[str, int | str | dict[str, int | str]] = {"consistency": consistency}
 
     def allowed(self, object_key: str, relation: str) -> bool:
         request = ClientCheckRequest(user=self.user, relation=relation, object=object_key)
-        return self.client.check(request, CONSISTENCY).allowed is True
+        return self.client.check(request, self.options).allowed is True
 
     def denied_among(self, ids: frozenset[str], relation: str) -> frozenset[str]:
         if not ids:
@@ -276,7 +275,7 @@ class _Reader:
         requests = [
             ClientCheckRequest(user=self.user, relation=relation, object=f"{self.prefix}{id}") for id in ordered
         ]
-        results = self.client.client_batch_check(requests, CONSISTENCY)
+        results = self.client.client_batch_check(requests, self.options)
         denied: set[str] = set()
         for id, result in zip(ordered, results, strict=True):
             if result.error is not None:
@@ -289,7 +288,7 @@ class _Reader:
         """Ids of this project's objects that hold `relation` for the user, or None past the cap."""
         ids: set[str] = set()
         request = ClientListObjectsRequest(user=self.user, relation=relation, type=self.type_name)
-        stream = self.client.streamed_list_objects(request, CONSISTENCY)
+        stream = self.client.streamed_list_objects(request, self.options)
         try:
             for result in stream:
                 if result.object.startswith(self.prefix):
@@ -301,7 +300,9 @@ class _Reader:
         return frozenset(ids)
 
 
-def query_relation(resource: Resource, subject: Subject, level: Level) -> bool:
+def query_relation(
+    resource: Resource, subject: Subject, level: Level, *, consistency: Consistency = "HIGHER_CONSISTENCY"
+) -> bool:
     object = object_key(resource)
     if level not in model_relations().get(object.partition(":")[0], ()):
         raise ValueError("This level is not a queryable relation on the resource")
@@ -310,14 +311,11 @@ def query_relation(resource: Resource, subject: Subject, level: Level) -> bool:
     revision = ready_state(org_id)
     if revision is None:
         return False
-    client = get_openfga_client()
-    try:
+    with pooled_openfga_client() as client:
         allowed = (
             client.check(
-                ClientCheckRequest(user=user, object=object, relation=str(level)), {"consistency": "HIGHER_CONSISTENCY"}
+                ClientCheckRequest(user=user, object=object, relation=str(level)), {"consistency": consistency}
             ).allowed
             is True
         )
         return allowed and ready_state(org_id) == revision
-    finally:
-        client.close()

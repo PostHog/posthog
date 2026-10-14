@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +26,10 @@ class TestShareLinkAuthorizationAPI(APIBaseTest):
         for patcher in (
             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"),
             patch("products.authz.backend.logic.authorization.ready_state", return_value=b"ready:test"),
-            patch("products.authz.backend.logic.authorization.get_openfga_client", return_value=self.fga),
+            patch(
+                "products.authz.backend.logic.authorization.pooled_openfga_client",
+                side_effect=lambda: nullcontext(self.fga),
+            ),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)

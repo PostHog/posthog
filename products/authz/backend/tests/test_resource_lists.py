@@ -21,8 +21,8 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.prefix = f"dashboard:{self.org_id}/1/"
         self.fga_client = MagicMock()
         self.enterContext(
-            patch("products.authz.backend.logic.authorization.get_openfga_client", return_value=self.fga_client)
-        )
+            patch("products.authz.backend.logic.authorization.pooled_openfga_client")
+        ).return_value.__enter__.return_value = self.fga_client
         self.enterContext(patch("products.authz.backend.logic.authorization.ready_state", return_value=b"ready:1"))
         self.enterContext(patch("products.authz.backend.logic.authorization.organization_id", return_value=self.org_id))
         self.enterContext(patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2"))

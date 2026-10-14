@@ -162,7 +162,7 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
-Select the `authz` intent to start OpenFGA. It uses in-memory storage and no authentication, so its data resets when the container restarts. The intent also starts OpenFGA Studio at http://localhost:3000, where you can browse the store, the model, and the tuples, and run checks. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `products/authz/generated/model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `DEBUG=1 OPENFGA_API_URL=http://127.0.0.1:8080 python manage.py bootstrap_openfga` to create the store and upload it. Each bootstrap run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
+Select the `authz` intent to start OpenFGA. It uses the local PostgreSQL database and no authentication, so its data persists across container restarts. The intent also starts OpenFGA Studio at http://localhost:3000, where you can browse the store, the model, and the tuples, and run checks. Edit the model sources in `products/authz/model/`, then run `products/authz/generate_model.sh`. It builds `products/authz/generated/model.fga` and the JSON model, checks them against the model rules in `products/authz/AGENTS.md`, and runs the model tests. The pre-commit hook runs the same script when a commit changes the sources or the tests. Run `hogli migrations:openfga` to migrate OpenFGA's datastore and upload the authorization model. Each run uploads a new model version. To check the connection, sign in as a staff user and open `/api/authz/status/`. It shows whether OpenFGA is reachable, the store, and the latest authorization model ID.
 
 Run the authorization checks without starting the stack:
 
@@ -226,6 +226,22 @@ Set `OPENFGA_SYNC_ENABLED=1` in `.env.local` for the web and Celery processes to
 Bootstrap the OpenFGA store first, then backfill existing data with `python manage.py sync_openfga ORGANIZATION_UUID`, replacing `ORGANIZATION_UUID` with your organization's ID.
 You can set `OPENFGA_STORE_ID` and `OPENFGA_AUTHORIZATION_MODEL_ID` to pin the target store and model.
 Without these values, the client uses the named store and its latest model.
+
+Authorization and synchronization reuse one SDK client and its HTTP connection pool per thread and configuration.
+The configuration includes the API URL, credentials, store selector, authorization model, and default consistency.
+Changing the configuration closes the idle client; nested calls with a different configuration use a separate temporary client.
+Clients are released when their thread or process exits, and inherited clients are replaced after a fork.
+Bootstrap and status checks use separate owned clients because bootstrap changes the selected store and status checks must repeat store discovery.
+
+The SDK client defaults to `MINIMIZE_LATENCY`, which permits OpenFGA to use cached results.
+Pass `consistency="HIGHER_CONSISTENCY"` to `get_openfga_client` or `pooled_openfga_client` to select a fresh-read default.
+Individual SDK requests can also override the default with `{"consistency": "HIGHER_CONSISTENCY"}`.
+Do not close or change the store or model on a borrowed pooled client.
+
+Authorization enforcement and synchronization explicitly use `HIGHER_CONSISTENCY`.
+Freshness is required for permission revocations, role or member removal, and changes to public sharing, not only for synchronization.
+A Redis revision check does not invalidate OpenFGA results cached before that revision.
+The internal authorization check and listing helpers accept a `consistency` override for diagnostics that can tolerate stale results.
 
 AccessControl, dashboard, project, organization, organization-membership, role, and role-membership saves and deletes enqueue reconciliation after the database transaction commits.
 Dashboard soft deletion and restoration use the same hook.
@@ -326,6 +342,25 @@ Service credentials retain project-wide access within their API scopes because t
 Request-context overrides and principals other than users and share links are not wired yet and raise rather than being ignored.
 The relationship-write, subject-listing, and explanation methods remain unimplemented.
 Use the existing AccessControl write APIs as the database source of truth.
+
+#### Authorization benchmark
+
+Run the benchmark against the local OpenFGA service:
+
+```bash
+python manage.py benchmark_authorization --batch-size 1 --requests 250
+python manage.py benchmark_authorization --batch-size 1 --requests 250 --consistency HIGHER_CONSISTENCY
+```
+
+The benchmark creates temporary database data and a separate OpenFGA store, then removes them after the run.
+It requires `DEBUG` and does not change the rollout flag.
+It defaults to `MINIMIZE_LATENCY` because the benchmark does not change grants during measurement.
+Use `--consistency HIGHER_CONSISTENCY` to measure the consistency used by authorization enforcement.
+Each mode reports end-to-end latency.
+The shadow and v2 modes also report OpenFGA-only and legacy component timings, excluding warmup batches.
+Component timings include scope lookups, readiness checks, and SDK calls; they are not server-only timings.
+The v2 total includes the synchronous legacy comparison.
+With batch sizes greater than one, latency is batch wall time divided by the number of checks, and percentiles describe batches.
 
 Run the real-server integration tests against the local OpenFGA service:
 

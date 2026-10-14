@@ -683,6 +683,13 @@ migrations:
             DEBUG: '1'
         services:
             - clickhouse
+    migrations:openfga:
+        cmd: bin/migrate --scope=openfga
+        description: Run OpenFGA datastore migrations and upload the authorization model
+        env:
+            DEBUG: '1'
+        services:
+            - docker
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them

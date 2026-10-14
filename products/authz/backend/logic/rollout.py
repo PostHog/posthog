@@ -121,7 +121,7 @@ def list_resources(
         )
 
     def openfga() -> ResourceIds:
-        return authorization.list_resources(resource, action, subject, context, limit, creator_exempt)
+        return authorization.list_resources(resource, action, subject, context, limit)
 
     primary, secondary = (openfga, legacy) if rollout_mode == "v2" else (legacy, openfga)
     result = primary()

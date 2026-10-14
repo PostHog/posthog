@@ -14,7 +14,7 @@ from products.access_control.backend.facade.authorization import authorization_r
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.dashboards.backend.facade.authorization import authorization_dashboards
 
-from ..client import get_openfga_client
+from ..client import pooled_openfga_client
 from . import sync_state
 
 
@@ -240,8 +240,7 @@ def synchronize_organization(organization_id: UUID) -> None:
             pending = sync_state.mark_pending(organization_id)
         projection = OrganizationProjection(organization_id)
         desired = projection.build()
-        client = get_openfga_client()
-        try:
+        with pooled_openfga_client(consistency="HIGHER_CONSISTENCY") as client:
             if client.get_store_id() is None:
                 raise RuntimeError("Bootstrap the OpenFGA store before synchronizing authorization")
             current = {relationship for relationship in read_relationships(client) if projection.owns(relationship)}
@@ -254,5 +253,3 @@ def synchronize_organization(organization_id: UUID) -> None:
                 client.write(ClientWriteRequest(writes=[relationship.to_tuple() for relationship in batch]))
             lock.extend(300, replace_ttl=True)
             sync_state.mark_ready(organization_id, pending)
-        finally:
-            client.close()
