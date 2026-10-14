@@ -574,12 +574,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
-    "Loop": [
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -755,21 +749,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "evidence",
         "score_inputs",
         "payload",
-    ],
-    "Loop": [
-        # FK relations are not JSON-serializable for the change detail (same reason
-        # FeatureFlag/Subscription exclude theirs).
-        "team",
-        "sandbox_environment",
-        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
-        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
-        "triggers",
-        "fires",
-        # Run bookkeeping, not user-meaningful config.
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",
@@ -1031,7 +1010,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "static_devices",
         "recovery_devices",
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
-        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        # ambient team scope at signal-handling time.
         "facet_settings",
     ],
     "AlertConfiguration": [
@@ -1725,8 +1704,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

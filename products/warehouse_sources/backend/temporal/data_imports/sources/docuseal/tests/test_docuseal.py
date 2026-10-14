@@ -1,35 +1,30 @@
-import json
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal import (
     DEFAULT_REGION,
     DOCUSEAL_HOSTS,
     PAGE_SIZE,
     DocusealResumeConfig,
     _base_url,
-    docuseal_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the docuseal module.
-DOCUSEAL_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
+    DocusealSourceConfig,
 )
 
 
-def _response(rows: list[dict[str, Any]], next_cursor: int | None) -> Response:
+def _response(rows: list[dict[str, Any]], next_cursor: int | None) -> ScriptedResponse:
     body = {"data": rows, "pagination": {"count": len(rows), "next": next_cursor, "prev": None}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
 def _rows(start_id: int, count: int) -> list[dict[str, Any]]:
@@ -37,33 +32,8 @@ def _rows(start_id: int, count: int) -> list[dict[str, Any]]:
     return [{"id": start_id - offset, "created_at": "2026-01-01T00:00:00Z"} for offset in range(count)]
 
 
-def _make_manager(resume_state: DocusealResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _drive(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(DocusealSource(), DocusealSourceConfig(api_key="tok", region="us"))
 
 
 class TestBaseUrl:
@@ -81,14 +51,13 @@ class TestBaseUrl:
 
 
 class TestValidateCredentials:
-    @mock.patch(DOCUSEAL_SESSION_PATCH)
-    def test_probes_selected_region_host(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_probes_selected_region_host(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            success, error = validate_credentials("key", "eu")
 
-        validate_credentials("key", "eu")
-
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url.startswith(DOCUSEAL_HOSTS["eu"])
+        assert success is True
+        assert error is None
+        assert network.requests_log[0].url.startswith(DOCUSEAL_HOSTS["eu"])
 
     @parameterized.expand(
         [
@@ -96,23 +65,17 @@ class TestValidateCredentials:
             (500, "unexpected status"),
         ]
     )
-    @mock.patch(DOCUSEAL_SESSION_PATCH)
-    def test_returns_false_on_http_status(
-        self, status_code: int, expected_substring: str, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        success, error = validate_credentials("key", "us")
+    def test_returns_false_on_http_status(self, status_code: int, expected_substring: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            success, error = validate_credentials("key", "us")
 
         assert success is False
         assert error is not None
         assert expected_substring.lower() in error.lower()
 
-    @mock.patch(DOCUSEAL_SESSION_PATCH)
-    def test_returns_false_on_network_error(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-
-        success, error = validate_credentials("key", "us")
+    def test_returns_false_on_network_error(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))):
+            success, error = validate_credentials("key", "us")
 
         assert success is False
         assert error is not None
@@ -120,41 +83,30 @@ class TestValidateCredentials:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_next_cursor_is_null(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_stops_when_next_cursor_is_null(self) -> None:
         # A full-size page whose `next` is null must still terminate.
-        _wire(session, [_response(_rows(100, PAGE_SIZE), next_cursor=None)])
+        result = _driver().run("templates", [_response(_rows(100, PAGE_SIZE), next_cursor=None)])
 
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE
+        assert result.paths == ["/templates"]
 
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_uses_saved_after_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(_rows(499, 2), next_cursor=498)])
-
-        manager = _make_manager(DocusealResumeConfig(after=500))
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=manager)
+    def test_resume_uses_saved_after_cursor(self) -> None:
+        result = _driver().run(
+            "templates", [_response(_rows(499, 2), next_cursor=498)], resume_state=DocusealResumeConfig(after=500)
         )
 
         # First request must continue from the saved cursor, not start over.
-        assert params[0]["after"] == 500
-        assert [r["id"] for r in rows] == [499, 498]
+        assert result.raised is None
+        assert result.params("after") == ["500"]
+        assert [row["id"] for row in result.rows] == [499, 498]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_only_already_fetched_cursors_after_yield(self, MockSession) -> None:
+    def test_saves_only_already_fetched_cursors_after_yield(self) -> None:
         # Walk several full pages then a short one, and assert we never persist a cursor we haven't
         # fetched from yet (the "save current page, not next" invariant) — otherwise a crash would
         # skip rows still buffered.
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "templates",
             [
                 _response(_rows(1000, PAGE_SIZE), next_cursor=901),
                 _response(_rows(900, PAGE_SIZE), next_cursor=801),
@@ -163,30 +115,23 @@ class TestPagination:
             ],
         )
 
-        manager = _make_manager()
-        rows = _drive(
-            docuseal_source("tok", "us", "templates", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert len(rows) == 3 * PAGE_SIZE + 50
-        assert manager.save_state.called, "expected at least one checkpoint save across the walk"
-        fetched_afters = {p.get("after") for p in params}
-        saved_afters = [call.args[0].after for call in manager.save_state.call_args_list]
+        assert result.raised is None
+        assert len(result.rows) == 3 * PAGE_SIZE + 50
+        assert result.saved_states, "expected at least one checkpoint save across the walk"
+        fetched_afters = {int(after) if after is not None else None for after in result.params("after")}
+        saved_afters = [state.after for state in result.saved_states]
+        assert result.params("after") == [None, "901", "801", "701"]
         assert all(after in fetched_afters for after in saved_afters)
 
 
 class TestDocusealSourceResponse:
     @parameterized.expand(["templates", "submissions", "submitters"])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = docuseal_source(
-            api_key="tok",
-            region="us",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        result = _driver().run(endpoint, [_response([], next_cursor=None)])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # Rows arrive newest-first, so the pipeline must not assume ascending order.

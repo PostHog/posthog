@@ -146,6 +146,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'clear_feedback'
     | 'resolve'
     | 'discuss'
     | 'restore'

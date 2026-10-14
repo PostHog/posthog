@@ -7,7 +7,8 @@
  *
  * Safari's/Firefox's generic network TypeErrors (`isGenericNetworkTypeError`) are also a failed
  * `import()`'s shape in those browsers, but the message can't tell that apart from an unrelated
- * failed `fetch()` — so they only count here once `retryImport` has marked them.
+ * failed `fetch()` — so they only count here once `retryImport` has marked them. The same holds
+ * for a `SyntaxError` from a chunk that fails to parse.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 

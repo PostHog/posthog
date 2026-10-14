@@ -1147,7 +1147,7 @@
         "chromium": 12.572,
         "webkit": 2.779
     },
-    "frontend/src/scenes/saved-insights/SavedInsights.stories.tsx": {
+    "products/product_analytics/frontend/insights/savedInsights/SavedInsights.stories.tsx": {
         "chromium": 14.968,
         "webkit": 3.172
     },

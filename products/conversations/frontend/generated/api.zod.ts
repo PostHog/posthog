@@ -333,7 +333,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
         .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
         .optional()
         .describe('Email subject line.'),
-    email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
+    email_config_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
     tags: zod

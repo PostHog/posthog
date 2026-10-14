@@ -526,6 +526,22 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const candidate = decodedConfig as Partial<BIConfig>
     if (
+        candidate.hierarchies !== undefined &&
+        (!Array.isArray(candidate.hierarchies) ||
+            candidate.hierarchies.some(
+                (hierarchy) =>
+                    !hierarchy ||
+                    typeof hierarchy.id !== 'string' ||
+                    typeof hierarchy.name !== 'string' ||
+                    !Array.isArray(hierarchy.levels) ||
+                    hierarchy.levels.length < 2 ||
+                    hierarchy.levels.length > 10 ||
+                    hierarchy.levels.some((field) => !parseBIFieldValue(field))
+            ))
+    ) {
+        return null
+    }
+    if (
         candidate.localFields !== undefined &&
         (!Array.isArray(candidate.localFields) || candidate.localFields.some((field) => !parseBIFieldValue(field)))
     ) {
@@ -669,6 +685,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         source,
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
+        ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
         ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
         ...(candidate.resultFilterGroup ? { resultFilterGroup: candidate.resultFilterGroup } : {}),

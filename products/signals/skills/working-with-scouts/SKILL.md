@@ -134,10 +134,12 @@ Which `scopes` value each granted scope writes under:
 | `warehouse_view:write`  | `DataWarehouseSavedQuery`, `DataQualityCheck` |
 | `warehouse_table:write` | `DataQualityCheck`                            |
 | `llm_skill:write`       | `PersonalAPIKey`                              |
+| `canvas:write`          | `Canvas`                                      |
 
 Pass `Notebook` as well, whatever the grant says: notebooks are the floor write every scout holds, so any scout can leave rows under that scope.
 Some grants also reach objects they are not named for: both warehouse grants reach the data quality checks on their subject, and `llm_skill:write` reaches the skill-store install command, which mints or rotates the acting user's marketplace credential.
 The scope-named objects themselves still log nothing: a skill body edit (including another scout's) and a warehouse table write leave no row, so read the skill's version history instead.
+A canvas publish leaves no activity row either. Read the canvas's version history: each version a scout published records the run's task.
 
 Four caveats change what the answer means:
 
@@ -197,12 +199,12 @@ A fleet left alone drifts; a fleet reviewed occasionally compounds.
 Every few weeks (or when someone says "are the scouts even worth it?"), run a calibration pass:
 
 1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the run-level heavy lifting: cadence adherence, success rate, report rate, memory growth).
-   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `posthog:inbox-reports-list` and reading their statuses.
+   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones, but a scout whose pre-check skips its ticks writes no run row either, so check `precheck_query_source` and dry-run the pre-check before you call it broken; `exploring-scouts` has the steps); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `posthog:inbox-reports-list` and reading their statuses.
    Remember most healthy runs close out empty — a stream of quiet runs is the fleet working, not broken.
 2. **Review the fleet's asks** — sweep `posthog:scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.
 3. **Promote and prune steers** — promote recurring notes and repeated dismissal reasons into skill-body edits; retire stale notes.
-4. **Right-size the roster**: slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately by `pause_reason` (`ignored`: resume or let it stay off; `repeated_failures`: read the latest run's `failure_reason` and fix the cause, the probe resumes it) rather than by default; consider a new scout for any surface the team now cares about that nothing watches: the scouts tab's "Suggested for this project" strip is a cheap source of candidates.
+4. **Right-size the roster**: slow or pause scouts on surfaces the team stopped using, or gate them with a scheduled pre-check so they start only when there is something new (recipe in `authoring-scouts`); check `pending_pause` / `paused_by_system` rows and decide deliberately by `pause_reason` (`ignored`: resume or let it stay off; `repeated_failures`: read the latest run's `failure_reason` and fix the cause, the probe resumes it) rather than by default; consider a new scout for any surface the team now cares about that nothing watches: the scouts tab's "Suggested for this project" strip is a cheap source of candidates.
 5. **Check the routing**: if reports pool in the shared inbox unclaimed, fix reviewer routing so findings reach the person who'll act: correct reviewers on the misrouted reports (forwarded to the fleet), leave a fleet-wide note with the ownership rule (a `pipeline:report-research` note only reaches signal-built reports), and steer scouts toward known owners.
 
 ## Common asks, routed

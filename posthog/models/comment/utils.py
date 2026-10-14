@@ -5,10 +5,11 @@ from django.conf import settings
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+
+from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
 if TYPE_CHECKING:
     from posthog.models.comment import Comment

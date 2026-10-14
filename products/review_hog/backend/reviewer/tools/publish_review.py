@@ -1,5 +1,6 @@
 import re
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
 
@@ -24,12 +25,15 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode, review_already_published
+from products.review_hog.backend.reviewer.status_comment import large_pr_note, render_review_summary
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
+    add_pr_reaction,
     github_api_get_paginated,
     github_api_request,
     is_app_bot_author,
     is_transient_github_error,
+    remove_own_pr_reactions,
 )
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
@@ -85,6 +89,8 @@ def publish_persisted_review(
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    capped_lens_parts: int | None = None,
+    footer: str = "",
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -119,6 +125,8 @@ def publish_persisted_review(
         published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
         review_mode=review_mode,
+        capped_lens_parts=capped_lens_parts,
+        footer=footer,
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -179,6 +187,22 @@ def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None
     return f"<!-- reviewhog:published:{report_id}:{head_sha}{suffix} -->"
 
 
+def _large_pr_note_prefix(report_id: str) -> str:
+    """The start of every large pull request note marker of a report, whatever the head.
+
+    The note checks for this prefix, so a pull request gets the note once and not again on each re-review.
+    """
+    return f"<!-- reviewhog:large-pr-note:{report_id}:"
+
+
+def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
+    """The hidden marker of a clean Standard turn's large pull request note.
+
+    It differs from the published marker, so a later turn with findings still posts its review.
+    """
+    return f"{_large_pr_note_prefix(report_id)}{head_sha} -->"
+
+
 def publish_review(
     *,
     owner: str,
@@ -193,6 +217,8 @@ def publish_review(
     published_priorities: set[IssuePriority],
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    capped_lens_parts: int | None = None,
+    footer: str = "",
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -205,12 +231,20 @@ def publish_review(
     `posted` is False when there was nothing publishable — the caller records the published-head
     watermark only on a real post, so a no-op turn doesn't block a later turn (with a valid finding)
     from publishing at the same head.
+
+    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. A Standard
+    review then carries the large pull request note, and a clean Standard turn posts a short review with it.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     marker = _review_marker(report_id, head_sha, review_mode)
-    body = f"{report.report_markdown}\n\n{marker}"
+    standard = review_mode == REVIEW_MODE_FLASH
+    large_pr_parts = capped_lens_parts if standard else None
+    # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
+    footer_block = f"{footer}\n\n" if footer else ""
+    note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
+    body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
@@ -220,18 +254,45 @@ def publish_review(
     # publishable finding on an off-diff line has no inline anchor but is surfaced in the body's
     # "Other findings" section, so the body must still post rather than dropping the whole review. The
     # validator's priority override wins over the reviewer's, so the gate reads the effective priority.
-    publishable = [
-        finding
-        for finding, verdict in valid_findings
-        if effective_priority(finding.priority, verdict.adjusted_priority) in published_priorities
+    priorities = [
+        effective_priority(finding.priority, verdict.adjusted_priority) for finding, verdict in valid_findings
     ]
+    publishable = [priority for priority in priorities if priority in published_priorities]
+    repository = f"{owner}/{repo}"
     if not publishable:
         logger.info("No publishable issues found, skipping review")
+        # A clean Standard turn posts no findings, so the 👍 is the sign that the review ran. Once any turn
+        # published findings, the 👍 stays off, because a later clean turn does not clear those findings.
+        if standard and report.published_head_sha is None:
+            add_pr_reaction(repository, pr_number, "+1", token=token, installation_id=installation_id)
+        if large_pr_parts is not None:
+            # Not a published turn: the watermark stays unset, so a later turn on this head can still publish.
+            summary = render_review_summary(review_mode, head_sha, Counter(), large_pr_parts)
+            _post_github_review(
+                owner,
+                repo,
+                pr_number,
+                f"{summary}\n\n{footer_block}{_large_pr_note_marker(report_id, head_sha)}",
+                [],
+                token=token,
+                head_sha=head_sha,
+                marker=_large_pr_note_prefix(report_id),
+                installation_id=installation_id,
+                review_mode=review_mode,
+            )
         return PublishOutcome(posted=False)
+    # An earlier clean turn's 👍 would sit next to this turn's findings and contradict them.
+    remove_own_pr_reactions(repository, pr_number, "+1", token=token, installation_id=installation_id)
 
     # When every publishable finding has its own inline comment, the body's tally repeats what the
-    # comments already show, so the review posts only the hidden marker with them.
-    inline_body = marker if len(comments) == len(publishable) else None
+    # comments already show. A Deep review then posts only the hidden marker. A Standard review keeps
+    # a one-line summary, because it has no status comment to connect the comments to the turn.
+    inline_body = None
+    if len(comments) == len(publishable):
+        inline_body = f"{footer_block}{marker}"
+        if standard:
+            summary = render_review_summary(review_mode, head_sha, Counter(publishable), large_pr_parts)
+            inline_body = f"{summary}\n\n{footer_block}{marker}"
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(

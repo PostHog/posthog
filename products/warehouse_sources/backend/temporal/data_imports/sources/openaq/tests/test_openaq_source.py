@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
 
@@ -69,13 +74,12 @@ class TestOpenAQNonRetryableErrors:
 class TestOpenAQValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
     def test_validate_credentials(self, _name: str, upstream_ok: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source.validate_openaq_credentials",
-            return_value=upstream_ok,
-        ):
+        status = 200 if upstream_ok else 401
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             valid, message = OpenAQSource().validate_credentials(_config(), team_id=1)
         assert valid is upstream_ok
         assert (message is None) is upstream_ok
+        assert [request.path for request in network.requests_log] == ["/v3/parameters"]
 
 
 class TestOpenAQPipelineWiring:

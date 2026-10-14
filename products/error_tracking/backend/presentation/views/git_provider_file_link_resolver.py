@@ -302,7 +302,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         integration = Integration.objects.filter(team_id=self.team.id, kind="github").first()
 
         if integration:
-            github = GitHubIntegration(integration)
+            github = GitHubIntegration(integration, source="error_tracking", priority=Priority.NORMAL)
 
             if github.access_token_expired():
                 github.refresh_access_token()

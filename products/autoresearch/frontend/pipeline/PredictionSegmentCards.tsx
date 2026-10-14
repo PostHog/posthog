@@ -5,10 +5,11 @@ import { LemonBanner, LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { eventName } from '../pipelineQuestion'
 import { PredictionSegmentDefinition, formatProbability, predictionSegmentPeopleUrl } from '../predictionSegments'
 
 function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX.Element {
-    const { pipeline, predictionSegments, savingCohortSegment, segmentThresholds } =
+    const { pipeline, predictionSegments, savingCohortSegment, segmentThresholds, personPropertyDisabledReason } =
         useValues(autoresearchPipelineLogic)
     const { saveSegmentCohort } = useActions(autoresearchPipelineLogic)
 
@@ -49,11 +50,13 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     data-attr={`autoresearch-segment-save-cohort-${segment.key}`}
                     loading={savingCohortSegment === segment.key}
                     disabledReason={
-                        !stats
-                            ? 'Segments are still loading'
-                            : savingCohortSegment
-                              ? 'A cohort is being saved'
-                              : undefined
+                        personPropertyDisabledReason
+                            ? personPropertyDisabledReason
+                            : !stats
+                              ? 'Segments are still loading'
+                              : savingCohortSegment
+                                ? 'A cohort is being saved'
+                                : undefined
                     }
                     onClick={() => saveSegmentCohort(segment.key)}
                 >
@@ -71,9 +74,11 @@ function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX
                     disabledReason={
                         !outputProperty
                             ? 'The model has no output property'
-                            : !segmentThresholds
-                              ? 'Segments are still loading'
-                              : undefined
+                            : personPropertyDisabledReason
+                              ? personPropertyDisabledReason
+                              : !segmentThresholds
+                                ? 'Segments are still loading'
+                                : undefined
                     }
                 >
                     View people
@@ -88,13 +93,15 @@ function SegmentCutPoints(): JSX.Element | null {
     if (!thresholds) {
         return null
     }
-    const target = pipeline?.target_event ?? 'the target event'
+    const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
     return (
         <>
             <p className="text-sm text-secondary mb-0">
-                {thresholds.base_rate != null
+                {thresholds.base_rate_source === 'realized' && thresholds.base_rate != null
                     ? `Segments compare each score with the average: ${formatProbability(thresholds.base_rate)} of scored people did ${target} over the last ${thresholds.base_rate_dates} checked dates.`
-                    : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
+                    : thresholds.base_rate_source === 'training' && thresholds.base_rate != null
+                      ? `Segments compare each score with the average in the training data: ${formatProbability(thresholds.base_rate)} of people did ${target}. They switch to measured outcomes once enough predictions are checked against what people did.`
+                      : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
             </p>
             {thresholds.scores_miscalibrated &&
                 thresholds.champion_mean_p_y != null &&

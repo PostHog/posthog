@@ -2792,6 +2792,12 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 description="Optional. Exclude dashboards that PostHog generated.",
             ),
             OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only dashboards created by the user with this UUID.",
+            ),
+            OpenApiParameter(
                 "ordering",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -2870,6 +2876,13 @@ class DashboardsViewSet(
         folder = self.request.query_params.get("folder")
         if folder is not None:
             queryset = self._apply_folder_filter(queryset, folder)
+
+        created_by = self.request.query_params.get("created_by")
+        if created_by:
+            try:
+                queryset = queryset.filter(created_by__uuid=uuid.UUID(created_by))
+            except ValueError:
+                raise serializers.ValidationError({"created_by": "Must be a valid user UUID."})
 
         queryset = drop_similar_when_exact_exists(queryset)
         if self.action == "list" and self.request.query_params.get("ordering") == "-last_viewed_at":

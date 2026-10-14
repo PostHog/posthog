@@ -193,9 +193,9 @@ def _calculate_experiment_regular_metric_sync(
             team=experiment.team,
             as_of=query_to_utc,
             workload=Workload.OFFLINE,
-            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-            # warehouse HogQL access control is enforced.
-            user=experiment.created_by,
+            # Userless background recompute. Warehouse access is enforced when the metric is authored, so
+            # resolve warehouse tables here instead of failing closed.
+            bypass_warehouse_access_control=True,
             # Internal caller: keep exceptions raw so the except branches below see original types
             # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
             # runner-level error event — this activity emits its own, on the final attempt.
@@ -483,9 +483,9 @@ def _calculate_experiment_saved_metric_sync(
             team=experiment.team,
             as_of=query_to_utc,
             workload=Workload.OFFLINE,
-            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-            # warehouse HogQL access control is enforced.
-            user=experiment.created_by,
+            # Userless background recompute. Warehouse access is enforced when the metric is authored, so
+            # resolve warehouse tables here instead of failing closed.
+            bypass_warehouse_access_control=True,
             # Internal caller: keep exceptions raw so the except branches below see original types
             # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
             # runner-level error event — this activity emits its own, on the final attempt.
