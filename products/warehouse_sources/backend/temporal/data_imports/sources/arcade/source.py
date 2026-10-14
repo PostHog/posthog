@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArcadeSource(ResumableSource[ArcadeSourceConfig, ArcadeResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 
