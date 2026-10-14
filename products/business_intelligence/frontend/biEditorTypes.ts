@@ -1203,6 +1203,11 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
     return { rowDimensions, columnDimensions, configuredValues }
 }
 
+function needsUniqueDimensionAliases(dimensions: BIDimension[], hasMeasures: boolean): boolean {
+    const expressions = dimensions.map(({ field }) => fieldExpression(field))
+    return new Set(expressions).size !== expressions.length || (!hasMeasures && expressions.includes('count'))
+}
+
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
     const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
@@ -1216,6 +1221,7 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
         )
     }
     const aliased =
+        needsUniqueDimensionAliases(dimensions, config.values.length > 0) ||
         hasBIAnalysis(config) ||
         config.compareFilter?.compare ||
         (dimensions.length === 2 &&
@@ -1424,6 +1430,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
+    const uniqueDimensionAliases = needsUniqueDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
@@ -1444,7 +1451,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown || comparing || hasBIAnalysis(config)
+              hasSeriesBreakdown || comparing || hasBIAnalysis(config) || uniqueDimensionAliases
                   ? `${fieldExpression(field)} AS ${alias}`
                   : `${fieldExpression(field)} AS ${escapeRawPropertyAsHogQLIdentifier(fieldExpression(field))}`
           )
@@ -1497,7 +1504,12 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
               }
             : {
                   xAxis: xDimension
-                      ? { column: hasBIAnalysis(config) ? xDimension.alias : fieldExpression(xDimension.field) }
+                      ? {
+                            column:
+                                hasBIAnalysis(config) || uniqueDimensionAliases
+                                    ? xDimension.alias
+                                    : fieldExpression(xDimension.field),
+                        }
                       : undefined,
                   yAxis: configuredValues.length
                       ? configuredValues.map(({ alias }) => ({ column: alias }))
@@ -1704,7 +1716,10 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                         .filter((axis): axis is BIPivotAxis => !!axis)
                                         .map((axis) => axis.alias)
                                   : dimensions.map((dimension) =>
-                                        hasBIAnalysis(config) || comparing || hasSeriesBreakdown
+                                        hasBIAnalysis(config) ||
+                                        comparing ||
+                                        hasSeriesBreakdown ||
+                                        uniqueDimensionAliases
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
@@ -1713,7 +1728,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                           ].map((column) => {
                               const dimension = dimensions.find(
                                   (dimension) =>
-                                      (hasBIAnalysis(config) || comparing || hasSeriesBreakdown || isPivotTable
+                                      (hasBIAnalysis(config) ||
+                                      comparing ||
+                                      hasSeriesBreakdown ||
+                                      uniqueDimensionAliases ||
+                                      isPivotTable
                                           ? dimension.alias
                                           : fieldExpression(dimension.field)) === column
                               )

@@ -314,6 +314,8 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 symbol not found in flat namespace '_bcp_batch'
 ```
 
+Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous.
+
 BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
 ## Connected fields in BI mode

@@ -11,6 +11,7 @@ import {
     defaultAggregationForField,
     getBIDataSourceKey,
     getBIChartFit,
+    getBIResultDimensions,
     getBIDropTarget,
     getBIFieldId,
     getBISortOptions,
@@ -63,6 +64,28 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    it.each([ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot])(
+        'binds repeated dimensions to distinct result columns in %s',
+        (chartType) => {
+            const config = {
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                chartType,
+                rows: [eventField, eventField, eventField],
+            }
+            const result = buildBIQuery(config)!
+            const columns = getBIResultDimensions(config).map(({ column }) => column)
+            expect(new Set(columns).size).toBe(3)
+            for (const column of columns) {
+                expect(result.query).toContain(`event AS ${column}`)
+                expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
+            }
+            if (chartType !== ChartDisplayType.ScatterPlot) {
+                expect(result.node.chartSettings?.xAxis?.column).toBe(columns[0])
+            }
+        }
+    )
+
     test.each(['month', 'quarter', 'day_of_week'] as const)(
         'uses numeric %s date parts for scatter axes',
         (datePart) => {
