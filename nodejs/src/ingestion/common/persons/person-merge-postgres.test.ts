@@ -44,7 +44,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as any,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 isLockedOutcomeTeam: () => true,
                 mergeEvents,
             },
@@ -150,7 +149,12 @@ describe('PostgresPersonMerge merge events', () => {
             output: PERSON_DISTINCT_IDS_OUTPUT,
             value: Buffer.from('{}'),
         }
-        const tx = { addDistinctId: jest.fn().mockResolvedValue([mappingMessage]) }
+        const tx = {
+            claimLifecycleMarks: jest.fn(),
+            isPersonLive: jest.fn().mockResolvedValue(true),
+            addDistinctId: jest.fn().mockResolvedValue([mappingMessage]),
+            releaseLifecycleMarks: jest.fn(),
+        }
         const store = {
             fetchForUpdate: jest
                 .fn()
@@ -261,6 +265,35 @@ describe('PostgresPersonMerge merge events', () => {
         expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
     })
 
+    it('a replayed refusal of an identified source re-emits the target mapping its first attempt committed', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const target = { id: 'p-target', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const source = { id: 'p-source', uuid: sourcePerson.uuid, team_id: 2, is_identified: true } as InternalPerson
+        const mapping = {
+            distinctId: 'd',
+            message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":0}') },
+        }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? target : source)
+                ),
+            fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+        }
+
+        const replay = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: new MergeMappingDebounce(100, 60_000),
+        }).execute()
+        await replay.kafkaAck
+
+        expect(replay.results[0].outcome).toBe('skipped_already_identified')
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: mapping.message.value })
+        )
+    })
+
     function buildSingleSourceMerge(
         store: object,
         eventUuid: string,
@@ -288,7 +321,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 isLockedOutcomeTeam: () => true,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
                 ...policyOverrides,
@@ -337,7 +369,6 @@ describe('PostgresPersonMerge merge events', () => {
             mockOutputs as never,
             {
                 updateAllProperties: false,
-                isTombstoneTeam: () => false,
                 isLockedOutcomeTeam: () => true,
                 mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
             },

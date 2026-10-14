@@ -27,6 +27,14 @@ export const manifest: ProductManifest = {
             description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
             iconType: 'health',
         },
+        EngineeringAnalyticsCIExplorer: {
+            import: () => import('./frontend/scenes/CIExplorerScene'),
+            projectBased: true,
+            name: 'CI explorer',
+            layout: 'app-container',
+            description: "A pull request's CI on one zoomable canvas: workflows, jobs, and matrix shards.",
+            iconType: 'health',
+        },
         EngineeringAnalyticsWorkflowRun: {
             import: () => import('./frontend/scenes/WorkflowRunDetailScene'),
             projectBased: true,
@@ -60,10 +68,12 @@ export const manifest: ProductManifest = {
             iconType: 'health',
         },
     },
-    // Detail paths follow GitHub's REST-API shape (repos/:owner/:repo/pull-requests/:n, .../actions/runs/:id)
-    // — a repos/ prefix that keeps them clear of the tab routes and readable collection nouns. Cross-repo
-    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
-    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
+    // Every page reads one repository, so the repository is a path segment on every page, shaped like
+    // GitHub's REST API (repos/:owner/:repo/pull-requests/:n, .../actions/runs/:id). The repo-less tab
+    // paths still route: the scene logic forwards them to a repository (the `?repo` they carry, else the
+    // last one used, else the default), so old links and the product root keep working. Provider lives on
+    // the data (RepoRef.provider), so these url builders are the single place to branch verbs for a
+    // future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/pull-requests': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
@@ -73,9 +83,47 @@ export const manifest: ProductManifest = {
         '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
         '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
         '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
+        '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
+        '/engineering-analytics/repos/:repoOwner/:repoName/overview': ['EngineeringAnalytics', 'engineeringAnalytics'],
+        '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsPullRequestList',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/workflows': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsWorkflows',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/tests': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsTests',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/teams': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsTeams',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/authors': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsAuthors',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/deploys': [
+            'EngineeringAnalytics',
+            'engineeringAnalyticsDeploys',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/teams/:ownerTeam': [
+            'EngineeringAnalyticsTeam',
+            'engineeringAnalyticsTeam',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/authors/:handle': [
+            'EngineeringAnalyticsAuthor',
+            'engineeringAnalyticsAuthor',
+        ],
         '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
+        ],
+        '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number/ci-explorer': [
+            'EngineeringAnalyticsCIExplorer',
+            'engineeringAnalyticsCIExplorer',
         ],
         '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
             'EngineeringAnalyticsWorkflowRun',
@@ -85,7 +133,6 @@ export const manifest: ProductManifest = {
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
-        '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
     redirects: {
         // Bare product root lands on the overview tab without dropping its scope.
@@ -96,18 +143,44 @@ export const manifest: ProductManifest = {
         '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
             combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
     },
+    // Tab and team/author builders take the 'owner/name' in scope. Without one they return the repo-less
+    // path, which forwards to a repository, so a caller outside the product never has to pick one.
+    // The paths are written out because the app URL catalog evaluates these builders without imports.
     urls: {
-        engineeringAnalytics: (): string => '/engineering-analytics/overview',
-        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pull-requests',
-        engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
-        engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
-        engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
-        engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
-        engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
-        engineeringAnalyticsTeam: (ownerTeam: string): string =>
-            `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
+        engineeringAnalytics: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/overview`
+                : '/engineering-analytics/overview',
+        engineeringAnalyticsPullRequestList: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/pull-requests`
+                : '/engineering-analytics/pull-requests',
+        engineeringAnalyticsWorkflows: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/workflows`
+                : '/engineering-analytics/workflows',
+        engineeringAnalyticsTests: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/tests`
+                : '/engineering-analytics/tests',
+        engineeringAnalyticsTeams: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/teams`
+                : '/engineering-analytics/teams',
+        engineeringAnalyticsAuthors: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/authors`
+                : '/engineering-analytics/authors',
+        engineeringAnalyticsDeploys: (repo?: string | null): string =>
+            repo
+                ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}/deploys`
+                : '/engineering-analytics/deploys',
+        engineeringAnalyticsTeam: (ownerTeam: string, repo?: string | null): string =>
+            `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
+        engineeringAnalyticsCIExplorer: (repoOwner: string, repoName: string, number: number | string): string =>
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}/ci-explorer`,
         engineeringAnalyticsWorkflowRun: (
             repoOwner: string,
             repoName: string,
@@ -117,8 +190,8 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
-        engineeringAnalyticsAuthor: (handle: string): string =>
-            `/engineering-analytics/authors/${encodeURIComponent(handle)}`,
+        engineeringAnalyticsAuthor: (handle: string, repo?: string | null): string =>
+            `${repo ? `/engineering-analytics/repos/${repo.split('/').map(encodeURIComponent).join('/')}` : '/engineering-analytics'}/authors/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -134,6 +207,15 @@ export const manifest: ProductManifest = {
                 'var(--color-product-engineering-analytics-dark)',
             ],
             href: urls.engineeringAnalytics(),
+            searchKeywords: ['ci', 'ci health', 'ci cost', 'github actions', 'build minutes', 'dora', 'cycle time'],
+            searchTabs: [
+                { name: 'Pull requests', href: urls.engineeringAnalyticsPullRequestList() },
+                { name: 'CI workflows', href: urls.engineeringAnalyticsWorkflows() },
+                { name: 'Tests', href: urls.engineeringAnalyticsTests(), searchKeywords: ['flaky tests'] },
+                { name: 'Deploys', href: urls.engineeringAnalyticsDeploys() },
+                { name: 'Teams', href: urls.engineeringAnalyticsTeams() },
+                { name: 'Authors', href: urls.engineeringAnalyticsAuthors() },
+            ],
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             tags: ['alpha'],
             sceneKey: 'EngineeringAnalytics',

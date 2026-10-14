@@ -273,14 +273,17 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
     }
 )
 
+
 # Stale-while-revalidate window for *user-facing* requests: windows that expired within
 # this grace are served from their existing (complete-but-stale) rows instantly instead
 # of recomputing inline, and a background revalidation is enqueued. Refresh normally
 # arrives within minutes via the revalidation task (plus the hourly eager warmer for
 # warmed shapes) — the grace is the ceiling for revalidation failures and warmer
-# outages. Must stay well under the framework's 48h ClickHouse expiry buffer (rows must
-# still exist).
-STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
+# outages. Env-tunable via WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS (see
+# posthog/settings/web.py for the default and the freshness/hit-rate trade-off).
+def stale_while_revalidate_seconds() -> int:
+    return settings.WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS
+
 
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
@@ -641,7 +644,7 @@ def web_ensure_precomputed(
             kwargs["stale_while_revalidate_seconds"] = None
         else:
             kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+                stale_while_revalidate_seconds(), BACKGROUND_WARMING_TRIGGERS
             )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so

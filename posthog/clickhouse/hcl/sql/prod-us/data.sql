@@ -464,7 +464,7 @@ CREATE TABLE posthog.llma_metrics_daily (
   metric_name String,
   metric_value Float64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.llma_metrics_daily', '{replica}-{shard}') ORDER BY (team_id, date, metric_name) PARTITION BY toYYYYMM(date) SETTINGS default_compression_codec = 'lz4', index_granularity = 8192;
-CREATE TABLE posthog.log_entries_distributed (
+CREATE TABLE posthog.log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,
@@ -1231,7 +1231,10 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
   $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
@@ -1249,7 +1252,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,
@@ -2802,7 +2805,10 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
   $group_2 String COMMENT 'column_materializer::$group_2',
@@ -2833,7 +2839,7 @@ CREATE TABLE posthog.heatmaps (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))));
-CREATE TABLE posthog.log_entries (
+CREATE TABLE posthog.log_entries_distributed (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,

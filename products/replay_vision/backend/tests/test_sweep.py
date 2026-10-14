@@ -1171,25 +1171,28 @@ class TestAdvanceScannerWatermarkActivity:
 
 
 @pytest.mark.parametrize(
-    "limit, spent_observations, expect_capped",
+    "limit, spent_observations, free_only, expect_capped",
     [
-        (None, 0, False),
+        (None, 0, False, False),
         # No limit set, and heavy spend: never capped, watermark never touched.
-        (None, 100, False),
-        (20 * _OBSERVATION_CREDITS, 0, False),
-        (20 * _OBSERVATION_CREDITS, 10, False),
+        (None, 100, False, False),
+        (20 * _OBSERVATION_CREDITS, 0, False, False),
+        (20 * _OBSERVATION_CREDITS, 10, False, False),
         # Exactly one observation's worth of room left.
-        (20 * _OBSERVATION_CREDITS, 19, False),
+        (20 * _OBSERVATION_CREDITS, 19, False, False),
         # Credits left, but not enough for one more observation.
-        (20 * _OBSERVATION_CREDITS - 1, 19, True),
-        (20 * _OBSERVATION_CREDITS, 20, True),
+        (20 * _OBSERVATION_CREDITS - 1, 19, False, True),
+        (20 * _OBSERVATION_CREDITS, 20, False, True),
+        # No scanner limit, but free-only: the org's free credits cap it while billing allows more.
+        (None, 100, True, False),
+        (None, 200, True, True),
     ],
 )
 @pytest.mark.django_db(transaction=True)
 def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
-    limit: int | None, spent_observations: int, expect_capped: bool
+    limit: int | None, spent_observations: int, free_only: bool, expect_capped: bool
 ) -> None:
-    scanner = _make_scanner(credit_limit=limit)
+    scanner = _make_scanner(credit_limit=limit, free_only=free_only)
     stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
     ReplayScanner.objects.filter(pk=scanner.pk).update(
         last_swept_at=stale,
@@ -1198,7 +1201,8 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
     )
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
 
-    output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
     assert output.capped is expect_capped

@@ -1,11 +1,9 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
     BloomerangResumeConfig,
@@ -15,11 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import BLOOMERANG_ENDPOINTS
-
-# The client config and validate_credentials both build their tracked session directly in the
-# bloomerang module (capture=False needs a session built here, not RESTClient's default one).
-BLOOMERANG_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.source import BloomerangSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bloomerang import (
+    BloomerangSourceConfig,
 )
 
 
@@ -71,21 +72,15 @@ class TestBuildParams:
         assert params == {"orderBy": "Id", "orderDirection": "Asc"}
 
 
-def _response(
-    items: list[dict[str, Any]] | None, *, total_filtered: int | None = None, drop_results: bool = False
-) -> Response:
+def _response(items: list[dict[str, Any]], *, total_filtered: int | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {}
-    if not drop_results:
-        body["Results"] = items or []
-    body["Total"] = total_filtered if total_filtered is not None else len(items or [])
+    body["Results"] = items
+    body["Total"] = total_filtered if total_filtered is not None else len(items)
     if total_filtered is not None:
         body["TotalFiltered"] = total_filtered
     body["Start"] = 0
-    body["ResultCount"] = len(items or [])
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    body["ResultCount"] = len(items)
+    return ScriptedResponse(json=body)
 
 
 def _make_manager(resume_state: BloomerangResumeConfig | None = None) -> mock.MagicMock:
@@ -93,20 +88,6 @@ def _make_manager(resume_state: BloomerangResumeConfig | None = None) -> mock.Ma
     manager.can_resume.return_value = resume_state is not None
     manager.load_state.return_value = resume_state
     return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params/auth AT SEND TIME."""
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
 
 
 def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
@@ -120,96 +101,79 @@ def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
     )
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
 class TestBloomerangSourceTransport:
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession) -> None:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BloomerangSource(), BloomerangSourceConfig(api_key="key"))
+
+    def test_paginates_until_short_page(self) -> None:
         # A full first page (== PAGE_SIZE) signals more rows remain; the paginator only stops once
         # a page comes back shorter than PAGE_SIZE.
-        session = MockSession.return_value
         first_page = [{"Id": i} for i in range(1, 51)]
-        snapshots = _wire(
-            session,
+        result = self._driver().run(
+            "Appeals",
             [
                 _response(first_page, total_filtered=51),
                 _response([{"Id": 51}], total_filtered=51),
             ],
         )
 
-        rows = _rows(_source("Appeals", _make_manager()))
+        assert result.raised is None
+        assert [row["Id"] for row in result.rows] == list(range(1, 52))
+        assert result.params("skip") == ["0", "50"]
+        assert result.params("take") == ["50", "50"]
 
-        assert [r["Id"] for r in rows] == list(range(1, 52))
-        assert session.send.call_count == 2
-        assert snapshots[0]["params"] == {"skip": 0, "take": 50}
-        assert snapshots[1]["params"] == {"skip": 50, "take": 50}
-
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_production_sync_does_not_follow_redirects(self, MockSession) -> None:
+    def test_production_sync_does_not_follow_redirects(self) -> None:
         # `X-Api-Key` isn't the standard Authorization header, so `requests` won't strip it on a
         # cross-origin redirect — pin `allow_redirects=False` the same way the credential probe does.
-        session = MockSession.return_value
-        _wire(session, [_response([{"Id": 1}], total_filtered=1)])
+        result = self._driver().run(
+            "Appeals", [ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"})]
+        )
 
-        _rows(_source("Appeals", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/v2/appeals"]
 
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_saves_resume_state_only_while_pages_remain(self) -> None:
         first_page = [{"Id": i} for i in range(1, 51)]
-        _wire(
-            session,
+        result = self._driver().run(
+            "Appeals",
             [
                 _response(first_page, total_filtered=51),
                 _response([{"Id": 51}], total_filtered=51),
             ],
         )
-
-        manager = _make_manager()
-        _rows(_source("Appeals", manager))
 
         # State is saved only while more pages remain (offset 0 -> next offset 50), never on the
         # final (short) page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == BloomerangResumeConfig(next_offset=50)
+        assert result.raised is None
+        assert result.saved_states == [BloomerangResumeConfig(next_offset=50)]
 
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"Id": 51}], total_filtered=51)])
-
-        rows = _rows(_source("Appeals", _make_manager(BloomerangResumeConfig(next_offset=50))))
-
-        assert [r["Id"] for r in rows] == [51]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["skip"] == 50
-
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_incremental_cursor_added_to_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"Id": 1}], total_filtered=1)])
-
-        _rows(
-            _source(
-                "Constituents",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+    def test_resumes_from_saved_offset(self) -> None:
+        result = self._driver().run(
+            "Appeals",
+            [_response([{"Id": 51}], total_filtered=51)],
+            resume_state=BloomerangResumeConfig(next_offset=50),
         )
 
-        assert snapshots[0]["params"]["lastModified"] == "2026-03-04T02:58:14Z"
-        assert snapshots[0]["params"]["orderBy"] == "LastModifiedDate"
+        assert result.raised is None
+        assert [row["Id"] for row in result.rows] == [51]
+        assert result.params("skip") == ["50"]
 
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_audit_trail_endpoint_flattens_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_incremental_cursor_added_to_request(self) -> None:
+        result = self._driver().run(
+            "Constituents",
+            [_response([{"Id": 1}], total_filtered=1)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("lastModified") == "2026-03-04T02:58:14Z"
+        assert result.requests[0].param("orderBy") == "LastModifiedDate"
+
+    def test_audit_trail_endpoint_flattens_rows(self) -> None:
+        result = self._driver().run(
+            "Constituents",
             [
                 _response(
                     [
@@ -226,11 +190,10 @@ class TestBloomerangSourceTransport:
             ],
         )
 
-        rows = _rows(_source("Constituents", _make_manager()))
-
-        assert rows[0]["CreatedDate"] == "2026-01-01T00:00:00Z"
-        assert rows[0]["LastModifiedDate"] == "2026-01-02T00:00:00Z"
-        assert "AuditTrail" not in rows[0]
+        assert result.raised is None
+        assert result.rows[0]["CreatedDate"] == "2026-01-01T00:00:00Z"
+        assert result.rows[0]["LastModifiedDate"] == "2026-01-02T00:00:00Z"
+        assert "AuditTrail" not in result.rows[0]
 
     @parameterized.expand(
         [
@@ -262,27 +225,20 @@ class TestValidateCredentials:
             (403, False, 403),
         ]
     )
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_status_mapping(self, status_code, expected_valid, expected_status, MockSession) -> None:
-        session = MockSession.return_value
-        response = mock.MagicMock()
-        response.status_code = status_code
-        session.get.return_value = response
-
-        is_valid, returned_status = validate_credentials("key")
+    def test_status_mapping(self, status_code, expected_valid, expected_status) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            is_valid, returned_status = validate_credentials("key")
 
         assert is_valid is expected_valid
         assert returned_status == expected_status
+        assert network.requests_log[0].path == "/v2/constituents"
 
-    @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_sends_api_key_header_without_following_redirects(self, MockSession) -> None:
-        session = MockSession.return_value
-        response = mock.MagicMock()
-        response.status_code = 200
-        session.get.return_value = response
+    def test_sends_api_key_header_without_following_redirects(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"})]
+        ) as network:
+            is_valid, status = validate_credentials("secret-key")
 
-        validate_credentials("secret-key")
-
-        call_kwargs = session.get.call_args.kwargs
-        assert call_kwargs["headers"] == {"X-Api-Key": "secret-key"}
-        assert call_kwargs["allow_redirects"] is False
+        assert (is_valid, status) == (False, 302)
+        assert network.requests_log[0].headers["x-api-key"] == "secret-key"
+        assert [request.path for request in network.requests_log] == ["/v2/constituents"]

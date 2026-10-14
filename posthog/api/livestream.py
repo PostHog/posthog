@@ -3,6 +3,7 @@ from uuid import UUID
 
 import jwt
 from drf_spectacular.utils import extend_schema
+from rest_framework import serializers
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -10,12 +11,22 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.auth import refuse_blocked_account
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
 from posthog.user_permissions import UserPermissions
+
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team,
+)
+
+# Mirrors AnyGroupType in the livestream service.
+ANY_GROUP_TYPE = "*"
 
 
 class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
@@ -60,13 +71,67 @@ class LivestreamVerifiedDomainPermission(VerifiedDomainEnforcementPermission):
         return self._admits(request, cast(Team, request.auth).organization)
 
 
+class LivestreamAuthorizationSerializer(serializers.Serializer):
+    restricted_event_properties = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event property names the livestream service must remove before streaming to this user.",
+    )
+    restricted_person_properties = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Person property names the livestream service must remove from $set and $set_once.",
+    )
+    restricted_group_properties = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Group property names to remove from $group_set, keyed by the group type name $group_type carries, or by * for every type.",
+    )
+
+
 @extend_schema(exclude=True)
 class LivestreamAuthorizationView(APIView):
     authentication_classes = [LivestreamAuthentication]
     permission_classes = [IsAuthenticated, LivestreamOrganizationPermission, LivestreamVerifiedDomainPermission]
 
     def get(self, request: Request) -> Response:
-        level = UserPermissions(cast(User, request.user)).team(cast(Team, request.auth)).effective_membership_level
+        user = cast(User, request.user)
+        team = cast(Team, request.auth)
+        level = UserPermissions(user).team(team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("Live stream access is no longer available.")
-        return Response(status=204, headers={"Cache-Control": "no-store"})
+        if "application/json" not in request.headers.get("Accept", ""):
+            # A livestream service that predates the restriction payload treats anything but 204 as an outage.
+            return Response(status=204, headers={"Cache-Control": "no-store"})
+        restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team=team)
+        payload = LivestreamAuthorizationSerializer(
+            {
+                "restricted_event_properties": sorted(
+                    p.name for p in restricted if p.property_type == PropertyDefinition.Type.EVENT
+                ),
+                "restricted_person_properties": sorted(
+                    p.name for p in restricted if p.property_type == PropertyDefinition.Type.PERSON
+                ),
+                "restricted_group_properties": self._restricted_group_properties_by_type_name(team, restricted),
+            }
+        ).data
+        return Response(payload, headers={"Cache-Control": "no-store"})
+
+    @staticmethod
+    def _restricted_group_properties_by_type_name(
+        team: Team, restricted: set[RestrictedProperty]
+    ) -> dict[str, list[str]]:
+        # Rules carry the group type index; a $groupidentify event carries the group type name.
+        by_index: dict[int, list[str]] = {}
+        for p in restricted:
+            if p.property_type == PropertyDefinition.Type.GROUP and p.group_type_index is not None:
+                by_index.setdefault(p.group_type_index, []).append(p.name)
+        if not by_index:
+            return {}
+        by_name = {
+            mapping["group_type"]: sorted(by_index.pop(mapping["group_type_index"]))
+            for mapping in get_group_types_for_project(team.project_id, caller_tag="livestream_authorize")
+            if mapping["group_type_index"] in by_index
+        }
+        if by_index:
+            # The lookup failed or the type is gone, so these names cannot be attributed to a type.
+            # Fail closed: the service hides them on every group type rather than on none.
+            by_name[ANY_GROUP_TYPE] = sorted({name for names in by_index.values() for name in names})
+        return by_name

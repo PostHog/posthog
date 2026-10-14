@@ -177,6 +177,7 @@ export function DataTable({
         query: query.source,
         key: context?.dataNodeLogicKey ?? vizKey,
         cachedResults: cachedResults,
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,

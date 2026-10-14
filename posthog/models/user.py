@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     GMAIL_CANONICAL_LOCAL_EXPRESSION,
@@ -64,6 +65,8 @@ class Notifications(TypedDict, total=False):
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
     data_catalog_weekly_digest: bool
+    approval_requested: bool  # Email to each approver when a change request needs their sign-off
+    approval_resolved: bool  # Email to the requester when their change request is decided, expires, or is applied
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -91,6 +94,8 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "data_catalog_weekly_digest": True,  # Data catalog pending-review digest enabled by default
+    "approval_requested": True,
+    "approval_resolved": True,
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
     "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
@@ -530,7 +535,9 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             user_integrations = self.integrations.filter(kind="github")[:1]
 
         for user_integration in user_integrations:
-            login = UserGitHubIntegration(user_integration).github_login
+            login = UserGitHubIntegration(
+                user_integration, source="user_github_login", priority=Priority.NORMAL
+            ).github_login
             if login:
                 return login
 
@@ -568,7 +575,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         return None
 
-    def get_github_login(self) -> str | None:
+    def get_github_login(self, *, include_team_fallback: bool = True) -> str | None:
         """Resolve this user's GitHub login.
 
         Precedence:
@@ -577,12 +584,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
            team's GitHub integration (e.g. captured at install). Still a supported integration path,
            lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+
+        Set `include_team_fallback=False` when a member's personal GitHub identity is required.
         """
-        return (
-            self._get_github_login_from_user_integration()
-            or self._get_github_login_from_social_auth()
-            or self._get_github_login_from_team_integration()
-        )
+        login = self._get_github_login_from_user_integration() or self._get_github_login_from_social_auth()
+        if login or not include_team_fallback:
+            return login
+        return self._get_github_login_from_team_integration()
 
     def join(
         self,
@@ -737,27 +745,3 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
-
-
-@receiver(pre_save, sender=User)
-def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
-    """Pause every loop owned by a user when they are deactivated (is_active True->False).
-
-    Loops execute as their owner for GitHub authorship and MCP identity (see
-    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
-    security response and must not leave a loop still scheduled, or a sandbox still running,
-    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
-    Temporal schedule is an irreversible external side effect.
-    """
-    if instance._state.adding or instance.is_active:
-        return
-    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    if not was_active:
-        return
-
-    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
-        pause_loops_for_deactivated_user,
-    )
-
-    user_id = instance.pk
-    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

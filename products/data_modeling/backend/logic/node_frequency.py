@@ -23,6 +23,7 @@ from products.data_modeling.backend.logic.freshness import (
     ancestors_of,
     compute_target_bounds,
     intersect_target_bounds,
+    max_data_age,
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
@@ -296,6 +297,7 @@ class SavedQueryFrequencyBounds:
     names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
+    max_data_age: timedelta
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -315,6 +317,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     names: dict[str, str] = {}
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
+    data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -334,12 +337,14 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
+        data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
         bounds=intersect_target_bounds(per_dag),
         names=names,
         identities=identities,
         best_effort_source_ids=best_effort,
+        max_data_age=max(data_ages),
     )
 
 

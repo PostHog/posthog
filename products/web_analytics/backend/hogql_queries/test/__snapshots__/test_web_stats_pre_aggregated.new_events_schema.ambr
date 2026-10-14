@@ -8,7 +8,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
+            if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -39,7 +39,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular[new_events_schema.2]
@@ -51,7 +52,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$geoip_country_code`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$geoip_country_code`)), if(isNull(nullIf(toString(events.properties.`$geoip_country_code`), '')), NULL, if(and(in(ascii(toString(events.properties.`$geoip_country_code`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$geoip_country_code`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$geoip_country_code`), '[]'), '{}'), toString(events.properties.`$geoip_country_code`)))) AS breakdown_value,
+            if(notEquals(toJSONString(events.properties.^`$geoip_country_code`), '{}'), toJSONString(events.properties.^`$geoip_country_code`), if(isNull(nullIf(toString(events.properties.`$geoip_country_code`), '')), NULL, if(and(in(ascii(toString(events.properties.`$geoip_country_code`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$geoip_country_code`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$geoip_country_code`), '[]'), '{}'), toString(events.properties.`$geoip_country_code`)))) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -82,7 +83,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular[new_events_schema.3]
@@ -135,7 +137,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular[new_events_schema]
@@ -147,7 +150,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$device_type`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$device_type`)), if(isNull(nullIf(toString(events.properties.`$device_type`), '')), NULL, if(and(in(ascii(toString(events.properties.`$device_type`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$device_type`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$device_type`), '[]'), '{}'), toString(events.properties.`$device_type`)))) AS breakdown_value,
+            if(notEquals(toJSONString(events.properties.^`$device_type`), '{}'), toJSONString(events.properties.^`$device_type`), if(isNull(nullIf(toString(events.properties.`$device_type`), '')), NULL, if(and(in(ascii(toString(events.properties.`$device_type`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$device_type`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$device_type`), '[]'), '{}'), toString(events.properties.`$device_type`)))) AS breakdown_value,
             if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), events.properties.`$session_id`, NULL) AS session_id,
             any(if(ifNull(equals(bitAnd(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 76), 15), 7), 0), fromUnixTimestamp(intDiv(accurateCastOrNull(bitShiftRight(toUInt128(toUUIDOrNull(events.properties.`$session_id`)), 80), 'Int64'), 1000)), NULL)) AS start_timestamp
      FROM events_json AS events
@@ -178,6 +181,7 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---

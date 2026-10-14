@@ -18,6 +18,7 @@ import {
     cohortAudienceProperties,
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 
 export const AFFECTED_LOOKBACK_DAYS = 30
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
@@ -181,19 +182,21 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                 return
             }
             actions.closeModal()
+            captureMessageAudienceClicked(SOURCE, 'broadcast', { succeeded: true })
             router.actions.push(
                 messageAudienceUrl(
                     {
                         properties: cohortAudienceProperties(audienceCohort),
                         source: SOURCE,
                         broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
+                        broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
                     },
                     'broadcast'
                 )
             )
-            captureMessageAudienceClicked(SOURCE, 'broadcast')
         },
         createAudienceFailure: () => {
+            captureMessageAudienceClicked(SOURCE, 'broadcast', { succeeded: false })
             lemonToast.error("Couldn't save the people affected. Try again.")
         },
     })),

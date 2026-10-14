@@ -286,7 +286,12 @@ const EXPECTATIONS: Expectation[] = [
                 changes: { filter: pathsFilter({ backend: true, legacy: false }) },
                 'turbo-discover': {
                     discover: {
-                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":""}',
+                        },
                     },
                 },
             },
@@ -297,7 +302,15 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: [
+                'changes',
+                'django',
+                'turbo-tests',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'dynamic-ci-filter',
+            ],
         }
     ),
     backend(
@@ -331,7 +344,14 @@ const EXPECTATIONS: Expectation[] = [
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: [
+                'changes',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'mirror-schema-cache',
+                'django_tests',
+            ],
             skipped: [
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
@@ -649,6 +669,37 @@ describe('.github/workflows run plans', () => {
             expect(plan.jobs.build?.result).toBe(outcome)
         }
     )
+
+    it.each([
+        ['frontend PR', pullRequest(), false, true, 'false', 'skipped', false],
+        ['frontend merge queue', mergeQueue(), false, true, 'true', 'success', false],
+        ['hobby PR', pullRequest(), true, false, 'true', 'success', true],
+        ['hobby merge queue', mergeQueue(), true, false, 'true', 'success', false],
+        ['unrelated merge queue', mergeQueue(), false, false, 'false', 'skipped', false],
+    ] as const)('Docker image build on %s', (name, github, hobby, buildInputs, shouldBuild, result, publish) => {
+        const wf = workflow('container-images-ci.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ hobby, build_inputs: buildInputs }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.outputs.should_build).toBe(shouldBuild)
+        expect(plan.jobs.posthog_build?.result).toBe(result)
+        const build = wf.jobs.posthog_build?.steps?.find((step) => step.id === 'build')
+        if (result === 'success') {
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            expect(evaluateValue(build?.with?.['push-image'], { github }, functions)).toBe(publish)
+            expect(evaluateValue(build?.with?.['pr-number'], { github }, functions)).toBe(publish ? 1 : '')
+        }
+        expect(plan.jobs.posthog_build?.steps.find((step) => step.name === 'Container image digest')?.runs).toBe(
+            result === 'success' && publish
+        )
+    })
 
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)

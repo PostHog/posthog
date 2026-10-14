@@ -4,11 +4,14 @@ It runs only for the first message of a thread, because a follow-up joins a sand
 already runs and cannot change its runtime.
 """
 
+import json
+
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
-from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
+from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, JsonValue
 from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS, build_system_one_client
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -33,6 +36,15 @@ MODEL_ROUTER_DECISION_MODEL = DEFAULT_DECISION_MODEL
 MODEL_ROUTER_TIMEOUT_SECONDS = 5.0
 
 _QUESTION_ID = "model"
+DECISION_SPAN_NAME = "slack_model_router_decision"
+
+
+@frozen
+class ModelRouterDecision:
+    picked: ModelRouterOption
+    # What the decision model read: the state and the question.
+    request: dict[str, JsonValue]
+    answer: ChoiceAnswer
 
 
 def classify_slack_app_model_router(
@@ -43,7 +55,7 @@ def classify_slack_app_model_router(
     repository: str | None,
     distinct_id: str | None,
     trace_id: str | None = None,
-) -> ModelRouterOption | None:
+) -> ModelRouterDecision | None:
     options = options[:GATEWAY_MAX_CHOICE_OPTIONS]
     if len(options) < 2:
         return None
@@ -59,21 +71,59 @@ def classify_slack_app_model_router(
         properties={CLASSIFIER_PROPERTY: "slack_model_router"},
         timeout=MODEL_ROUTER_TIMEOUT_SECONDS,
     )
-    result = client.decide(
-        state={"request": event_text, "repository": repository},
-        questions={
-            _QUESTION_ID: ChoiceQuestion(
-                instructions=MODEL_ROUTER_INSTRUCTIONS,
-                criteria={key: option.description for key, option in by_key.items()},
-            )
-        },
+    state: dict[str, JsonValue] = {"request": event_text, "repository": repository}
+    question = ChoiceQuestion(
+        instructions=MODEL_ROUTER_INSTRUCTIONS,
+        criteria={key: option.description for key, option in by_key.items()},
     )
+    result = client.decide(state=state, questions={_QUESTION_ID: question})
     answer = result.answers.get(_QUESTION_ID)
     if not isinstance(answer, ChoiceAnswer) or answer.choice not in by_key:
         logger.warning("slack_app_model_router_unexpected_answer")
         return None
     logger.info("slack_app_model_router_answer", choice=answer.choice, confidence=answer.confidence)
-    return by_key[answer.choice]
+    return ModelRouterDecision(
+        picked=by_key[answer.choice], request={"state": state, "question": question.to_json()}, answer=answer
+    )
+
+
+def _capture_decision(
+    integration: Integration,
+    input: SlackAppModelRouterInput,
+    user: User,
+    decision: ModelRouterDecision,
+    trace_id: str | None,
+) -> None:
+    # The gateway records no content for a System One call, so the online evaluation reads what
+    # the decision model saw and picked from this record. It carries no cost, so spend is not counted twice.
+    answer = decision.answer
+    capture_slack_event(
+        integration,
+        "$ai_generation",
+        slack_user_id=input.slack_user_id,
+        posthog_user=user,
+        **{
+            "$ai_trace_id": trace_id,
+            "$ai_span_name": DECISION_SPAN_NAME,
+            "$ai_model": MODEL_ROUTER_DECISION_MODEL,
+            "$ai_billable": False,
+            "$ai_input": [{"role": "user", "content": json.dumps(decision.request)}],
+            "$ai_output_choices": [
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "choice": answer.choice,
+                            "confidence": answer.confidence,
+                            "probabilities": dict(answer.probabilities),
+                        }
+                    ),
+                }
+            ],
+            CLASSIFIER_PROPERTY: "slack_model_router",
+            "ai_product": "slack_app_routing",
+        },
+    )
 
 
 @activity.defn
@@ -98,20 +148,22 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
     if user is None or not is_slack_app_model_router_enabled(integration, distinct_id=user.distinct_id):
         return override
 
+    trace_id = _thread_trace_id(input.slack_team_id, input.thread_ts)
     options: tuple[ModelRouterOption, ...] = ()
+    decision: ModelRouterDecision | None = None
     try:
         options = model_router_options(team_id=integration.team_id, user_id=user.id, distinct_id=user.distinct_id)
-        picked = classify_slack_app_model_router(
+        decision = classify_slack_app_model_router(
             input.event_text,
             options,
             team_id=integration.team_id,
             repository=input.repository,
             distinct_id=user.distinct_id,
-            trace_id=_thread_trace_id(input.slack_team_id, input.thread_ts),
+            trace_id=trace_id,
         )
     except Exception:
         logger.exception("slack_app_model_router_failed")
-        picked = None
+    picked = decision.picked if decision else None
 
     capture_slack_event(
         integration,
@@ -123,10 +175,11 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
         option_count=len(options),
         has_repository=input.repository is not None,
     )
-    if picked is None:
+    if decision is None:
         return override
+    _capture_decision(integration, input, user, decision, trace_id)
 
     return SlackAppModelOverride(
-        model=picked.model,
-        reasoning_effort=(override.reasoning_effort if override else None) or picked.reasoning_effort,
+        model=decision.picked.model,
+        reasoning_effort=(override.reasoning_effort if override else None) or decision.picked.reasoning_effort,
     )

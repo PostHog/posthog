@@ -15,7 +15,11 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
-from products.review_hog.backend.reviewer.tools.prompt_helpers import format_pr_intent, load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    author_comments,
+    format_pr_intent,
+    load_template_and_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,12 +189,20 @@ def generate_chunking_prompt(
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
 ) -> str:
-    """Render the chunking prompt for the sandbox agent (only reached for PRs over the single-chunk size)."""
+    """Render the chunking prompt for the sandbox agent (only reached for PRs over the single-chunk size).
+
+    Only the PR author's comments go in: the chunk's free-text summary reaches every review prompt, so another
+    reviewer's finding summarized there would steer the review like the comment itself.
+    """
     prompt_template, output_schema = load_template_and_schema("chunking")
     return prompt_template.render(
         PR_INTENT=format_pr_intent(pr_metadata),
         PR_COMMENTS=json.dumps(
-            [x.model_dump(mode="json", exclude={"id", "created_at"}) for x in pr_comments], indent=2
+            [
+                x.model_dump(mode="json", exclude={"id", "created_at"})
+                for x in author_comments(pr_comments, pr_metadata)
+            ],
+            indent=2,
         ),
         PR_FILES=json.dumps([x.model_dump(mode="json") for x in pr_files], indent=2),
         CHUNK_TARGET=CHUNK_TARGET_ADDITIONS,

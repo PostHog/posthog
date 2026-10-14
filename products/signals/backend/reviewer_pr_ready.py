@@ -17,6 +17,7 @@ from django.db import transaction
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 from posthog.models.integration import GitHubIntegration
 
@@ -177,7 +178,9 @@ def open_pull_request_ready_for_review(*, team_id: int, report_id: str, pr_url: 
         return False
 
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.BATCH
+        )
     except Exception:
         logger.exception(
             "signals.reviewer_pr_ready.integration_lookup_failed",

@@ -149,6 +149,8 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
         def _description(endpoint: str) -> str | None:
             if endpoint == "knowledge_base":
                 return "Requires the KnowledgeBase download option enabled on your Qualys subscription"
+            if endpoint == "reports":
+                return "Requires the Report Share feature enabled on your Qualys subscription"
             return None
 
         schemas = [

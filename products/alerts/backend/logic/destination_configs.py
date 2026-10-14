@@ -370,6 +370,11 @@ def _redact_routing_key(value: str) -> str:
     return f"••••{value[-4:]}"
 
 
+# Email reaches an alert's subscribers and is never stored as a HogFunction, so it has no spec.
+HOG_FUNCTION_DESTINATION_TYPES: tuple[DestinationType, ...] = tuple(
+    destination_type for destination_type in DestinationType if destination_type != DestinationType.EMAIL
+)
+
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
     spec.type: spec
     for spec in (

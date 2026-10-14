@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -10,12 +10,26 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
+    UbidotsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots import ubidots
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import (
     DEFAULT_UBIDOTS_API_BASE_URL,
     ENDPOINTS,
     VALUES_ENDPOINT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import (
     UBIDOTS_API_VERSION_LEGACY,
     UBIDOTS_API_VERSION_V2_0,
@@ -28,9 +42,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ub
     _validated_api_base_url,
     _validated_page_url,
     check_access,
-    get_rows,
-    get_values_rows,
-    get_values_rows_v2,
     ubidots_source,
     validate_credentials,
 )
@@ -47,136 +58,100 @@ def _values_url(variable_id: str, start: Optional[int] = None) -> str:
     return f"{url}&start={start}" if start is not None else url
 
 
-class _FakeResumableManager:
-    def __init__(self, state: UbidotsResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[UbidotsResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> UbidotsResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: UbidotsResumeConfig) -> None:
-        self.saved.append(data)
+def _run(
+    endpoint: str,
+    script: Script,
+    resume_state: UbidotsResumeConfig | None = None,
+    api_version: str = UBIDOTS_API_VERSION_LEGACY,
+    **kwargs: Any,
+) -> DriveResult:
+    driver = SourceDriver(UbidotsSource(), UbidotsSourceConfig(api_token="BBUS-token", api_base_url=None))
+    return driver.run(endpoint, script, resume_state=resume_state, api_version=api_version, **kwargs)
 
 
-def _fake_transport(monkeypatch: Any, pages: Mapping[str, tuple[list[dict], Optional[str]]]) -> None:
-    def fake_fetch(session: Any, url: str, logger: Any) -> tuple[list[dict], Optional[str]]:
-        return pages[url]
+def _serve_pages(
+    pages: Mapping[str, tuple[list[dict], Optional[str]]],
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer each GET by its full URL; a URL absent from the map fails the run instead of being guessed."""
 
-    monkeypatch.setattr(ubidots, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(ubidots, "make_tracked_session", lambda **kwargs: MagicMock())
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.url not in pages:
+            raise UnexpectedRequest(f"no page scripted for {request.url}")
+        rows, next_url = pages[request.url]
+        return ScriptedResponse(json={"results": rows, "next": next_url})
+
+    return respond
 
 
 class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: Mapping[str, tuple[list[dict], Optional[str]]],
-        endpoint: str = "devices",
-    ) -> list[dict]:
-        _fake_transport(monkeypatch, pages)
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_token="BBUS-token",
-            api_base_url=None,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_follows_next_url_cursor_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_follows_next_url_cursor_until_null(self) -> None:
         second = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=2&page_size=200"
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             DEVICES_FIRST_URL: ([{"id": "a"}], second),
             second: ([{"id": "b"}], None),
         }
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": "a"}, {"id": "b"}]
+        result = _run("devices", _serve_pages(pages))
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
-        assert [s.next_url for s in manager.saved] == [second]
+        assert [s.next_url for s in result.saved_states] == [second]
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
+    def test_resumes_from_saved_cursor(self) -> None:
         second = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=2&page_size=200"
-        manager = _FakeResumableManager(UbidotsResumeConfig(next_url=second))
         # The first page URL must never be fetched on resume.
-        rows = self._collect(manager, monkeypatch, {second: ([{"id": "b"}], None)})
-        assert rows == [{"id": "b"}]
+        result = _run(
+            "devices",
+            _serve_pages({second: ([{"id": "b"}], None)}),
+            resume_state=UbidotsResumeConfig(next_url=second),
+        )
+        assert result.rows == [{"id": "b"}]
+        assert result.urls == [second]
 
-    def test_tampered_resume_cursor_is_rejected(self, monkeypatch: Any) -> None:
+    def test_tampered_resume_cursor_is_rejected(self) -> None:
         # A poisoned Redis cursor must never be fetched with the token-bearing session.
-        manager = _FakeResumableManager(UbidotsResumeConfig(next_url="https://evil.example.com/steal"))
-        with pytest.raises(ValueError, match="off the configured Ubidots host"):
-            self._collect(manager, monkeypatch, {})
+        result = _run(
+            "devices",
+            _serve_pages({}),
+            resume_state=UbidotsResumeConfig(next_url="https://evil.example.com/steal"),
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "off the configured Ubidots host" in str(result.raised)
+        assert result.requests == []
 
 
 class TestGetValuesRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: Mapping[str, tuple[list[dict], Optional[str]]],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-        logger: Any = None,
-    ) -> list[dict]:
-        _fake_transport(monkeypatch, pages)
-        rows: list[dict] = []
-        for batch in get_values_rows(
-            api_token="BBUS-token",
-            api_base_url=None,
-            logger=logger or MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_fans_out_per_variable_and_injects_variable_id(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_fans_out_per_variable_and_injects_variable_id(self) -> None:
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None),
             _values_url("var1"): ([{"timestamp": 2, "value": 1.0}], None),
             _values_url("var2"): ([{"timestamp": 3, "value": 2.0}], None),
         }
-        rows = self._collect(manager, monkeypatch, pages)
+        result = _run(VALUES_ENDPOINT, _serve_pages(pages))
         # The dot payload has no variable field — injection is what makes the composite key unique.
-        assert rows == [
+        assert result.rows == [
             {"timestamp": 2, "value": 1.0, "variable": "var1"},
             {"timestamp": 3, "value": 2.0, "variable": "var2"},
         ]
         # Each fully synced variable is checkpointed so a resumed job skips past it.
-        assert [s.completed_variable_ids for s in manager.saved] == [["var1"], ["var1", "var2"]]
+        assert [s.completed_variable_ids for s in result.saved_states] == [["var1"], ["var1", "var2"]]
 
-    def test_incremental_watermark_is_passed_as_start(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_incremental_watermark_is_passed_as_start(self) -> None:
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             # A URL without &start= is absent from this map, so dropping the server-side filter
-            # would KeyError here rather than silently re-fetching full history.
+            # would fail the run here rather than silently re-fetching full history.
             _values_url("var1", start=1700000000000): ([{"timestamp": 1700000000001}], None),
         }
-        rows = self._collect(
-            manager,
-            monkeypatch,
-            pages,
+        result = _run(
+            VALUES_ENDPOINT,
+            _serve_pages(pages),
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000000,
         )
-        assert rows == [{"timestamp": 1700000000001, "variable": "var1"}]
+        assert result.raised is None
+        assert result.rows == [{"timestamp": 1700000000001, "variable": "var1"}]
 
-    def test_resume_skips_completed_and_continues_current_variable(self, monkeypatch: Any) -> None:
+    def test_resume_skips_completed_and_continues_current_variable(self) -> None:
         var2_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var2/values?page=2&page_size=200"
-        manager = _FakeResumableManager(
-            UbidotsResumeConfig(next_url=var2_page2, current_variable_id="var2", completed_variable_ids=["var1"])
-        )
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}, {"id": "var3"}], None),
             # var1 is complete and var2 resumes mid-pagination — their first-page URLs must never
@@ -184,51 +159,57 @@ class TestGetValuesRows:
             var2_page2: ([{"timestamp": 2}], None),
             _values_url("var3"): ([{"timestamp": 3}], None),
         }
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [
+        result = _run(
+            VALUES_ENDPOINT,
+            _serve_pages(pages),
+            resume_state=UbidotsResumeConfig(
+                next_url=var2_page2, current_variable_id="var2", completed_variable_ids=["var1"]
+            ),
+        )
+        assert result.rows == [
             {"timestamp": 2, "variable": "var2"},
             {"timestamp": 3, "variable": "var3"},
         ]
 
-    def test_mid_variable_state_saved_after_yield(self, monkeypatch: Any) -> None:
+    def test_mid_variable_state_saved_after_yield(self) -> None:
         page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var1/values?page=2&page_size=200"
-        manager = _FakeResumableManager()
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             _values_url("var1"): ([{"timestamp": 2}], page2),
             page2: ([{"timestamp": 1}], None),
         }
-        self._collect(manager, monkeypatch, pages)
-        mid = manager.saved[0]
+        result = _run(VALUES_ENDPOINT, _serve_pages(pages))
+        mid = result.saved_states[0]
         assert (mid.next_url, mid.current_variable_id, mid.completed_variable_ids) == (page2, "var1", [])
-        done = manager.saved[-1]
+        done = result.saved_states[-1]
         assert (done.next_url, done.current_variable_id, done.completed_variable_ids) == (None, None, ["var1"])
 
-    def test_page_cap_stops_pagination_and_warns(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(ubidots, "MAX_VALUES_PAGES_PER_VARIABLE", 1)
+    def test_page_cap_stops_pagination_and_warns(self) -> None:
         page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var1/values?page=2&page_size=200"
-        manager = _FakeResumableManager()
         logger = MagicMock()
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
-            # page2 is absent from the map — fetching past the cap would KeyError.
+            # page2 is absent from the map — fetching past the cap would fail the run.
             _values_url("var1"): ([{"timestamp": 2}], page2),
         }
-        rows = self._collect(manager, monkeypatch, pages, logger=logger)
-        assert rows == [{"timestamp": 2, "variable": "var1"}]
+        with patch.object(ubidots, "MAX_VALUES_PAGES_PER_VARIABLE", 1):
+            result = _run(VALUES_ENDPOINT, _serve_pages(pages), logger=logger)
+        assert result.raised is None
+        assert result.rows == [{"timestamp": 2, "variable": "var1"}]
         logger.warning.assert_called_once()
         # The capped variable still counts as complete so the sync can finish.
-        assert manager.saved[-1].completed_variable_ids == ["var1"]
+        assert result.saved_states[-1].completed_variable_ids == ["var1"]
 
-    def test_poisoned_next_link_is_rejected(self, monkeypatch: Any) -> None:
+    def test_poisoned_next_link_is_rejected(self) -> None:
         # A next link off the configured host must stop the sync, not be followed with the token.
-        manager = _FakeResumableManager()
         pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             _values_url("var1"): ([{"timestamp": 2}], "https://evil.example.com/next"),
         }
-        with pytest.raises(ValueError, match="off the configured Ubidots host"):
-            self._collect(manager, monkeypatch, pages)
+        result = _run(VALUES_ENDPOINT, _serve_pages(pages))
+        assert isinstance(result.raised, ValueError)
+        assert "off the configured Ubidots host" in str(result.raised)
+        assert {request.origin for request in result.requests} == {DEFAULT_UBIDOTS_API_BASE_URL}
 
 
 class TestFetchPage:
@@ -337,34 +318,20 @@ class TestHelpers:
 
 
 class TestCheckAccess:
-    def _session(self, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Ubidots returned HTTP 500"),
+            ("ok", 200, 200, None),
+            ("unauthorized", 401, 401, None),
+            ("forbidden", 403, 403, None),
+            ("server_error", 500, 500, "Ubidots returned HTTP 500"),
         ]
     )
-    def test_status_mapping(
-        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with patch.object(ubidots, "make_tracked_session", return_value=self._session(response)):
+    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert check_access("BBUS-token", None) == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(ubidots, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             status, message = check_access("BBUS-token", None)
         assert status == 0
         assert message is not None and "boom" in message
@@ -380,10 +347,7 @@ class TestCheckAccess:
     def test_validate_credentials(
         self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with patch.object(ubidots, "make_tracked_session", return_value=self._session(response)):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("BBUS-token", None) == (expected_valid, expected_message)
 
     def test_validate_credentials_rejects_bad_base_url(self) -> None:
@@ -461,128 +425,99 @@ class TestGetValuesRowsV2:
 
     @staticmethod
     def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
         variable_pages: Mapping[str, tuple[list[dict], Optional[str]]],
         series_by_variable: Mapping[str, list[dict]],
-        bodies: list[dict] | None = None,
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-        logger: Any = None,
-    ) -> list[dict]:
-        def fake_fetch_page(session: Any, url: str, log: Any) -> tuple[list[dict], Optional[str]]:
-            return variable_pages[url]
-
+        resume_state: UbidotsResumeConfig | None = None,
+        **kwargs: Any,
+    ) -> DriveResult:
         # Dots live in the newest window only; every older window comes back empty, which is what a
         # real variable with a finite history looks like to the descending walk.
         served: set[str] = set()
+        variables = _serve_pages(variable_pages)
 
-        def fake_fetch_series(session: Any, url: str, body: dict, log: Any) -> list[dict]:
-            if bodies is not None:
-                bodies.append(body)
-            variable_id = body["variables"][0]["variable"]
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.method != "POST":
+                return variables(request)
+            variable_id = request.json()["variables"][0]["variable"]
+            if variable_id not in series_by_variable:
+                raise UnexpectedRequest(f"no series scripted for {variable_id}")
             entries = series_by_variable[variable_id]
             if variable_id in served:
-                return [{**entry, "results": []} for entry in entries]
+                return ScriptedResponse(json={"results": [{**entry, "results": []} for entry in entries]})
             served.add(variable_id)
-            return entries
+            return ScriptedResponse(json={"results": entries})
 
-        monkeypatch.setattr(ubidots, "_fetch_page", fake_fetch_page)
-        monkeypatch.setattr(ubidots, "_fetch_data_series", fake_fetch_series)
-        monkeypatch.setattr(ubidots, "make_tracked_session", lambda **kwargs: MagicMock())
+        return _run(VALUES_ENDPOINT, respond, resume_state=resume_state, api_version=UBIDOTS_API_VERSION_V2_0, **kwargs)
 
-        rows: list[dict] = []
-        for batch in get_values_rows_v2(
-            api_token="BBUS-token",
-            api_base_url=None,
-            logger=logger or MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ):
-            rows.extend(batch)
-        return rows
+    @staticmethod
+    def _bodies(result: DriveResult) -> list[dict]:
+        return [request.json() for request in result.requests if request.method == "POST"]
 
-    def test_fans_out_per_variable_and_injects_variable_id(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(
-            manager,
-            monkeypatch,
+    def test_fans_out_per_variable_and_injects_variable_id(self) -> None:
+        result = self._collect(
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None)},
             series_by_variable={
                 "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 2, "value": 1.0}]}],
                 "var2": [{"variable": {"id": "var2"}, "code": 200, "results": [{"timestamp": 3, "value": 2.0}]}],
             },
         )
-        assert rows == [
+        assert result.rows == [
             {"timestamp": 2, "value": 1.0, "variable": "var1"},
             {"timestamp": 3, "value": 2.0, "variable": "var2"},
         ]
-        completions = [s.completed_variable_ids for s in manager.saved if s.current_window_end is None]
+        completions = [s.completed_variable_ids for s in result.saved_states if s.current_window_end is None]
         assert completions == [["var1"], ["var1", "var2"]]
 
-    def test_incremental_walk_floors_at_the_watermark(self, monkeypatch: Any) -> None:
+    def test_incremental_walk_floors_at_the_watermark(self) -> None:
         # Empty windows must not cut an incremental run short: the range down to the watermark is
         # known and has to be covered even where the variable went quiet.
         watermark = self.NOW_MS - int(2.5 * VALUES_WINDOW_MS)
-        bodies: list[dict] = []
-        rows = self._collect(
-            _FakeResumableManager(),
-            monkeypatch,
+        result = self._collect(
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
             series_by_variable={
                 "var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": watermark + 1}]}]
             },
-            bodies=bodies,
             should_use_incremental_field=True,
             db_incremental_field_last_value=watermark,
         )
-        assert rows == [{"timestamp": watermark + 1, "variable": "var1"}]
+        bodies = self._bodies(result)
+        assert result.rows == [{"timestamp": watermark + 1, "variable": "var1"}]
         assert len(bodies) == 3
         assert bodies[0]["end"] == self.NOW_MS
         assert bodies[-1]["start"] == watermark
         assert all(body["start"] >= watermark for body in bodies)
 
-    def test_resume_continues_variable_from_saved_window_end(self, monkeypatch: Any) -> None:
+    def test_resume_continues_variable_from_saved_window_end(self) -> None:
         resume_end = self.NOW_MS - 5 * VALUES_WINDOW_MS
-        manager = _FakeResumableManager(UbidotsResumeConfig(current_variable_id="var1", current_window_end=resume_end))
-        bodies: list[dict] = []
-        self._collect(
-            manager,
-            monkeypatch,
+        result = self._collect(
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
             series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 200, "results": [{"timestamp": 1}]}]},
-            bodies=bodies,
+            resume_state=UbidotsResumeConfig(current_variable_id="var1", current_window_end=resume_end),
         )
         # Resuming from `now` instead would re-fetch every window the interrupted run already did.
-        assert bodies[0]["end"] == resume_end
-        assert manager.saved[0].current_window_end == resume_end - VALUES_WINDOW_MS
+        assert self._bodies(result)[0]["end"] == resume_end
+        assert result.saved_states[0].current_window_end == resume_end - VALUES_WINDOW_MS
 
-    def test_variable_with_error_code_is_skipped_but_completed(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
+    def test_variable_with_error_code_is_skipped_but_completed(self) -> None:
         logger = MagicMock()
-        rows = self._collect(
-            manager,
-            monkeypatch,
+        result = self._collect(
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}], None)},
             # A per-variable 403/404 arrives as a non-200 code inside the 200 envelope.
             series_by_variable={"var1": [{"variable": {"id": "var1"}, "code": 403, "results": []}]},
             logger=logger,
         )
-        assert rows == []
+        assert result.rows == []
         logger.warning.assert_called_once()
-        assert manager.saved[-1].completed_variable_ids == ["var1"]
+        assert result.saved_states[-1].completed_variable_ids == ["var1"]
 
-    def test_resume_skips_completed_variables(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(UbidotsResumeConfig(completed_variable_ids=["var1"]))
-        rows = self._collect(
-            manager,
-            monkeypatch,
+    def test_resume_skips_completed_variables(self) -> None:
+        result = self._collect(
             variable_pages={VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None)},
             # var1 is already complete — its series must never be requested on resume.
             series_by_variable={"var2": [{"variable": {"id": "var2"}, "code": 200, "results": [{"timestamp": 9}]}]},
+            resume_state=UbidotsResumeConfig(completed_variable_ids=["var1"]),
         )
-        assert rows == [{"timestamp": 9, "variable": "var2"}]
+        assert result.rows == [{"timestamp": 9, "variable": "var2"}]
 
 
 class TestFetchDataSeries:

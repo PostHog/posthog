@@ -31,9 +31,17 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 import { openDismissReportDialog } from 'products/signals/frontend/inbox/components/shell/DismissReportDialog'
 import { openResolveReportDialog } from 'products/signals/frontend/inbox/components/shell/ResolveReportDialog'
+import {
+    TodayReportList,
+    TodayReportSnapshot,
+    captureTodayReportAction,
+    captureTodayReportOpened,
+    captureTodayReportsImpressed,
+} from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/today/frontend/generated/api'
 import type {
     BriefingApi,
@@ -515,6 +523,31 @@ function previewsBySurface(
     return { briefing: previews('briefing'), sidebar: previews('sidebar') }
 }
 
+function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
+    return {
+        reportId: report.id,
+        priority: report.priority ?? null,
+        hasPr: reportPullRequests(report).length > 0,
+        signalCount: report.signal_count,
+        sourceProducts: report.source_products ?? [],
+    }
+}
+
+function briefingItemSnapshot(item: BriefingItemApi, reportId: string): TodayReportSnapshot {
+    return {
+        reportId,
+        priority: item.report?.priority ?? null,
+        hasPr: !!item.report?.pull_request_url,
+        signalCount: item.report?.signal_count ?? null,
+        sourceProducts: item.source_product ? [item.source_product] : [],
+    }
+}
+
+interface TodayRankedReport {
+    report: TodayReportSnapshot
+    rank: number
+}
+
 export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
@@ -896,6 +929,49 @@ export const todayLogic = kea<todayLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        // The ranking dataset reads these as the home's exposure log: one impression per report per mount,
+        // like the Inbox list.
+        const impress = (list: TodayReportList, ranked: TodayRankedReport[], listSize: number): void => {
+            const impressed: Set<string> = (cache.impressedReportIds ??= new Set<string>())
+            const fresh = ranked.filter(({ report }) => !impressed.has(report.reportId))
+            if (fresh.length === 0) {
+                return
+            }
+            fresh.forEach(({ report }) => impressed.add(report.reportId))
+            captureTodayReportsImpressed({
+                list,
+                reports: fresh.map(({ report }) => report),
+                ranks: fresh.map(({ rank }) => rank),
+                listSize,
+            })
+        }
+        const captureImpressions = (): void => {
+            if (values.useSampleData) {
+                return
+            }
+            if (values.showPersonalBriefing) {
+                const ranked = values.briefingItems.flatMap((item) => {
+                    const reportId = itemReportId(item)
+                    return reportId ? [{ report: briefingItemSnapshot(item, reportId), rank: item.rank }] : []
+                })
+                impress('briefing', ranked, values.briefingItems.length)
+            } else if (!values.personalBriefingLoading) {
+                // The team list only stands in for the briefing, so it counts once the briefing is known to be absent.
+                impress(
+                    'briefing',
+                    values.reports.map((report, index) => ({ report: signalReportSnapshot(report), rank: index + 1 })),
+                    values.reports.length
+                )
+            }
+            impress(
+                'sidebar_more',
+                values.sidebarMoreReports.map((report, index) => ({
+                    report: signalReportSnapshot(report),
+                    rank: index + 1,
+                })),
+                values.sidebarMoreReports.length
+            )
+        }
         const schedulePoll = (): void => {
             cache.disposables.add(() => {
                 const poll = window.setTimeout(() => actions.pollBriefing(), BRIEFING_POLL_MS)
@@ -949,6 +1025,7 @@ export const todayLogic = kea<todayLogicType>([
                 }
             },
             loadPersonalBriefingSuccess: ({ personalBriefing }) => {
+                captureImpressions()
                 if (!personalBriefing) {
                     return
                 }
@@ -975,6 +1052,7 @@ export const todayLogic = kea<todayLogicType>([
                 })
             },
             loadPersonalBriefingFailure: ({ errorObject }) => {
+                captureImpressions()
                 // A poll that fails while the briefing is written keeps polling; a 404 means there is no
                 // briefing for this person, so the report list stays.
                 const notFound = errorObject instanceof ApiError && errorObject.status === 404
@@ -1006,6 +1084,16 @@ export const todayLogic = kea<todayLogicType>([
                 actions.itemOpened(item, surface)
             },
             itemOpened: ({ item, surface }) => {
+                const reportId = itemReportId(item)
+                if (reportId) {
+                    captureTodayReportOpened({
+                        report: briefingItemSnapshot(item, reportId),
+                        list: 'briefing',
+                        rank: item.rank,
+                        listSize: values.briefingItems.length,
+                        source: surface,
+                    })
+                }
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today item opened', {
                     group: item.group,
@@ -1022,6 +1110,7 @@ export const todayLogic = kea<todayLogicType>([
                     // pinned: analytics event name and properties. Renaming them breaks dashboards.
                     posthog.capture('today report previewed', {
                         list: 'personal',
+                        report_id: itemReportId(item),
                         source: item.source,
                         reason: item.reason,
                         rank: item.rank,
@@ -1043,6 +1132,7 @@ export const todayLogic = kea<todayLogicType>([
                     if (rank > 0) {
                         posthog.capture('today report previewed', {
                             list,
+                            report_id: reports[rank - 1].id,
                             rank,
                             has_metric: !!reports[rank - 1].metrics?.length,
                             surface,
@@ -1061,6 +1151,7 @@ export const todayLogic = kea<todayLogicType>([
                 if (values.useSampleData) {
                     return
                 }
+                captureImpressions()
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today home loaded', {
                     report_count: topReports.results.length,
@@ -1097,9 +1188,16 @@ export const todayLogic = kea<todayLogicType>([
                 }
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today report state changed', {
+                    report_id: target.reportId,
                     verdict,
                     surface,
                     closed_pull_request: target.hasOpenPullRequest,
+                })
+                captureTodayReportAction({
+                    reportId: target.reportId,
+                    actionType: verdict,
+                    todaySurface: surface,
+                    extra: { closed_pull_request: target.hasOpenPullRequest },
                 })
                 // A reason is optional, so the verdict is one click and the reason is one more.
                 lemonToast.success(target.hasOpenPullRequest ? copy.successClosingPullRequest : copy.success, {
@@ -1119,7 +1217,13 @@ export const todayLogic = kea<todayLogicType>([
                     return
                 }
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today report review left', { surface })
+                posthog.capture('today report review left', { report_id: reportId, surface })
+                captureTodayReportAction({
+                    reportId,
+                    actionType: 'remove_suggested_reviewer',
+                    todaySurface: surface,
+                    extra: { suggested_reviewer_uuid: values.user?.uuid },
+                })
                 lemonToast.success('Removed you from the reviewers')
             },
             addReportVerdictReason: ({ target, verdict }) => {
@@ -1173,6 +1277,7 @@ export const todayLogic = kea<todayLogicType>([
                 posthog.capture('today more reports clicked', { shown_report_count: values.shownReportIds.length })
             },
             loadMoreReportsSuccess: () => {
+                captureImpressions()
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today more reports loaded', {
                     report_count: values.sidebarMoreReports.length,
@@ -1191,6 +1296,16 @@ export const todayLogic = kea<todayLogicType>([
                     report_id: report.id,
                     priority: report.priority ?? null,
                     has_pr: !!report.implementation_pr_url,
+                    source,
+                })
+                const list: TodayReportList = source === 'sidebar_more' ? 'sidebar_more' : 'briefing'
+                const listReports = list === 'sidebar_more' ? values.sidebarMoreReports : values.reports
+                const rank = listReports.findIndex((candidate) => candidate.id === report.id) + 1
+                captureTodayReportOpened({
+                    report: signalReportSnapshot(report),
+                    list,
+                    rank: rank > 0 ? rank : null,
+                    listSize: listReports.length,
                     source,
                 })
             },

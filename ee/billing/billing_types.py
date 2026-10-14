@@ -1,6 +1,6 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Optional, TypedDict, cast, get_args
+from typing import Any, Literal, NotRequired, Optional, TypedDict, cast, get_args
 
 
 class BillingProvider(StrEnum):
@@ -147,6 +147,8 @@ class CustomerProduct(TypedDict):
     projected_amount_usd: Decimal
     usage_key: str
     addons: list[CustomerProductAddon]
+    # Billing refuses a customer billing limit for this product. Older billing omits the key.
+    no_billing_limit: NotRequired[bool]
 
 
 class LicenseInfo(TypedDict):

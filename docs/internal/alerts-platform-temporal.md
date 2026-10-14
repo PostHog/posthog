@@ -468,7 +468,7 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
+It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
