@@ -61,9 +61,11 @@ export function localFieldExpression(definition: BILocalFieldDefinition): string
     const expression = `(${definition.expression})`
     const cases = definition.groups.flatMap((group) => [
         `toString(${expression}) IN (${group.values.map(escapeHogQLString).join(', ')})`,
-        escapeHogQLString(group.name),
+        escapeHogQLString(definition.preserveUngrouped ? JSON.stringify(['group', group.name]) : group.name),
     ])
-    const fallback = definition.preserveUngrouped ? `toString(${expression})` : escapeHogQLString(definition.other)
+    const fallback = definition.preserveUngrouped
+        ? `toJSONString(tuple('value', toString(${expression})))`
+        : escapeHogQLString(definition.other)
     return `if(${expression} IS NULL, NULL, multiIf(${[...cases, fallback].join(', ')}))`
 }
 

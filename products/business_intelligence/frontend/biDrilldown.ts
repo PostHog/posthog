@@ -206,7 +206,14 @@ export function getBIDrillQueries(
             id += ':'
         }
         usedIds.add(id)
-        return { ...filter, field: { ...filter.field, id } }
+        return {
+            ...filter,
+            field: {
+                ...filter.field,
+                id,
+                localFieldId: filter.field.localFieldId ?? (filter.field.localDefinition ? filter.field.id : undefined),
+            },
+        }
     })
     const existingGroup = saved.rowFilterGroup
         ? normalizeBIConditionGroup(

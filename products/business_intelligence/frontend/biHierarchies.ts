@@ -62,6 +62,7 @@ export function getBIHierarchyDrills(node: BIVisualizationNode, selection: BIDri
     }
     const selected = new Set(selection.filters.map((filter) => hierarchyFieldKey(filter.field)))
     const dimensions = [...node.config.rows, ...node.config.columns]
+    const previousDefaults = buildBIQuery(node.config)?.node
     return (node.config.hierarchies ?? []).flatMap((hierarchy): BIHierarchyDrill[] => {
         if (hierarchyError(hierarchy, node.config)) {
             return []
@@ -107,12 +108,12 @@ export function getBIHierarchyDrills(node: BIVisualizationNode, selection: BIDri
                     chartSettings: mergeBIChartSettings(
                         node.chartSettings,
                         built.chartSettings,
-                        buildBIQuery(node.config)?.node.chartSettings
+                        previousDefaults?.chartSettings
                     ),
                     tableSettings: mergeBITableSettings(
                         node.tableSettings,
                         built.tableSettings,
-                        buildBIQuery(node.config)?.node.tableSettings
+                        previousDefaults?.tableSettings
                     ),
                     source: { ...built.source, filters: filtered.source.filters, variables: filtered.source.variables },
                 },
@@ -163,6 +164,7 @@ export function getBIHierarchyParent(node: BIVisualizationNode): BIVisualization
         hierarchyDrillPath: path.slice(0, -1),
     }
     const built = buildBIQuery(config)?.node
+    const previousDefaults = buildBIQuery(node.config)?.node
     return built
         ? {
               ...built,
@@ -171,12 +173,12 @@ export function getBIHierarchyParent(node: BIVisualizationNode): BIVisualization
               chartSettings: mergeBIChartSettings(
                   node.chartSettings,
                   built.chartSettings,
-                  buildBIQuery(node.config)?.node.chartSettings
+                  previousDefaults?.chartSettings
               ),
               tableSettings: mergeBITableSettings(
                   node.tableSettings,
                   built.tableSettings,
-                  buildBIQuery(node.config)?.node.tableSettings
+                  previousDefaults?.tableSettings
               ),
               source: { ...built.source, filters: node.source.filters, variables: node.source.variables },
           }

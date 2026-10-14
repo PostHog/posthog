@@ -7,10 +7,15 @@ import { BIConfig, BIVisualizationNode } from '~/queries/schema/schema-business-
 import { getBIDrillSelection } from './biDrilldown'
 import { getBIFieldPillLabel, getBIResultDimensions } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
-import { getBIMemberLabel } from './biMemberAliases'
+import { createBIMemberLabelLookup } from './biMemberAliases'
+
+export function createBIScatterRowKey(config: BIConfig, columns: string[]): (row: unknown[]) => string {
+    const indices = getBIResultDimensions(config).map(({ column }) => columns.indexOf(column))
+    return (row) => JSON.stringify(indices.map((index) => row[index]))
+}
 
 export function getBIScatterRowKey(config: BIConfig, columns: string[], row: unknown[]): string {
-    return JSON.stringify(getBIResultDimensions(config).map(({ column }) => row[columns.indexOf(column)]))
+    return createBIScatterRowKey(config, columns)(row)
 }
 
 export function buildBIScatterSeries(
@@ -24,6 +29,15 @@ export function buildBIScatterSeries(
         return []
     }
     const dimensions = getBIResultDimensions(query.config)
+    const memberLabel = createBIMemberLabelLookup(query.config)
+    const indexedDimensions = dimensions.map(({ field, column }) => ({ field, index: columns.indexOf(column) }))
+    const rowKeys = rows.map((row) => JSON.stringify(indexedDimensions.map(({ index }) => row[index])))
+    const rowLabels = rows.map(
+        (row) =>
+            indexedDimensions
+                .map(({ field, index }) => `${getBIFieldPillLabel(field)}: ${memberLabel(field, row[index])}`)
+                .join(' · ') || 'All matching rows'
+    )
     const colorDimension = dimensions.find(({ field }) => field.id === query.config.colorBy)
     const colorColumn = colorDimension?.column
     const colorIndex = colorColumn ? columns.indexOf(colorColumn) : -1
@@ -58,7 +72,7 @@ export function buildBIScatterSeries(
                     label:
                         colorIndex < 0
                             ? measure.settings?.display?.label || measure.column.name
-                            : getBIMemberLabel(query.config, colorDimension!.field, category),
+                            : memberLabel(colorDimension!.field, category),
                     color:
                         query.config.colorBy === null
                             ? getSeriesColor(0)
@@ -68,17 +82,11 @@ export function buildBIScatterSeries(
                     points: [],
                 })
             }
-            const label = dimensions
-                .map(({ field, column }) => {
-                    const value = row[columns.indexOf(column)]
-                    return `${getBIFieldPillLabel(field)}: ${getBIMemberLabel(query.config, field, value)}`
-                })
-                .join(' · ')
             output.get(key)!.points.push({
                 x,
                 y,
-                label: label || 'All matching rows',
-                meta: { settings: measure.settings, rowIndex, rowKey: getBIScatterRowKey(query.config, columns, row) },
+                label: rowLabels[rowIndex],
+                meta: { settings: measure.settings, rowIndex, rowKey: rowKeys[rowIndex] },
             })
         })
     }
@@ -86,11 +94,12 @@ export function buildBIScatterSeries(
 }
 
 export function keepBIScatterRows(config: BIConfig, records: Record<string, unknown>[]): BIConfig | null {
-    if (!records.length || records.length > 200 || !getBIResultDimensions(config).length) {
+    const dimensionCount = getBIResultDimensions(config).length
+    if (!records.length || records.length > 200 || !dimensionCount) {
         return null
     }
     const selections = records.map((record) => getBIDrillSelection(config, record))
-    if (selections.some((selection) => !selection?.filters.length)) {
+    if (selections.some((selection) => selection.filters.length !== dimensionCount)) {
         return null
     }
     const filters = [...config.filters]
@@ -102,7 +111,15 @@ export function keepBIScatterRows(config: BIConfig, records: Record<string, unkn
                 id += ':'
             }
             used.add(id)
-            filters.push({ ...filter, field: { ...filter.field, id } })
+            filters.push({
+                ...filter,
+                field: {
+                    ...filter.field,
+                    id,
+                    localFieldId:
+                        filter.field.localFieldId ?? (filter.field.localDefinition ? filter.field.id : undefined),
+                },
+            })
             return id
         })
         return { operator: 'AND' as const, filters: ids, groups: [] }

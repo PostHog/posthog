@@ -17,11 +17,49 @@ export function getBIMemberAlias(config: BIConfig, field: BIField, value: unknow
         ?.aliases.find((alias) => alias.value === raw)?.label
 }
 
+function defaultMemberLabel(field: BIField, value: unknown): string {
+    const definition = field.localDefinition
+    if (typeof value === 'string' && definition?.kind === 'groups' && definition.preserveUngrouped) {
+        try {
+            const decoded: unknown = JSON.parse(value)
+            if (Array.isArray(decoded) && decoded.length === 2 && typeof decoded[1] === 'string') {
+                if (decoded[0] === 'group') {
+                    return decoded[1]
+                }
+                if (decoded[0] === 'value') {
+                    return definition.groups.some((group) => group.name === decoded[1])
+                        ? `${decoded[1]} (ungrouped)`
+                        : decoded[1] === ''
+                          ? '(empty string)'
+                          : decoded[1]
+                }
+            }
+        } catch {
+            // Older saved results may still contain unencoded member labels.
+        }
+    }
+    return value == null ? '(no value)' : value === '' ? '(empty string)' : String(value)
+}
+
+export function createBIMemberLabelLookup(config: BIConfig): (field: BIField, value: unknown) => string {
+    const aliases = new Map<string, Map<string | null, string>>()
+    for (const entry of config.memberAliases ?? []) {
+        const key = biMemberFieldKey(entry.field)
+        if (!aliases.has(key)) {
+            aliases.set(key, new Map(entry.aliases.map(({ value, label }) => [value, label])))
+        }
+    }
+    const fieldAliases = new Map<BIField, Map<string | null, string> | undefined>()
+    return (field, value) => {
+        if (!fieldAliases.has(field)) {
+            fieldAliases.set(field, aliases.get(biMemberFieldKey(field)))
+        }
+        return fieldAliases.get(field)?.get(value == null ? null : String(value)) ?? defaultMemberLabel(field, value)
+    }
+}
+
 export function getBIMemberLabel(config: BIConfig, field: BIField, value: unknown): string {
-    return (
-        getBIMemberAlias(config, field, value) ??
-        (value == null ? '(no value)' : value === '' ? '(empty string)' : String(value))
-    )
+    return getBIMemberAlias(config, field, value) ?? defaultMemberLabel(field, value)
 }
 
 export function getBIMemberOptions(
@@ -36,8 +74,9 @@ export function getBIMemberOptions(
         aliases?.aliases.flatMap(({ value, label }) =>
             value !== null && label.toLowerCase().includes(search.toLowerCase()) ? [value] : []
         ) ?? []
+    const label = createBIMemberLabelLookup(config)
     return [...new Set([...selected, ...values, ...matches])].map((value) => ({
         key: value,
-        label: getBIMemberLabel(config, field, value),
+        label: label(field, value),
     }))
 }

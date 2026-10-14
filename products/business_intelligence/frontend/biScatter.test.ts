@@ -176,6 +176,9 @@ it('keeps exact selected tuples AND existing OR restrictions, including null and
     expect(evaluate({ item: null, segment: '', channel: 'direct' })).toBe(true)
     expect(buildBIQuery(selected)?.query).toContain('IS NULL')
     expect(original.filters).toHaveLength(2)
+    for (const unsupported of [undefined, ['X'], { value: 'X' }, NaN]) {
+        expect(keepBIScatterRows(config, [{ [itemColumn]: 'A', [segmentColumn]: unsupported }])).toBeNull()
+    }
     expect(keepBIScatterRows(config, [])).toBeNull()
     expect(keepBIScatterRows(config, Array(201).fill({ [itemColumn]: 'A' }))).toBeNull()
 })
