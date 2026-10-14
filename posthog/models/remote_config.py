@@ -46,6 +46,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
+
+class RemoteConfigTokenChangeSyncError(Exception):
+    pass
+
+
 # Sorted set tracking each team's array/config.json cache-entry expiry, so the hourly
 # refresh task can re-stamp entries before the TTL lapses and reads fall through to S3.
 REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET = "remote_config_cache_expiry"
@@ -408,9 +413,11 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
+    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False) -> bool:
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint.
+
+        Returns False when the cache write failed. The failure is logged and captured, not raised.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
@@ -426,10 +433,11 @@ class RemoteConfig(UUIDTModel):
                 except Exception as e:
                     logger.exception(f"Failed to refresh hypercache TTL for team {self.team_id}")
                     capture_exception(e)
+                    return False
 
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
-                return
+                return True
 
             self.config = config
             self.synced_at = timezone.now()
@@ -438,15 +446,17 @@ class RemoteConfig(UUIDTModel):
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
                 # instead of rebuilding via load_fn.
-                RemoteConfig.get_hypercache().update_cache(self.team, data=config)
+                cache_written = RemoteConfig.get_hypercache().update_cache(self.team, data=config)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
+                cache_written = False
 
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
+            return cache_written
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
@@ -462,17 +472,26 @@ class RemoteConfig(UUIDTModel):
         unchanged fast path, which writes Redis only. The new token would then have
         no object-storage copy to fall back on, and the old token would keep serving
         until its own entries expire.
+
+        Raises RemoteConfigTokenChangeSyncError when the old token's entry was not evicted or
+        the new token's entry was not written, so that the task retries.
         """
+        evicted = True
         try:
             RemoteConfig.get_hypercache().delete_cache_entry(old_token)
         except Exception as e:
             # A failed eviction leaves the revoked token serving. The new token still needs
-            # its durable copy, so the forced sync runs anyway.
+            # its durable copy, so the forced sync runs before the failure is raised.
             logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
             capture_exception(e)
+            evicted = False
 
         self._purge_cdn(token=old_token)
-        self.sync(force=True)
+        written = self.sync(force=True)
+        if not evicted or not written:
+            raise RemoteConfigTokenChangeSyncError(
+                f"Token change sync for team {self.team_id} is incomplete: evicted={evicted}, written={written}"
+            )
 
     def _purge_cdn(self, token: str | None = None):
         if (

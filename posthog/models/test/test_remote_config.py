@@ -13,7 +13,11 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    RemoteConfig,
+    RemoteConfigTokenChangeSyncError,
+)
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -891,6 +895,19 @@ class TestRemoteConfigTokenChange(_RemoteConfigBase):
         purged = [file["url"] for call in mock_post.call_args_list for file in call.kwargs["json"]["files"]]
         assert f"https://cdn.posthog.com/array/{self.old_token}/config" in purged
         assert "https://cdn.posthog.com/array/phc_new_token/config" in purged
+
+    @parameterized.expand(
+        [
+            ("old_token_eviction", "posthog.storage.object_storage.delete"),
+            ("new_token_durable_write", "posthog.storage.object_storage.write"),
+        ]
+    )
+    def test_token_change_raises_when_a_tier_fails(self, _name, failing_call):
+        with patch(failing_call, side_effect=Exception("object storage unavailable")):
+            with pytest.raises(RemoteConfigTokenChangeSyncError):
+                self.remote_config.sync_after_token_change(self.old_token)
+
+        assert self.hypercache.get_from_cache_with_source("phc_new_token")[1] == "redis"
 
 
 class TestRemoteConfigRaceCondition(_RemoteConfigBase):

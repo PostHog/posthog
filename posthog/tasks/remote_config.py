@@ -5,7 +5,7 @@ from django.conf import settings
 import structlog
 from celery import shared_task
 
-from posthog.models.remote_config import RemoteConfig
+from posthog.models.remote_config import RemoteConfig, RemoteConfigTokenChangeSyncError
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.remote_config_cache import cleanup_stale_expiry_tracking, get_cache_stats, refresh_expiring_caches
@@ -19,6 +19,9 @@ logger = structlog.get_logger(__name__)
     queue=CeleryQueue.DEFAULT.value,
     soft_time_limit=300,
     time_limit=360,
+    autoretry_for=(RemoteConfigTokenChangeSyncError,),
+    max_retries=3,
+    retry_backoff=30,
 )
 @skip_team_scope_audit
 def update_team_remote_config(
