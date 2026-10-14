@@ -386,6 +386,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
 
+    def test_a_redispatched_batch_does_not_share_the_slot_its_earlier_run_still_holds(self) -> None:
+        configuration = self._configuration()
+        # The earlier execution of this same batch, whose query outlived its activity.
+        admit_evaluation_slots(
+            [f"{self.team.id}:{self._slot()}"], limit=1, expires_at=time.time() + 60, key=INFLIGHT_KEY
+        )
+
+        with override_settings(ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES=1):
+            deferred, query = self._run(configuration)
+
+        assert (deferred.outcomes, query.called) == ((), False)
+
     def test_a_batch_waits_for_room_in_the_fleet_pool_and_frees_its_slot_when_done(self) -> None:
         configuration = self._configuration()
         admit_evaluation_slots(["another-team:slot"], limit=1, expires_at=time.time() + 60, key=INFLIGHT_KEY)

@@ -20,7 +20,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
@@ -107,6 +107,9 @@ BATCH_QUERY_BUDGET_SECONDS = 25
 MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
+# With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
+# query never runs after its slot frees for another batch.
+CHECKPOINT_QUERY_SECONDS = 10
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
 # Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
@@ -700,7 +703,8 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     # One slot per batch, because a batch runs its cohort queries one after another, so the batches
     # in flight bound the parallel run's concurrent queries across the fleet. A batch the pool turns
     # away records nothing, so its checks stay due and a later tick finds them again.
-    member = f"{team_id}:{slot}"
+    # Unique per execution: a redispatch of a batch whose old query still runs must hold its own slot.
+    member = f"{team_id}:{slot}:{uuid4().hex}"
     held_until = hold_evaluation_slot(
         member,
         limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
@@ -733,7 +737,9 @@ def _evaluate_admitted(
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
-        checkpoint = fetch_live_logs_checkpoint(team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS)
+        checkpoint = fetch_live_logs_checkpoint(
+            team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS, max_execution_time=CHECKPOINT_QUERY_SECONDS
+        )
     except Exception as error:
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None
