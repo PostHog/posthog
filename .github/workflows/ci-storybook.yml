@@ -994,10 +994,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-              # base.sha is master's tip, so diffing it against a branch that is behind master
-              # lists every story master changed since the fork point. Diff from the merge base
-              # instead. It is resolved here, not in the script, because the script comes from
-              # the PR head and an unrebased branch would keep the old one.
+              # The merge base comes from the API because the depth-1 checkout cannot compute it.
+              # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |
                   git config --global --add safe.directory '*'
                   skip() {
