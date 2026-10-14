@@ -69,6 +69,7 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    VerifyOutcome,
     auto_approve_pending_requests,
     count_remaining_for_request,
 )
@@ -836,6 +837,44 @@ def test_verify_queued_request_keeps_status_when_events_remain(cluster: Clickhou
     assert request.status == RequestStatus.QUEUED
 
     cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_query_backed_request_counts_rows_that_survive_a_drained_queue(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    swept_uuid, survivor_uuid = uuid4(), uuid4()
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
+    cluster.any_host(partial(_insert_events, [(DEFERRED_TEAM_ID, "$pageview", survivor_uuid, now)])).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        hogql_query="SELECT uuid FROM events",
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+    # deletes_job marks every queued uuid deleted after its sweep, whether or not the row went.
+    cluster.any_host(
+        lambda client: client.execute(
+            f"INSERT INTO {ADHOC_EVENTS_DELETION_TABLE} "
+            "(team_id, uuid, data_deletion_request_id, deleted_at, is_deleted) VALUES",
+            [(DEFERRED_TEAM_ID, u, request.pk, now, 1) for u in (swept_uuid, survivor_uuid)],
+        )
+    ).result()
+
+    outcome = verify_queued_request(request)
+
+    assert outcome == VerifyOutcome(remaining=1, promoted=False)
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_writable_events).result()
+    assert verify_queued_request(request) == VerifyOutcome(remaining=0, promoted=True)
+
+    cluster.any_host(_truncate_adhoc_events_deletion).result()
 
 
 @pytest.mark.django_db
