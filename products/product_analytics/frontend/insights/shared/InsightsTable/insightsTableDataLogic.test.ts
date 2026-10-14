@@ -148,19 +148,14 @@ describe('insightsTableDataLogic', () => {
     describe('compareResultKey', () => {
         const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
             ({
-                action: { order: 0 },
+                order: 0,
                 label: '$pageview',
                 breakdown_value: '',
                 ...overrides,
             }) as IndexedTrendResult
 
         it.each([
-            [
-                'distinguishes by action order',
-                makeResult({ action: { order: 0 } as any }),
-                makeResult({ action: { order: 1 } as any }),
-                false,
-            ],
+            ['distinguishes by series order', makeResult({ order: 0 }), makeResult({ order: 1 }), false],
             [
                 'distinguishes by breakdown value',
                 makeResult({ breakdown_value: 'Chrome' }),
@@ -175,8 +170,8 @@ describe('insightsTableDataLogic', () => {
             ],
             [
                 'matches when all fields are the same',
-                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
-                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
+                makeResult({ order: 0, label: '$pageview', breakdown_value: 'Chrome' }),
+                makeResult({ order: 0, label: '$pageview', breakdown_value: 'Chrome' }),
                 true,
             ],
             [
@@ -194,15 +189,13 @@ describe('insightsTableDataLogic', () => {
         })
 
         it('produces valid JSON array string', () => {
-            const result = compareResultKey(
-                makeResult({ action: { order: 2 } as any, label: 'test', breakdown_value: 'val' })
-            )
+            const result = compareResultKey(makeResult({ order: 2, label: 'test', breakdown_value: 'val' }))
             expect(JSON.parse(result)).toEqual([2, 'test', 'val'])
         })
 
         it('handles nullish fields gracefully', () => {
             const result = compareResultKey(
-                makeResult({ action: undefined, label: undefined, breakdown_value: undefined } as any)
+                makeResult({ order: undefined, label: undefined, breakdown_value: undefined } as any)
             )
             expect(JSON.parse(result)).toEqual([0, '', ''])
         })
@@ -224,6 +217,7 @@ describe('insightsTableDataLogic', () => {
                 math_group_type_index: null,
                 properties: {},
             } as any,
+            order: 0,
             label: '$pageview',
             count: 100,
             data: [10, 20, 30],
@@ -312,12 +306,14 @@ describe('insightsTableDataLogic', () => {
                         compare_label: CompareLabelType.Current,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
+                        order: 1,
                         label: '$autocapture',
                     }),
                     makeCompareResult({
                         compare_label: CompareLabelType.Previous,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
+                        order: 1,
                         label: '$autocapture',
                         count: 60,
                         data: [6, 12, 18],

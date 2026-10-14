@@ -68,6 +68,7 @@ export function AggregationColumnTitle({
 
 type AggregationColumnItemProps = {
     item: IndexedTrendResult
+    mathProperty: string | null | undefined
     isNonTimeSeriesDisplay: boolean
     aggregation: CalcColumnState
     trendsFilter: TrendsFilter | null | undefined
@@ -94,6 +95,7 @@ export function getAggregatedValue(
 
 export function AggregationColumnItem({
     item,
+    mathProperty,
     isNonTimeSeriesDisplay,
     aggregation,
     trendsFilter,
@@ -106,7 +108,7 @@ export function AggregationColumnItem({
     const formattedValue: ReactNode =
         value !== undefined
             ? formatAggregationValue(
-                  item.action?.math_property,
+                  mathProperty,
                   value,
                   (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
                   formatPropertyValueForDisplay
