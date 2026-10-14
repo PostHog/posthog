@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from posthog.schema import EventsNode, FunnelsQuery, HogQLQueryModifiers, LifecycleQuery, StickinessQuery, TrendsQuery
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -59,6 +61,8 @@ class ChartEvents:
     # The part of `where` on event names and dates only, so a count with it reads no event property.
     sort_key_where: ast.Expr
     modifiers: HogQLQueryModifiers
+    # The database the filter was read with, for the queries that run it.
+    database: Database
 
     def select(
         self, query: str, *, where: ast.Expr, sample: ast.SampleExpr | None = None, **placeholders: ast.Expr
@@ -83,7 +87,9 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
     chart_queries = _chart_queries(runner)
     if chart_queries is None:
         return None
-    reads = [(read, date_range) for query, date_range in chart_queries for read in _events_reads(query)]
+    # One database for the walk and the checks, because a project with many data warehouse tables is slow to build one for.
+    database = Database.create_for(team=team, user=user, modifiers=runner.modifiers, trigger="shared")
+    reads = [(read, date_range) for query, date_range in chart_queries for read in _events_reads(query, database)]
     aliases = {cast(ast.JoinExpr, read.select_from).alias for read, _ in reads}
     filters = [(_read_filter(read), date_range) for read, date_range in reads]
     if len(aliases) != 1 or any(where is None for where, _ in filters):
@@ -101,6 +107,7 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
             ]
         ),
         modifiers=runner.modifiers,
+        database=database,
     )
 
 
@@ -147,20 +154,24 @@ def _chart_queries(runner: QueryRunner) -> list[tuple[ast.Expr, QueryDateRange]]
     return None
 
 
-def _events_reads(query: ast.Expr | None, ctes: Mapping[str, ast.CTE] | None = None) -> list[ast.SelectQuery]:
+def _events_reads(
+    query: ast.Expr | None, database: Database, ctes: Mapping[str, ast.CTE] | None = None
+) -> list[ast.SelectQuery]:
     """The selects that read the events table, found through each FROM, so a subquery in a filter is not one."""
     if isinstance(query, ast.SelectSetQuery):
-        return [read for select in query.select_queries() for read in _events_reads(select, ctes)]
+        return [read for select in query.select_queries() for read in _events_reads(select, database, ctes)]
     if not isinstance(query, ast.SelectQuery) or query.select_from is None:
         return []
     ctes = {**(ctes or {}), **(query.ctes or {})}
     table = query.select_from.table
-    if isinstance(table, ast.Field) and table.chain == ["events"]:
-        return [query]
     if isinstance(table, ast.Field) and len(table.chain) == 1 and table.chain[0] in ctes:
         cte = ctes[str(table.chain[0])]
-        return _events_reads(cte.expr, ctes) if cte.cte_type == "subquery" else []
-    return _events_reads(table, ctes)
+        return _events_reads(cte.expr, database, ctes) if cte.cte_type == "subquery" else []
+    if isinstance(table, ast.Field):
+        name = [str(part) for part in table.chain]
+        is_events = database.has_table(name) and isinstance(database.get_table(name), EVENTS_TABLE_TYPES)
+        return [query] if is_events else []
+    return _events_reads(table, database, ctes)
 
 
 def _read_filter(read: ast.SelectQuery) -> ast.Expr | None:

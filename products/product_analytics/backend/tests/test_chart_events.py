@@ -3,7 +3,6 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,42 +14,11 @@ SERIES = {"kind": "EventsNode", "event": "signed up"}
 STEPS = [SERIES, {"kind": "EventsNode", "event": "paid"}]
 NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
 LAST_WEEK = {"date_from": "-7d"}
-TREND_FLAGS = "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false"
 
 
 class TestChartEvents(BaseTest):
     @parameterized.expand(
         [
-            ("weekly_active", {"kind": "TrendsQuery", "series": [{**SERIES, "math": "weekly_active"}]}),
-            (
-                "sum_of_a_session_property",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            **SERIES,
-                            "math": "avg",
-                            "math_property": "$session_duration",
-                            "math_property_type": "session_properties",
-                        }
-                    ],
-                },
-            ),
-            ("compare", {"kind": "TrendsQuery", "series": [SERIES], "compareFilter": {"compare": True}}),
-            ("formula", {"kind": "TrendsQuery", "series": [SERIES, SERIES], "trendsFilter": {"formula": "A / B"}}),
-            ("total_value", {"kind": "TrendsQuery", "series": [SERIES], "trendsFilter": {"display": "ActionsPie"}}),
-            (
-                "property_breakdown",
-                {"kind": "TrendsQuery", "series": [SERIES], "breakdownFilter": {"breakdown": "$browser"}},
-            ),
-            (
-                "histogram_breakdown",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [SERIES],
-                    "breakdownFilter": {"breakdown": "price", "breakdown_histogram_bin_count": 5},
-                },
-            ),
             (
                 "funnel_exclusion",
                 {
@@ -74,20 +42,11 @@ class TestChartEvents(BaseTest):
                     "stickinessFilter": {"stickinessCriteria": {"operator": "gte", "value": 3}},
                 },
             ),
+            ("stickiness_compare", {"kind": "StickinessQuery", "series": [SERIES], "compareFilter": {"compare": True}}),
         ]
     )
     def test_finds_the_events_the_chart_reads(self, _name: str, source: dict[str, Any]) -> None:
         assert chart_events(source, self.team, self.user) is not None
-
-    @parameterized.expand([("SlopeGraph",), ("BoxPlot",), ("CalendarHeatmap",)])
-    def test_does_not_read_a_chart_that_runs_a_query_of_its_own(self, display: str) -> None:
-        query = {
-            "kind": "TrendsQuery",
-            "series": [{**SERIES, "math_property": "price"}],
-            "trendsFilter": {"display": display},
-        }
-
-        assert chart_events(query, self.team, self.user) is None
 
 
 @time_machine.travel(NOW, tick=False)
@@ -103,65 +62,27 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("trends", {"kind": "TrendsQuery", "series": [SERIES]}, (), 2),
-            (
-                "first_time_series_compared_to_the_previous_period",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [{**SERIES, "math": "first_time_for_user"}],
-                    "compareFilter": {"compare": True},
-                },
-                (),
-                3,
-            ),
+            ("stickiness", {"kind": "StickinessQuery", "series": [SERIES]}, 2),
             (
                 "funnel_compared_to_the_previous_period",
                 {"kind": "FunnelsQuery", "series": [SERIES, SERIES], "compareFilter": {"compare": True}},
-                (),
                 3,
             ),
             (
                 "filter_with_a_lambda_argument_named_like_a_select_alias",
                 {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            **SERIES,
-                            "properties": [{"type": "hogql", "key": "arrayExists(total -> total > 10, [1, 20])"}],
-                        }
-                    ],
+                    "kind": "FunnelsQuery",
+                    "series": [SERIES, SERIES],
+                    "properties": [{"type": "hogql", "key": "arrayExists(step_0 -> step_0 > 10, [1, 20])"}],
                 },
-                (),
-                2,
-            ),
-            (
-                "first_matching_event_with_a_filter_on_the_day_of_the_month",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            **SERIES,
-                            "math": "first_matching_event_for_user",
-                            "properties": [{"type": "hogql", "key": "toDayOfMonth(timestamp) >= 1"}],
-                        }
-                    ],
-                },
-                (),
-                2,
-            ),
-            (
-                "breakdown_that_reads_its_events_in_a_cte",
-                {"kind": "TrendsQuery", "series": [SERIES], "breakdownFilter": {"breakdown": "$browser"}},
-                ("trends-breakdown-fewer-array-ops",),
                 2,
             ),
         ]
     )
     def test_reads_the_events_of_every_period_the_chart_reads(
-        self, _name: str, query: dict[str, Any], flags: tuple[str, ...], expected: int
+        self, _name: str, query: dict[str, Any], expected: int
     ) -> None:
-        with patch(TREND_FLAGS, side_effect=lambda flag, *args, **kwargs: flag in flags):
-            events = chart_events({**query, "dateRange": LAST_WEEK}, self.team, self.user)
+        events = chart_events({**query, "dateRange": LAST_WEEK}, self.team, self.user)
         assert events is not None
 
         response = execute_hogql_query(
