@@ -129,6 +129,7 @@ Write (user-facing):
 - `scout-emit-report` / `scout-edit-report` (gated on `signal_scout_report:write`) — the report channel: author a full inbox report for an anomaly, or update the existing one on a recurrence. Field-level contract in [`references/report-contract.md`](references/report-contract.md).
 - `notebooks-create` (gated on `notebook:write`) — the durable write-up that backs an authored report. Build it _before_ authoring and reference its URL from the report `summary` and an `evidence` entry. Layout + embedded-chart recipe (embed the anomalous insight with a `SavedInsightNode`; chart a SQL-fallback series with a `DataVisualizationNode`) is in [`references/report-contract.md`](references/report-contract.md).
 - `notebooks-destroy` — clean up the write-up if the report did not surface (preflight gate-skip, or the safety judge suppressed it) so a non-surfacing run leaves no orphan artifact. See [`references/report-contract.md`](references/report-contract.md).
+- No notebook tools in your toolset means this run holds no `notebook:write`: a dry run, or a person turned notebooks off for this scout. Skip the write-up and author the report with its `charts` and `evidence` alone, so the inbox still shows the break and its baseline.
 
 Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-runs-list`, `scout-runs-retrieve` (orientation + dedupe); `scout-emit-report`, `scout-edit-report` (the report channel); `scout-scratchpad-remember`, `scout-scratchpad-forget` (memory).
 

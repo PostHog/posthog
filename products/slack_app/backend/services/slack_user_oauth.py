@@ -27,6 +27,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
+from django.db.models import QuerySet
 
 import structlog
 from pydantic import BaseModel, ValidationError
@@ -39,6 +40,27 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 logger = structlog.get_logger(__name__)
+
+
+def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserIntegration]:
+    """Links of active PostHog users to this Slack identity, most recently linked first."""
+    return UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        config__slack_team_id=slack_team_id,
+        user__is_active=True,
+    ).order_by("-created_at")
+
+
+def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
+    """Active PostHog users linked to this Slack identity, most recently linked first.
+
+    Unlike ``find_linked_posthog_user`` this keeps every link, for a caller that picks the account
+    by project, such as a pull request command.
+    """
+    return list(
+        _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).values_list("user_id", flat=True)
+    )
 
 
 def find_linked_posthog_user(
@@ -73,16 +95,7 @@ def find_linked_posthog_user(
     # a different database (which `User` does in PostHog's deployment), so a
     # straight-line equivalent keeps the query portable across routers.
     try:
-        links = list(
-            UserIntegration.objects.filter(
-                kind=UserIntegration.IntegrationKind.SLACK,
-                integration_id=slack_user_id,
-                config__slack_team_id=slack_team_id,
-                user__is_active=True,
-            )
-            .select_related("user")
-            .order_by("-created_at")
-        )
+        links = list(_slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).select_related("user"))
         if not links:
             return None
         # Org-scope filter as a set lookup so we keep the per-row iteration
