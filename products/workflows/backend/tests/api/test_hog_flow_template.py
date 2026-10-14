@@ -281,44 +281,26 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert template.team_id == self.team.id
         assert template.created_by == self.user
 
-    def test_template_function_validation(self):
-        """Test that function actions validate template_id exists"""
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {
-                "type": "event",
-                "filters": {
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                },
-            },
-        }
+    @parameterized.expand(
+        [
+            ("missing_template", "function", "missing", "actions__1__template_id", "Template not found"),
+            # A trigger kind sent as a step type skipped both the template check and secret stripping.
+            ("trigger_kind_as_step_type", "webhook", "template-test-defaults", "actions__1__type", "Unsupported"),
+        ]
+    )
+    def test_template_action_validation(
+        self, _name: str, action_type: str, template_id: str, expected_attr: str, expected_detail: str
+    ) -> None:
+        hog_flow_data = self._create_hog_flow_data(custom_inputs={"api_key": {"value": "SECRET"}})
+        hog_flow_data["actions"][1]["type"] = action_type
+        hog_flow_data["actions"][1]["config"]["template_id"] = template_id
 
-        action = {
-            "id": "action_1",
-            "name": "action_1",
-            "type": "function",
-            "config": {
-                "template_id": "missing",
-                "inputs": {},
-            },
-        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data, format="json")
 
-        hog_flow_data = {
-            "name": "Test Flow",
-            "actions": [trigger_action, action],
-            "scope": "team",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
         assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions__1__template_id",
-            "code": "invalid_input",
-            "detail": "Template not found",
-            "type": "validation_error",
-        }
+        assert response.json()["attr"] == expected_attr
+        assert expected_detail in response.json()["detail"]
+        assert not HogFlowTemplate.objects.exists()
 
     def test_template_scope_field(self):
         """Test that scope field can be set to team but not global (global templates are code-only)"""
