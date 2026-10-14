@@ -47,7 +47,7 @@ export function HogFlowTreeBranch({
     const isBranchSelected = selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
     const branchFilters =
         branchIndex !== null && node.action.type === 'conditional_branch'
-            ? (node.action.config.conditions[branchIndex]?.filters.properties ?? [])
+            ? (node.action.config.conditions[branchIndex]?.filters?.properties ?? [])
             : []
     const percentage =
         branchIndex !== null && node.action.type === 'random_cohort_branch'
