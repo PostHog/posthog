@@ -280,6 +280,8 @@ class ScannerBudget(QuotaState):
     credits_per_observation: int = 0
     # True when the org's free credits bind a free-only scanner, rather than its own limit.
     free_credits_bound: bool = False
+    # A free-only scanner's other ceiling is full of posted spend, though this one leaves less room.
+    other_ceiling_settled_blocked: bool = False
 
     @property
     def blocked(self) -> bool:
@@ -298,7 +300,7 @@ class ScannerBudget(QuotaState):
         A reservation can release without ever writing a receipt (a failed observation), so an
         irreversible reaction to a cap must not fire on a transient in-flight spike.
         """
-        return replace(self, credits_used=self.credits_settled).blocked
+        return self.other_ceiling_settled_blocked or replace(self, credits_used=self.credits_settled).blocked
 
 
 def _scanner_in_flight_credits(
@@ -398,13 +400,10 @@ def compute_scanner_budgets(
         for scanner_id in free_only_ids:
             own = result[scanner_id]
             free = replace(free_budget, credits_per_observation=own.credits_per_observation)
-            # A free-only scanner can carry its own cap too; whichever leaves less room binds. A ceiling
-            # that posted spend already fills wins first, so the sweep's settled-only check still sees it.
-            result[scanner_id] = min(
-                own,
-                free,
-                key=lambda b: (not b.blocked_by_settled_spend, b.remaining if b.remaining is not None else math.inf),
-            )
+            # A free-only scanner can carry its own cap too; whichever leaves less room binds.
+            tighter, other = sorted((own, free), key=lambda b: b.remaining if b.remaining is not None else math.inf)
+            # The sweep's settled-only check still has to see a ceiling that posted spend already fills.
+            result[scanner_id] = replace(tighter, other_ceiling_settled_blocked=other.blocked_by_settled_spend)
     return result
 
 

@@ -511,10 +511,10 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             ("org_limit_below_free_credits_binds", None, 1_000, 1_000, True, False),
             # In-flight work fills the own cap, but only the free credits are full of posted spend.
             (
-                "settled_free_credits_bind_over_in_flight_own_cap",
+                "settled_free_credits_still_block_under_in_flight_own_cap",
                 "one_observation",
                 1_000_000,
-                FREE_TIER_MONTHLY_CREDITS,
+                "one_observation",
                 True,
                 True,
             ),
@@ -525,12 +525,13 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         _name: str,
         own_cap: int | str | None,
         org_limit: int | None,
-        expected_limit: int,
+        expected_limit: int | str,
         expected_blocked: bool,
         in_flight: bool,
     ) -> None:
         cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
         own_cap = cost if own_cap == "one_observation" else own_cap
+        expected_limit = cost if expected_limit == "one_observation" else expected_limit
         # Another scanner's spend leaves less than one observation of free credits.
         seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 10)
         free = ReplayScanner.objects.create(
@@ -558,6 +559,34 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             expected_blocked,
             True,
         )
+
+    def test_free_only_scanner_keeps_the_tighter_headroom_when_its_own_cap_is_settled_full(self) -> None:
+        cost = observation_credits_for_model(ScannerModel.GEMINI_3_8_FLASH)
+        free = ReplayScanner.objects.create(
+            team=self.team,
+            name="free-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            credit_limit=2 * cost - 1,
+            free_only=True,
+        )
+        # The own cap has posted spend that leaves less than one observation, but some room.
+        seed_scanner_spend(free, cost)
+        # The free credits have room for one more posted observation, but in-flight work takes it.
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 2 * cost)
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="other-in-flight",
+            status=ObservationStatus.RUNNING,
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+        )
+        reserved = observation_credits_for_model(self.scanner.model)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            budget = compute_scanner_budgets(self.organization.id, [free.id])[free.id]
+        assert (budget.remaining, budget.blocked_by_settled_spend) == (max(0, cost - reserved), True)
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
