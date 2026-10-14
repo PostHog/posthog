@@ -4,8 +4,8 @@
 # owns every write so that the write cannot happen with a gate skipped.
 #
 # Every gate fails closed. Exit 10 means "no confident culprit", 11 means "cannot revert this
-# commit mechanically", 12 means "a revert already exists", 13 means "the opt-in is off", and
-# 5 means a GitHub read failed. A failed read must never read as an empty answer.
+# commit mechanically", 12 means "a revert already exists", and 5 means a GitHub read failed.
+# A failed read must never read as an empty answer.
 set -euo pipefail
 
 REPO=PostHog/posthog
@@ -20,7 +20,6 @@ usage() {
     echo "       $0 existing <culprit-sha> <culprit-pr>" >&2
     echo "       $0 prepare <culprit-sha>" >&2
     echo "       $0 open <culprit-sha> <culprit-pr> <workflow-file> <job-name> <body-file>" >&2
-    echo "prepare and open require MASTER_RED_ALLOW_REVERT_PR=1" >&2
     exit 2
 }
 
@@ -49,10 +48,6 @@ require_number() {
     case "$1" in
         '' | *[!0-9]*) usage ;;
     esac
-}
-
-require_opt_in() {
-    [ "${MASTER_RED_ALLOW_REVERT_PR:-}" = "1" ] || refuse 13 "MASTER_RED_ALLOW_REVERT_PR is not 1"
 }
 
 revert_branch() {
@@ -211,7 +206,6 @@ revert_matches_culprit() {
 
 cmd_prepare() {
     local sha=$1 branch parents
-    require_opt_in
     branch=$(revert_branch "$sha")
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || refuse 11 "not inside a git checkout"
     [ -z "$(git status --porcelain --untracked-files=no)" ] || refuse 11 "the checkout has uncommitted changes"
@@ -238,7 +232,6 @@ cmd_prepare() {
 
 cmd_open() {
     local sha=$1 pr=$2 workflow=$3 job=$4 body_file=$5 branch ahead found lane
-    require_opt_in
     [ -s "$body_file" ] || usage
     branch=$(revert_branch "$sha")
 

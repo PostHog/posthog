@@ -46,7 +46,7 @@ Preserve that default so the emitted Slack event binds the task to the incident 
 Keep the task prompt below the incident data explicit:
 
 ```text
-Begin with tool calls. Read .agents/skills/debugging-ci-failures/references/master-red-incident.md and its parent SKILL.md in this repository, then answer this incident exactly as they prescribe. Emit no plan, preamble, or progress update. Post one reply: the verdict, the failing job, the evidence, and the next action for a human. Never re-run or dispatch CI, and never push a commit or open a PR.
+Begin with tool calls. Read .agents/skills/debugging-ci-failures/references/master-red-incident.md and its parent SKILL.md in this repository, then answer this incident exactly as they prescribe. Emit no plan, preamble, or progress update. Post one reply: the verdict, the failing job, the evidence, and the next action for a human. Never re-run or dispatch CI. Open a PR only as the "Opening the revert PR" section of master-red-incident.md allows, and never enqueue or merge one.
 ```
 
 ## Contract with the alerter
@@ -64,27 +64,18 @@ The alerter invokes the workflow only when it creates an incident, so an unchang
 Disable the workflow or remove the alerter's diagnosis webhook configuration.
 The Slack incident continues to work without the diagnosis task.
 
-## Letting it open revert PRs
+## The revert PR
 
-The task proposes a revert in its reply whenever `master-red-incident.md` finds a confident culprit. That needs no setting, because the reply is its only write.
-Opening the revert as a draft PR is off by default, and the workflow's instructions are the switch.
-The prompt above forbids opening a PR, and the incident reference reads the switch only from the instructions, so a workflow with the prompt unchanged never opens one.
+The task proposes a revert in its reply whenever `master-red-incident.md` finds a confident culprit, and opens that revert as a draft PR in the same run.
+The prompt above must allow the PR, because a prompt that says "never open a PR" overrides the incident reference and leaves the task at the proposal.
 
-To turn it on, replace the prompt's last sentence with these two lines:
-
-```text
-MASTER_RED_ALLOW_REVERT_PR=1
-Never re-run or dispatch CI. Open a PR only as the "Opening the revert PR" section of master-red-incident.md allows, and never enqueue or merge one.
-```
-
-What that allows: at most one draft PR per incident, which reverts the one commit that the boundary check isolated, on the branch `posthog/master-red-revert-<sha12>`.
+What the task opens: at most one draft PR per incident, which reverts the one commit that the boundary check isolated, on the branch `posthog/master-red-revert-<sha12>`.
 The task never marks it ready and never comments `/trunk merge`, so a person still reviews it and lands it through the queue.
-To turn it off, restore the original sentence.
+To stop the PRs without stopping the diagnosis, add "never open a PR" back to the prompt's last sentence.
 
 The task already holds what the PR needs.
 A workflow task with a repository runs with the project's GitHub integration, and the sandbox commits through the `git_signed_commit` tool, because plain `git commit` and `git push` are blocked there.
 The writes are the ones every task run that opens a PR makes: create a branch ref, create a signed commit on it, and open a pull request.
 Writing `.github/workflows/` needs the GitHub App's `workflows` permission, which the helper does not assume. It refuses to revert a commit that changes those files, and the reply proposes that revert for a person instead.
 
-Turn it on only after the proposals in the thread have been right often enough that a draft PR saves the reader a step.
 Infrastructure failures need no code change, and the helper opens nothing for them, because only a real regression reaches the revert checks.

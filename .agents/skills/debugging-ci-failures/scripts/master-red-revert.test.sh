@@ -135,12 +135,6 @@ reset_clone() {
     clone_in checkout --quiet master
 }
 
-check "prepare refuses without the opt-in" \
-    "refused=MASTER_RED_ALLOW_REVERT_PR is not 1" \
-    "$(MASTER_RED_ALLOW_REVERT_PR='' prepare "$clean_culprit" || true)"
-
-export MASTER_RED_ALLOW_REVERT_PR=1
-
 check "prepare refuses a commit that changes workflows" \
     "refused=$workflow_culprit changes .github/workflows, which needs the workflows permission" \
     "$(prepare "$workflow_culprit" || true)"
