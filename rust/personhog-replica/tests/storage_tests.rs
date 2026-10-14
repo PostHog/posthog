@@ -1686,24 +1686,7 @@ async fn test_upsert_hash_key_overrides_writes_to_the_surviving_person_of_a_conc
             .await
     });
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let blocked: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
-        )
-        .bind(merge_pid)
-        .fetch_one(&ctx.pool)
-        .await
-        .unwrap();
-        if blocked {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the upsert never waited on the merge"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_until_blocked_by(&ctx, merge_pid).await;
     merge.commit().await.unwrap();
 
     let result = upsert.await.unwrap();
