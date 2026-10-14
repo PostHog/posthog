@@ -68,7 +68,6 @@ SDK_INFO = "posthog-capture-v1-internal/1.0"
 _OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
     "cookieless_mode": "$cookieless_mode",
     "disable_skew_correction": "$ignore_sent_at",
-    "product_tour_id": "$product_tour_id",
     "process_person_profile": "$process_person_profile",
 }
 
@@ -906,7 +905,6 @@ def capture_batch_internal(
     ├─────────────────────────┼────────────────────────────┼────────────────────────┤
     │ cookieless_mode         │ $cookieless_mode           │ bool                   │
     │ disable_skew_correction │ $ignore_sent_at            │ bool                   │
-    │ product_tour_id         │ $product_tour_id           │ non-empty str          │
     │ process_person_profile  │ $process_person_profile    │ bool (see below)       │
     └─────────────────────────┴────────────────────────────┴────────────────────────┘
 

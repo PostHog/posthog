@@ -86,7 +86,6 @@ from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FL
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.facade.models import Insight
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 
@@ -6318,27 +6317,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
-
-    def test_get_flags_dont_return_product_tour_internal_targeting_flags(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
-
-        internal_flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="product-tour-targeting-test-tour-abc123",
-            filters={"groups": [{"rollout_percentage": 100}]},
-        )
-        ProductTour.objects.create(
-            team=self.team,
-            name="Test Tour",
-            content={"steps": []},
-            internal_targeting_flag=internal_flag,
-        )
-
-        flags_list = self.client.get("/api/projects/@current/feature_flags")
-        response = flags_list.json()
-        assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "red_button"
 
     def test_get_flags_with_active_and_created_by_id_filters(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -14107,25 +14085,6 @@ class TestFeatureFlagLimits(APIBaseTest):
                         "control": {"transforms": [], "rollout_percentage": 50},
                         "test": {"transforms": [], "rollout_percentage": 50},
                     },
-                },
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Maximum of 2 feature flags allowed per team" in str(response.json())
-
-    def test_product_tour_creation_blocked_when_at_flag_limit(self):
-        """Product tour creation with auto_launch should fail when team is at the flag limit."""
-        self._create_flag("flag-1")
-        self._create_flag("flag-2")
-
-        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/product_tours",
-                {
-                    "name": "Test Product Tour",
-                    "auto_launch": True,
-                    "content": {"steps": []},
                 },
                 format="json",
             )

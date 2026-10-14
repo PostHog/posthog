@@ -130,13 +130,12 @@ class TestBuildV1Headers(SimpleTestCase):
 class TestNormalizeOptionsAndProperties(SimpleTestCase):
     def test_typed_options_propagated(self) -> None:
         ev: dict[str, Any] = {
-            "options": {"cookieless_mode": True, "disable_skew_correction": True, "product_tour_id": "tour-1"},
+            "options": {"cookieless_mode": True, "disable_skew_correction": True},
             "properties": {"some_prop": "val"},
         }
         parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
         assert parts.options["cookieless_mode"] is True
         assert parts.options["disable_skew_correction"] is True
-        assert parts.options["product_tour_id"] == "tour-1"
         assert "process_person_profile" not in parts.options
         assert parts.session_id is None
         assert parts.window_id is None
@@ -147,7 +146,6 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             "properties": {
                 "$cookieless_mode": True,
                 "$ignore_sent_at": True,
-                "$product_tour_id": "tour-2",
                 "$process_person_profile": True,
                 "$session_id": "sess-1",
                 "$window_id": "win-1",
@@ -157,12 +155,10 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
         parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
         assert parts.options["cookieless_mode"] is True
         assert parts.options["disable_skew_correction"] is True
-        assert parts.options["product_tour_id"] == "tour-2"
         assert parts.session_id == "sess-1"
         assert parts.window_id == "win-1"
         assert "$cookieless_mode" not in parts.properties
         assert "$ignore_sent_at" not in parts.properties
-        assert "$product_tour_id" not in parts.properties
         assert "$process_person_profile" not in parts.properties
         assert "$session_id" not in parts.properties
         assert "$window_id" not in parts.properties
@@ -179,14 +175,14 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_option", {}),
-            ("none_option", {"product_tour_id": None}),
+            ("none_option", {"cookieless_mode": None}),
         ]
     )
     def test_legacy_property_fills_a_missing_or_none_option(self, _name: str, options: dict[str, Any]) -> None:
-        ev: dict[str, Any] = {"options": options, "properties": {"$product_tour_id": "tour_legacy"}}
+        ev: dict[str, Any] = {"options": options, "properties": {"$cookieless_mode": True}}
         parts = _normalize_options_and_properties(ev, process_person_profile=True, event_source="test")
-        assert parts.options == {"product_tour_id": "tour_legacy"}
-        assert "$product_tour_id" not in parts.properties
+        assert parts.options == {"cookieless_mode": True}
+        assert "$cookieless_mode" not in parts.properties
 
     def test_explicit_wins_over_legacy_on_conflict(self) -> None:
         ev: dict[str, Any] = {
@@ -205,7 +201,6 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
             ("unknown_key", {"future_option": {"nested": [1, "two"]}}),
             ("unconverted_string", {"process_person_profile": "no"}),
             ("unconverted_number", {"cookieless_mode": 1, "disable_skew_correction": 0}),
-            ("non_string_tour_id", {"product_tour_id": 42}),
             ("explicit_none", {"cookieless_mode": None}),
         ]
     )
@@ -423,7 +418,6 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
                 properties={
                     "$cookieless_mode": True,
                     "$ignore_sent_at": False,
-                    "$product_tour_id": "t",
                     "$process_person_profile": True,
                     "$session_id": "s1",
                     "$window_id": "w1",
@@ -437,7 +431,6 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
         for key in (
             "$cookieless_mode",
             "$ignore_sent_at",
-            "$product_tour_id",
             "$process_person_profile",
             "$session_id",
             "$window_id",
@@ -509,7 +502,6 @@ class TestCaptureBatchInternal(SimpleTestCase):
         options = {
             "cookieless_mode": True,
             "disable_skew_correction": "yes",
-            "product_tour_id": "t1",
             "future_option": {"nested": [1, "two"]},
         }
         events = [_make_event(event_uuid=uid, options=options, session_id="s1", window_id="w1")]

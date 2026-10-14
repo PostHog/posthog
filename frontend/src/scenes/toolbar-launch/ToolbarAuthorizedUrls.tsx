@@ -46,7 +46,6 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
     const logic = authorizedUrlListLogic({
         actionId: null,
         experimentId: null,
-        productTourId: null,
         type: AuthorizedUrlListType.TOOLBAR_URLS,
     })
     const {

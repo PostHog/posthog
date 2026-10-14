@@ -9,30 +9,23 @@ if TYPE_CHECKING:
 
 FLAG_OWNER_EXPERIMENT = "experiment"
 FLAG_OWNER_SURVEY = "survey"
-FLAG_OWNER_PRODUCT_TOUR = "product_tour"
 FLAG_OWNER_EARLY_ACCESS = "early_access_feature"
 
 _OWNER_LABELS = {
     FLAG_OWNER_EXPERIMENT: "an experiment",
     FLAG_OWNER_SURVEY: "a survey",
-    FLAG_OWNER_PRODUCT_TOUR: "a product tour",
     FLAG_OWNER_EARLY_ACCESS: "an early access feature",
 }
 
-# `linked_flag` is absent on purpose: a survey or product tour may point at another product's flag
-# to target its audience, which references the flag without owning it.
+# `linked_flag` is absent on purpose: a survey may point at another product's flag to target its
+# audience, which references the flag without owning it.
 #
 # The third element names the manager to read the relation through, or None for the default one.
-# Django builds a reverse accessor from the related model's default manager, and
-# `ProductTour.objects` hides archived tours. An archived tour keeps its `internal_targeting_flag`,
-# so the default manager would report that flag as free while a tour still holds it, and
-# unarchiving the tour would then produce the second owner this module exists to prevent.
 _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
     ("experiment_set", FLAG_OWNER_EXPERIMENT, None),
     ("surveys_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_targeting_flag", FLAG_OWNER_SURVEY, None),
     ("surveys_internal_response_sampling_flag", FLAG_OWNER_SURVEY, None),
-    ("product_tours_internal_targeting_flag", FLAG_OWNER_PRODUCT_TOUR, "all_objects"),
     ("features", FLAG_OWNER_EARLY_ACCESS, None),
 )
 
@@ -43,8 +36,10 @@ _OWNING_ACCESSORS: tuple[tuple[str, str, str | None], ...] = (
 # which is what stops a new owning product being read as standalone because nobody registered it.
 _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
     {
-        # A survey or tour may point at another product's flag to target its audience.
+        # A survey may point at another product's flag to target its audience.
         "surveys_linked_flag",
+        # Product tours are retired. Their leftover rows keep these columns but own nothing.
+        "product_tours_internal_targeting_flag",
         "product_tours_linked_flag",
         # Evaluation and override bookkeeping, not a product that owns the flag.
         "flag_evaluation_contexts",

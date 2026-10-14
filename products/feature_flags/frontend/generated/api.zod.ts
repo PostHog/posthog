@@ -610,20 +610,13 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
+            .enum(['feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'])
             .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),
@@ -1046,20 +1039,13 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),
         creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
+            .enum(['feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'])
             .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
+                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments'
             )
             .optional()
             .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
+                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments"
             ),
         is_remote_configuration: zod.boolean().nullish(),
         has_encrypted_payloads: zod.boolean().nullish(),

@@ -1295,8 +1295,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "experiment:read",
     "experiment:write",
     "query:read",
-    "product_tour:read",
-    "product_tour:write",
     "heatmap:read",
     "heatmap:write",
     "element:read",

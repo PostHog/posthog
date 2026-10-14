@@ -44,7 +44,6 @@ describe('the authorized urls list logic', () => {
             type: AuthorizedUrlListType.TOOLBAR_URLS,
             actionId: null,
             experimentId: null,
-            productTourId: null,
             query: null,
         })
         logic.mount()
@@ -288,7 +287,6 @@ describe('the authorized urls list logic', () => {
                 type: AuthorizedUrlListType.RECORDING_DOMAINS,
                 actionId: null,
                 experimentId: null,
-                productTourId: null,
                 query: null,
             })
             logic.mount()
@@ -388,18 +386,6 @@ describe('the authorized urls list logic', () => {
             const params = parseHash(directToolbarUrl('https://example.com', { experimentId: 99 }))
             expect(params.userIntent).toBe('edit-experiment')
             expect(params.experimentId).toBe(99)
-        })
-
-        it('sets userIntent to edit-product-tour when productTourId is provided', () => {
-            const params = parseHash(directToolbarUrl('https://example.com', { productTourId: 'tour_1' }))
-            expect(params.userIntent).toBe('edit-product-tour')
-            expect(params.productTourId).toBe('tour_1')
-        })
-
-        it('sets userIntent to add-product-tour when productTourId is "new"', () => {
-            const params = parseHash(directToolbarUrl('https://example.com', { productTourId: 'new' }))
-            expect(params.userIntent).toBe('add-product-tour')
-            expect(params.productTourId).toBeUndefined()
         })
 
         it('includes dataAttributes when provided', () => {

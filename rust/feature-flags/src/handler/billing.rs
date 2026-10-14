@@ -34,7 +34,7 @@ pub async fn check_limits(
     Ok(None)
 }
 
-/// Records usage metrics for feature flag requests. Survey and product tour
+/// Records usage metrics for feature flag requests. Survey and legacy product tour
 /// targeting flags are not billable. The `library` parameter is detected
 /// once at the start of request processing and reused. The aggregator's
 /// periodic flush is the only writer of these counts —
@@ -76,7 +76,7 @@ pub(crate) fn should_record_billable_request(
 /// Checks if the flag list contains any billable flags.
 ///
 /// Returns true if there are any non-filtered flags that are NOT survey or
-/// product tour targeting flags. Deleted and inactive flags are already in
+/// legacy product tour targeting flags. Deleted and inactive flags are already in
 /// `filtered_out_flag_ids`, so no separate check is needed.
 fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
     filtered_flags.flags.iter().any(|flag| {

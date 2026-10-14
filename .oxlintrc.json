@@ -285,15 +285,7 @@
                     {
                         "patterns": [
                             {
-                                "group": [
-                                    "scenes/**",
-                                    "~/scenes/**",
-                                    "!scenes/urls",
-                                    "!~/scenes/urls",
-                                    "!scenes/product-tours/stepUtils",
-                                    "!scenes/product-tours/constants",
-                                    "!scenes/product-tours/editor/generateStepHtml"
-                                ],
+                                "group": ["scenes/**", "~/scenes/**", "!scenes/urls", "!~/scenes/urls"],
                                 "message": "The toolbar ships to customer pages and must not depend on app scenes. Import from lib/, or fetch via toolbarFetch. The listed exceptions are the toolbar's intentional seams; the full transitive boundary is enforced by frontend/bin/check-toolbar-graph.mjs."
                             },
                             {

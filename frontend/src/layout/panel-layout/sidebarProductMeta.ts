@@ -73,7 +73,6 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Code review',
     'Engineering analytics',
     'Identity matching',
-    'Product tours',
     'Pulse',
     'Visual review',
 ])
@@ -116,7 +115,6 @@ const examples: Record<string, string> = {
     'Marketing analytics': 'Compare campaign performance alongside your product data.',
     Metrics: 'Investigate a change in application performance over time.',
     Playground: 'Try a revised prompt before using it in your application.',
-    'Product tours': 'Guide new users through their first useful action.',
     Prompts: 'Keep track of changes to the prompts your application uses.',
     Pulse: 'Follow what is happening across your project.',
     'Replay vision': 'Explore patterns found in session recordings.',

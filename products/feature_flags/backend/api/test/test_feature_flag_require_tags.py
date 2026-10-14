@@ -108,7 +108,7 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
     def test_update_driven_by_a_post_request_is_not_read_as_a_create(self) -> None:
-        # Experiments, early access features, and product tours write a flag as a side effect of
+        # Experiments and early access features write a flag as a side effect of
         # their own POST, so the flag serializer sees a POST it must still treat as an update.
         flag = FeatureFlag.objects.create(key="experiment-flag", team=self.team, created_by=self.user)
         self._require_tags(True)

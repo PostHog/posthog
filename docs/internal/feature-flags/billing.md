@@ -73,7 +73,8 @@ Each hash field is the time bucket number (Unix seconds / 120), and the value is
 Not all flag evaluations are billable. The following flags are excluded:
 
 - **Survey targeting flags**: Keys starting with `survey-targeting-`
-- **Product tour targeting flags**: Keys starting with `product-tour-targeting-`
+- **Legacy product tour targeting flags**: Keys starting with `product-tour-targeting-`.
+  Product tours is retired, but these flags can still exist on projects.
 - **Inactive flags**: Flags where `active = false`
 
 A request is only counted for billing if it contains at least one active, non-survey, non-product-tour flag.
@@ -257,7 +258,7 @@ AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token
 | Distributed lock                 | Prevent concurrent processing of the same team's data                              |
 | Redis pipelining                 | Minimize network round-trips for better performance                                |
 | 10x local evaluation weight      | Local evaluation returns full flag definitions, requiring more server resources    |
-| Selective billing                | Survey and product tour flags are internal features, not customer-billable         |
+| Selective billing                | Survey and legacy product tour flags are internal features, not customer-billable  |
 | SDK breakdown for analytics only | Billing charges per request regardless of SDK; breakdown is for internal analytics |
 
 ## Customer request usage view

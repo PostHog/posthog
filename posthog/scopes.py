@@ -106,7 +106,7 @@ APIScopeObject = Literal[
     "person",
     "plugin",
     "product_enablement",
-    "product_tour",
+    "product_tour",  # Endpoints are gone; kept so existing keys and OAuth grants that name it stay valid.
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints

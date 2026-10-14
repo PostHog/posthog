@@ -16,12 +16,11 @@ interpolate a value only when it matches `^[a-zA-Z0-9_./:-]+$`.
 Flag keys always match (the server enforces a subset of this); variant keys may not.
 For any other value, including a key with spaces, stop and show the user the flag instead of generating the prompt;
 they can pass the value to their coding agent themselves.
-Give every flag its own block, and open each block with that flag's assessed state and tour answer:
+Give every flag its own block, and open each block with that flag's assessed state:
 
 ```text
 For flag "example-flag":
 - Assessed state: version 12, updated_at 2026-02-12T10:15:00Z, rollout: fully rolled out boolean at 100%
-- Product tour usage: on 2026-02-14 the user confirmed that no product tour uses "example-flag"
 - Assessment made on: 2026-02-14
 ```
 
@@ -32,11 +31,6 @@ Without the state at all it has nothing to compare its own pre-edit read against
 A `version` and an ISO `updated_at` both match the allowlist above. Write the rollout summary in your own
 words from step 4. When the definition carries no `version`, write "version: none" rather than leaving the
 field out.
-
-The tour answer needs the date the user gave it, because that is what lets the receiving agent judge how old
-the answer is. When you have no answer, write that in the same place. Do not leave the line out, because a
-missing line reads as nothing to check. The answer is evidence the receiving agent starts from, and not
-clearance to remove the flag.
 
 "Assessment made on" is the date you generated this prompt. `updated_at` does not carry it: that is when the
 flag last changed, so a prompt written today and one written a month ago look the same without it.
@@ -75,10 +69,6 @@ If an exclusion applies, stop and report the missing evidence or time remaining.
 If you cannot read PostHog yourself, do not assume this prompt is still current. Ask the user to open the flag
 in PostHog and confirm its version, update time and rollout against the assessed state above, once before your
 first edit and again before you push. Their confirmation stands in for the read. Without it, remove nothing.
-A product tour can link this flag, and no tool reports the link, so only a person can answer whether one does.
-Any tour answer below was given on the date it names, and this prompt can reach you long after that.
-Ask the user to confirm that no product tour uses the flag, and wait for the answer before you remove any code.
-If the user cannot confirm, report what you found and remove nothing.
 Do not change the flag in PostHog.
 ```
 

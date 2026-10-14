@@ -100,8 +100,6 @@ pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_skew_correction: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub product_tour_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub process_person_profile: Option<bool>,
 }
 
@@ -117,16 +115,14 @@ pub enum ExpectedOption {
     CookielessMode,
     DisableSkewCorrection,
     ProcessPersonProfile,
-    ProductTourId,
 }
 
 impl ExpectedOption {
     /// Check and report order.
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 3] = [
         Self::CookielessMode,
         Self::DisableSkewCorrection,
         Self::ProcessPersonProfile,
-        Self::ProductTourId,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -134,7 +130,6 @@ impl ExpectedOption {
             Self::CookielessMode => "cookieless_mode",
             Self::DisableSkewCorrection => "disable_skew_correction",
             Self::ProcessPersonProfile => "process_person_profile",
-            Self::ProductTourId => "product_tour_id",
         }
     }
 
@@ -217,12 +212,6 @@ impl RawOptions {
                 coerce_bool,
                 &mut invalid,
             ),
-            product_tour_id: read_option(
-                map,
-                ExpectedOption::ProductTourId,
-                coerce_product_tour_id,
-                &mut invalid,
-            ),
         };
 
         if invalid.is_empty() {
@@ -282,21 +271,6 @@ fn parse_bool_str(raw: &str) -> Parsed<bool> {
             Ok(f) if f.is_finite() => Parsed::Set(f != 0.0),
             _ => Parsed::Invalid,
         },
-    }
-}
-
-/// A string as-is, or an integer as its decimal string; blank is unset.
-fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
-    match v {
-        Value::Null => Parsed::Unset,
-        Value::String(s) if s.trim().is_empty() => Parsed::Unset,
-        Value::String(s) => Parsed::Set(s.clone()),
-        Value::Number(n) => n
-            .as_i64()
-            .map(|i| i.to_string())
-            .or_else(|| n.as_u64().map(|u| u.to_string()))
-            .map_or(Parsed::Invalid, Parsed::Set),
-        Value::Bool(_) | Value::Array(_) | Value::Object(_) => Parsed::Invalid,
     }
 }
 
@@ -546,9 +520,6 @@ impl WrappedEvent {
         if let Some(dsa) = self.options.disable_skew_correction {
             inject!(buf, first, "$ignore_sent_at", &dsa);
         }
-        if let Some(ref pti) = self.options.product_tour_id {
-            inject!(buf, first, "$product_tour_id", pti);
-        }
         if let Some(ppp) = self.options.process_person_profile {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
@@ -608,21 +579,9 @@ impl WrappedEvent {
 }
 
 /// Shim implementation of HasEventName for CaptureQuotaLimiter compatibility.
-///
-/// The v1 capture pipeline does not deserialize event.properties -- they are
-/// forwarded as raw JSON to Kafka. Property checks here are limited to fields
-/// that have been promoted to WrappedEvent.options. If a new quota limiter
-/// predicate needs a property not in Options, add it there first.
 impl HasEventName for WrappedEvent {
     fn event_name(&self) -> &str {
         &self.event.event
-    }
-
-    fn has_property(&self, key: &str) -> bool {
-        match key {
-            "product_tour_id" => self.options.product_tour_id.is_some(),
-            _ => false,
-        }
     }
 }
 
@@ -945,7 +904,6 @@ mod tests {
                 "options": {
                     "cookieless_mode": true,
                     "disable_skew_correction": true,
-                    "product_tour_id": "tour-123",
                     "process_person_profile": false
                 }
             }]
@@ -957,7 +915,6 @@ mod tests {
         let opts = event.options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, Some(true));
         assert_eq!(opts.disable_skew_correction, Some(true));
-        assert_eq!(opts.product_tour_id.as_deref(), Some("tour-123"));
         assert_eq!(opts.process_person_profile, Some(false));
     }
 
@@ -977,7 +934,6 @@ mod tests {
         let opts = event.options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, None);
         assert_eq!(opts.disable_skew_correction, None);
-        assert_eq!(opts.product_tour_id, None);
         assert_eq!(opts.process_person_profile, None);
     }
 
@@ -1000,7 +956,6 @@ mod tests {
         let opts = event.options.validate().unwrap();
         assert_eq!(opts.cookieless_mode, None);
         assert_eq!(opts.disable_skew_correction, None);
-        assert_eq!(opts.product_tour_id, None);
         assert_eq!(opts.process_person_profile, None);
     }
 
@@ -1029,7 +984,6 @@ mod tests {
             ExpectedOption::CookielessMode => options.cookieless_mode,
             ExpectedOption::DisableSkewCorrection => options.disable_skew_correction,
             ExpectedOption::ProcessPersonProfile => options.process_person_profile,
-            ExpectedOption::ProductTourId => unreachable!("product_tour_id is not a boolean"),
         }
     }
 
@@ -1039,7 +993,6 @@ mod tests {
         let opts = raw.validate().unwrap();
         assert_eq!(opts.cookieless_mode, None);
         assert_eq!(opts.disable_skew_correction, None);
-        assert_eq!(opts.product_tour_id, None);
         assert_eq!(opts.process_person_profile, None);
     }
 
@@ -1137,41 +1090,9 @@ mod tests {
         }
     }
 
-    #[rstest::rstest]
-    #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
-    #[case::padded_kept_unchanged(serde_json::json!(" tour-123 "), Some(" tour-123 "))]
-    #[case::integer(serde_json::json!(999), Some("999"))]
-    #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
-    #[case::integer_above_i64(serde_json::json!(u64::MAX), Some("18446744073709551615"))]
-    #[case::null_is_unset(serde_json::json!(null), None)]
-    #[case::empty_is_unset(serde_json::json!(""), None)]
-    #[case::blank_is_unset(serde_json::json!("  "), None)]
-    fn raw_options_product_tour_id_coercion_valid(
-        #[case] input: serde_json::Value,
-        #[case] expected: Option<&str>,
-    ) {
-        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
-        assert_eq!(raw.validate().unwrap().product_tour_id.as_deref(), expected);
-    }
-
-    #[rstest::rstest]
-    #[case::float(serde_json::json!(1.5))]
-    #[case::integral_float(serde_json::json!(42.0))]
-    #[case::bool(serde_json::json!(true))]
-    #[case::array(serde_json::json!(["a"]))]
-    #[case::object(serde_json::json!({"nested": true}))]
-    fn raw_options_product_tour_id_uncoercible(#[case] input: serde_json::Value) {
-        let raw = RawOptions(serde_json::json!({ "product_tour_id": input }));
-        assert_eq!(
-            raw.validate().unwrap_err(),
-            invalid(&[ExpectedOption::ProductTourId])
-        );
-    }
-
     #[test]
     fn raw_options_invalid_keys_reported_once_in_check_order() {
         let raw = RawOptions(serde_json::json!({
-            "product_tour_id": 7.5,
             "disable_skew_correction": [false],
             "cookieless_mode": {"bad": true},
             "process_person_profile": null
@@ -1180,17 +1101,13 @@ mod tests {
         assert_eq!(err.detail(), "invalid_options");
         assert_eq!(
             err.failed_keys().names().collect::<Vec<_>>(),
-            vec![
-                "cookieless_mode",
-                "disable_skew_correction",
-                "product_tour_id"
-            ]
+            vec!["cookieless_mode", "disable_skew_correction"]
         );
     }
 
     #[test]
     fn option_keys_union_is_deduplicated_and_ordered() {
-        let first = OptionKeys::of(ExpectedOption::ProductTourId)
+        let first = OptionKeys::of(ExpectedOption::ProcessPersonProfile)
             .union(OptionKeys::of(ExpectedOption::CookielessMode));
         let second = OptionKeys::of(ExpectedOption::CookielessMode)
             .union(OptionKeys::of(ExpectedOption::ProcessPersonProfile))
@@ -1200,8 +1117,7 @@ mod tests {
             vec![
                 "cookieless_mode",
                 "disable_skew_correction",
-                "process_person_profile",
-                "product_tour_id"
+                "process_person_profile"
             ]
         );
     }
@@ -1598,25 +1514,6 @@ mod tests {
         assert_eq!(ev.event_name(), "$pageview");
     }
 
-    #[test]
-    fn has_property_product_tour_id_some() {
-        let mut ev = ok_wrapped("survey sent", "user-1");
-        ev.options.product_tour_id = Some("tour-123".into());
-        assert!(ev.has_property("product_tour_id"));
-    }
-
-    #[test]
-    fn has_property_product_tour_id_none() {
-        let ev = ok_wrapped("survey sent", "user-1");
-        assert!(!ev.has_property("product_tour_id"));
-    }
-
-    #[test]
-    fn has_property_unknown_key() {
-        let ev = ok_wrapped("$pageview", "user-1");
-        assert!(!ev.has_property("unknown_key"));
-    }
-
     // --- serialize ---
 
     use std::net::{IpAddr, Ipv4Addr};
@@ -1662,7 +1559,6 @@ mod tests {
             options: Options {
                 cookieless_mode: Some(false),
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -1845,7 +1741,6 @@ mod tests {
             options: Options {
                 cookieless_mode: Some(true),
                 disable_skew_correction: Some(true),
-                product_tour_id: Some("tour-onboarding-v2".to_string()),
                 process_person_profile: Some(false),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -1866,7 +1761,6 @@ mod tests {
         assert_eq!(props["$window_id"], "win-xyz789");
         assert_eq!(props["$cookieless_mode"], true);
         assert_eq!(props["$ignore_sent_at"], true);
-        assert_eq!(props["$product_tour_id"], "tour-onboarding-v2");
         assert_eq!(props["$process_person_profile"], false);
     }
 
@@ -1888,7 +1782,6 @@ mod tests {
             options: Options {
                 cookieless_mode: Some(false),
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -1908,7 +1801,6 @@ mod tests {
         assert_eq!(props["$cookieless_mode"], false);
         assert!(!props.contains_key("$window_id"));
         assert!(!props.contains_key("$ignore_sent_at"));
-        assert!(!props.contains_key("$product_tour_id"));
         assert!(!props.contains_key("$process_person_profile"));
     }
 
@@ -1930,7 +1822,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -1969,7 +1860,6 @@ mod tests {
             options: Options {
                 cookieless_mode: Some(true),
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -2011,7 +1901,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -2150,7 +2039,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -2194,7 +2082,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: Some(true),
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
@@ -2236,7 +2123,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
@@ -2274,7 +2160,6 @@ mod tests {
             options: Options {
                 cookieless_mode: None,
                 disable_skew_correction: None,
-                product_tour_id: None,
                 process_person_profile: None,
             },
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),

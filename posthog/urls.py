@@ -27,6 +27,7 @@ from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
+from posthog.api.retired_sdk_endpoints import product_tours
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
@@ -56,7 +57,6 @@ from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_data_plane,
     notebook_sql_v2_data_plane_status,
 )
-from products.product_tours.backend.api import product_tours
 from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view

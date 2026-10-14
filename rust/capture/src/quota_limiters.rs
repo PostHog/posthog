@@ -17,7 +17,6 @@ use crate::{
 #[derive(Clone, Copy)]
 pub struct EventInfo<'a> {
     pub name: &'a str,
-    pub has_product_tour_id: bool,
 }
 
 //
@@ -34,11 +33,10 @@ pub fn is_exception_event(info: EventInfo) -> bool {
 
 // for QuotaResource::Surveys
 pub fn is_survey_event(info: EventInfo) -> bool {
-    let is_survey = matches!(
+    matches!(
         info.name,
         "survey sent" | "survey shown" | "survey dismissed"
-    );
-    is_survey && !info.has_product_tour_id
+    )
 }
 
 // for QuotaResource::LLMEvents
@@ -134,14 +132,13 @@ impl CaptureQuotaLimiter {
             filtered_indices.push(i);
         }
 
-        // Build EventInfo for each event (includes name and property checks for quota limiting)
+        // Build EventInfo for each event
         // Done after moving events into indices_to_events so we can borrow from there
         let event_infos: Vec<EventInfo> = (0..indices_to_events.len())
             .map(|i| {
                 let event = indices_to_events.get(&i).unwrap();
                 EventInfo {
                     name: event.event_name(),
-                    has_product_tour_id: event.has_property("$product_tour_id"),
                 }
             })
             .collect();

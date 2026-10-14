@@ -19,7 +19,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            FEATURE_FLAGS.PRODUCT_TOURS,
         ],
     },
     render: (props: StoryProps) => {

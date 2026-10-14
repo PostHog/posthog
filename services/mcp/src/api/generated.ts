@@ -26874,6 +26874,24 @@ export namespace Schemas {
       AiGenerated: 'ai_generated',
     } as const;
 
+    /**
+     * * `feature_flags` - feature_flags
+     * * `experiments` - experiments
+     * * `surveys` - surveys
+     * * `early_access_features` - early_access_features
+     * * `web_experiments` - web_experiments
+     */
+    export type CreationContextEnum = typeof CreationContextEnum[keyof typeof CreationContextEnum];
+
+
+    export const CreationContextEnum = {
+      FeatureFlags: 'feature_flags',
+      Experiments: 'experiments',
+      Surveys: 'surveys',
+      EarlyAccessFeatures: 'early_access_features',
+      WebExperiments: 'web_experiments',
+    } as const;
+
     export interface Credential {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -38211,11 +38229,6 @@ export namespace Schemas {
          * @nullable
          */
       estimated_monthly_observations: number | null;
-    }
-
-    export interface DraftStatusResponse {
-      updated_at: string;
-      has_draft: boolean;
     }
 
     /**
@@ -51097,26 +51110,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `feature_flags` - feature_flags
-     * * `experiments` - experiments
-     * * `surveys` - surveys
-     * * `early_access_features` - early_access_features
-     * * `web_experiments` - web_experiments
-     * * `product_tours` - product_tours
-     */
-    export type FeatureFlagCreationContextEnum = typeof FeatureFlagCreationContextEnum[keyof typeof FeatureFlagCreationContextEnum];
-
-
-    export const FeatureFlagCreationContextEnum = {
-      FeatureFlags: 'feature_flags',
-      Experiments: 'experiments',
-      Surveys: 'surveys',
-      EarlyAccessFeatures: 'early_access_features',
-      WebExperiments: 'web_experiments',
-      ProductTours: 'product_tours',
-    } as const;
-
-    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface FeatureFlag {
@@ -51158,15 +51151,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
-      /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+      /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.
        *
        * * `feature_flags` - feature_flags
        * * `experiments` - experiments
        * * `surveys` - surveys
        * * `early_access_features` - early_access_features
-       * * `web_experiments` - web_experiments
-       * * `product_tours` - product_tours */
-      creation_context?: FeatureFlagCreationContextEnum;
+       * * `web_experiments` - web_experiments */
+      creation_context?: CreationContextEnum;
       /** @nullable */
       is_remote_configuration?: boolean | null;
       /** @nullable */
@@ -53339,24 +53331,6 @@ export namespace Schemas {
       status: string;
       /** The stored suggestion when status is generated, else null. */
       suggestion?: PathCleaningSuggestionIssue | null;
-    }
-
-    export type GenerateRequestStepsItem = { [key: string]: unknown };
-
-    export interface GenerateRequest {
-      title?: string;
-      goal?: string;
-      steps?: GenerateRequestStepsItem[];
-    }
-
-    export interface GenerateStepResponse {
-      step_id: string;
-      title: string;
-      description: string;
-    }
-
-    export interface GenerateResponse {
-      steps: GenerateStepResponse[];
     }
 
     /**
@@ -71380,52 +71354,6 @@ export namespace Schemas {
     }
 
     /**
-     * Return the targeting flag filters, excluding the base exclusion properties.
-     * @nullable
-     */
-    export type ProductTourTargetingFlagFilters = { [key: string]: unknown } | null;
-
-    /**
-     * Read-only serializer for ProductTour.
-     */
-    export interface ProductTour {
-      readonly id: string;
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      readonly internal_targeting_flag: MinimalFeatureFlag;
-      readonly linked_flag: MinimalFeatureFlag;
-      /**
-         * Return the targeting flag filters, excluding the base exclusion properties.
-         * @nullable
-         */
-      readonly targeting_flag_filters: ProductTourTargetingFlagFilters;
-      content?: unknown;
-      readonly draft_content: unknown;
-      readonly has_draft: boolean;
-      auto_launch?: boolean;
-      /** @nullable */
-      start_date?: string | null;
-      /** @nullable */
-      end_date?: string | null;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      readonly updated_at: string;
-      archived?: boolean;
-      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
-      readonly search_match_type: SearchMatchTypeEnum | null;
-    }
-
-    export interface PaginatedProductTourList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ProductTour[];
-    }
-
-    /**
      * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
      * passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
      * backward compatibility of the REST API.
@@ -82512,48 +82440,6 @@ export namespace Schemas {
       seen?: boolean;
     }
 
-    /**
-     * * `app` - app
-     * * `toolbar` - toolbar
-     */
-    export type ProductTourSerializerCreateUpdateOnlyCreationContextEnum = typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnum[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnum];
-
-
-    export const ProductTourSerializerCreateUpdateOnlyCreationContextEnum = {
-      App: 'app',
-      Toolbar: 'toolbar',
-    } as const;
-
-    /**
-     * Serializer for creating and updating ProductTour.
-     */
-    export interface PatchedProductTourSerializerCreateUpdateOnly {
-      readonly id?: string;
-      /** @maxLength 400 */
-      name?: string;
-      description?: string;
-      readonly internal_targeting_flag?: MinimalFeatureFlag;
-      readonly linked_flag?: MinimalFeatureFlag;
-      /** @nullable */
-      linked_flag_id?: number | null;
-      targeting_flag_filters?: unknown;
-      content?: unknown;
-      auto_launch?: boolean;
-      /** @nullable */
-      start_date?: string | null;
-      /** @nullable */
-      end_date?: string | null;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly updated_at?: string;
-      archived?: boolean;
-      /** Where the tour was created/updated from
-       *
-       * * `app` - app
-       * * `toolbar` - toolbar */
-      creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
-    }
-
     export type PatchedProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
 
     export type PatchedProjectBackwardCompatDefaultModifiers = { [key: string]: unknown };
@@ -82710,7 +82596,7 @@ export namespace Schemas {
     }
 
     export interface TeamFeatureFlagPolicyConfig {
-      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+      /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
     }
 
@@ -87862,36 +87748,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly ends_at: string | null;
-    }
-
-    /**
-     * Serializer for creating and updating ProductTour.
-     */
-    export interface ProductTourSerializerCreateUpdateOnly {
-      readonly id: string;
-      /** @maxLength 400 */
-      name: string;
-      description?: string;
-      readonly internal_targeting_flag: MinimalFeatureFlag;
-      readonly linked_flag: MinimalFeatureFlag;
-      /** @nullable */
-      linked_flag_id?: number | null;
-      targeting_flag_filters?: unknown;
-      content?: unknown;
-      auto_launch?: boolean;
-      /** @nullable */
-      start_date?: string | null;
-      /** @nullable */
-      end_date?: string | null;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      readonly updated_at: string;
-      archived?: boolean;
-      /** Where the tour was created/updated from
-       *
-       * * `app` - app
-       * * `toolbar` - toolbar */
-      creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
     }
 
     export interface ProductboardFeedbackSignalExtra {
@@ -118531,7 +118387,6 @@ export namespace Schemas {
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
-     * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
@@ -118640,7 +118495,6 @@ export namespace Schemas {
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
-      ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
@@ -118735,7 +118589,6 @@ export namespace Schemas {
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
-     * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
@@ -118832,7 +118685,6 @@ export namespace Schemas {
       LogsRetentionRule: 'LogsRetentionRule',
       TracesRetentionRule: 'TracesRetentionRule',
       DashboardWidget: 'DashboardWidget',
-      ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
@@ -128012,21 +127864,6 @@ export namespace Schemas {
      * Maximum number of hash groups to return (1–200).
      */
     limit?: number;
-    };
-
-    export type ProductToursListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Match against product tour `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.
-     */
-    search?: string;
     };
 
     export type ProjectSecretApiKeysListParams = {

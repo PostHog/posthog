@@ -33,7 +33,6 @@ import {
     matchEventToElementUsingSelectors,
     matchIsChainConsistent,
 } from '~/toolbar/elements/domElementIndex'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -1239,12 +1238,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         startAreaSelection: () => {
-            // product tours' picker also listens for document clicks; two armed pickers
-            // would both consume the same page click
-            const productTours = productToursLogic.findMounted()
-            if (productTours?.values.isSelecting) {
-                productTours.actions.setEditorState({ mode: 'idle' })
-            }
             const candidates = computeAreaCandidates()
             actions.setAreaCandidates(candidates)
             toolbarPosthogJS.capture('toolbar heatmap area selection started', {

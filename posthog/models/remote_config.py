@@ -26,7 +26,6 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 tracer = trace.get_tracer(__name__)
@@ -315,17 +314,9 @@ class RemoteConfig(UUIDTModel):
         else:
             config["surveys"] = False
 
-        # MARK: Product tours
-        # Only query if the team has opted in (auto-set when a tour is created)
-        if team.product_tours_opt_in:
-            has_active_tours = ProductTour.objects.filter(
-                team=team,
-                archived=False,
-                start_date__isnull=False,
-            ).exists()
-            config["productTours"] = has_active_tours
-        else:
-            config["productTours"] = False
+        # Released posthog-js versions persist the last value they saw, so an absent key would leave
+        # product tours enabled for them. An explicit false turns the extension off.
+        config["productTours"] = False
 
         # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
         # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.
@@ -550,44 +541,6 @@ def site_function_changed(sender, instance: "HogFunction", **kwargs):
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
-
-
-def sync_team_product_tours_opt_in(team: Team) -> None:
-    """Sync the product_tours_opt_in flag based on whether the team has any active tours."""
-    has_active_tours = ProductTour.objects.filter(
-        team=team,
-        archived=False,
-        start_date__isnull=False,
-    ).exists()
-    if has_active_tours != team.product_tours_opt_in:
-        team.product_tours_opt_in = has_active_tours
-        team.save(update_fields=["product_tours_opt_in"])
-
-
-@receiver(post_save, sender="product_tours.ProductTour")
-def product_tour_saved(sender, instance, created, **kwargs):
-    def _on_commit():
-        try:
-            team = Team.objects.get(id=instance.team_id)
-            sync_team_product_tours_opt_in(team)
-        except Team.DoesNotExist:
-            pass
-        _update_team_remote_config(instance.team_id)
-
-    transaction.on_commit(_on_commit)
-
-
-@receiver(post_delete, sender="product_tours.ProductTour")
-def product_tour_deleted(sender, instance, **kwargs):
-    def _on_commit():
-        try:
-            team = Team.objects.get(id=instance.team_id)
-            sync_team_product_tours_opt_in(team)
-        except Team.DoesNotExist:
-            pass
-        _update_team_remote_config(instance.team_id)
-
-    transaction.on_commit(_on_commit)
 
 
 @receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")

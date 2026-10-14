@@ -168,9 +168,6 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
-    ProductTour,
-    ProductTourAIGenerationResponse,
-    ProductTourStep,
     ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
@@ -1247,15 +1244,6 @@ export class ApiRequest {
             return this.survey(id, teamId).addPathComponent('activity')
         }
         return this.surveys(teamId).addPathComponent('activity')
-    }
-
-    // Product tours
-    public productTours(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('product_tours')
-    }
-
-    public productTour(id: ProductTour['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.productTours(teamId).addPathComponent(id)
     }
 
     // Error tracking
@@ -2600,7 +2588,6 @@ const api = {
                     ActivityScope.TAG,
                     ActivityScope.BATCH_EXPORT,
                     ActivityScope.ENDPOINT,
-                    ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
@@ -5320,48 +5307,6 @@ const api = {
         },
         async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
             return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
-        },
-    },
-
-    productTours: {
-        async list({ search }: { search?: string } = {}): Promise<PaginatedResponse<ProductTour>> {
-            return await new ApiRequest()
-                .productTours()
-                .withQueryString(search ? { search } : {})
-                .get()
-        },
-        async get(tourId: ProductTour['id']): Promise<ProductTour> {
-            return await new ApiRequest().productTour(tourId).get()
-        },
-        async create(data: Partial<ProductTour>): Promise<ProductTour> {
-            return await new ApiRequest().productTours().create({ data })
-        },
-        async update(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
-            return await new ApiRequest().productTour(tourId).update({ data })
-        },
-        async delete(tourId: ProductTour['id']): Promise<void> {
-            await new ApiRequest().productTour(tourId).delete()
-        },
-        async generateContent(
-            tourId: ProductTour['id'],
-            title: ProductTour['name'],
-            steps: ProductTourStep[],
-            goal: string
-        ): Promise<ProductTourAIGenerationResponse> {
-            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
-            return await apiRequest.create({ data: { title, steps, goal } })
-        },
-        async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
-            return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })
-        },
-        async publishDraft(tourId: ProductTour['id'], data?: Record<string, any>): Promise<ProductTour> {
-            return await new ApiRequest().productTour(tourId).withAction('publish_draft').create({ data })
-        },
-        async discardDraft(tourId: ProductTour['id']): Promise<void> {
-            await new ApiRequest().productTour(tourId).withAction('discard_draft').delete()
-        },
-        async draftStatus(tourId: ProductTour['id']): Promise<{ updated_at: string; has_draft: boolean }> {
-            return await new ApiRequest().productTour(tourId).withAction('draft_status').get()
         },
     },
 

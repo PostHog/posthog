@@ -36,7 +36,6 @@ import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptySta
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
 import { notebooksEmptyState } from 'products/notebooks/frontend/emptyState/notebooksEmptyState'
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
-import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { pulseEmptyState } from 'products/pulse/frontend/emptyState/pulseEmptyState'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
@@ -186,12 +185,6 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyS
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
 })
-
-export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
-    productToursEmptyState,
-    'needs-setup',
-    { mocks: { get: { '/api/projects/:team_id/product_tours/': [200, emptyEntityList] } } }
-)
 
 export const SupportNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(supportEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/conversations/tickets/': [200, emptyEntityList] } },

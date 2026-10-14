@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
+import { ElementHighlight } from '~/toolbar/elements/ElementHighlight'
 
 import { fieldNotesLogic } from './fieldNotesLogic'
 

@@ -341,7 +341,7 @@ still reads the nightly usage report.
 
 | usage_key | the report counts | the collector counts | effect |
 | --- | --- | --- | --- |
-| `survey_responses` | one response per `$survey_submission_id` per survey, excluding product-tour surveys | every `survey sent` event | over-bills repeat submissions and product tours |
+| `survey_responses` | one response per `$survey_submission_id` per survey | every `survey sent` event | over-bills repeat submissions |
 | `warehouse_rows_synced` | nothing for a source created within seven days of the period end or during the warehouse free period | every completed billable job | over-bills a source's first week |
 | `feature_flag_local_evaluation_requests` | every local evaluation request | only ones served by the Rust service | Django's endpoint writes no record |
 

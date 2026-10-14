@@ -19,25 +19,11 @@ impl HasEventName for SpanEvent {
     fn event_name(&self) -> &str {
         &self.event_name
     }
-
-    fn has_property(&self, key: &str) -> bool {
-        self.properties
-            .as_object()
-            .map(|m| m.contains_key(key))
-            .unwrap_or(false)
-    }
 }
 
 impl HasEventName for &SpanEvent {
     fn event_name(&self) -> &str {
         &self.event_name
-    }
-
-    fn has_property(&self, key: &str) -> bool {
-        self.properties
-            .as_object()
-            .map(|m| m.contains_key(key))
-            .unwrap_or(false)
     }
 }
 

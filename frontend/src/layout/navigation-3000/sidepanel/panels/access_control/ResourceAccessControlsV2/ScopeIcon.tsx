@@ -30,7 +30,6 @@ import {
     IconRocket,
     IconShare,
     IconScatter,
-    IconSpotlight,
     IconToggle,
     IconToolbar,
     IconTrends,
@@ -105,8 +104,6 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconPulse />
         case 'notebook':
             return <IconNotebook />
-        case 'product_tour':
-            return <IconSpotlight />
         case 'property_definition':
             return <IconApps />
         case 'replay_scanner':

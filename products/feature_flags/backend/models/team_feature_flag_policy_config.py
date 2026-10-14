@@ -23,8 +23,8 @@ class TeamFeatureFlagPolicyConfig(models.Model):
 
     # Blocks creating a flag with no tags, and blocks removing the last tag from a flag that has
     # one. Only applies to flags a person creates directly. Flags generated to back a survey,
-    # experiment, early access feature, product tour, or web experiment are exempt, because those
-    # forms have no tag input and would otherwise dead-end.
+    # experiment, early access feature, or web experiment are exempt, because those forms have no
+    # tag input and would otherwise dead-end.
     require_tags = models.BooleanField(default=False)
 
 

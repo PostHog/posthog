@@ -155,17 +155,6 @@ jest.mock('posthog-js/dist/surveys-preview', () => ({
     getNextSurveyStep: jest.fn(),
 }))
 
-// Mock posthog-js product-tours-preview to avoid ESM import issues in tests
-jest.mock('posthog-js/dist/product-tours-preview', () => ({
-    renderProductTourPreview: jest.fn(),
-}))
-
-// Mock posthog-js element-inference to avoid ESM import issues in tests
-jest.mock('posthog-js/dist/element-inference', () => ({
-    findElement: jest.fn(),
-    getElementPath: jest.fn(),
-}))
-
 // Mock posthog-js to avoid issues in tests
 jest.mock('posthog-js', () => {
     // Get the actual module to preserve type exports (enums, etc.)

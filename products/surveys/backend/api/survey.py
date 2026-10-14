@@ -2366,6 +2366,27 @@ class SurveyFilterSet(FilterSet):
         fields = ["archived", "type"]
 
 
+def delete_survey_flags_and_log(
+    survey: Survey, *, organization_id: UUID, team_id: int, user: User | None, was_impersonated: bool
+) -> None:
+    """Delete the survey's targeting flags and log the survey deletion. The caller then deletes the survey row."""
+    if survey.targeting_flag:
+        survey.targeting_flag.delete()
+    if survey.internal_targeting_flag:
+        survey.internal_targeting_flag.delete()
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=survey.id,
+        scope="Survey",
+        activity="deleted",
+        detail=Detail(name=survey.name),
+    )
+
+
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
@@ -2394,7 +2415,6 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         return SurveySerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.exclude(product_tour__isnull=False)
         if self.action == "list":
             search = self.request.GET.get("search")
             if search:
@@ -2437,7 +2457,6 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
-        related_internal_targeting_flag = instance.internal_targeting_flag
         # Only the user-defined targeting flag is gated; the internal targeting flag is a
         # PostHog-managed implementation detail, so deleting a survey that only has one
         # must not require `feature_flag:write`.
@@ -2449,20 +2468,12 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                 team_id=self.team_id,
                 feature_flag_id=related_targeting_flag.id,
             )
-        if related_targeting_flag:
-            related_targeting_flag.delete()
-        if related_internal_targeting_flag:
-            related_internal_targeting_flag.delete()
-
-        log_activity(
+        delete_survey_flags_and_log(
+            instance,
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=cast(User, self.request.user),
             was_impersonated=is_impersonated(request),
-            item_id=instance.id,
-            scope="Survey",
-            activity="deleted",
-            detail=Detail(name=instance.name),
         )
 
         return super().destroy(request, *args, **kwargs)

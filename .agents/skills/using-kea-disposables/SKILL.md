@@ -174,27 +174,17 @@ cache.disposables.add(() => {
 }, 'popstateListener')
 ```
 
-**`visibilitychange` listener with `pauseOnPageHidden: false`** — `frontend/src/scenes/product-tours/productTourLogic.ts:647-663`
+**`visibilitychange` listener with `pauseOnPageHidden: false`** — `frontend/src/layout/navigation/Breadcrumbs/breadcrumbsLogic.tsx:310-317`
 
 ```ts
-openToolbarModal: () => {
-    cache.disposables.add(
-        () => {
-            const handler = (): void => {
-                if (document.visibilityState === 'hidden') {
-                    actions.handleToolbarTabVisibility()
-                }
-            }
-            document.addEventListener('visibilitychange', handler)
-            return () => document.removeEventListener('visibilitychange', handler)
-        },
-        'toolbarModalVisibility',
-        { pauseOnPageHidden: false }
-    )
-},
-closeToolbarModal: () => {
-    cache.disposables.dispose('toolbarModalVisibility')
-},
+cache.disposables.add(
+  () => {
+    document.addEventListener('visibilitychange', cache.syncTitle)
+    return () => document.removeEventListener('visibilitychange', cache.syncTitle)
+  },
+  'titleSync',
+  { pauseOnPageHidden: false }
+)
 ```
 
 **`MediaQueryList` listener in `events(afterMount)`** — `frontend/src/layout/navigation-3000/themeLogic.ts:108-118`

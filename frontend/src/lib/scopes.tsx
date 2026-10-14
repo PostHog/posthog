@@ -277,7 +277,6 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'product enablement',
         disabledActions: ['read'],
     },
-    { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
         key: 'project',
         objectName: 'Project',
@@ -363,6 +362,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
     vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
+    product_tour: 'Retired: product tours were removed; kept so existing keys that hold it stay valid.',
 }
 
 // Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.

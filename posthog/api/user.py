@@ -2135,7 +2135,6 @@ def redirect_to_site(request):
         "token": team.api_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
-        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],

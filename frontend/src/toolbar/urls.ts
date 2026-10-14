@@ -26,8 +26,6 @@ export const urls = {
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
     organizationBilling: (products?: string[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
-    productTour: (id: string, params?: string): string =>
-        `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     sessionProfile: (id: string): string => `/sessions/${id}`,
     settings: (section: string = 'project', setting?: string): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,

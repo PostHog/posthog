@@ -25,7 +25,6 @@ GATED_PATH = {
 ALLOWED_REASONS: dict[str, str] = {
     "products/surveys/backend/api/survey.py": "start/stop mirror of active, which the serializer would gate and guard",
     "products/feature_flags/backend/facade/api.py": "never-fail early access enrollment cleanup",
-    "posthog/management/commands/generate_random_product_tours.py": "local data generator",
     "posthog/management/commands/reencrypt_flag_payloads.py": "payload re-encryption command",
     "posthog/management/commands/sync_feature_flags.py": "local dev flag sync",
     "posthog/management/commands/sync_feature_flags_from_api.py": "local dev flag sync",

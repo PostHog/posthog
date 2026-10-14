@@ -295,7 +295,6 @@ async fn v1_all_options_property_injection() -> Result<()> {
     wrapped.options = capture::v1::analytics::types::Options {
         cookieless_mode: Some(true),
         disable_skew_correction: Some(true),
-        product_tour_id: Some("tour_abc123".to_string()),
         process_person_profile: Some(false),
     };
     wrapped.event.session_id = Some("sess-opt-test".to_string());
@@ -313,7 +312,6 @@ async fn v1_all_options_property_injection() -> Result<()> {
     assert_eq!(data.properties["$window_id"], "win-opt-test");
     assert_eq!(data.properties["$cookieless_mode"], true);
     assert_eq!(data.properties["$ignore_sent_at"], true);
-    assert_eq!(data.properties["$product_tour_id"], "tour_abc123");
     assert_eq!(data.properties["$process_person_profile"], false);
 
     topic.assert_empty();
@@ -338,7 +336,6 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     wrapped.options = capture::v1::analytics::types::Options {
         cookieless_mode: None,
         disable_skew_correction: None,
-        product_tour_id: None,
         process_person_profile: None,
     };
     wrapped.event.session_id = None;
@@ -356,7 +353,6 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     assert!(!data.properties.contains_key("$window_id"));
     assert!(!data.properties.contains_key("$cookieless_mode"));
     assert!(!data.properties.contains_key("$ignore_sent_at"));
-    assert!(!data.properties.contains_key("$product_tour_id"));
     assert!(!data.properties.contains_key("$process_person_profile"));
 
     topic.assert_empty();

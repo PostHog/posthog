@@ -33,7 +33,6 @@ from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     _live_gate_answer,
 )
 from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 FULL_ROLLOUT_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 100}]}
@@ -103,21 +102,6 @@ class TestStaleFlagsDetect(BaseTest):
             Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
         elif link == "survey_linked":
             Survey.objects.create(team=self.team, name="s", type="popover", linked_flag=flag)
-        elif link == "product_tour":
-            ProductTour.objects.create(team=self.team, name="t", content={"steps": []}, internal_targeting_flag=flag)
-        elif link == "child_environment_product_tour":
-            # A tour row keeps the environment it was created on, while the flag belongs to the
-            # project root team, so the tour's team id is never a candidate team id.
-            child_environment = Team.objects.create(
-                organization=self.organization, project=self.project, parent_team=self.team, name="child env"
-            )
-            ProductTour.objects.create(
-                team=child_environment, name="t", content={"steps": []}, internal_targeting_flag=flag
-            )
-        elif link == "archived_product_tour":
-            ProductTour.all_objects.create(
-                team=self.team, name="t", content={"steps": []}, internal_targeting_flag=flag, archived=True
-            )
         elif link == "experiment":
             Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
         elif link == "deleted_experiment":
@@ -153,9 +137,6 @@ class TestStaleFlagsDetect(BaseTest):
             ("remote_config_null_still_reported", {**stale_by_config(), "is_remote_configuration": None}, None, True),
             ("survey_targeting_flag", stale_by_config(), "survey_targeting", False),
             ("survey_user_linked_flag", stale_by_config(), "survey_linked", True),
-            ("product_tour_internal_flag", stale_by_config(), "product_tour", False),
-            ("archived_product_tour_still_blocks", stale_by_config(), "archived_product_tour", False),
-            ("child_environment_product_tour_blocks", stale_by_config(), "child_environment_product_tour", False),
             ("experiment_linked", stale_by_config(), "experiment", False),
             ("deleted_experiment_does_not_block", stale_by_config(), "deleted_experiment", True),
             ("early_access_feature_flag", stale_by_config(), "early_access_feature", False),

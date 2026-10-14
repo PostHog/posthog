@@ -150,7 +150,6 @@
 1 products/product_analytics/backend/hogql_queries/funnels/funnel_event_query.py
 1 products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner.py
 1 products/product_analytics/backend/temporal/upgrade_queries_workflow.py
-1 products/product_tours/backend/generate_tour_content/generate.py
 1 products/pulse/backend/temporal/activities.py
 1 products/replay_vision/backend/tests/test_gemini_cleanup_activities.py
 1 products/revenue_analytics/backend/views/core.py

@@ -69,7 +69,6 @@ post_delete:posthog.models.organization.clean_up_alert_subscriptions_on_membersh
 post_delete:posthog.models.organization.clean_up_event_streams_on_membership_removal
 post_delete:posthog.models.organization.sync_billing_on_membership_removal
 post_delete:posthog.models.product_intent.product_intent._invalidate_product_intents_on_delete
-post_delete:posthog.models.remote_config.product_tour_deleted
 post_delete:posthog.models.remote_config.push_integration_changed
 post_delete:posthog.models.remote_config.site_function_changed
 post_delete:posthog.models.team.team.delete_team_in_cache_on_delete
@@ -147,7 +146,6 @@ post_save:posthog.models.remote_config.feature_flag_saved
 post_save:posthog.models.remote_config.heatmap_config_saved
 post_save:posthog.models.remote_config.js_snippet_config_saved
 post_save:posthog.models.remote_config.organization_subscription_saved
-post_save:posthog.models.remote_config.product_tour_saved
 post_save:posthog.models.remote_config.push_integration_changed
 post_save:posthog.models.remote_config.site_app_saved
 post_save:posthog.models.remote_config.site_function_changed

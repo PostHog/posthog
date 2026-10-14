@@ -4,17 +4,12 @@ from django.db import models
 from django.db.models import Q
 
 
-class ProductTourManager(models.Manager):
-    """Default manager that excludes archived tours."""
-
-    def get_queryset(self):
-        return super().get_queryset().filter(archived=False)
-
-
 class ProductTour(models.Model):
-    """A product tour guides users through application features."""
+    """The product tours product is retired. The model stays so that Django keeps cascading team,
+    user, feature flag and survey deletes into its tables. A later migration removes the model
+    and drops the tables."""
 
-    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
+    # nosemgrep: prefer-uuid7-django-pk -- a retired model, and a new primary key default would need a migration.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     team = models.ForeignKey(
@@ -73,9 +68,6 @@ class ProductTour(models.Model):
 
     archived = models.BooleanField(default=False)
 
-    objects = ProductTourManager()
-    all_objects: models.Manager["ProductTour"] = models.Manager()
-
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -87,35 +79,3 @@ class ProductTour(models.Model):
         indexes = [
             models.Index(fields=["team", "archived"]),
         ]
-
-    def __str__(self):
-        return f"{self.name} ({self.id})"
-
-    def get_analytics_metadata(self) -> dict:
-        steps = self.content.get("steps", []) if self.content else []
-        tour_type = self.content.get("type", "tour") if self.content else "tour"
-        conditions = self.content.get("conditions", {}) if self.content else {}
-
-        if tour_type == "announcement" and steps:
-            first_step_type = steps[0].get("type")
-            if first_step_type == "banner":
-                tour_type = "banner"
-            elif first_step_type == "modal":
-                tour_type = "modal_announcement"
-
-        return {
-            "tour_id": str(self.id),
-            "tour_name": self.name,
-            "tour_type": tour_type,
-            "step_count": len(steps),
-            "has_targeting": self.internal_targeting_flag is not None,
-            "has_survey_steps": any(s.get("survey") for s in steps),
-            "auto_launch": self.auto_launch,
-            "display_frequency": self.content.get("displayFrequency") if self.content else None,
-            "has_url_condition": bool(conditions.get("url")),
-            "url_match_type": conditions.get("urlMatchType"),
-            "has_delay": bool(conditions.get("autoShowDelaySeconds")),
-            "has_selector_condition": bool(conditions.get("selector")),
-            "has_action_triggers": bool((conditions.get("actions") or {}).get("values")),
-            "has_event_triggers": bool((conditions.get("events") or {}).get("values")),
-        }

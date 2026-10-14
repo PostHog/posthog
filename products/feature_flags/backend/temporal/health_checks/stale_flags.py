@@ -33,7 +33,6 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.session_recording_links import replay_gated_flags_for_projects
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
@@ -344,9 +343,8 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     to investigate, not a verdict that removal is safe.
     """
     team_ids = {flag.team_id for flag in candidates}
-    # Product tours, replay links, and flag dependencies are scoped by project, not by team:
-    # another team in the same project can reference a flag this batch's teams own. A product
-    # tour stays on the environment that created it, while a flag moves to the project root.
+    # Replay links and flag dependencies are scoped by project, not by team: another team in the
+    # same project can reference a flag this batch's teams own.
     # Surveys stay on team scope: Survey and FeatureFlag both inherit RootTeamMixin, so both
     # rows always sit on the project root team and their team ids line up.
     team_projects = dict(Team.objects.filter(id__in=team_ids).values_list("id", "project_id"))
@@ -354,11 +352,6 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
 
     excluded: set[int] = set()
     excluded |= Survey.get_internal_flag_ids(team_ids=team_ids)
-    excluded |= set(
-        ProductTour.all_objects.filter(
-            team__project_id__in=project_ids, internal_targeting_flag__isnull=False
-        ).values_list("internal_targeting_flag_id", flat=True)
-    )
     excluded |= set(
         Experiment.objects.filter(team_id__in=team_ids, deleted=False).values_list("feature_flag_id", flat=True)
     )

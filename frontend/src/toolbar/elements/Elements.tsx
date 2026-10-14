@@ -7,12 +7,11 @@ import { compactNumber } from 'lib/utils/numbers'
 
 import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
 import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
+import { ElementHighlight } from '~/toolbar/elements/ElementHighlight'
 import { ElementInfoWindow } from '~/toolbar/elements/ElementInfoWindow'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
-import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
-import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { ElementWithMetadata } from '~/toolbar/types'
 import { getBoxColors, getHeatMapHue, getToolbarRootElement } from '~/toolbar/utils'
 
@@ -51,11 +50,6 @@ export function Elements(): JSX.Element {
     const { highestClickCount, areaSelectionActive, areaHoverElement, heatmapAreaFilter, areaCandidates } =
         useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap, setAreaHover, selectHeatmapAreaFilter } = useActions(heatmapToolbarMenuLogic)
-    const {
-        isSelecting: productToursSelecting,
-        hoverElementRect: productToursHoverRect,
-        expandedStepRect: productToursSelectedStepRect,
-    } = useValues(productToursLogic)
 
     const shiftPressed = useShiftKeyPressed(refreshClickmap)
     // while picking an area the page itself must receive pointer events, so all overlays pass through
@@ -142,8 +136,6 @@ export function Elements(): JSX.Element {
                 {heatmapEnabled && !areaSelectionActive && areaFilterRect && (
                     <ElementHighlight rect={areaFilterRect} isSelected />
                 )}
-                {productToursSelecting && productToursHoverRect && <ElementHighlight rect={productToursHoverRect} />}
-                {productToursSelectedStepRect && <ElementHighlight rect={productToursSelectedStepRect} isSelected />}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }) => {
                     return (

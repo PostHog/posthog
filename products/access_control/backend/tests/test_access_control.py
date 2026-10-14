@@ -3,7 +3,6 @@ import uuid
 
 from unittest.mock import MagicMock, patch
 
-from django.apps import apps
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -2486,22 +2485,11 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         assert [r["resource_id"] for r in res.json()["results"]] == [str(live.id)]
         assert AccessControl.objects.filter(resource="dashboard", resource_id=str(retired.id)).exists()
 
-    # product_tour guards the resources model_to_resource cannot map by model name (ProductTour
-    # lowercases to "producttour"): the endpoints must pass the resource explicitly or the
-    # access-level filter silently no-ops
-    @parameterized.expand(
-        [
-            ("dashboard", "dashboard"),
-            ("product_tour", "producttour"),
-        ]
-    )
-    def test_object_search_and_rules_hide_objects_the_member_cannot_see(self, resource, model_name):
+    def test_object_search_and_rules_hide_objects_the_member_cannot_see(self):
+        resource = "dashboard"
         # Someone else's object: creators keep access to their own
         owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
-        model = apps.get_model(
-            app_label="dashboards" if resource == "dashboard" else "product_tours", model_name=model_name
-        )
-        hidden = model.objects.create(team=self.team, name="Confidential thing", created_by=owner)
+        hidden = Dashboard.objects.create(team=self.team, name="Confidential thing", created_by=owner)
         AccessControl.objects.create(
             team=self.team,
             resource=resource,

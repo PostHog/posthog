@@ -330,11 +330,6 @@ export const urls = {
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
-    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
-    productTours: (): string => '/product_tours',
-    productTour: (id: string, params?: string): string =>
-        // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
-        `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
     projectPendingDeletion: (): string => '/project-pending-deletion',
