@@ -191,7 +191,7 @@ export function TraceDrawer({
         >
             <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
             {traceId && !loading && loadFailed ? (
-                <TraceLoadErrorNotice onRetry={onRetry} loading={loading} />
+                <TraceLoadErrorNotice onRetry={onRetry} />
             ) : traceId && !loading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
             ) : (
