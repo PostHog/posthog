@@ -302,10 +302,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         data = self.get_model(upgraded_query, QueryRequest)
         if is_enforced_guest(request):
             # A guest runs the saved query of the item they were granted, never the query they sent.
-            reject_guest_value_overrides(
-                request, data.filters_override.model_dump(exclude_none=True) if data.filters_override else None
-            )
             guest_query = resolve_guest_query(data, self.team, cast(User, request.user))
+            reject_guest_value_overrides(
+                request,
+                data.filters_override.model_dump(exclude_none=True) if data.filters_override else None,
+                guest_query.saved_filters,
+            )
             data = data.model_copy(
                 update={"query": QueryRequest.model_validate(upgrade({"query": guest_query.query})).query}
             )

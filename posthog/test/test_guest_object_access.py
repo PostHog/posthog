@@ -16,8 +16,14 @@ from products.authz.backend.facade.contracts import CheckRequest, Context, Resou
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade import testing as dashboard_testing
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+
+SAVED_DASHBOARD_FILTERS = {
+    "breakdown_filter": {"breakdown": "email", "breakdown_type": "person"},
+    "properties": [{"type": "hogql", "key": "person.properties.email = 'a'"}],
+}
 
 
 class TestGuestObjectAccess(APIBaseTest):
@@ -112,6 +118,27 @@ class TestGuestObjectAccess(APIBaseTest):
     def test_guest_cannot_list_recordings(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("saved filters", {}, 200),
+            ("new breakdown", {"breakdown_filter": {"breakdown": "name", "breakdown_type": "person"}}, 403),
+            (
+                "new hogql filter",
+                {"properties": [*SAVED_DASHBOARD_FILTERS["properties"], {"type": "hogql", "key": "1 = 1"}]},
+                403,
+            ),
+        ]
+    )
+    def test_guest_dashboard_overrides_may_repeat_the_saved_filters(
+        self, _name: str, change: dict, expected: int
+    ) -> None:
+        Dashboard.objects.filter(id=self.dashboard_id).update(filters=SAVED_DASHBOARD_FILTERS)
+        override = {**SAVED_DASHBOARD_FILTERS, "date_from": "-7d", **change}
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/", {"filters_override": json.dumps(override)}
+        )
+        assert response.status_code == expected, response.json()
 
     def test_guest_cannot_edit_a_granted_dashboard(self) -> None:
         url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/"

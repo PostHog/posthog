@@ -17,6 +17,8 @@ from posthog.models import OrganizationMembership
 from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import CheckRequest, Context
 from products.authz.backend.facade.enums import ResourceType
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
@@ -52,6 +54,7 @@ class TestGuestQuery(APIBaseTest):
         }
         self.notebook = Notebook.objects.create(team=self.team, content=notebook_content)
         self.other_notebook = Notebook.objects.create(team=self.team, content=notebook_content)
+        self.dashboard_id: int | None = None
         for target, kwargs in (
             ("products.authz.backend.logic.rollout.get_feature_flag_or_none", {"return_value": "v2"}),
             ("products.authz.backend.logic.authorization.check", {"side_effect": self._openfga_check}),
@@ -66,6 +69,7 @@ class TestGuestQuery(APIBaseTest):
             or (request.resource.type == ResourceType.INSIGHT and request.resource.id == str(self.insight.id))
             or (request.resource.type == ResourceType.NOTEBOOK and request.resource.id == str(self.notebook.id))
             or (request.resource.type == ResourceType.SESSION_RECORDING and request.resource.id == "session-1")
+            or (request.resource.type == ResourceType.DASHBOARD and request.resource.id == str(self.dashboard_id))
             for request in requests
         ]
 
@@ -94,6 +98,19 @@ class TestGuestQuery(APIBaseTest):
     def test_guest_cannot_use_overrides_that_expose_values(self, _name: str, filters_override: dict) -> None:
         response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id, filters_override=filters_override)
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("saved breakdown", "email", 200), ("new breakdown", "name", 403)])
+    @patch("posthog.api.query.process_query_model", return_value={"results": []})
+    def test_guest_query_overrides_may_repeat_a_viewable_dashboard_breakdown(
+        self, _name: str, breakdown: str, expected: int, process
+    ) -> None:
+        saved = {"breakdown_filter": {"breakdown": "email", "breakdown_type": "person"}}
+        dashboard = Dashboard.objects.create(team=self.team, filters=saved)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        self.dashboard_id = dashboard.id
+        filters_override = {"breakdown_filter": {"breakdown": breakdown, "breakdown_type": "person"}}
+        response = self._query(query=CLIENT_QUERY, insight_id=self.insight.id, filters_override=filters_override)
+        assert response.status_code == expected, response.json()
 
     @parameterized.expand([("granted notebook", True), ("other notebook", False)])
     @patch("posthog.api.query.process_query_model", return_value={"results": []})

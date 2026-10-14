@@ -1901,7 +1901,7 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
-    reject_guest_value_overrides(request, request_filters)
+    reject_guest_value_overrides(request, request_filters, [dashboard_filters])
     return {**dashboard_filters, **request_filters}
 
 
@@ -1971,7 +1971,7 @@ def tile_filters_override_requested_by_client(
             {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
         )
 
-    reject_guest_value_overrides(request, request_filters)
+    reject_guest_value_overrides(request, request_filters, [tile_filters])
     return {**tile_filters, **request_filters}
 
 

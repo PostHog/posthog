@@ -5,6 +5,7 @@ rules grant them. The rules apply only in organizations on the authz v2 rollout.
 products/authz/model/core.fga for the matching OpenFGA model.
 """
 
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -219,7 +220,16 @@ def guest_effective_resource_access(user: User, team: Team) -> dict[str, str]:
     return access
 
 
-def _has_hogql_filter(node: Any) -> bool:
+def _without_nulls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _without_nulls(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_without_nulls(item) for item in value]
+    return value
+
+
+def _hogql_filters(node: Any) -> list[Any]:
+    found: list[Any] = []
     pending = [node]
     while pending:
         item = pending.pop()
@@ -227,20 +237,26 @@ def _has_hogql_filter(node: Any) -> bool:
             pending.extend(item)
         elif isinstance(item, dict):
             if item.get("type") == "hogql":
-                return True
-            pending.extend(item.values())
-    return False
+                found.append(_without_nulls(item))
+            else:
+                pending.extend(item.values())
+    return found
 
 
-def reject_guest_value_overrides(request: Request | None, overrides: dict[str, Any] | None) -> None:
+def reject_guest_value_overrides(
+    request: Request | None, overrides: dict[str, Any] | None, saved: Sequence[dict[str, Any]]
+) -> None:
     """Refuse a guest's filter overrides that could list values, such as emails.
 
     A breakdown returns every value of a property, and a HogQL filter is a yes/no test on any column. Saved filters
-    stay allowed, because their author chose them. Only what the guest sends is checked.
+    stay allowed, because their author chose them. A dashboard sends its saved filters with every override, so a
+    guest may repeat a saved breakdown or HogQL filter, but not send a new one.
     """
     if not overrides or request is None or not is_enforced_guest(request):
         return
-    if overrides.get("breakdown_filter"):
+    breakdown = _without_nulls(overrides.get("breakdown_filter"))
+    if breakdown and breakdown not in [_without_nulls(filters.get("breakdown_filter")) for filters in saved]:
         raise PermissionDenied("Guests can't change a breakdown.")
-    if _has_hogql_filter(overrides.get("properties")):
+    saved_hogql = [hogql for filters in saved for hogql in _hogql_filters(filters.get("properties"))]
+    if any(hogql not in saved_hogql for hogql in _hogql_filters(overrides.get("properties"))):
         raise PermissionDenied("Guests can't filter with HogQL expressions.")

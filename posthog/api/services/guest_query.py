@@ -36,6 +36,8 @@ _CLICKHOUSE_DATETIME = "%Y-%m-%d %H:%M:%S"
 class GuestQuery:
     query: dict[str, Any]
     insight_id: int | None
+    # The saved filters a guest may repeat in an override: those of the dashboards they can view the insight on.
+    saved_filters: tuple[dict[str, Any], ...]
 
 
 def _runnable(query: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +51,13 @@ def _insight_query(team: Team, user: User, insight_id: int) -> GuestQuery:
         raise NotFound()
     if not check_object_access(user, insight, Action.VIEW):
         raise PermissionDenied()
-    return GuestQuery(query=_runnable(insight.query), insight_id=insight.id)
+    dashboards = {tile.dashboard for tile in insight.dashboard_tiles.select_related("dashboard")}
+    saved_filters = tuple(
+        dashboard.filters
+        for dashboard in dashboards
+        if dashboard.filters and check_object_access(user, dashboard, Action.VIEW)
+    )
+    return GuestQuery(query=_runnable(insight.query), insight_id=insight.id, saved_filters=saved_filters)
 
 
 def _notebook_query(team: Team, user: User, short_id: str, node_id: str) -> GuestQuery:
@@ -64,7 +72,7 @@ def _notebook_query(team: Team, user: User, short_id: str, node_id: str) -> Gues
     query = next((query for id, query in extract_inline_query_nodes(notebook.content) if id == node_id), None)
     if query is None:
         raise NotFound()
-    return GuestQuery(query=_runnable(query), insight_id=None)
+    return GuestQuery(query=_runnable(query), insight_id=None, saved_filters=())
 
 
 def _session_events_query(team: Team, user: User, session_id: str) -> dict[str, Any]:
@@ -99,7 +107,11 @@ def resolve_guest_query(request_data: QueryRequest, team: Team, user: User) -> G
     if request_data.notebook_short_id is not None and request_data.node_id is not None:
         return _notebook_query(team, user, request_data.notebook_short_id, request_data.node_id)
     if request_data.session_recording_id is not None:
-        return GuestQuery(query=_session_events_query(team, user, request_data.session_recording_id), insight_id=None)
+        return GuestQuery(
+            query=_session_events_query(team, user, request_data.session_recording_id),
+            insight_id=None,
+            saved_filters=(),
+        )
     raise PermissionDenied("Guests can only run the queries of the items shared with them.")
 
 
