@@ -63,6 +63,9 @@ class Auth0EndpointConfig:
     extra_params: dict[str, str] = field(default_factory=dict)
     # Nested array each response row is expanded into, one output row per item.
     explode_field: Optional[str] = None
+    # Walked with `from`/`take` when it is a fan-out parent: offset paging stops at 1000 rows and
+    # the collection has no window to slide on.
+    checkpoint_parent: bool = False
 
     @property
     def paginated(self) -> bool:
@@ -119,6 +122,7 @@ AUTH0_ENDPOINTS: dict[str, Auth0EndpointConfig] = {
         data_key="organizations",
         capture_samples=True,
         required_scope="read:organizations",
+        checkpoint_parent=True,
     ),
     "resource_servers": Auth0EndpointConfig(
         name="resource_servers",
@@ -146,7 +150,6 @@ AUTH0_ENDPOINTS: dict[str, Auth0EndpointConfig] = {
         path_template="/api/{version}/roles/{parent_id}/users",
         data_key="users",
         primary_keys=("role_id", "user_id"),
-        page_size=CHECKPOINT_PAGE_SIZE,
         required_scope="read:users",
         parent="roles",
         parent_id_column="role_id",
@@ -156,7 +159,6 @@ AUTH0_ENDPOINTS: dict[str, Auth0EndpointConfig] = {
         path_template="/api/{version}/organizations/{parent_id}/members",
         data_key="members",
         primary_keys=("organization_id", "user_id"),
-        page_size=CHECKPOINT_PAGE_SIZE,
         required_scope="read:organization_members",
         parent="organizations",
         parent_id_column="organization_id",
@@ -168,7 +170,6 @@ AUTH0_ENDPOINTS: dict[str, Auth0EndpointConfig] = {
         path_template="/api/{version}/organizations/{parent_id}/members",
         data_key="members",
         primary_keys=("organization_id", "user_id", "id"),
-        page_size=CHECKPOINT_PAGE_SIZE,
         extra_params={"fields": "user_id,roles", "include_fields": "true"},
         explode_field="roles",
         required_scope="read:organization_member_roles",
@@ -181,7 +182,6 @@ AUTH0_ENDPOINTS: dict[str, Auth0EndpointConfig] = {
         path_template="/api/{version}/users/{parent_id}/sessions",
         data_key="sessions",
         primary_keys=("user_id", "id"),
-        page_size=CHECKPOINT_PAGE_SIZE,
         required_scope="read:sessions",
         parent="users",
         parent_id_field="user_id",

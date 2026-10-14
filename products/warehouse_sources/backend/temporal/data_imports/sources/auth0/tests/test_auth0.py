@@ -371,7 +371,7 @@ class TestGetRows:
         assert result.requests == []
 
     def test_fan_out_walks_each_parent_through_its_checkpoint_pages(self) -> None:
-        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}, {"id": "org_3"}], "total": 3}
+        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}, {"id": "org_3"}]}
         members_page_1 = {
             "members": [{"user_id": "auth0|1", "roles": [{"id": "rol_a", "name": "Admin"}]}],
             "next": "cp1",
@@ -408,9 +408,10 @@ class TestGetRows:
         ]
         assert result.params("from")[2:] == [None, "cp1", None, None]
         assert result.requests[2].param("fields") == "user_id,roles"
-        # A page that does not finish its parent leaves the cursor in front of it.
+        # Without it Auth0 returns a bare array with no `next` token.
+        assert set(result.params("include_totals")[1:]) == {"true"}
         assert result.saved_states == [
-            Auth0ResumeConfig(page=0, last_parent_id=None),
+            Auth0ResumeConfig(page=0, last_parent_id=None, child_checkpoint="cp1"),
             Auth0ResumeConfig(page=0, last_parent_id="org_1"),
             Auth0ResumeConfig(page=0, last_parent_id="org_2"),
         ]
@@ -429,29 +430,53 @@ class TestGetRows:
         assert result.paths[2] == "/api/v2/users/auth0%7C1/sessions"
 
     @pytest.mark.parametrize(
-        "last_parent_id, expected_member_paths",
+        "last_parent_id, child_checkpoint, expected_member_requests",
         [
-            ("org_1", ["/api/v2/organizations/org_2/members"]),
+            ("org_1", None, [("/api/v2/organizations/org_2/members", None)]),
+            ("org_1", "cp9", [("/api/v2/organizations/org_2/members", "cp9")]),
+            (
+                None,
+                "cp9",
+                [("/api/v2/organizations/org_1/members", "cp9"), ("/api/v2/organizations/org_2/members", None)],
+            ),
             # The resume parent left the page, so the whole page is read again rather than skipped.
             (
                 "org_gone",
-                ["/api/v2/organizations/org_1/members", "/api/v2/organizations/org_2/members"],
+                "cp9",
+                [("/api/v2/organizations/org_1/members", None), ("/api/v2/organizations/org_2/members", None)],
             ),
         ],
     )
-    def test_fan_out_resumes_after_the_last_finished_parent(
-        self, last_parent_id: str, expected_member_paths: list[str]
+    def test_fan_out_resumes_at_the_next_unread_child_page(
+        self,
+        last_parent_id: Optional[str],
+        child_checkpoint: Optional[str],
+        expected_member_requests: list[tuple[str, Optional[str]]],
     ) -> None:
-        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}], "total": 2}
+        orgs = {"organizations": [{"id": "org_1"}, {"id": "org_2"}]}
         result = self._run(
             "organization_members",
-            [ScriptedResponse(json=orgs), *[ScriptedResponse(json={"members": []})] * len(expected_member_paths)],
-            resume_state=Auth0ResumeConfig(page=3, last_parent_id=last_parent_id),
+            [ScriptedResponse(json=orgs), *[ScriptedResponse(json={"members": []})] * len(expected_member_requests)],
+            resume_state=Auth0ResumeConfig(
+                page=0, parent_checkpoint="cp_orgs", last_parent_id=last_parent_id, child_checkpoint=child_checkpoint
+            ),
         )
 
         assert result.raised is None
-        assert result.requests[1].param("page") == "3"
-        assert result.paths[2:] == expected_member_paths
+        # Organizations are walked by checkpoint, so tenants with over 1000 of them are covered.
+        assert result.requests[1].param("from") == "cp_orgs"
+        assert result.requests[1].param("page") is None
+        assert list(zip(result.paths[2:], result.params("from")[2:])) == expected_member_requests
+
+    def test_role_members_omit_identity_provider_tokens(self) -> None:
+        roles = {"roles": [{"id": "rol_1"}], "total": 1}
+        member = {"user_id": "auth0|1", "identities": [{"provider": "google-oauth2", "access_token": "shh"}]}
+        result = self._run("user_roles", [ScriptedResponse(json=roles), ScriptedResponse(json={"users": [member]})])
+
+        assert result.raised is None
+        assert result.rows == [
+            {"user_id": "auth0|1", "identities": [{"provider": "google-oauth2"}], "role_id": "rol_1"}
+        ]
 
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
     def test_client_errors_propagate(self, status_code: int) -> None:

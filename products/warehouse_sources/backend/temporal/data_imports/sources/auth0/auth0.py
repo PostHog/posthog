@@ -13,6 +13,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.settings import (
     AUTH0_ENDPOINTS,
+    CHECKPOINT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     SEARCH_RESULT_CAP,
     Auth0EndpointConfig,
@@ -84,6 +85,10 @@ class Auth0ResumeConfig:
     # Fan-out children only: the last parent on this page whose children were all handed to the
     # pipeline. A resumed run skips the parents up to and including it.
     last_parent_id: Optional[str] = None
+    # Fan-out children only: the `from` token of the next unread page of the parent after
+    # `last_parent_id`, and of the next parent page when the parent is checkpoint-paged.
+    child_checkpoint: Optional[str] = None
+    parent_checkpoint: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -367,9 +372,11 @@ CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
 # Credential fields nested inside each item of an array field, keyed by endpoint then array
 # field name. `read:user_idp_tokens` returns the linked identity provider's own access and
 # refresh tokens inside every `users` row's `identities` entries, letting a reader of the synced
-# table call those providers' APIs as the user without the source's own credentials.
+# table call those providers' APIs as the user without the source's own credentials. Role members
+# are user rows too, so they get the same treatment.
 NESTED_CREDENTIAL_FIELDS_BY_ENDPOINT: dict[str, dict[str, tuple[str, ...]]] = {
     "users": {"identities": ("access_token", "access_token_secret", "refresh_token")},
+    "user_roles": {"identities": ("access_token", "access_token_secret", "refresh_token")},
 }
 
 
@@ -596,35 +603,67 @@ def _iter_pages(
         window_start = next_window_start
 
 
-def _iter_child_pages(
+def _iter_checkpoint_pages(
     fetch: Callable[..., Any],
     domain: str,
     config: Auth0EndpointConfig,
     api_version: str,
-    parent_id: str,
-) -> Iterator[tuple[list[dict[str, Any]], bool]]:
-    """Each page of one parent's children, with whether it is the last.
+    start: Optional[str],
+    parent_id: Optional[str] = None,
+) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
+    """Each page of a `from`/`take` collection, with the checkpoint after it (None after the last).
 
-    A parent without children still yields one empty last page, so the caller stages a position
+    A collection without rows still yields one empty last page, so the caller stages a position
     for every parent.
     """
-    checkpoint: Optional[str] = None
+    checkpoint = start
     for _ in range(MAX_PAGES):
-        params: dict[str, Any] = {"take": config.page_size, **config.extra_params}
+        # Without `include_totals` Auth0 answers with a bare array that carries no `next` token.
+        params: dict[str, Any] = {"take": CHECKPOINT_PAGE_SIZE, "include_totals": "true", **config.extra_params}
         if checkpoint:
             params["from"] = checkpoint
         # A parent deleted after the parent page was read returns 404; it has no children left.
-        data = fetch(_build_url(domain, config, api_version, params, parent_id=parent_id), not_found_ok=True)
+        data = fetch(
+            _build_url(domain, config, api_version, params, parent_id=parent_id), not_found_ok=parent_id is not None
+        )
         rows = _extract_rows(data, config)
         next_checkpoint = data.get("next") if isinstance(data, dict) else None
-        is_last = not rows or not isinstance(next_checkpoint, str) or not next_checkpoint
-        yield rows, is_last
-        if is_last:
+        if not rows or not isinstance(next_checkpoint, str) or not next_checkpoint:
+            yield rows, None
             return
+        yield rows, next_checkpoint
         checkpoint = next_checkpoint
     raise Auth0PaginationLimitError(
-        f"Auth0 pagination for {config.name} of {parent_id} exceeded {MAX_PAGES} pages without terminating"
+        f"Auth0 pagination for {config.name} exceeded {MAX_PAGES} pages without terminating"
     )
+
+
+def _iter_parent_pages(
+    fetch: Callable[..., Any],
+    domain: str,
+    parent_config: Auth0EndpointConfig,
+    api_version: str,
+    position: Auth0ResumeConfig,
+    fields: Optional[str],
+) -> Iterator[_Page]:
+    if not parent_config.checkpoint_parent:
+        yield from _iter_pages(
+            fetch, domain, parent_config, api_version, parent_config.full_refresh_window_field, position, fields
+        )
+        return
+
+    checkpoint = position.parent_checkpoint
+    for rows, next_checkpoint in _iter_checkpoint_pages(fetch, domain, parent_config, api_version, checkpoint):
+        if not rows:
+            return
+        yield _Page(
+            rows=rows,
+            position=Auth0ResumeConfig(page=0, parent_checkpoint=checkpoint),
+            next_position=None
+            if next_checkpoint is None
+            else Auth0ResumeConfig(page=0, parent_checkpoint=next_checkpoint),
+        )
+        checkpoint = next_checkpoint
 
 
 def _iter_fan_out_rows(
@@ -641,17 +680,18 @@ def _iter_fan_out_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     position = resume_config or Auth0ResumeConfig(page=0)
     resume_after = position.last_parent_id
+    # Applies only to the first parent the resumed run reads.
+    child_start = position.child_checkpoint
     if resume_config is not None:
         logger.debug(f"Auth0: resuming {config.name} from {config.parent} page {position.page} after {resume_after}")
 
-    for parent_page in _iter_pages(
+    for parent_page in _iter_parent_pages(
         fetch,
         domain,
         parent_config,
         api_version,
-        parent_config.full_refresh_window_field,
-        dataclasses.replace(position, last_parent_id=None),
-        fields=config.parent_fields,
+        dataclasses.replace(position, last_parent_id=None, child_checkpoint=None),
+        config.parent_fields,
     ):
         parent_ids = [
             str(row[config.parent_id_field])
@@ -665,27 +705,38 @@ def _iter_fan_out_rows(
             if resume_after in parent_ids:
                 parent_ids = parent_ids[parent_ids.index(resume_after) + 1 :]
                 last_done = resume_after
+            else:
+                child_start = None
             resume_after = None
 
         for index, parent_id in enumerate(parent_ids):
             # Staged before each yield: a page that ends this parent moves the cursor past it, any
-            # earlier page leaves the cursor in front of it so a resume re-reads this parent.
+            # earlier page moves the cursor to this parent's next child page.
             done = (
                 parent_page.next_position
                 if index == len(parent_ids) - 1
                 else dataclasses.replace(parent_page.position, last_parent_id=parent_id)
             )
-            redo = dataclasses.replace(parent_page.position, last_parent_id=last_done)
-            for rows, is_last_child_page in _iter_child_pages(fetch, domain, config, api_version, parent_id):
-                state = done if is_last_child_page else redo
+            for rows, next_checkpoint in _iter_checkpoint_pages(
+                fetch, domain, config, api_version, child_start, parent_id=parent_id
+            ):
+                state = (
+                    done
+                    if next_checkpoint is None
+                    else dataclasses.replace(
+                        parent_page.position, last_parent_id=last_done, child_checkpoint=next_checkpoint
+                    )
+                )
                 if state is not None:
                     resumable_source_manager.save_state(state)
-                shaped = _shape_child_rows(rows, config, parent_id)
+                shaped = _strip_credential_fields(_shape_child_rows(rows, config, parent_id), config.name)
                 if shaped:
                     yield shaped
                 else:
                     resumable_source_manager.safe_point()
+            child_start = None
             last_done = parent_id
+        child_start = None
 
 
 def get_rows(
