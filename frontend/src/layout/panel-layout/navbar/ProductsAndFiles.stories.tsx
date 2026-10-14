@@ -17,7 +17,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
+import { getDefaultTreeData, getDefaultTreePersons, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 import { NavBar } from './NavBar'
@@ -116,12 +116,11 @@ const meta: Meta<typeof SidebarStory> = {
         layout: 'fullscreen',
         featureFlags: [
             ...new Set(
-                [...getDefaultTreeProducts(), ...getDefaultTreeDataAndPeople()].flatMap((item) =>
+                [...getDefaultTreeProducts(), ...getDefaultTreeData(), ...getDefaultTreePersons()].flatMap((item) =>
                     item.flag ? [item.flag] : []
                 )
             ),
             FEATURE_FLAGS.PRODUCT_AUTONOMY,
-            FEATURE_FLAGS.SIMPLE_SIDEPANEL,
             FEATURE_FLAGS.ML_INFERENCE_DECISIONS,
         ],
     },
@@ -437,17 +436,6 @@ export const FilesLongTree: Story = {
             },
         }),
     ],
-}
-
-export const FlagOff: Story = { parameters: { featureFlags: [] } }
-export const FlagOffAfterFiles: Story = {
-    args: { tab: 'files', recentsCollapsed: true },
-    parameters: { featureFlags: [] },
-}
-export const FlagOffCollapsed: Story = { args: { collapsed: true }, parameters: { featureFlags: [] } }
-export const FlagOffFlatNav: Story = {
-    args: { tab: 'files', recentsCollapsed: true },
-    parameters: { featureFlags: [FEATURE_FLAGS.FLAT_NAV] },
 }
 
 export const FilesInsightTypes: Story = {

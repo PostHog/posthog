@@ -6,6 +6,7 @@ import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { navProductsTabLogic } from './navProductsTabLogic'
+import { SidebarSuggestionsSetting } from './SidebarSuggestionsSetting'
 import { StarredProductsPicker } from './StarredProductsPicker'
 import { StarredSetupIntro } from './StarredSetupIntro'
 
@@ -71,13 +72,16 @@ export function CustomizeSidebarModal(): JSX.Element {
                 {isStarredSetup ? (
                     <StarredSetupIntro />
                 ) : (
-                    <section className="flex flex-col gap-2">
-                        <div>
-                            <LemonLabel>Homepage</LemonLabel>
-                            <p className="text-xs text-secondary mb-0">The page that opens when you select Home.</p>
-                        </div>
-                        <HomepageConfiguration />
-                    </section>
+                    <>
+                        <section className="flex flex-col gap-2">
+                            <div>
+                                <LemonLabel>Homepage</LemonLabel>
+                                <p className="text-xs text-secondary mb-0">The page that opens when you select Home.</p>
+                            </div>
+                            <HomepageConfiguration />
+                        </section>
+                        <SidebarSuggestionsSetting />
+                    </>
                 )}
                 <StarredProductsPicker />
             </div>
