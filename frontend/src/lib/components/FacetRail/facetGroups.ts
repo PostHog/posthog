@@ -1,10 +1,7 @@
 /** The fields the shared rail needs from a product's facet config to search and group it. */
 export interface FacetGroupItem {
-    /** Stable id used for collapse state and data-attrs. */
     key: string
-    /** User-facing field name shown as the facet header. */
     title: string
-    /** Header the facet is grouped under in the rail (e.g. "Standard"). */
     group: string
 }
 

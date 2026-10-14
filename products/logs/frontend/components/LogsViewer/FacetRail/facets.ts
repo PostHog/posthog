@@ -304,7 +304,6 @@ export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: strin
     return missing.length > 0 ? [...missing, ...fetched] : fetched
 }
 
-/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
 /** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
     return {

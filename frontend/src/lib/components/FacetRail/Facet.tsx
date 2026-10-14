@@ -27,7 +27,6 @@ interface FacetProps {
     onToggle: (value: string) => void
     /** Prefix for every data-attr in the facet, e.g. `logs-facet`. These are frozen: autocapture and tests select on them. */
     dataAttrPrefix: string
-    /** Why a zero-count value of a `dimZeroCounts` facet is disabled, e.g. "No matching logs for the current filters". */
     zeroCountReason: string
     loading?: boolean
     emptyLabel?: string

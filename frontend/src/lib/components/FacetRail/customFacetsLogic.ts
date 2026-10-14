@@ -15,6 +15,7 @@ import {
 } from 'products/platform_features/frontend/generated/api.schemas'
 
 export type CustomFacetsProduct = UserFacetSettingsRetrieveProduct
+/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
 export type CustomFacetSourceType = UserFacetSettingsEntrySourceTypeEnumApi
 
 export interface CustomFacetsLogicProps {
