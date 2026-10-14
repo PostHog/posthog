@@ -94,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_psycopg_row_filter_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
     TLSOptions,
     libpq_tls_kwargs,
     tls_options,
@@ -941,17 +942,9 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
 
 # libpq mentions SSL when it refuses the server certificate or the server refuses ours. The server
 # does speak TLS there, so the "enable SSL" advice of `SSLRequiredError` would mislead.
-_CERTIFICATE_REJECTION_SUBSTRINGS = (
-    "certificate verify failed",
-    "alert certificate required",
-    "alert bad certificate",
-    "alert unknown ca",
-)
-
-
 def _is_certificate_rejection(error: BaseException) -> bool:
     message = " ".join(str(arg) for arg in error.args).lower()
-    return any(substring in message for substring in _CERTIFICATE_REJECTION_SUBSTRINGS)
+    return any(marker in message for marker in CERTIFICATE_ERRORS)
 
 
 def _open_connection(

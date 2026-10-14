@@ -1,10 +1,10 @@
+import ssl
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import field
+from functools import cache
 from pathlib import Path
-
-from django.conf import settings
 
 from posthog.dataclasses import frozen
 
@@ -17,11 +17,16 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 
 CLIENT_CERTIFICATE_INCOMPLETE_ERROR = (
-    "A client certificate needs both the certificate and its private key. Add the missing one, or clear both."
+    "A client certificate needs its private key. Add the key, or clear the certificate."
 )
 
-# Keyed by the stable part of the client library's message. Both failures stay the same on every
-# attempt until the user changes the source.
+_CLIENT_CERTIFICATE_REJECTED_ERROR = (
+    "Your database rejected the client certificate, or requires one. Add a client certificate and key that "
+    "your database trusts."
+)
+
+# Keyed by the stable part of the client library's message, in lower case. Each failure stays the same
+# on every attempt until the user changes the source.
 CERTIFICATE_ERRORS: dict[str, str] = {
     "certificate verify failed": (
         "PostHog could not verify your database's TLS certificate. Check that the certificate authority "
@@ -31,6 +36,9 @@ CERTIFICATE_ERRORS: dict[str, str] = {
         "Your database's TLS certificate does not match the host you entered. Use the hostname the "
         "certificate was issued for, or turn off certificate verification."
     ),
+    "alert certificate required": _CLIENT_CERTIFICATE_REJECTED_ERROR,
+    "alert bad certificate": _CLIENT_CERTIFICATE_REJECTED_ERROR,
+    "alert unknown ca": _CLIENT_CERTIFICATE_REJECTED_ERROR,
 }
 
 
@@ -53,7 +61,7 @@ class TLSOptions:
     client_key: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if bool(self.client_certificate) != bool(self.client_key):
+        if self.client_certificate and not self.client_key:
             raise TLSConfigurationError(CLIENT_CERTIFICATE_INCOMPLETE_ERROR)
 
     @property
@@ -71,6 +79,7 @@ class TLSFiles:
 def tls_options(config: object) -> TLSOptions:
     """Read the TLS fields from a source config. A config without them gets the no-op options."""
     ca_certificate = _pem(config, "ca_certificate")
+    client_certificate = _pem(config, "client_certificate")
     # A certificate authority has no use except to verify against, so setting one turns verification on.
     verify = bool(getattr(config, "verify_server_certificate", False)) or ca_certificate is not None
     ssh_tunnel = getattr(config, "ssh_tunnel", None)
@@ -78,13 +87,25 @@ def tls_options(config: object) -> TLSOptions:
         verify=verify,
         verify_hostname=verify and not (ssh_tunnel is not None and ssh_tunnel.enabled),
         ca_certificate=ca_certificate,
-        client_certificate=_pem(config, "client_certificate"),
-        client_key=_pem(config, "client_key"),
+        client_certificate=client_certificate,
+        # The form cannot blank a stored secret, so clearing the certificate is how a user turns the
+        # client certificate off. The stored key stays, and nothing uses it without a certificate.
+        client_key=_pem(config, "client_key") if client_certificate else None,
     )
 
 
+# Debian and Ubuntu first, the production images. macOS and Alpine second.
+_CA_BUNDLE_PATHS = ("/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/cert.pem")
+
+
+@cache
 def system_ca_bundle() -> str:
-    return "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+    """Return the CA bundle path of this host, whatever `DEBUG` says."""
+    defaults = ssl.get_default_verify_paths()
+    for path in (*_CA_BUNDLE_PATHS, defaults.cafile, defaults.openssl_cafile):
+        if path and Path(path).is_file():
+            return path
+    return _CA_BUNDLE_PATHS[0]
 
 
 @contextmanager

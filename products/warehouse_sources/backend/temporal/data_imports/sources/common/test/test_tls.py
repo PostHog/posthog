@@ -26,6 +26,7 @@ class TestLibpqTLSKwargs(SimpleTestCase):
             ("verify_through_tunnel", {"verify_server_certificate": True, "ssh_tunnel": _TUNNEL}, "verify-ca", False),
             ("ca_alone_turns_verification_on", {"ca_certificate": "CA PEM"}, "verify-full", False),
             ("client_certificate_alone", {"client_certificate": "CERT PEM", "client_key": "KEY PEM"}, None, True),
+            ("cleared_certificate_ignores_the_stored_key", {"client_key": "KEY PEM"}, None, False),
         ]
     )
     def test_overrides(
@@ -48,12 +49,9 @@ class TestLibpqTLSKwargs(SimpleTestCase):
 
         assert not any(Path(path).exists() for path in written)
 
-    @parameterized.expand(
-        [
-            ("certificate_without_key", {"client_certificate": "CERT PEM"}),
-            ("key_without_certificate", {"client_key": "KEY PEM"}),
-        ]
-    )
-    def test_half_a_client_certificate_is_refused(self, _name: str, fields: dict[str, str]) -> None:
+    def test_certificate_without_key_is_refused(self) -> None:
         with self.assertRaises(TLSConfigurationError):
-            tls_options(SimpleNamespace(**fields))
+            tls_options(SimpleNamespace(client_certificate="CERT PEM"))
+
+    def test_system_ca_bundle_exists_on_this_host(self) -> None:
+        assert Path(system_ca_bundle()).is_file()
