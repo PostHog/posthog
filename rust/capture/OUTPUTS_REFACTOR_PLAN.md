@@ -92,7 +92,7 @@ Today the registry holds one deployment-wide `Output`: a Kafka sink, or Kafka→
 
 ## Objective 1 — manual fallback for all capture traffic
 
-Step 14 makes the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 18 is the fallback. Step 19 deletes the S3 fallback it replaces.
+Step 14 makes the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 17 gives each pipeline its own dlq output. Step 18 is the fallback. Step 19 deletes the S3 fallback it replaces.
 
 ### Step 14 · Per-mode output registries
 
@@ -119,6 +119,15 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 - **Why separate from Step 15.** Step 15 checks config and never connects. Step 16 checks that the topics exist on the cluster, which matters most for a cluster this deployment has never written to.
 - **The check never creates a topic.** A producer's metadata request can make a broker with topic auto-creation create the topic, with broker defaults, and then the check passes. The check uses an admin metadata request with auto-creation disabled, so a missing topic stays missing until someone provisions it.
 - **Enabled per deployment.**
+- **Size.** M.
+
+### Step 17 · A dlq lane per pipeline
+
+- **Goal.** A dlq redirect publishes to its pipeline's dlq topic, the one Node.js ingestion uses for that pipeline, such as `ingestion-heatmaps-main-dlq`. `Address::Dlq` goes. Each pipeline lane type gains a dlq lane, so `resolve` returns a lane of the event's pipeline and the lane → output map stays total.
+- **Why.** Every pipeline shares one dlq output. A dlq restriction that capture applies to heatmaps, client warnings, error tracking, AI or replay lands in that shared topic, while the same restriction applied by Node.js lands in the pipeline's own dlq. A replay of one dlq misses the events in the other.
+- **Config.** Each dlq output is a row in its mode's Step-14 registry and reads `CAPTURE_OUTPUT_<PIPELINE>_DLQ_TOPIC` and `CAPTURE_OUTPUT_<PIPELINE>_DLQ_PRODUCER`. Step 15 requires them, and Step 16 checks their topics on the broker, so charts sets every value before the code lands.
+- **Before Step 18,** so every dlq output gets a secondary target like the other outputs.
+- **Accepted difference.** The goldens' dlq rows for non-analytics pipelines change topic. Analytics dlq rows stay unmodified.
 - **Size.** M.
 
 ### Step 18 · capture-analytics emergency fallback
@@ -264,6 +273,7 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 14 · Per-mode output registries | pending | `feat(capture): per-mode output registries with required rows` |
 | 15 · A reachable output must be configured | pending | `feat(capture): require configuration for every reachable output` |
 | 16 · Verify topics against the producer's broker | pending | `feat(capture): verify each output's topics against its producer's broker at boot` |
+| 17 · A dlq lane per pipeline | pending | `feat(capture): each pipeline publishes dlq redirects to its own dlq output` |
 | 18 · capture-analytics emergency fallback | pending | `feat(capture): select policy and emergency fallback for capture-analytics` |
 | 19 · Delete the S3 fallback | pending | `refactor(capture): delete the s3 fallback and the health-gated failover policy` |
 | 20 · One producer per cluster | superseded | — (Step 12 put v1 on v0's producer and settings) |
