@@ -3,12 +3,16 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
+import { ChartDisplayType } from '~/types'
+
 import { getBISeriesSettings } from 'products/business_intelligence/frontend/biQueryResults'
 
 import type { AnyResponseType, ChartSettings, VisualizationNode } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
+import type { SqlChartProps } from './Charts/SqlChart'
+import { sqlChartData } from './Charts/sqlLineGraphAdapter'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -86,11 +90,15 @@ export interface seriesBreakdownLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     chartSettings: ChartSettings // dataVisualizationLogic
     columns: Column[] // dataVisualizationLogic
+    effectiveVisualizationType: ChartDisplayType // dataVisualizationLogic
     query: VisualizationNode // dataVisualizationLogic
     response: AnyResponseType | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
+    xData: AxisSeries<string> | null // dataVisualizationLogic
+    yData: AxisSeries<number | null>[] // dataVisualizationLogic
     breakdownColumnValues: string[]
+    chartData: Pick<SqlChartProps, 'xData' | 'yData'>
     selectedSeriesBreakdownColumn: string | null | undefined
     seriesBreakdownData: BreakdownSeriesData<number | null>
     showSeriesBreakdown: boolean
@@ -133,6 +141,12 @@ export interface seriesBreakdownLogicMeta {
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
             query: VisualizationNode
         ) => BreakdownSeriesData<number | null>
+        chartData: (
+            seriesBreakdownData: BreakdownSeriesData<number | null>,
+            xData: AxisSeries<string> | null, // dataVisualizationLogic
+            yData: AxisSeries<number | null>[], // dataVisualizationLogic
+            effectiveVisualizationType: ChartDisplayType // dataVisualizationLogic
+        ) => Pick<SqlChartProps, 'xData' | 'yData'>
     }
 }
 
@@ -151,7 +165,17 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
         values: [
             dataVisualizationLogic,
-            ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
+            [
+                'query',
+                'response',
+                'columns',
+                'selectedXAxis',
+                'selectedYAxis',
+                'chartSettings',
+                'xData',
+                'yData',
+                'effectiveVisualizationType',
+            ],
             dataThemeLogic,
             ['getTheme'],
         ],
@@ -399,6 +423,16 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     warning,
                 }
             },
+        ],
+        chartData: [
+            (s) => [s.seriesBreakdownData, s.xData, s.yData, s.effectiveVisualizationType],
+            (
+                seriesBreakdownData: BreakdownSeriesData<number | null>,
+                xData: AxisSeries<string> | null,
+                yData: AxisSeries<number | null>[],
+                effectiveVisualizationType: ChartDisplayType
+            ): Pick<SqlChartProps, 'xData' | 'yData'> =>
+                sqlChartData(seriesBreakdownData, xData, yData, effectiveVisualizationType),
         ],
     }),
     listeners(({ actions }) => ({

@@ -1039,7 +1039,10 @@ function InternalDataTableVisualization(
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const {
+        seriesBreakdownData,
+        chartData: { xData: _xData, yData: _yData },
+    } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
     const { editingInsight } = useValues(sqlEditorLogic)
 
@@ -1065,8 +1068,6 @@ function InternalDataTableVisualization(
             />
         )
     } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <BindLogic logic={insightLogic} props={{ dashboardItemId: editingInsight?.short_id, doNotLoad: true }}>
                 <SqlChart
