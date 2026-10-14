@@ -1,9 +1,10 @@
 """Handlers that dispatch a command into the product that does the work.
 
-Each handler runs as the commenter's own PostHog user and only in projects that passed
-``dispatch.py``'s checks, so a command can only do what the commenter could do in PostHog
-themselves. Handlers never pass the pull request's title, body or comments to an agent. They pass
-identifiers, and the downstream product reads the content itself as untrusted data.
+Each handler picks a project from the ones that passed ``dispatch.py``'s checks, and runs as the
+commenter's PostHog account that is a member of it, so a command can only do what the commenter
+could do in PostHog themselves. Handlers never pass the pull request's title, body or comments to
+an agent. They pass identifiers, and the downstream product reads the content itself as untrusted
+data.
 """
 
 import structlog
@@ -27,7 +28,7 @@ from products.tasks.backend.facade import (
     usage as tasks_usage,
 )
 
-from .commands import CommandContext, CommandOutcome
+from .commands import CommandContext, CommandOutcome, ProjectMember
 from .schema import LoopArgs, QaArgs, ReviewArgs, StampArgs
 
 logger = structlog.get_logger(__name__)
@@ -38,10 +39,13 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     pull_request = context.pull_request
     refusal: stamphog_contracts.ReviewRequestRefusedError | None = None
     # Stamphog keeps its repositories on the parent project, so environments of one project are one.
-    for team_id in dict.fromkeys(resolve_effective_team_id(team_id) for team_id in context.team_ids):
+    user_ids_by_project: dict[int, int] = {}
+    for member in context.members:
+        user_ids_by_project.setdefault(resolve_effective_team_id(member.team_id), member.user_id)
+    for team_id, user_id in user_ids_by_project.items():
         try:
             result = stamphog_requests.request_review(
-                team_id, user_id=context.user_id, repository=pull_request.repository, pr_number=pull_request.number
+                team_id, user_id=user_id, repository=pull_request.repository, pr_number=pull_request.number
             )
         except stamphog_contracts.ReviewRequestRefusedError as error:
             refusal = error
@@ -60,23 +64,24 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     return CommandOutcome(accepted=False, message=refusal.message)
 
 
-def _team_in_project(team_ids: tuple[int, ...], project_team_id: int) -> int | None:
-    """The first of ``team_ids`` that belongs to the project, environments included."""
+def _member_in_project(members: tuple[ProjectMember, ...], project_team_id: int) -> ProjectMember | None:
+    """The first of ``members`` that belongs to the project, environments included."""
     project_id = resolve_effective_team_id(project_team_id)
-    return next((team_id for team_id in team_ids if resolve_effective_team_id(team_id) == project_id), None)
+    return next((member for member in members if resolve_effective_team_id(member.team_id) == project_id), None)
 
 
 def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     """Start a PostHog Review run on the pull request, with the commenter as the acting user.
 
-    The project that owns the repository in PostHog Review decides, and the commenter must be a member of it.
+    The project that owns the repository in PostHog Review decides, and one of the commenter's linked
+    accounts must be a member of it. That account acts.
     """
     pull_request = context.pull_request
     owner_team_id = review_hog_github.owning_team_id(context.request.installation_id, pull_request.repository)
     if owner_team_id is None:
         return CommandOutcome(accepted=False, message="PostHog Review isn't set up for this repository.")
-    team_id = _team_in_project(context.team_ids, owner_team_id)
-    if team_id is None:
+    member = _member_in_project(context.members, owner_team_id)
+    if member is None:
         return CommandOutcome(
             accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
         )
@@ -90,8 +95,8 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     else:
         run_mode = review_hog_facade.RUN_MODE_REVIEW
     outcome = review_hog_facade.request_pr_review(
-        team_id=team_id,
-        requester_id=context.user_id,
+        team_id=member.team_id,
+        requester_id=member.user_id,
         repository=pull_request.repository,
         pr_number=pull_request.number,
         run_mode=run_mode,
@@ -107,9 +112,10 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
 def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
     """Start a PostHog Code task that runs the frontend QA skill against the pull request head."""
     pull_request = context.pull_request
-    team_id = context.team_ids[0]
+    member = context.members[0]
+    team_id = member.team_id
     team = Team.objects.select_related("organization").get(id=team_id)
-    user = User.objects.get(id=context.user_id)
+    user = User.objects.get(id=member.user_id)
     # The Tasks API applies the same gates before it starts a run.
     try:
         decision = tasks_access.get_desktop_access_decision(user, team.organization)
@@ -132,7 +138,7 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
         title=f"QA {pull_request.repository}#{pull_request.number}",
         description=build_qa_instructions(context, args.focus),
         origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
-        user_id=context.user_id,
+        user_id=member.user_id,
         repository=pull_request.repository,
         branch=pull_request.head_branch,
         create_pr=False,

@@ -823,10 +823,10 @@ Today (4): `company_leads`, `flow_engagement`, `teams`, `users`
 
 Diffed against: <https://docs.arcade.software/kb/leverage/advanced-features/rest-api/insights-api>
 
-- [ ] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
-- [ ] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
-- [ ] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
-- [ ] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
+- [x] `Views (POST /insights, type=views)` — supplies unique demo viewers, the denominator for conversion from viewing to playing (high)
+- [x] `Dropoff (POST /insights, type=dropoff)` — shows where viewers leave each demo and which steps prevent completion (high)
+- [x] `Authenticated Views (POST /insights, type=authenticatedViews)` — connects identified viewers and completion status to customer and sales records (high)
+- [x] `Total Plays (POST /insights, type=totalPlays)` — counts unique players across demos without double-counting people who play several flows (high)
 - [ ] `Play Time (POST /insights, type=playTime)` — measures time spent in each demo to compare engagement quality (medium)
 - [ ] `Views by Custom Link (POST /insights, type=viewsByCustomLinkId)` — measures the audience reached by each shared demo link (medium)
 - [ ] `Plays by Custom Link (POST /insights, type=playsByCustomLinkId)` — compares plays, completions, and CTA clicks across shared demo links (medium)
@@ -853,15 +853,15 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asaas — **thin**
 
-Today (5): `Customers`, `Installments`, `Payments`, `Subscriptions`, `Transfers`
+Today (9): `Customers`, `FinancialTransactions`, `Installments`, `Invoices`, `Payments`, `PixTransactions`, `ReceivedSplits`, `Subscriptions`, `Transfers`
 
 Diffed against: <https://docs.asaas.com/reference/llms.txt>
 
 - [ ] `Payment links (GET /v3/paymentLinks)` — resolves paymentLink IDs in Payments and identifies the checkout offers that produced revenue (high)
-- [ ] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
-- [ ] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
-- [ ] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
-- [ ] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
+- [x] `Pix transactions (GET /v3/pix/transactions)` — resolves pixTransaction IDs in Payments and supports reconciliation of incoming and outgoing Pix transfers (high)
+- [x] `Financial statement (GET /v3/financialTransactions)` — reconciles account credits, debits, and fees to calculate cash movements (high)
+- [x] `Invoices (GET /v3/invoices)` — connects fiscal invoice status and tax details to customers and payments (high)
+- [x] `Received splits (GET /v3/payments/splits/received)` — measures marketplace revenue received from payments created by other accounts (high)
 - [ ] `Anticipations (GET /v3/anticipations)` — measures receivable advances, financing costs, and their effects on cash flow (medium)
 - [ ] `Paid splits (GET /v3/payments/splits/paid)` — adds settlement dates and account relationships beyond the split details embedded in Payments (medium)
 - [ ] `Bill payments (GET /v3/bill)` — tracks outgoing bill payments and their status for cash flow analysis (medium)
@@ -1080,14 +1080,14 @@ Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the
 
 ## AWS Batch — gaps
 
-Today (4): `compute_environments`, `job_definitions`, `job_queues`, `jobs`
+Today (8): `compute_environments`, `consumable_resources`, `job_children`, `job_definitions`, `job_queues`, `jobs`, `scheduling_policies`, `service_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/batch/2016-08-10/service-2.json>
 
-- [ ] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
-- [ ] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
-- [ ] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high)
-- [ ] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium)
+- [x] `Scheduling policies (ListSchedulingPolicies, POST /v1/listschedulingpolicies; DescribeSchedulingPolicies, POST /v1/describeschedulingpolicies)` — resolves schedulingPolicyArn in job queues and explains fair-share allocation (high)
+- [x] `Consumable resources (ListConsumableResources, POST /v1/listconsumableresources; DescribeConsumableResource, POST /v1/describeconsumableresource)` — resolves resource references in jobs and measures total, available, and in-use capacity (high)
+- [x] `Array children and parallel job nodes (ListJobs, POST /v1/listjobs, arrayJobId or multiNodeJobId)` — exposes child failures, runtime, and resource use hidden behind parent jobs (high) — the `job_children` table describes children by their derived IDs (`parentId:index`, `parentId#node`) with DescribeJobs, because ListJobs ignores its all-status filter for children and would need one walk per status
+- [x] `Service jobs (ListServiceJobs, POST /v1/listservicejobs; DescribeServiceJob, POST /v1/describeservicejob)` — tracks service job status and execution detail missing from standard Batch job imports (medium) — the `service_jobs` table uses the ListServiceJobs summaries; DescribeServiceJob takes one request per job, so it is not called
 - [ ] `Job queue snapshots (GetJobQueueSnapshot, POST /v1/getjobqueuesnapshot)` — measures queued demand, dispatch order, and capacity utilization over time (medium)
 
 Note: Parsed read operations, request fields, and response shapes in the official botocore service model. AWS reads mainly use POST; existing jobs already call DescribeJobs, but child discovery needs arrayJobId or multiNodeJobId. Scheduling policies and consumable resources need detail reads, and queue snapshots need retained timestamps. Excluded writes and tag plumbing.
@@ -1117,15 +1117,15 @@ Note: Parsed all read operations and response shapes in the official botocore se
 
 ## AWS Compute Optimizer — gaps
 
-Today (6): `auto_scaling_group_recommendations`, `ebs_volume_recommendations`, `ec2_instance_recommendations`, `ecs_service_recommendations`, `lambda_function_recommendations`, `recommendation_summaries`
+Today (10): `auto_scaling_group_recommendations`, `ebs_volume_recommendations`, `ec2_instance_recommendations`, `ec2_recommendation_projected_metrics`, `ecs_service_recommendation_projected_metrics`, `ecs_service_recommendations`, `idle_recommendations`, `lambda_function_recommendations`, `rds_database_recommendations`, `recommendation_summaries`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/compute-optimizer/2019-11-01/service-2.json>
 
-- [ ] `RDS database recommendations (GetRDSDatabaseRecommendations, POST /)` — identifies database instance and storage savings that the current compute recommendations do not cover (high)
-- [ ] `Idle resource recommendations (GetIdleRecommendations, POST /)` — identifies unused resources and their potential savings across resource types (high)
+- [x] `RDS database recommendations (GetRDSDatabaseRecommendations, POST /)` — identifies database instance and storage savings that the current compute recommendations do not cover (high)
+- [x] `Idle resource recommendations (GetIdleRecommendations, POST /)` — identifies unused resources and their potential savings across resource types (high)
 - [ ] `License recommendations (GetLicenseRecommendations, POST /)` — shows license savings options for existing EC2 instances (medium)
-- [ ] `EC2 recommendation projected metrics (GetEC2RecommendationProjectedMetrics, POST /)` — provides projected CPU and memory time series to assess recommended instance sizes (medium)
-- [ ] `ECS service recommendation projected metrics (GetECSServiceRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended service capacity (medium)
+- [x] `EC2 recommendation projected metrics (GetEC2RecommendationProjectedMetrics, POST /)` — provides projected CPU and memory time series to assess recommended instance sizes (medium)
+- [x] `ECS service recommendation projected metrics (GetECSServiceRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended service capacity (medium)
 - [ ] `RDS database recommendation projected metrics (GetRDSDatabaseRecommendationProjectedMetrics, POST /)` — provides projected utilization time series to assess recommended database sizes (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. JSON RPC reads use POST / and select operations through X-Amz-Target. Projected metrics require calls for each resource ARN and a time window. Enrollment, preferences, and export plumbing were excluded.
@@ -1162,10 +1162,10 @@ Today (4): `cost_and_usage_daily`, `cost_and_usage_monthly`, `reservation_utiliz
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/ce/2017-10-25/service-2.json>
 
-- [ ] `Dimension values (GetDimensionValues, POST /)` — resolves linked account IDs in cost tables to account names and provides dimension metadata (high)
-- [ ] `Cost and usage with resources (GetCostAndUsageWithResources, POST /)` — attributes spend to individual resources for cost allocation and investigation (high)
-- [ ] `Reservation coverage (GetReservationCoverage, POST /)` — measures eligible usage covered by Reserved Instances, which utilization totals cannot establish (high)
-- [ ] `Savings Plans coverage (GetSavingsPlansCoverage, POST /)` — measures eligible spend covered by Savings Plans and the remaining on-demand exposure (high)
+- [x] `Dimension values (GetDimensionValues, POST /)` — resolves linked account IDs in cost tables to account names and provides dimension metadata (high)
+- [x] `Cost and usage with resources (GetCostAndUsageWithResources, POST /)` — attributes spend to individual resources for cost allocation and investigation (high)
+- [x] `Reservation coverage (GetReservationCoverage, POST /)` — measures eligible usage covered by Reserved Instances, which utilization totals cannot establish (high)
+- [x] `Savings Plans coverage (GetSavingsPlansCoverage, POST /)` — measures eligible spend covered by Savings Plans and the remaining on-demand exposure (high)
 - [ ] `Savings Plans utilization details (GetSavingsPlansUtilizationDetails, POST /)` — shows utilization, savings, commitments, and attributes for each Savings Plan (medium)
 - [ ] `Cost forecast (GetCostForecast, POST /)` — supports budget planning with predicted spend and confidence intervals (medium)
 - [ ] `Rightsizing recommendations (GetRightsizingRecommendation, POST /)` — identifies idle or oversized EC2 instances and estimates savings (medium)
@@ -12319,10 +12319,10 @@ Today (16): `countries`, `languages`, `movie_genres`, `movie_now_playing`, `movi
 
 Diffed against: <https://developer.themoviedb.org/reference/movie-details>
 
-- [ ] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
-- [ ] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
-- [ ] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
-- [ ] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
+- [x] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
+- [x] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
+- [x] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
+- [x] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
 - [ ] `GET /3/company/{company_id}` — Lookup table resolving the production_companies IDs already embedded in synced movie and tv rows (medium)
 - [ ] `GET /3/network/{network_id}` — Lookup table resolving the network IDs on synced TV series rows (medium)
 - [ ] `GET /3/certification/movie/list and /3/certification/tv/list` — Lookup tables of age/content certifications per country, needed to decode release_dates and content_ratings (medium)
