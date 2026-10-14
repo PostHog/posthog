@@ -4,7 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { OrganizationInviteType } from '~/types'
 
 import { inviteLogic } from './inviteLogic'
 
@@ -50,5 +52,24 @@ describe('inviteLogic', () => {
 
         logic.actions.updateMessage('no link this time')
         await expectLogic(logic).toMatchValues({ messageError: null })
+    })
+
+    it.each([
+        ['succeeds', 204, true],
+        ['returns 404 because the invite is already gone', 404, true],
+        ['fails with a server error', 500, false],
+    ])('removes the invite row only when the delete %s', async (_description, status, isRemoved) => {
+        const invite = { id: 'invite-1', target_email: 'gone@example.com' } as OrganizationInviteType
+        useMocks({
+            get: { '/api/organizations/:id/invites/': { results: [invite] } },
+            delete: { '/api/organizations/:id/invites/:invite_id/': () => [status, null] },
+        })
+        logic.actions.loadInvites()
+        await expectLogic(logic).toDispatchActions(['loadInvitesSuccess'])
+
+        logic.actions.deleteInvite(invite)
+        await expectLogic(logic)
+            .toDispatchActions([isRemoved ? 'deleteInviteSuccess' : 'deleteInviteFailure'])
+            .toMatchValues({ invites: isRemoved ? [] : [invite] })
     })
 })

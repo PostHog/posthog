@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiError, PaginatedResponse } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -303,11 +303,19 @@ export const inviteLogic = kea<inviteLogicType>([
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. invitesDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    await api.delete(
-                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
-                    )
+                    try {
+                        await api.delete(
+                            `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                        )
+                        lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
+                    } catch (error) {
+                        // The invite was accepted or canceled elsewhere after the list loaded.
+                        if (!(error instanceof ApiError && error.status === 404)) {
+                            throw error
+                        }
+                        lemonToast.info(`Invite for ${invite.target_email} was already accepted or canceled`)
+                    }
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
-                    lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
                 },
             },
