@@ -8,6 +8,7 @@ from django.db.models import TextChoices
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -49,6 +50,9 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
+
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
@@ -1226,8 +1230,22 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.signals.backend.serializers.SignalReportSerializer"
+    match_subclasses = True
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            # The disabled rollout omits this timestamp, so responses cannot require it.
+            schema["required"] = [name for name in required if name != "monitoring_started_at"]
+        return schema
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     monitoring_started_at = serializers.DateTimeField(
+        read_only=True,
         required=False,
         allow_null=True,
         help_text="Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.",

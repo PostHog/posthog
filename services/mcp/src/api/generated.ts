@@ -73454,7 +73454,7 @@ export namespace Schemas {
          * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
          * @nullable
          */
-      monitoring_started_at?: string | null;
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -95129,7 +95129,7 @@ export namespace Schemas {
          * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
          * @nullable
          */
-      monitoring_started_at?: string | null;
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
