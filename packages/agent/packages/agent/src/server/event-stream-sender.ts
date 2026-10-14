@@ -36,6 +36,7 @@ interface TaskRunEventStreamSenderConfig {
 interface EventEnvelope {
   seq: number;
   event: Record<string, unknown>;
+  awaitsCallback?: boolean;
 }
 
 interface IngestResponse {
@@ -132,6 +133,7 @@ export class TaskRunEventStreamSender {
   private transportCompleted = false;
   private droppedBeforeSequenceCount = 0;
   private bufferRevision = 0;
+  private eventsAwaitingCallback = 0;
 
   constructor(private readonly config: TaskRunEventStreamSenderConfig) {
     const usingProxy = Boolean(config.eventIngestBaseUrl);
@@ -178,6 +180,10 @@ export class TaskRunEventStreamSender {
       seq: ++this.sequence,
       event: acceptedEvent,
     };
+    if (this.config.callbackReporter?.awaitsAcceptance(acceptedEvent)) {
+      envelope.awaitsCallback = true;
+      this.eventsAwaitingCallback += 1;
+    }
     this.bufferedEvents.push(envelope);
     this.scheduleFlush();
   }
@@ -269,7 +275,10 @@ export class TaskRunEventStreamSender {
       await flushPromise;
       // The ingress ahead of the agent-proxy only forwards the request body once the
       // upload closes, so close per drained batch to avoid stranding buffered events.
-      if (!this.stopped && !this.keepProxyStreamOpen) {
+      if (
+        !this.stopped &&
+        (!this.keepProxyStreamOpen || this.eventsAwaitingCallback > 0)
+      ) {
         await this.closeActiveStream();
       }
       return this.bufferedEvents.length < previousBufferLength;
@@ -688,6 +697,10 @@ export class TaskRunEventStreamSender {
     );
     this.bufferRevision += 1;
     for (const envelope of accepted) {
+      if (!envelope.awaitsCallback) {
+        continue;
+      }
+      this.eventsAwaitingCallback -= 1;
       this.config.callbackReporter?.observeAccepted(
         envelope.seq,
         envelope.event,

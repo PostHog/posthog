@@ -215,6 +215,16 @@ function processKilledCallback(
   };
 }
 
+function acceptedEventCallback(
+  sequence: number,
+  event: JsonObject,
+): AgentCallback | null {
+  return (
+    budgetSteerCallback(sequence, event) ??
+    processKilledCallback(sequence, event)
+  );
+}
+
 function isRetryableFailure(error: unknown): boolean {
   const status = asObject(error)?.status;
   return typeof status !== "number" || status >= 500;
@@ -254,10 +264,12 @@ export class AgentCallbackReporter {
     this.reportTurnState(event);
   }
 
+  awaitsAcceptance(event: JsonObject): boolean {
+    return acceptedEventCallback(0, event) !== null;
+  }
+
   observeAccepted(sequence: number, event: JsonObject): void {
-    const callback =
-      budgetSteerCallback(sequence, event) ??
-      processKilledCallback(sequence, event);
+    const callback = acceptedEventCallback(sequence, event);
     if (callback) {
       this.dispatch(callback);
     }

@@ -362,6 +362,47 @@ describe("TaskRunEventStreamSender", () => {
     expect(completionSequences(finalBody)).toEqual([2]);
   });
 
+  it("closes a held-open upload so a process kill is reported right away", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        responseForBody(await readRequestBody(init)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sent: AgentCallback[] = [];
+
+    const sender = createSender({
+      flushDelayMs: 0,
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+      callbackReporter: new AgentCallbackReporter({
+        send: async (callback) => {
+          sent.push(callback);
+          return true;
+        },
+        logger: new Logger({ debug: false }),
+      }),
+    });
+
+    sender.enqueue({
+      type: "notification",
+      notification: {
+        method: "_posthog/process_killed",
+        params: {
+          comm: "bash",
+          signal: "SIGKILL",
+          treeRssBytes: 100,
+          memoryCurrentBytes: 200,
+          memoryLimitBytes: 300,
+        },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(sent).toMatchObject([{ kind: "process_killed", sequence: 1 }]),
+    );
+    await sender.stop();
+  });
+
   it("aborts a stuck ingest response after closing the request body", async () => {
     let aborted = false;
     const fetchMock = vi.fn(
