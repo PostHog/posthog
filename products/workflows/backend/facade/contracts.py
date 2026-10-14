@@ -677,6 +677,8 @@ class DataSuggestion:
 class DataSuggestionsResult:
     status: DataSuggestionsStatus
     suggestions: tuple[DataSuggestion, ...]
+    # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
+    events: tuple[str, ...] = ()
 
 
 DataSuggestionBuildStatus = Literal["ready", "building", "failed"]

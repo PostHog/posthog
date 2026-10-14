@@ -206,12 +206,15 @@ def run_build(
         try:
             team = Team.objects.select_related("organization").get(id=team_id)
             user = User.objects.get(id=user_id)
+            cached = _read_cache(team)
             suggestion = _cached_suggestion(team, suggestion_id)
             # Consent can change between the click and the worker picking the build up.
-            if team.organization.is_ai_data_processing_approved is not True or suggestion is None:
+            if team.organization.is_ai_data_processing_approved is not True or suggestion is None or cached is None:
                 result = _BUILD_FAILED
             else:
-                result = _plan_and_build(team=team, user=user, suggestion=suggestion, is_valid_draft=is_valid_draft)
+                result = _plan_and_build(
+                    team=team, user=user, suggestion=suggestion, events=cached.events, is_valid_draft=is_valid_draft
+                )
         except Exception as error:
             # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
             logger.exception("workflows.data_suggestions.build_failed", team_id=team_id)
@@ -225,7 +228,12 @@ def run_build(
 
 
 def _plan_and_build(
-    *, team: Team, user: User, suggestion: DataSuggestion, is_valid_draft: Callable[[Team, dict[str, Any]], bool]
+    *,
+    team: Team,
+    user: User,
+    suggestion: DataSuggestion,
+    events: tuple[str, ...],
+    is_valid_draft: Callable[[Team, dict[str, Any]], bool],
 ) -> BuiltSuggestion:
     idea = WorkflowIdea(
         name=suggestion.name,
@@ -238,7 +246,6 @@ def _plan_and_build(
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
     channels = team_context.channels(team)
-    events = team_context.recent_event_names(team, exclude=set())[:_PROMPT_EVENTS_LIMIT]
     with _analytics_client() as analytics_client:
         plan = plan_steps(
             team=team,
@@ -247,7 +254,7 @@ def _plan_and_build(
                 idea=idea,
                 email_templates=email_templates,
                 step_templates=step_templates,
-                events=tuple(events),
+                events=events,
                 channels=channels,
                 has_slack=slack_integration_id is not None,
             ),
@@ -380,6 +387,7 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
                 DataSuggestion(**{**item, "step_outline": tuple(item["step_outline"])})
                 for item in stored["suggestions"]
             ),
+            events=tuple(stored["events"]),
         )
     except (KeyError, TypeError):
         # An entry from before a field change is treated as missing, so the next visit generates new cards.
@@ -423,7 +431,10 @@ def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestio
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     used_events = team_context.used_trigger_events(team)
     is_new = _is_new_to_workflows(team)
-    counts = weekly_counts(team, team_context.recent_event_names(team, exclude=used_events))
+    all_counts = weekly_counts(team)
+    # A build can wait on any busy event, including one another workflow already starts from.
+    planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
+    counts = {name: count for name, count in all_counts.items() if name not in used_events}
     if not counts:
         return DataSuggestionsResult(status="ready", suggestions=())
 
@@ -488,4 +499,5 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     return DataSuggestionsResult(
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
+        events=planning_events,
     )
