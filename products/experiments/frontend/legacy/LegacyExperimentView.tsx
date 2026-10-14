@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
@@ -19,9 +19,8 @@ import {
     ReleaseConditionsTable,
 } from 'scenes/experiments/ExperimentView/ReleaseConditionsTable'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SidePanelTab } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LegacyExperimentInfo } from './LegacyExperimentInfo'
 import { LegacyMetricsList } from './LegacyMetricsList'
@@ -40,10 +39,10 @@ const VariantsTab = (): JSX.Element => {
  * format. Results are no longer calculated for them, so it lists the metrics and points to the migration.
  */
 export function LegacyExperimentView(): JSX.Element {
-    const { experimentLoading, experiment } = useValues(experimentLogic)
+    const { experimentLoading, experiment, migrateLegacyExperimentLoading } = useValues(experimentLogic)
+    const { migrateLegacyExperiment } = useActions(experimentLogic)
     const { activeTabKey } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const tabs: LemonTab<ExperimentTab>[] = [
         { key: 'metrics', label: 'Metrics', content: <LegacyMetricsList /> },
@@ -63,19 +62,21 @@ export function LegacyExperimentView(): JSX.Element {
                         type="warning"
                         className="mb-4"
                         action={{
-                            children: 'Migrate with PostHog AI',
-                            icon: <IconSparkles />,
-                            // The "!" prefix submits the prompt without review, so keep user-editable text like the name out of it
-                            onClick: () =>
-                                openSidePanel(
-                                    SidePanelTab.Max,
-                                    `!Migrate experiment ${experiment.id} to the new experiment engine`
-                                ),
+                            children: 'Migrate experiment',
+                            onClick: () => migrateLegacyExperiment(),
+                            loading: migrateLegacyExperimentLoading,
+                            disabledReason: getAccessControlDisabledReason(
+                                AccessControlResourceType.Experiment,
+                                AccessControlLevel.Editor,
+                                experiment.user_access_level
+                            ),
+                            // pinned: click analytics for this button key on this data-attr, so renaming it breaks them
                             'data-attr': 'legacy-experiment-migrate-with-ai',
                         }}
                     >
-                        Results for legacy experiments are no longer available. If you still need them, migrate this
-                        experiment to the new experiment engine with PostHog AI.
+                        Results for legacy experiments are no longer available. To see results, migrate this experiment
+                        to the new experiment engine. This creates a copy that uses the same feature flag, so users keep
+                        their variant.
                     </LemonBanner>
 
                     {experiment.feature_flag?.id && (

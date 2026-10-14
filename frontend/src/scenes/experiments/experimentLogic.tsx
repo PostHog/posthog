@@ -80,6 +80,7 @@ import {
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { experimentsMigrateCreate } from 'products/experiments/frontend/generated/api'
 import {
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
@@ -463,6 +464,7 @@ export interface experimentLogicValues {
     isFlagActive: boolean
     isSingleVariantShipped: boolean
     launchExperimentLoading: boolean
+    migrateLegacyExperimentLoading: boolean
     notifyWhenResultsReady: boolean
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
@@ -783,6 +785,9 @@ export interface experimentLogicActions {
         refreshId: string
         triggeredBy: ExperimentTriggeredBy
     }
+    migrateLegacyExperiment: () => {
+        value: true
+    }
     moveMetricsBetweenSections: (
         isSecondary: boolean,
         orderedUuids: string[],
@@ -936,6 +941,9 @@ export interface experimentLogicActions {
         metric: ExperimentMetricUnion
         name: string | undefined
         uuid: string
+    }
+    setMigrateLegacyExperimentLoading: (loading: boolean) => {
+        loading: boolean
     }
     setNotifyWhenResultsReady: (notify: boolean) => {
         notify: boolean
@@ -1285,6 +1293,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setFreezeExposureLoading: (loading: boolean) => ({ loading }),
         unfreezeExposure: true,
         setUnfreezeExposureLoading: (loading: boolean) => ({ loading }),
+        migrateLegacyExperiment: true,
+        setMigrateLegacyExperimentLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
@@ -1856,6 +1866,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setUnfreezeExposureLoading: (_, { loading }) => loading,
             },
         ],
+        migrateLegacyExperimentLoading: [
+            false,
+            {
+                setMigrateLegacyExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -2094,6 +2110,34 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to unfreeze exposure')
             } finally {
                 actions.setUnfreezeExposureLoading(false)
+            }
+        },
+        migrateLegacyExperiment: async () => {
+            const { currentProjectId, experimentId } = values
+            if (values.migrateLegacyExperimentLoading || !currentProjectId || typeof experimentId !== 'number') {
+                return
+            }
+            actions.setMigrateLegacyExperimentLoading(true)
+            try {
+                const migrated = await experimentsMigrateCreate(String(currentProjectId), experimentId)
+                posthog.capture('legacy experiment migrated', {
+                    experiment_id: experimentId,
+                    migrated_experiment_id: migrated.id,
+                })
+                // Reset before navigating, because the logic is keyed by experiment id and this instance unmounts when the router opens the migrated one
+                actions.setMigrateLegacyExperimentLoading(false)
+                lemonToast.success('Experiment migrated to the new engine')
+                router.actions.push(urls.experiment(migrated.id))
+            } catch (error: any) {
+                posthog.capture('legacy experiment migration failed', {
+                    experiment_id: experimentId,
+                    status: error?.status,
+                })
+                actions.setMigrateLegacyExperimentLoading(false)
+                lemonToast.error(
+                    error?.detail ||
+                        "Couldn't migrate this experiment. Try again, and contact support if it keeps happening."
+                )
             }
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
