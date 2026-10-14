@@ -9,7 +9,6 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,7 +16,7 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
-import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName, shortContentHash } from './chunkLoader.mjs'
 import { cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
 
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
@@ -39,7 +38,7 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-/** Returns the written file name, or null when the copy failed. */
+/** Returns the written file name. A hashed copy is for production, so a failure there throws. */
 export function copySnappyWASMFile(
     absWorkingDir,
     destDir = path.resolve(absWorkingDir, 'dist'),
@@ -47,14 +46,14 @@ export function copySnappyWASMFile(
 ) {
     try {
         const wasm = fse.readFileSync(path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'))
-        // Name-HASH with an uppercase hash, like esbuild output, so the asset upload caches it as immutable.
-        const fileName = contentHash
-            ? `snappy_bg-${createHash('sha256').update(wasm).digest('hex').slice(0, 8).toUpperCase()}.wasm`
-            : 'snappy_bg.wasm'
+        const fileName = contentHash ? `snappy_bg-${shortContentHash(wasm)}.wasm` : 'snappy_bg.wasm'
         fse.ensureDirSync(destDir)
         fse.writeFileSync(path.resolve(destDir, fileName), wasm)
         return fileName
     } catch (error) {
+        if (contentHash) {
+            throw error
+        }
         console.warn('Could not copy snappy wasm file:', error.message)
         return null
     }
