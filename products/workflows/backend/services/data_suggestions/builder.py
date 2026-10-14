@@ -142,7 +142,10 @@ def _links(step: PlannedStep) -> list[_Link] | None:
         if not step.branches:
             return None
         branches = [_Link(target=branch.next, type="branch", index=index) for index, branch in enumerate(step.branches)]
-        return [*branches, _Link(target=step.next, type="continue")]
+        # A split always takes one of its paths, so its continue edge never runs. It points at the exit, and a step
+        # reachable only through it fails the reachability check.
+        fall_through = step.next if step.type == "conditional_branch" else None
+        return [*branches, _Link(target=fall_through, type="continue")]
     if step.type == "wait_until_event":
         return [_Link(target=step.wait_event_next, type="branch", index=0), _Link(target=step.next, type="continue")]
     return [_Link(target=step.next, type="continue")]

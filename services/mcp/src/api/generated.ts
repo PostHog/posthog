@@ -29985,8 +29985,28 @@ export namespace Schemas {
       suggestion_id: string;
     }
 
+    /**
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed
+     */
+    export type DataSuggestionBuildStatusEnum = typeof DataSuggestionBuildStatusEnum[keyof typeof DataSuggestionBuildStatusEnum];
+
+
+    export const DataSuggestionBuildStatusEnum = {
+      Ready: 'ready',
+      Building: 'building',
+      Failed: 'failed',
+    } as const;
+
     export interface DataSuggestionBuildResponse {
-      /** A validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition), ready to send to the workflow create endpoint. Nothing is saved by this call. */
+      /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the next call starts a new build.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `failed` - Failed */
+      status: DataSuggestionBuildStatusEnum;
+      /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved by this call. Null otherwise. */
       workflow: unknown;
       /** Whether an email step reuses a saved email template. */
       uses_saved_template: boolean;

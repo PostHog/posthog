@@ -679,18 +679,19 @@ class DataSuggestionsResult:
     suggestions: tuple[DataSuggestion, ...]
 
 
+DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
+
+
 @frozen
 class BuiltSuggestion:
-    workflow: dict[str, Any]
-    uses_saved_template: bool
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready.
+    workflow: dict[str, Any] | None = None
+    uses_saved_template: bool = False
 
 
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
-
-
-class DataSuggestionBuildFailed(Exception):
-    """The AI plan for a suggestion did not produce a valid workflow."""
 
 
 class EmailDraftSourceNotFound(Exception):

@@ -74,6 +74,7 @@ describe('workflowDataSuggestionsLogic', () => {
 
     it('opens the saved draft after a successful build', async () => {
         jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
+            status: 'ready',
             workflow: { name: 'Welcome new users' },
             uses_saved_template: false,
         })
@@ -89,6 +90,33 @@ describe('workflowDataSuggestionsLogic', () => {
         )
         expect(router.values.location.pathname).toContain('workflow-1')
         expect(logic.values.buildingKey).toBeNull()
+    })
+
+    it.each([
+        ['saves the draft once the background build is ready', false, 1],
+        ['stops without saving when the person leaves the page', true, 0],
+    ])('%s', async (_name, leaves, saves) => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(workflowDataSuggestionsBuild)
+                .mockResolvedValueOnce({ status: 'building', workflow: null, uses_saved_template: false })
+                .mockResolvedValue({ status: 'ready', workflow: { name: 'Welcome' }, uses_saved_template: false })
+            jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
+            const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.startSuggestion(card)
+            await jest.advanceTimersByTimeAsync(0)
+            if (leaves) {
+                logic.unmount()
+            }
+            await jest.advanceTimersByTimeAsync(2000)
+
+            expect(hogFlowsCreate).toHaveBeenCalledTimes(saves)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('shows the error and frees the card when the build fails', async () => {

@@ -7,6 +7,7 @@ from posthog.models.integration import Integration
 
 from products.messaging.backend.facade.api import EmailTemplateContent, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.data_suggestions.builder import EmailSender
 from products.workflows.backend.services.data_suggestions.planner import Channel
 
@@ -57,13 +58,22 @@ def slack_integration_id(team: Team) -> int | None:
 
 
 def email_sender(team: Team) -> EmailSender | None:
-    for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at"):
-        config = integration.config or {}
-        if config.get("verified") is True and config.get("email"):
-            return EmailSender(
-                integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or "")
-            )
-    return None
+    """The project's default sender, or its only verified sender. With several and no default the step stays
+    blank, so the team picks one rather than a draft sending from an identity nobody chose."""
+    verified = [
+        EmailSender(integration_id=integration.id, email=str(config["email"]), name=str(config.get("name") or ""))
+        for integration in Integration.objects.filter(team_id=team.id, kind="email").order_by("created_at")
+        if (config := integration.config or {}).get("verified") is True and config.get("email")
+    ]
+    default_id = (
+        TeamWorkflowsConfig.objects.filter(team_id=team.id)
+        .values_list("default_email_integration_id", flat=True)
+        .first()
+    )
+    default = next((sender for sender in verified if sender.integration_id == default_id), None)
+    if default is not None:
+        return default
+    return verified[0] if len(verified) == 1 else None
 
 
 def email_templates(team: Team) -> tuple[EmailTemplateContent, ...]:
