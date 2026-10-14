@@ -74,6 +74,16 @@ def label_commands_hint(review_mode: str) -> str:
     return f"This Deep review started from the `{REVIEW_LABEL}` label. Comment `@posthog help` to see all commands."
 
 
+def draft_review_notice(comment_commands_on: bool) -> str:
+    """The note an automatic review of a draft ends with: the push gate skips the draft's later pushes."""
+    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{REVIEW_LABEL}` label"
+    return (
+        "This is the only automatic review while this pull request is a draft. "
+        f"{trigger} to review new changes sooner. "
+        "Otherwise, a review of the new changes runs when you mark it ready for review."
+    )
+
+
 LabelReviewOutcome = Literal[
     "repository_not_added",
     "installation_mismatch",

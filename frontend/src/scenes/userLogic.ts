@@ -824,8 +824,8 @@ export const userLogic = kea<userLogicType>([
                 return
             }
             await breakpoint(10)
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                 await api.update('api/users/@me/', { set_current_organization: organizationId })
             } catch {
                 actions.updateCurrentOrganizationFailure()

@@ -62,6 +62,17 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain('not found')
         })
 
+        it('returns replacement guidance for a direct call to a removed tool', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'loops-list', arguments: {} },
+                makeToolExecutorState([])
+            )) as any
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('loops-list')
+            expect(result.content[0].text).toContain('workflows-list')
+            expect(result.content[0].text).toContain('building-loops')
+        })
+
         it('rejects tools not in the per-request filtered set', async () => {
             const entries = catalog.getPreBuiltEntries()
             const tool = entries[0]!
