@@ -211,6 +211,23 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
     return new PushSendError(message, platform, err.reason, err.level, err.retriable, err.code, retryAfterMs)
 }
 
+// Apple sometimes rejects a token that the rest of the fleet keeps sending with, and the refresh limit can
+// block a new token for 20 minutes. A key that delivered recently works, so retry instead of failing the send.
+function retriableTokenRejection(error: PushSendError): PushSendError {
+    if (!error.code || !APNS_REJECTED_TOKEN_CODES.has(error.code)) {
+        return error
+    }
+    return new PushSendError(
+        `APNs rejected the provider token, but this key delivered notifications in the last 20 minutes. The notification will be retried. [${error.code}]`,
+        'apns',
+        error.reason,
+        'warn',
+        true,
+        error.code,
+        error.retryAfterMs
+    )
+}
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
@@ -240,6 +257,8 @@ export class PushNotificationService {
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
     private apnsJwtInFlight = new Map<string, Promise<string>>()
+    // Last time APNs accepted a send signed with each key, so a token rejection for a key that works can be retried.
+    private apnsKeyAcceptedAtMs = new Map<string, number>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -591,6 +610,7 @@ export class PushNotificationService {
         }
 
         let jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
+        const keyFingerprint = this.apnsKeyFingerprint(appleTeamId, keyId, signingKey)
         const apnsHost =
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
@@ -627,12 +647,16 @@ export class PushNotificationService {
             }
             if (outcome.sent) {
                 delivered++
+                this.rememberApnsKeyAccepted(keyFingerprint)
             } else if (outcome.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                failures.push(outcome.error)
-                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
+                const error = this.apnsKeyAcceptedRecently(keyFingerprint)
+                    ? retriableTokenRejection(outcome.error)
+                    : outcome.error
+                failures.push(error)
+                retriableFailure = longestRetriableFailure(retriableFailure, error)
             }
         }
 
@@ -864,6 +888,22 @@ export class PushNotificationService {
         }
         this.rememberApnsJwtLocally(cacheKey, jwt)
         return jwt
+    }
+
+    private rememberApnsKeyAccepted(fingerprint: string): void {
+        this.apnsKeyAcceptedAtMs.delete(fingerprint)
+        this.apnsKeyAcceptedAtMs.set(fingerprint, Date.now())
+        if (this.apnsKeyAcceptedAtMs.size > APNS_JWT_LOCAL_CACHE_MAX) {
+            const oldest = this.apnsKeyAcceptedAtMs.keys().next().value
+            if (oldest !== undefined) {
+                this.apnsKeyAcceptedAtMs.delete(oldest)
+            }
+        }
+    }
+
+    private apnsKeyAcceptedRecently(fingerprint: string): boolean {
+        const acceptedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)
+        return acceptedAtMs !== undefined && Date.now() - acceptedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000
     }
 
     private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {

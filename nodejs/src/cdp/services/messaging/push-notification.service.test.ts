@@ -1059,6 +1059,18 @@ describe('PushNotificationService', () => {
                 )
             })
 
+            it('reschedules a rejection for a key that delivered recently instead of failing the send', async () => {
+                mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
+                await send()
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                for (const result of [await send(), await send()]) {
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+                }
+            })
+
             it('reuses a token another pod already put in place of the rejected one', async () => {
                 mockTrackedFetch
                     .mockImplementationOnce(() => {
