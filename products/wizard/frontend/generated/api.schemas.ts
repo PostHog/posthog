@@ -707,18 +707,18 @@ export const WizardSetupModeEnumApi = {
 /**
  * Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`.
  */
-export type ToolSignalsApiPackages = { [key: string]: string[] }
+export type WizardCatalogToolSignalsApiPackages = { [key: string]: string[] }
 
-export interface ToolSignalsApi {
+export interface WizardCatalogToolSignalsApi {
     /** Anchored regexes matched against `.env` key names. Values are never read. */
     env_key_patterns: string[]
     /** Hosts matched against script URLs. A host also matches its subdomains. */
     script_hosts: string[]
     /** Package names keyed by ecosystem, such as `npm`, `pypi` or `maven`. */
-    packages: ToolSignalsApiPackages
+    packages: WizardCatalogToolSignalsApiPackages
 }
 
-export interface ToolApi {
+export interface WizardCatalogToolApi {
     /** Unique tool identifier, such as `Stripe` or `Hotjar`. */
     kind: string
     /** Human-readable tool name. */
@@ -738,14 +738,14 @@ export interface ToolApi {
     /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
     superseded_by: string[]
     /** How the wizard detects the tool in a codebase. */
-    signals: ToolSignalsApi
+    signals: WizardCatalogToolSignalsApi
 }
 
-export interface ToolCatalogApi {
+export interface WizardToolCatalogApi {
     /** Bumped when the shape changes in a way an older wizard cannot read. */
     schema_version: number
     /** Every tool the wizard can detect. */
-    tools: ToolApi[]
+    tools: WizardCatalogToolApi[]
 }
 
 /**

@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.presentation.tool_catalog.serializers import ToolCatalogSerializer
+from products.wizard.backend.presentation.tool_catalog.serializers import WizardToolCatalogSerializer
 
 # The catalog only changes on deploy, so clients and proxies can reuse a response for an hour.
 CACHE_MAX_AGE_SECONDS = 60 * 60
@@ -21,7 +21,7 @@ class WizardToolCatalogViewSet(viewsets.ViewSet):
     http_method_names = ["get", "head", "options"]
 
     @extend_schema(
-        responses={200: ToolCatalogSerializer},
+        responses={200: WizardToolCatalogSerializer},
         summary="Get the wizard tool catalog",
         description="Every tool the wizard can detect in a codebase, with the signals that identify it.",
     )

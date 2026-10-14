@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from rest_framework import status
 
+from products.wizard.backend.presentation.tool_catalog.serializers import WizardToolCatalogSerializer
 from products.wizard.backend.tool_catalog import catalog
 
 
@@ -28,3 +29,11 @@ class TestWizardToolCatalogViewSet(TestCase):
             assert "public" in response["Cache-Control"]
             assert json.loads(response.content) == json.loads(text)
         assert catalog_file.read_text.call_count == 1
+
+    def test_served_catalog_matches_the_documented_schema(self) -> None:
+        document = json.loads(self.client.get("/api/wizard/tool_catalog/").content)
+
+        serializer = WizardToolCatalogSerializer(data=document)
+        assert serializer.is_valid(), serializer.errors
+        # is_valid() drops keys the serializer does not declare, so equality catches an undocumented field.
+        assert serializer.validated_data == document

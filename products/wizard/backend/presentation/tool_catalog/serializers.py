@@ -1,5 +1,6 @@
 from django.db.models import TextChoices
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 
@@ -8,7 +9,7 @@ class WizardSetupMode(TextChoices):
     DEEP_LINK = "deep-link", "In the app"
 
 
-class ToolSignalsSerializer(serializers.Serializer):
+class WizardCatalogToolSignalsSerializer(serializers.Serializer):
     env_key_patterns = serializers.ListField(
         child=serializers.CharField(),
         help_text="Anchored regexes matched against `.env` key names. Values are never read.",
@@ -23,7 +24,7 @@ class ToolSignalsSerializer(serializers.Serializer):
     )
 
 
-class ToolSerializer(serializers.Serializer):
+class WizardCatalogToolSerializer(serializers.Serializer):
     kind = serializers.CharField(help_text="Unique tool identifier, such as `Stripe` or `Hotjar`.")
     label = serializers.CharField(help_text="Human-readable tool name.")  # type: ignore[assignment]
     warehouse_source_type = serializers.CharField(
@@ -42,11 +43,13 @@ class ToolSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool.",
     )
-    signals = ToolSignalsSerializer(help_text="How the wizard detects the tool in a codebase.")
+    signals = WizardCatalogToolSignalsSerializer(help_text="How the wizard detects the tool in a codebase.")
 
 
-class ToolCatalogSerializer(serializers.Serializer):
+# The catalog is served from `list`, which drf-spectacular documents as an array by default.
+@extend_schema_serializer(many=False)
+class WizardToolCatalogSerializer(serializers.Serializer):
     schema_version = serializers.IntegerField(
         help_text="Bumped when the shape changes in a way an older wizard cannot read."
     )
-    tools = ToolSerializer(many=True, help_text="Every tool the wizard can detect.")
+    tools = WizardCatalogToolSerializer(many=True, help_text="Every tool the wizard can detect.")
