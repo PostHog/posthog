@@ -105,17 +105,6 @@ query_result.columns == ['event', 'timestamp']  # might be useful if you select 
 
 You can mix and match `parse_expr` and `ast` nodes as you please. The example above _still_ took a shortcut for the where clause because it was easier to write.
 
-## PostgreSQL SHA-1 hashing
-
-`sha1(value)` uses the connected PostgreSQL database's `pgcrypto` extension and returns lowercase hexadecimal text.
-Connection discovery records the extension's schema in `connection_metadata.pgcrypto_schema`.
-The printer qualifies `digest()` with that schema and converts the input to UTF-8 before hashing.
-If the connection already exposes a `sha1` function, the printer preserves that function's existing behavior.
-
-Refresh the source's schemas after installing, moving, or removing `pgcrypto`, or when using a connection created before extension discovery was added.
-Schema refresh also updates metadata for synced sources with live queries enabled.
-An unknown capability prompts a refresh; a confirmed missing extension prompts installation and refresh.
-
 ## Snowflake date formatting
 
 For direct Snowflake queries, `formatDateTime` requires a literal format string and translates supported strftime specifiers into Snowflake format elements.
