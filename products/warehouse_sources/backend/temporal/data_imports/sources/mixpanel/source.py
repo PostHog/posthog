@@ -92,7 +92,7 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
             "github.com/mixpanel/mixpanel-ios-session-replay-package",
             "github.com/mixpanel/mixpanel-swift-common",
         ),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS,),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS,),
     )
 
     api_docs_url = "https://developer.mixpanel.com/reference/raw-data-export-api"

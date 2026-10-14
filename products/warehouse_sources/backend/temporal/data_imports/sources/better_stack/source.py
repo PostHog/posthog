@@ -70,7 +70,7 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
         go=("github.com/BetterStackHQ/slog-betterstack",),
         maven=("com.logtail:logback-logtail",),
         rubygems=("logtail", "logtail-rails", "logtail-rack", "logtail-ruby", "fluent-plugin-logtail"),
-        competes_with=(ProductKey.LOGS,),
+        alternative_to=(ProductKey.LOGS,),
     )
 
     supported_versions = ("v2",)

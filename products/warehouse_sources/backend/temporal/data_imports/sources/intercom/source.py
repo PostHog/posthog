@@ -79,7 +79,7 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
         pub=("intercom_flutter", "intercom_flutter_web", "intercom_flutter_platform_interface"),
         rubygems=("intercom", "intercom-rails", "omniauth-intercom", "intercom-app"),
         swiftpm=("github.com/intercom/intercom-ios-sp", "github.com/intercom/intercom-ios"),
-        competes_with=(ProductKey.CONVERSATIONS,),
+        alternative_to=(ProductKey.CONVERSATIONS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
