@@ -34,6 +34,12 @@ export interface JobRequest {
     group: string
     mode: RefreshMode
     run: (mode: RefreshMode, signal: AbortSignal) => Promise<ReadResult>
+    /**
+     * A person tapped "Try again" on a view with nothing to show. The read goes out even inside the item's minute
+     * floor, because the person asked for it. It still joins a running read, waits out a family pause, and takes a
+     * budget token.
+     */
+    userRetry?: boolean
 }
 
 interface Job {
@@ -104,7 +110,7 @@ export class RefreshQueue {
             return existing.promise
         }
         const sentAt = this.lastSent.get(request.key)
-        if (sentAt !== undefined && this.now() - sentAt < this.itemFloorMs) {
+        if (!request.userRetry && sentAt !== undefined && this.now() - sentAt < this.itemFloorMs) {
             return Promise.resolve({ status: 'skipped', computed: false, forced: false, family: request.family })
         }
         let resolve: (result: JobResult) => void = () => undefined

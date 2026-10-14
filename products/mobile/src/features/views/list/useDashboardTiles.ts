@@ -9,7 +9,7 @@ import { type DashboardSnapshot, dashboardContainer, dashboardQueryKey } from '.
 import { viewsQueue } from '../refreshQueue'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
-import { freshnessKey, useItemError, useSnapshot } from '../viewsCache'
+import { freshnessKey, useItemError, useItemUpdating, useSnapshot } from '../viewsCache'
 
 const GROUP = 'choose-tile'
 
@@ -27,7 +27,10 @@ export function useDashboardTiles(dashboardRef: string | null): DashboardTiles {
     const context = useViewsContext()
     const queryKey = dashboardRef ? dashboardQueryKey(context.scope, dashboardRef, null) : null
     const snapshot = useSnapshot<DashboardSnapshot>(queryKey)
-    const error = useItemError(queryKey ? freshnessKey(queryKey) : null)
+    const key = queryKey ? freshnessKey(queryKey) : null
+    const error = useItemError(key)
+    // "Try again" shows the spinner while its read runs, not the error it answers.
+    const updating = useItemUpdating(key)
     const [attempt, setAttempt] = useState(0)
     const { item, ready } = context
 
@@ -46,6 +49,7 @@ export function useDashboardTiles(dashboardRef: string | null): DashboardTiles {
             group: GROUP,
             mode: 'force_cache',
             run: (_mode, signal) => container.read(signal),
+            userRetry: attempt > 0,
         })
         return () => viewsQueue.leave(GROUP)
     }, [dashboardRef, ready, item, attempt])
@@ -55,10 +59,10 @@ export function useDashboardTiles(dashboardRef: string | null): DashboardTiles {
         if (view) {
             return successQuery(view)
         }
-        if (error) {
+        if (error && !updating) {
             return errorQuery(new Error(itemErrorMessage(error)))
         }
         return loadingQuery()
-    }, [view, error])
+    }, [view, error, updating])
     return { dashboard, retry: () => setAttempt((count) => count + 1) }
 }

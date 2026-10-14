@@ -97,6 +97,25 @@ describe('useViewRefresh on a dashboard', () => {
         unmount()
     })
 
+    test('"Try again" reads a dashboard that failed to load, inside its minute floor', async () => {
+        const failedOnce: RefreshContainer = {
+            ...dashboard('7d'),
+            read: () => {
+                reads.push('7d-dashboard')
+                return reads.length === 1 ? Promise.reject(new Error('Network request failed')) : Promise.resolve(OK)
+            },
+        }
+        const props = { ...options('7d', []), container: failedOnce }
+        const { result, unmount } = renderHook(() => useViewRefresh(props))
+        await flush()
+
+        act(() => result.current.retry())
+        await flush()
+
+        expect(reads).toEqual(['7d-dashboard', '7d-dashboard'])
+        unmount()
+    })
+
     test('a new range drops the queued reads of the range left, and its own reads go next', async () => {
         const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
             initialProps: options('7d', tiles('7d', 6, true)),

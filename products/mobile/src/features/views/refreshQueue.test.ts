@@ -71,7 +71,7 @@ describe('RefreshQueue', () => {
         await expect(first).resolves.toMatchObject({ status: 'ok', computed: true })
     })
 
-    test('skips an item asked for again within a minute of its last request', async () => {
+    test('skips an item asked for again within a minute of its last request, unless a person retries it', async () => {
         const first = queue.enqueue(request('a'))
         await settle('a', OK)
         await first
@@ -80,8 +80,11 @@ describe('RefreshQueue', () => {
         await expect(queue.enqueue(request('a'))).resolves.toMatchObject({ status: 'skipped' })
         now += 1_000
         void queue.enqueue(request('a'))
-
         expect(calls).toHaveLength(2)
+
+        await settle('a', new Error('Network request failed'))
+        void queue.enqueue(request('a', { userRetry: true }))
+        expect(calls).toHaveLength(3)
     })
 
     test('pauses only the family that answered 429 for its Retry-After', async () => {

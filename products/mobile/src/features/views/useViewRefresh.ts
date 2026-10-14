@@ -103,6 +103,11 @@ export interface ViewRefresh {
     onPull: () => void
     /** A tile menu's "Refresh": forces the item when it is eligible, else shows the hint. True when it sent a request. */
     refreshItem: (key: string) => boolean
+    /**
+     * "Try again" on a screen with nothing to show: the dashboard read, or `blocking` for each item without a value. It
+     * goes out even inside the minute floor, and it never forces.
+     */
+    retry: () => void
 }
 
 type PassTrigger = RefreshTrigger | 'open'
@@ -175,24 +180,37 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const containerReading = useRef<Promise<JobResult> | null>(null)
 
     const send = useCallback(
-        (counters: PassCounters, key: string, family: BudgetFamily, mode: RefreshMode, read: RefreshItem['read']) => {
-            counters.jobs.push(viewsQueue.enqueue({ key, family, group: groupOf(optionsRef.current), mode, run: read }))
+        (
+            counters: PassCounters,
+            key: string,
+            family: BudgetFamily,
+            mode: RefreshMode,
+            read: RefreshItem['read'],
+            userRetry = false
+        ) => {
+            counters.jobs.push(
+                viewsQueue.enqueue({ key, family, group: groupOf(optionsRef.current), mode, run: read, userRetry })
+            )
         },
         []
     )
 
-    const readContainer = useCallback((counters: PassCounters, container: RefreshContainer): Promise<JobResult> => {
-        const job = viewsQueue.enqueue({
-            key: container.key,
-            family: container.family,
-            group: groupOf(optionsRef.current),
-            mode: 'force_cache',
-            run: (_mode, signal) => container.read(signal),
-        })
-        counters.jobs.push(job)
-        containerReading.current = job
-        return job
-    }, [])
+    const readContainer = useCallback(
+        (counters: PassCounters, container: RefreshContainer, userRetry = false): Promise<JobResult> => {
+            const job = viewsQueue.enqueue({
+                key: container.key,
+                family: container.family,
+                group: groupOf(optionsRef.current),
+                mode: 'force_cache',
+                run: (_mode, signal) => container.read(signal),
+                userRetry,
+            })
+            counters.jobs.push(job)
+            containerReading.current = job
+            return job
+        },
+        []
+    )
 
     const showHint = useCallback((until: number | null) => {
         setHintUntil({ text: refreshHintText(until), until: Date.now() + HINT_MS })
@@ -373,7 +391,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                     send(counters, item.key, item.family, item.windowMode, item.read)
                 }
             }
-            if (current.container && rest && readFloorPassed(current.container.readAt())) {
+            // A dashboard that never loaded has no tiles to read, so the button reads the dashboard itself.
+            const neverLoaded = current.container?.readAt() === null
+            if (current.container && (rest || neverLoaded) && readFloorPassed(current.container.readAt())) {
                 void readContainer(counters, current.container)
             }
             if (forced && current.bulkFloor) {
@@ -514,6 +534,24 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         [showHint]
     )
 
+    const retry = useCallback(() => {
+        const current = optionsRef.current
+        if (!current.enabled) {
+            return
+        }
+        const counters: PassCounters = { jobs: [] }
+        if (current.container) {
+            // When the dashboard arrives, its tiles are new items, so the open path reads them.
+            void readContainer(counters, current.container, true)
+            return
+        }
+        for (const item of visibleOf(current)) {
+            if (!hasGoodValue(item.snapshot())) {
+                send(counters, item.key, item.family, 'blocking', item.read, true)
+            }
+        }
+    }, [readContainer, send])
+
     const status = statusLine(
         visibleOf(options).map((item) => item.snapshot()),
         busy
@@ -529,6 +567,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         onButton,
         onPull,
         refreshItem,
+        retry,
     }
 }
 

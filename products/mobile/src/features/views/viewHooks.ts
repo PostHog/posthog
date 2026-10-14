@@ -79,16 +79,18 @@ export function itemErrorMessage(kind: ItemErrorKind): string {
     return ERROR_COPY[kind]
 }
 
+/** `busy`: a read of the screen runs, such as after "Try again", so the screen shows its skeleton, not the error. */
 function viewState<T>(
     data: T | undefined,
     error: ItemErrorKind | null,
     ready: boolean,
+    busy: boolean,
     refetch: () => void
 ): QueryState<T> {
     if (data !== undefined) {
         return successQuery(data, { refetch })
     }
-    if (error) {
+    if (error && !busy) {
         return errorQuery(new Error(ERROR_COPY[error]), refetch)
     }
     return ready ? { ...loadingQuery<T>(), refetch } : loadingQuery()
@@ -254,10 +256,9 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
     const error = useItemError(container.key)
     useRecordRecentView(view ? { kind: 'dashboard', ref: dashboardRef, name: view.name } : null)
     useViewOpenedEvent('dashboard', options, () => items.map((item) => item.snapshot()))
-    const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        dashboard: viewState(view, error, context.ready, reload),
+        dashboard: viewState(view, error, context.ready, refresh.button === 'busy', refresh.retry),
         error,
         tiles,
         range,
@@ -389,10 +390,9 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     const currentKey = comparing && compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
     // The key travels with the held snapshot, so full screen and the Point sheet open the entry that is on screen.
     const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
-    const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        insight: viewState(shown.value?.snapshot, error, context.ready, reload),
+        insight: viewState(shown.value?.snapshot, error, context.ready, refresh.button === 'busy', refresh.retry),
         error,
         range,
         compareAvailable: compareAllowed(range.choice ? rangeValues(range.choice).date_from : saved.dateFrom),
@@ -444,10 +444,9 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     useRecordRecentView({ kind: 'web_analytics', ref: null, name: 'Web analytics' })
     useViewOpenedEvent('web_analytics', options, () => [snapshot])
     const shown = useHeldWhileLoading(snapshot, error)
-    const reload = useCallback(() => refresh.onButton(), [refresh.onButton])
     return {
         access: context.access,
-        overview: viewState(shown.value, error, context.ready, reload),
+        overview: viewState(shown.value, error, context.ready, refresh.button === 'busy', refresh.retry),
         error,
         range,
         rangeLoading: shown.held,
@@ -499,6 +498,9 @@ export function usePointActors(): PointActors {
                     family: 'query',
                     group: POINT_SHEET_GROUP,
                     mode: 'blocking',
+                    // Every load is a tap, and rows that loaded are reused for a minute, so only a failed load goes
+                    // out again inside the item's minute floor.
+                    userRetry: true,
                     run: async (_mode, signal) => {
                         try {
                             const response = demo
