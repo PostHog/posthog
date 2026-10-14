@@ -38,6 +38,7 @@ class TestRefreshAfterLoad(SimpleTestCase):
             patch(f"{_MODULE}.create_default_modifiers_for_team"),
             patch(f"{_MODULE}.ensure_stored", **lookup) as mock_ensure,
         ):
+            ci_precompute.mark_in_use(team)  # type: ignore[arg-type]
             try:
                 ci_precompute.refresh_after_load(team)  # type: ignore[arg-type]
             except RuntimeError:
@@ -48,3 +49,30 @@ class TestRefreshAfterLoad(SimpleTestCase):
             ci_precompute.refresh_after_load(team)  # type: ignore[arg-type]
 
         assert (mock_ensure.call_count > first_load_calls) is next_load_refreshes
+
+    @parameterized.expand(
+        [
+            ("in_use", True, [True, True, True], 2),
+            ("not_read_within_the_hour", False, [True, True, True], 0),
+            ("flag_turned_off_mid_refresh", True, [True, True, False], 1),
+        ]
+    )
+    def test_a_load_stores_days_only_while_the_team_is_read_and_flagged(
+        self, _name: str, in_use: bool, flag_values: list[bool], inserts: int
+    ) -> None:
+        team = SimpleNamespace(pk=1)
+        source = SimpleNamespace(source_id="source", repository="posthog/posthog")
+
+        with (
+            patch(f"{_MODULE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_MODULE}.team_flag", side_effect=flag_values),
+            patch(f"{_MODULE}.resolve_precompute_sources", return_value=[source]),
+            patch(f"{_MODULE}.Database.create_for"),
+            patch(f"{_MODULE}.create_default_modifiers_for_team"),
+            patch(f"{_MODULE}.ensure_stored", return_value=SimpleNamespace(ready=True, errors=[])) as mock_ensure,
+        ):
+            if in_use:
+                ci_precompute.mark_in_use(team)  # type: ignore[arg-type]
+            ci_precompute.refresh_after_load(team)  # type: ignore[arg-type]
+
+        assert mock_ensure.call_count == inserts

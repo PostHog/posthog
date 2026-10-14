@@ -36,6 +36,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -86,6 +87,9 @@ REFRESH_TASK_TIME_LIMIT_SECONDS = 35 * 60
 # After a failed insert the team starts no refresh for this long. A load lands every few minutes, and
 # a day that cannot be stored would otherwise scan the warehouse tables again on each one.
 _FAILED_REFRESH_PAUSE_SECONDS = 30 * 60
+# A read that can take the stored rows marks its team for this long. A refresh runs only while the
+# mark lasts, so a load does not store days again for a team that no one reads.
+_IN_USE_SECONDS = 60 * 60
 
 
 def _raw_day(moment: str) -> str:
@@ -121,6 +125,8 @@ RUN_COLUMNS = (
     "ci_engine",
     "native_run_id",
     "native_workflow_run_id",
+    "workflow_id",
+    "event",
     *depot_ci.WINDOWED_RUN_COLUMNS,
 )
 
@@ -233,18 +239,37 @@ def ensure_stored(
     )
 
 
+def _in_use_key(team: Team) -> str:
+    return f"engineering_analytics:ci_precompute_in_use:{team.pk}"
+
+
+def mark_in_use(team: Team) -> bool:
+    """Mark a read of the team that can take the stored rows. True for the first such read in
+    ``_IN_USE_SECONDS``, because no refresh kept the stored days current before it."""
+    key = _in_use_key(team)
+    if cache.add(key, True, timeout=_IN_USE_SECONDS):
+        return True
+    cache.touch(key, timeout=_IN_USE_SECONDS)
+    return False
+
+
 def refresh_after_load(team: Team) -> None:
     """Store the days that a data load made out of date, for every repository of the team that syncs
-    both runs and jobs. A load that lands while a refresh of the team runs starts no second one, and
-    neither does a load that lands soon after an insert failed."""
-    if not team_flag(STORED_READS_FEATURE_FLAG, team):
+    both runs and jobs, while the team is in use. A load that lands while a refresh of the team runs
+    starts no second one, and neither does a load that lands soon after an insert failed."""
+    if not cache.get(_in_use_key(team)) or not team_flag(STORED_READS_FEATURE_FLAG, team):
         return
     running = f"engineering_analytics:ci_precompute_refresh:{team.pk}"
     if not cache.add(running, True, timeout=REFRESH_TASK_TIME_LIMIT_SECONDS):
         return
     failed = True
     try:
-        with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.PREAGGREGATION, team_id=team.pk):
+        with tags_context(
+            product=Product.ENGINEERING_ANALYTICS,
+            feature=Feature.PREAGGREGATION,
+            team_id=team.pk,
+            ch_user=ClickHouseUser.CACHE_WARMUP,
+        ):
             failed = _refresh(team)
     finally:
         if failed:
@@ -271,7 +296,8 @@ def _refresh(team: Team) -> bool:
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            # The flag is checked before each insert, so turning it off also stops a running refresh.
+            if remaining <= 0 or not team_flag(STORED_READS_FEATURE_FLAG, team):
                 return failed
             result = ensure_stored(
                 stored,
