@@ -2061,6 +2061,8 @@ export interface BlastRadiusApi {
 export interface DataSuggestionBuildRequestApi {
     /** The id of a suggestion from the list endpoint. */
     suggestion_id: string
+    /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
 }
 
 /**

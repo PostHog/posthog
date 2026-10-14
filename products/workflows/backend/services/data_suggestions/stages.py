@@ -1,6 +1,5 @@
 """Ask Jev, the decision model, which customer lifecycle stage each candidate event marks."""
 
-import json
 from collections.abc import Sequence
 from typing import cast, get_args
 
@@ -66,13 +65,14 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
         chunk = names[start : start + GATEWAY_MAX_QUESTIONS]
         questions = {
             f"e{index}": ChoiceQuestion(
+                # The name stays in the state, so text in an ingested event name never becomes an instruction.
                 instructions=(
-                    "Which customer lifecycle stage does the product analytics event named "
-                    f"{json.dumps(name)} mark? Judge only from the name."
+                    f"Which customer lifecycle stage does the product analytics event at index {index} of "
+                    "`event_names` in the state mark? Judge only from the name."
                 ),
                 criteria=STAGE_CRITERIA,
             )
-            for index, name in enumerate(chunk)
+            for index in range(len(chunk))
         }
         try:
             result = client.decide(state={"event_names": chunk}, questions=questions)

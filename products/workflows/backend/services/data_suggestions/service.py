@@ -11,6 +11,7 @@ import structlog
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
 from posthog.ph_client import get_client
@@ -135,16 +136,16 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
         _release_lock(team_id, lock_token)
 
 
-def start_build(*, team: Team, suggestion_id: str, enqueue: Callable[[str], None]) -> BuiltSuggestion:
+def start_build(*, team: Team, suggestion_id: str, retry: bool, enqueue: Callable[[str], None]) -> BuiltSuggestion:
     """The built draft, or a background build through `enqueue`. Ask again while the status is building.
 
-    A failed result is handed out once, so the next click starts a new build.
+    A failed result stays until `retry` asks for a new build, so every tab that polls the build reads the failure.
     """
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
     stored = _read_build(team.id, suggestion_id)
-    if stored is not None:
-        return _hand_out(team.id, suggestion_id, stored)
+    if stored is not None and not (retry and stored.status == "failed"):
+        return stored
     # A second click or tab while a build runs would pay for another plan.
     lock_token = str(uuid.uuid4())
     if not cache.add(_build_lock_key(team.id, suggestion_id), lock_token, _GENERATION_LOCK_SECONDS):
@@ -156,13 +157,14 @@ def start_build(*, team: Team, suggestion_id: str, enqueue: Callable[[str], None
         logger.exception("workflows.data_suggestions.build_enqueue_failed", team_id=team.id)
         return _BUILD_FAILED
     # A worker that ran inline, like in tests, has already stored the result.
-    stored = _read_build(team.id, suggestion_id)
-    return _hand_out(team.id, suggestion_id, stored) if stored is not None else _BUILDING
+    return _read_build(team.id, suggestion_id) or _BUILDING
 
 
-def needs_new_build(*, team: Team, suggestion_id: str) -> bool:
+def needs_new_build(*, team: Team, suggestion_id: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
-    return _read_build(team.id, suggestion_id) is None and cache.get(_build_lock_key(team.id, suggestion_id)) is None
+    stored = _read_build(team.id, suggestion_id)
+    reusable = stored is not None and not (retry and stored.status == "failed")
+    return not reusable and cache.get(_build_lock_key(team.id, suggestion_id)) is None
 
 
 def run_build(
@@ -175,14 +177,20 @@ def run_build(
 ) -> None:
     """The background build that `start_build` queues. It stores the result and releases the lock."""
     try:
-        team = Team.objects.select_related("organization").get(id=team_id)
-        user = User.objects.get(id=user_id)
-        suggestion = _cached_suggestion(team, suggestion_id)
-        # Consent can change between the click and the worker picking the build up.
-        if team.organization.is_ai_data_processing_approved is not True or suggestion is None:
+        try:
+            team = Team.objects.select_related("organization").get(id=team_id)
+            user = User.objects.get(id=user_id)
+            suggestion = _cached_suggestion(team, suggestion_id)
+            # Consent can change between the click and the worker picking the build up.
+            if team.organization.is_ai_data_processing_approved is not True or suggestion is None:
+                result = _BUILD_FAILED
+            else:
+                result = _plan_and_build(team=team, user=user, suggestion=suggestion, is_valid_draft=is_valid_draft)
+        except Exception as error:
+            # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
+            logger.exception("workflows.data_suggestions.build_failed", team_id=team_id)
+            capture_exception(error, {"team_id": team_id})
             result = _BUILD_FAILED
-        else:
-            result = _plan_and_build(team=team, user=user, suggestion=suggestion, is_valid_draft=is_valid_draft)
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
         cache.set(_build_key(team_id, suggestion_id), dataclasses.asdict(result), ttl)
     finally:
@@ -285,13 +293,6 @@ def _build_key(team_id: int, suggestion_id: str) -> str:
 
 def _build_lock_key(team_id: int, suggestion_id: str) -> str:
     return f"workflows:data_suggestions:building:{team_id}:{suggestion_id}"
-
-
-def _hand_out(team_id: int, suggestion_id: str, stored: BuiltSuggestion) -> BuiltSuggestion:
-    # A failure is reported once, so the next call starts a new build instead of repeating the failure.
-    if stored.status == "failed":
-        cache.delete(_build_key(team_id, suggestion_id))
-    return stored
 
 
 def _read_build(team_id: int, suggestion_id: str) -> BuiltSuggestion | None:
