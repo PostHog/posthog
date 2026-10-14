@@ -136,18 +136,47 @@ def test_partial_scan_adds_what_it_saw_and_removes_nothing(team: Team) -> None:
 
 @pytest.mark.django_db
 def test_reports_competitor_changes_once_per_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+    scans = [
+        ("s1", 0, ["Amplitude", "Stripe"]),
+        ("s2", 1, []),
+        ("s2", 2, ["Amplitude"]),
+        ("s3", 3, ["Amplitude"]),
+        ("s4", 4, []),
+    ]
     with patch("posthoganalytics.capture") as capture:
-        for session_id, hours, kinds in [("s1", 0, ["Amplitude", "Stripe"]), ("s2", 1, []), ("s2", 2, ["Amplitude"])]:
+        for session_id, hours, kinds in scans:
             with django_capture_on_commit_callbacks(execute=True):
                 _scan(team, session_id, hours, kinds)
 
-    events = [(call.kwargs["event"], call.kwargs["properties"]) for call in capture.call_args_list]
-    assert [(event, properties["kind"]) for event, properties in events] == [
-        ("competitor detected", "Amplitude"),
-        ("competitor removed", "Amplitude"),
+    events = [
+        (
+            call.kwargs["event"],
+            call.kwargs["properties"]["kind"],
+            call.kwargs["properties"].get("first_detection"),
+            call.kwargs["properties"].get("returned"),
+        )
+        for call in capture.call_args_list
     ]
-    assert events[0][1]["first_detection"] is True
-    assert events[0][1]["competes_with"] == ["product_analytics"]
+    assert events == [
+        ("wizard competitor detected", "Amplitude", True, False),
+        ("wizard competitor removed", "Amplitude", None, None),
+        ("wizard competitor detected", "Amplitude", False, True),
+        ("wizard competitor removed", "Amplitude", None, None),
+    ]
+    first_properties = capture.call_args_list[0].kwargs["properties"]
+    assert (first_properties["competes_with"], first_properties["wizard_version"]) == (["product_analytics"], "2.0.0")
+
+
+@pytest.mark.django_db
+def test_failing_competitor_report_keeps_the_scan(team: Team, django_capture_on_commit_callbacks) -> None:
+    with (
+        patch("products.wizard.backend.logic.scans.report_user_or_team_action", side_effect=RuntimeError),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        result = _scan(team, "s1", 0, ["Amplitude"])
+
+    assert result.created is True
+    assert set(_tools(team)) == {"Amplitude"}
 
 
 @pytest.mark.django_db

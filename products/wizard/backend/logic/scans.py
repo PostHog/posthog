@@ -1,5 +1,4 @@
 from datetime import datetime
-from functools import partial
 
 from django.db import connection, transaction
 
@@ -10,6 +9,10 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
+from products.wizard.backend.observability.config import (
+    WIZARD_COMPETITOR_DETECTED_EVENT,
+    WIZARD_COMPETITOR_REMOVED_EVENT,
+)
 from products.wizard.backend.tool_catalog.catalog import classify_tool
 
 
@@ -18,6 +21,8 @@ class _CompetitorSighting:
     kind: str
     competes_with: tuple[str, ...]
     first_detection: bool
+    # Seen again after a scan of the workspace no longer found it.
+    returned: bool
     signal_sources: tuple[str, ...]
 
 
@@ -25,7 +30,6 @@ class _CompetitorSighting:
 class _CompetitorRemoval:
     kind: str
     competes_with: tuple[str, ...]
-    days_detected: int
 
 
 @frozen
@@ -89,7 +93,9 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
             }
             changes = _apply_scan(scan, tools, existing, complete=params.complete)
             # robust: the scan is already stored, so an analytics failure must not turn the request into a 500.
-            transaction.on_commit(partial(_report_competitor_changes, scan, changes), robust=True)
+            # A lambda rather than functools.partial, because Django logs a robust callback's failure through
+            # its __qualname__, which a partial does not have.
+            transaction.on_commit(lambda: _report_competitor_changes(scan, changes), robust=True)
 
     return WizardScanResult(id=scan.id, created=True)
 
@@ -115,6 +121,7 @@ def _apply_scan(
 
     for kind, tool in tools.items():
         row = existing.get(kind)
+        returned = row is not None and row.removed_at is not None
         if row is None:
             row = WizardDetectedTool(
                 team_id=scan.team_id,
@@ -138,6 +145,7 @@ def _apply_scan(
                     kind=kind,
                     competes_with=tuple(row.competes_with),
                     first_detection=kind not in existing,
+                    returned=returned,
                     signal_sources=tuple(sorted({signal.source for signal in tool.signals})),
                 )
             )
@@ -152,7 +160,6 @@ def _apply_scan(
                     _CompetitorRemoval(
                         kind=kind,
                         competes_with=tuple(row.competes_with),
-                        days_detected=(scanned_at - row.first_seen_at).days,
                     )
                 )
 
@@ -181,6 +188,7 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
     user = User.objects.filter(id=scan.created_by_id).first() if scan.created_by_id else None
     scan_properties = {
         "program": scan.program,
+        "wizard_version": scan.wizard_version,
         "wizard_session_id": scan.session_id,
         "workspace_fingerprint": scan.workspace_fingerprint,
     }
@@ -197,20 +205,20 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
 
     for sighting in changes.sightings:
         report(
-            "competitor detected",
+            WIZARD_COMPETITOR_DETECTED_EVENT,
             {
                 "kind": sighting.kind,
                 "competes_with": list(sighting.competes_with),
                 "first_detection": sighting.first_detection,
+                "returned": sighting.returned,
                 "signal_sources": list(sighting.signal_sources),
             },
         )
     for removal in changes.removals:
         report(
-            "competitor removed",
+            WIZARD_COMPETITOR_REMOVED_EVENT,
             {
                 "kind": removal.kind,
                 "competes_with": list(removal.competes_with),
-                "days_detected": removal.days_detected,
             },
         )
