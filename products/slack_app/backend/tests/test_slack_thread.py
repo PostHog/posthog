@@ -515,6 +515,60 @@ class TestReplyFooterGate(SimpleTestCase):
         assert any(chunk.get("type") == "blocks" for chunk in chunks)
 
 
+class TestTurnSpend(SimpleTestCase):
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_figure_reaches_slack_after_the_answer(self, mock_get_client, mock_get_integration) -> None:
+        # Settling a turn's accounting waits on the gateway. Hoisting that above the answer
+        # would hold every reply open for the wait with nothing for the reader to look at.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
+        appends_when_settled: list[int] = []
+
+        def settle_spend() -> str:
+            appends_when_settled.append(mock_client.chat_appendStream.call_count)
+            return "Done in 48s · $0.42"
+
+        self._handler().stop_status_stream(
+            ts="1.0", final_markdown="Signups grew.", plan_title="Done in 48s", settle_spend=settle_spend
+        )
+
+        assert appends_when_settled == [1]
+        titles = [
+            chunk["title"]
+            for call in mock_client.chat_appendStream.call_args_list
+            for chunk in call.kwargs["chunks"]
+            if chunk.get("type") == "plan_update"
+        ]
+        assert titles == ["Done in 48s", "Done in 48s · $0.42"]
+
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_failure_to_settle_costs_the_figure_not_the_reply(self, mock_get_client, mock_get_integration) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
+
+        def settle_spend() -> str:
+            raise RuntimeError("db down")
+
+        self._handler().stop_status_stream(ts="1.0", final_markdown="Signups grew.", settle_spend=settle_spend)
+
+        mock_client.chat_stopStream.assert_called_once()
+        chunks = [chunk for call in mock_client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]]
+        assert any(chunk.get("type") == "blocks" for chunk in chunks)
+
+
 class TestFooterNeverCostsTheAnswer(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")

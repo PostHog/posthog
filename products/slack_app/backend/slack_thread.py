@@ -479,6 +479,7 @@ class SlackThreadHandler:
         plan_title: str | None = None,
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
+        settle_spend: Callable[[], str | None] | None = None,
     ) -> None:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
@@ -487,6 +488,11 @@ class SlackThreadHandler:
         says the answer already carried it. ``append_attachments`` runs after the answer, so
         chart cards sit under the text that describes them. The provenance footer is a `blocks`
         chunk because a `context` block is the only way to get muted text.
+
+        ``settle_spend`` carries what the turn cost, which is known only once its accounting
+        settles. It runs after the answer is out, so waiting on that never delays the answer:
+        the title it returns replaces the one the answer carried, and it may fill in
+        ``run_footer`` before the footer is built.
 
         When Slack already closed the stream, the answer goes out as a plain thread reply,
         and nothing else is sent to the closed stream."""
@@ -524,7 +530,11 @@ class SlackThreadHandler:
             except Exception as e:
                 logger.warning("slack_app_status_stream_attachments_failed", error=str(e))
 
+        settled_plan_title = self._settled_plan_title(settle_spend, plan_title)
+
         final_chunks: list[dict[str, Any]] = []
+        if settled_plan_title:
+            final_chunks.append(_plan_update_chunk(settled_plan_title))
         recipient = self.actor_slack_user_id
         if recipient and not final_markdown and not mention_sent:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
@@ -536,6 +546,21 @@ class SlackThreadHandler:
         if footer:
             self._append_trailing_blocks(ts)
         self._stop_stream(ts)
+
+    def _settled_plan_title(self, settle_spend: Callable[[], str | None] | None, plan_title: str | None) -> str | None:
+        """The title once the turn's spend is settled, or `None` when it says nothing new.
+
+        A failure costs the figure alone, because the answer is already posted and the footer
+        and the thumbs are still to come.
+        """
+        if settle_spend is None:
+            return None
+        try:
+            settled = settle_spend()
+        except Exception as e:
+            logger.warning("slack_app_turn_spend_failed", error=str(e))
+            return None
+        return settled if settled and settled != plan_title else None
 
     def _stop_stream(self, ts: str) -> None:
         if self.stream_ended:

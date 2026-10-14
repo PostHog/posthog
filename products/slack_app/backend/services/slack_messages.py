@@ -40,6 +40,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
+from products.slack_app.backend.logic.run_spend import spend_label
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 
@@ -696,6 +697,9 @@ class RunFooter:
     # The project the thread's task belongs to, so a reader can tell which project's
     # data the answer was drawn from.
     project: str | None = None
+    # Model spend across every turn of the thread, in whole USD cents, or None where any of
+    # its runs is still unpriced.
+    thread_spend_cents: int | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -833,6 +837,9 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View session>")
     segments.extend(_run_context_segments(footer))
+    thread_spend = spend_label(footer.thread_spend_cents)
+    if thread_spend:
+        segments.append(f"Thread: {thread_spend}")
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:

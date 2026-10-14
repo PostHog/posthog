@@ -15,6 +15,7 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     load_run_footer,
     reply_footer_block,
+    run_context_block,
     viewer_has_code_access,
 )
 
@@ -61,6 +62,13 @@ class TestRunFooter(SimpleTestCase):
                 "slack://app?team=T1&id=A1&tab=home",
                 "<slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
+            (
+                "thread_spend_precedes_configure",
+                RunFooter(TASK_URL, "claude-opus-5", project="Fernwood staging", thread_spend_cents=95),
+                "slack://app?team=T1&id=A1&tab=home",
+                f"<{TASK_URL}|View session> · *Claude Opus 5* · Project: *Fernwood staging*"
+                " · Thread: $0.95 · <slack://app?team=T1&id=A1&tab=home|Configure>",
+            ),
         ]
     )
     def test_renders_present_segments_as_slack_links(
@@ -76,6 +84,14 @@ class TestRunFooter(SimpleTestCase):
         # `has_content` gates whether callers bother building a footer at all, so a run
         # known only by its project must not read as nothing to say.
         assert RunFooter(project="Fernwood staging").has_content()
+
+    def test_the_thread_total_stays_out_of_a_message_that_is_still_working(self) -> None:
+        # `run_context_block` rides the progress message, where a figure would report a cost
+        # for work that has not finished and cannot be priced yet.
+        block = run_context_block(RunFooter(model="claude-opus-5", thread_spend_cents=95))
+
+        assert block is not None
+        assert "$" not in block["elements"][0]["text"]
 
     def test_contributes_no_block_when_there_is_nothing_to_say(self) -> None:
         # A context block with an empty `elements` list is rejected by Slack, which would

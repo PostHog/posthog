@@ -137,14 +137,21 @@ def _pending_ids(state: dict[str, Any]) -> list[str]:
     )
 
 
-def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20) -> TaskRunCost:
+def process_pending_gateway_usage(
+    *, run_id: UUID, team_id: int, limit: int = 20, deadline_seconds: float = _PROCESSING_SECONDS
+) -> TaskRunCost:
+    """Price the run's unsettled gateway requests, and report what it has cost so far.
+
+    ``limit`` and ``deadline_seconds`` bound the pass. A caller a person is waiting on sets
+    both low and accepts an unpriced run, rather than holding a reply open for the gateway.
+    """
     with transaction.atomic():
         run = _locked_run(run_id, team_id)
         state = run.state or {}
         if not gateway_usage_enabled(run):
             return _cost_sources(run).as_contract()
         pending = _pending_ids(state)[:limit]
-    deadline = time.monotonic() + _PROCESSING_SECONDS
+    deadline = time.monotonic() + deadline_seconds
     for request_id in pending:
         if time.monotonic() >= deadline:
             break
