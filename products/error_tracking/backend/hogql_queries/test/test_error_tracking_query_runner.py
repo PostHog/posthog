@@ -772,41 +772,40 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
-            ("optimized_shape_descending", False, "DESC"),
-            ("optimized_shape_ascending", False, "ASC"),
-            ("legacy_shape_descending", True, "DESC"),
-            ("legacy_shape_ascending", True, "ASC"),
+            ("severity", ["indexOf(['low', 'medium', 'high', 'critical'], severity)", "last_seen", "id"]),
+            ("occurrences", ["occurrences", "last_seen", "id"]),
+            ("users", ["users", "last_seen", "id"]),
+            ("sessions", ["sessions", "last_seen", "id"]),
+            ("first_seen", ["first_seen", "last_seen", "id"]),
+            ("last_seen", ["last_seen", "id"]),
         ]
     )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_severity_ordering_is_total(self, _name: str, legacy_shape: bool, direction: str):
-        # Most rows share a severity, and the paginator pages with LIMIT/OFFSET, so rows repeat and
-        # drop between pages unless the tiebreakers make the order total in both directions.
-        filter_group = self._severity_is_set_filter() if legacy_shape else None
-
-        builder = ErrorTrackingQueryBuilder(
-            query=ErrorTrackingQuery(
-                kind="ErrorTrackingQuery",
-                dateRange=DateRange(date_from="-7d"),
-                filterGroup=filter_group,
-                orderBy="severity",
-                orderDirection=direction,  # pyright: ignore[reportArgumentType]
-                volumeResolution=1,
-            ),
-            team=self.team,
-            date_from=datetime(2022, 1, 3, tzinfo=UTC),
-            date_to=datetime(2022, 1, 10, tzinfo=UTC),
-        )
-        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
-
-        self.assertEqual(
-            [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
-            [
-                ("indexOf(['low', 'medium', 'high', 'critical'], severity)", direction),
-                ("last_seen", "DESC"),
-                ("id", "DESC"),
-            ],
-        )
+    def test_ordering_is_total(self, order_by: str, expected_keys: list[str]):
+        # Rows share sort values, and the paginator pages with LIMIT/OFFSET, so rows repeat and drop
+        # between pages unless the tiebreakers make the order total in both shapes and directions.
+        primary, *tiebreakers = expected_keys
+        for legacy_shape in (False, True):
+            for direction in ("DESC", "ASC"):
+                builder = ErrorTrackingQueryBuilder(
+                    query=ErrorTrackingQuery(
+                        kind="ErrorTrackingQuery",
+                        dateRange=DateRange(date_from="-7d"),
+                        filterGroup=self._severity_is_set_filter() if legacy_shape else None,
+                        orderBy=order_by,  # pyright: ignore[reportArgumentType]
+                        orderDirection=direction,  # pyright: ignore[reportArgumentType]
+                        volumeResolution=1,
+                    ),
+                    team=self.team,
+                    date_from=datetime(2022, 1, 3, tzinfo=UTC),
+                    date_to=datetime(2022, 1, 10, tzinfo=UTC),
+                )
+                self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+                self.assertEqual(
+                    [(order.expr.to_hogql(), order.order) for order in builder.build_query().order_by or []],
+                    [(primary, direction), *((key, "DESC") for key in tiebreakers)],
+                    f"legacy_shape={legacy_shape} direction={direction}",
+                )
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_status(self):

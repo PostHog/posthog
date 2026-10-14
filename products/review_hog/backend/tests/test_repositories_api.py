@@ -16,6 +16,7 @@ from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
     ReviewRepository,
+    ReviewRepositoryPerson,
     ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
@@ -321,8 +322,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewRepository.objects.for_team(self.other_team.id).create(
             team=self.other_team, installation_id="1000", full_name="example-org/api", selected=True
         )
-        ReviewRepository.objects.for_team(self.team.id).create(
+        docs = ReviewRepository.objects.for_team(self.team.id).create(
             team=self.team, installation_id=INSTALLATION, full_name="example-org/docs", flash_for="everyone"
+        )
+        # A person on the exception's list renders through the nested user serializer.
+        excepted = User.objects.create_and_join(self.organization, "excepted@example.com", None)
+        ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+            team=self.team, repository=docs, user=excepted, kind=ReviewRepositoryPerson.Kind.EXCEPTED
         )
         ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
             team=self.team, user=self.user, installation_id=INSTALLATION, full_name="example-org/docs", mode="off"
@@ -346,6 +352,8 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
         assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
         assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
+        [person] = entries["example-org/docs"]["exception"]["people"]
+        assert (person["kind"], person["user"]["email"]) == ("excepted", "excepted@example.com")
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
         assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
         assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
