@@ -21,8 +21,10 @@ await fs.copyFile(
     new URL('../dist/generated/handlers.d.mts', import.meta.url)
 )
 const { operations } = await import('../dist/discovery.js')
-const help = new SdkAgentHelp(
-    operations,
-    fileURLToPath(new URL('../../../services/mcp/src/templates/sections/', import.meta.url))
+const definitions = JSON.parse(
+    await fs.readFile(new URL('../../../services/mcp/schema/tool-definitions-all.json', import.meta.url), 'utf8')
 )
-await fs.writeFile(new URL('../dist/agent-help.md', import.meta.url), `${await help.render()}\n`)
+const help = new SdkAgentHelp(
+    operations.map(({ toolName }) => ({ name: toolName, category: definitions[toolName].category }))
+)
+await fs.writeFile(new URL('../dist/agent-help.md', import.meta.url), `${help.render()}\n`)

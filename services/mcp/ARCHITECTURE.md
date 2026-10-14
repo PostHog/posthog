@@ -4,7 +4,7 @@ This directory contains PostHog's MCP (Model Context Protocol) server. The proto
 
 The [TypeScript agent SDK](../../packages/sdk/README.md), `@posthog/sdk`, uses shared MCP definitions to generate a direct-API client with explicit input and output interfaces.
 `scripts/generate-sdk.mjs` checks parity with the registered MCP catalog, preserves documentation, and emits one `src/generated/api.ts` contract registry and grep-friendly `api-index.tsv` and `domains.tsv` indexes into `packages/sdk`.
-The SDK’s `--agent-help` lists available domains and resolves these files to absolute paths in the installed package.
+The SDK’s concise `--agent-help` uses MCP's domain extractor and compact domain budget, omits the `client.` receiver, and resolves these files to absolute paths in the installed package.
 The SDK shares tool handlers through `sdk/host.ts`, which supplies direct HTTP transport, client-local context, and confirmation state without an MCP connection.
 
 ## Overview

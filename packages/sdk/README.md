@@ -2,7 +2,7 @@
 
 A TypeScript client for agents that call the PostHog API. It shares operation definitions, descriptions, and response projections with the MCP codegen pipeline. It runs on Node.js 22 or later.
 
-**Agents: before starting a PostHog task, run `npx @posthog/sdk --agent-help`, read the guide, and follow it.** It explains how to use project knowledge, reuse governed metrics, choose native analytics methods or SQL, verify schemas, and create reusable analyses. The guide works offline without credentials once the package is installed and shares its product guidance with the PostHog MCP server. Read it once and reuse it while it remains in context.
+**Agents: run `npx @posthog/sdk --agent-help` before a PostHog task.** The concise guide covers discovery and analytics routing. It works offline and uses MCP's compact tool-domain grouping. Prioritize installed PostHog skills for detailed product guidance.
 
 ```sh
 npm install @posthog/sdk
@@ -24,7 +24,7 @@ console.log(output.data.results)
 
 ## Discover methods without credentials
 
-`--agent-help` lists the installed tool domains and absolute local paths to `src/generated/api.ts`, `api-index.tsv`, and `domains.tsv`. Use those paths when the package is installed through npx, a workspace, or a package manager store.
+`--agent-help` lists MCP tool-name families and absolute local paths to `src/generated/api.ts`, `api-index.tsv`, and `domains.tsv`. It uses MCP's domain extractor and compact domain budget. Method references omit the `client.` receiver. Use the printed paths for npx, workspace, or package manager installations.
 
 ```sh
 rg -n -i 'dashboard|retention' node_modules/@posthog/sdk/api-index.tsv

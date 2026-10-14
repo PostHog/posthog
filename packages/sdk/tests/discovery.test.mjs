@@ -4,6 +4,10 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
+import {
+    buildToolDomainsCompact,
+    MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET,
+} from '../../../services/mcp/src/lib/tool-domains.ts'
 import { runCli } from '../dist/cli.js'
 import { domains, operations } from '../dist/discovery.js'
 
@@ -37,12 +41,21 @@ const normalized = (value) =>
 test('offline help and indexes expose every registered method and resolvable contracts in one registry', async (t) => {
     t.mock.method(globalThis, 'fetch', () => assert.fail('discovery must stay offline'))
     const guide = runCli(['--agent-help'])
+    const mcp = JSON.parse(
+        await fs.readFile(new URL('../../../services/mcp/schema/tool-definitions-all.json', import.meta.url), 'utf8')
+    )
+    const toolDomains = buildToolDomainsCompact(
+        operations.map(({ toolName }) => ({ name: toolName, category: mcp[toolName].category })),
+        MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET
+    )
     assert.match(guide, /^# PostHog SDK guide for agents/)
     assert.match(guide, /Available tool domains/)
-    assert.match(guide, /`client\.dataCatalog\.metricList`/)
+    assert.ok(guide.includes(`\n${toolDomains}\n`))
+    assert.ok(guide.length < 3_000, 'Startup help must stay concise')
+    assert.match(guide, /`dataCatalog\.metricList`/)
     assert.doesNotMatch(
         guide,
-        /__SDK_|\{[a-z_]+\}|posthog:exec|`(?:info|call|exec search) |posthog\/sdk (?:search|describe|list)/
+        /\bclient\.\w|__SDK_|\{[a-z_]+\}|posthog:exec|`(?:info|call|exec search) |posthog\/sdk (?:search|describe|list)/
     )
     for (const file of ['src/generated/api.ts', 'api-index.tsv', 'domains.tsv']) {
         const absolute = fileURLToPath(new URL(`../${file}`, import.meta.url))
@@ -50,16 +63,15 @@ test('offline help and indexes expose every registered method and resolvable con
         await fs.access(absolute)
     }
     for (const { domain, methods } of domains) {
-        assert.ok(guide.includes(`- \`${domain}\`: ${methods} method${methods === 1 ? '' : 's'}`))
         assert.equal(operations.filter((operation) => operation.domain === domain).length, methods)
     }
     const methods = new Set(operations.map((operation) => operation.method))
-    for (const [, method] of guide.matchAll(/`client\.([\w.]+)`/g)) {
-        assert.ok(methods.has(method), `Agent help must refer to an exported method: ${method}`)
+    const namespaces = new Set(domains.map(({ domain }) => domain))
+    for (const [, method] of guide.matchAll(/`(\w+\.\w+)`/g)) {
+        if (namespaces.has(method.split('.')[0])) {
+            assert.ok(methods.has(method), `Agent help must refer to an exported method: ${method}`)
+        }
     }
-    const mcp = JSON.parse(
-        await fs.readFile(new URL('../../../services/mcp/schema/tool-definitions-all.json', import.meta.url), 'utf8')
-    )
     assert.deepEqual(operations.map((operation) => operation.toolName).sort(), Object.keys(mcp).sort())
     const coverage = JSON.parse(await fs.readFile(new URL('../coverage.json', import.meta.url), 'utf8'))
     assert.deepEqual(

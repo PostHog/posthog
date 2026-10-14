@@ -74,8 +74,9 @@ assert.deepEqual(importedProducts().sort(), ['feature-flags', 'notebooks'].map((
     run(process.execPath, ['smoke.mjs'])
     const guide = run('npx', ['--no-install', '@posthog/sdk', '--agent-help'])
     assert.match(guide, /^# PostHog SDK guide for agents/)
-    assert.match(guide, /`client\.queries\.sql`/)
-    assert.match(guide, /- `signals`: \d+ methods/)
+    assert.match(guide, /`queries\.sql`/)
+    assert.match(guide, /(?:\||\n)scout(?:\||\n)/)
+    assert.doesNotMatch(guide, /\bclient\.\w/)
     const packageRoot = path.join(temporary, 'node_modules/@posthog/sdk')
     for (const file of ['src/generated/api.ts', 'api-index.tsv', 'domains.tsv']) {
         const installed = path.join(packageRoot, file)
