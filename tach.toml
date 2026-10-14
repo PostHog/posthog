@@ -940,6 +940,8 @@ depends_on = [
     "products.tasks", "products.access_control",
     # Slack triggers emit internal events through products.cdp.backend.internal_events.
     "products.cdp",
+    # Mentions that name a pull request and a command run through the commands facade.
+    "products.commands",
 ]
 layer = "modules"
 

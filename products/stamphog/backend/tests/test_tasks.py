@@ -785,6 +785,7 @@ def _make_second_team(organization) -> Team:
 )
 def test_reviewing_team_ids_applies_the_manual_request_rule(team, enabled, connected_by_user_id, expected_reviewing):
     other_team = _make_second_team(team.organization)
+    environment = Team.objects.create(organization=team.organization, parent_team=team, name="env")
     with team_scope(team.id):
         StamphogRepoConfig.objects.create(
             team_id=team.id,
@@ -794,7 +795,10 @@ def test_reviewing_team_ids_applies_the_manual_request_rule(team, enabled, conne
             connected_by_user_id=connected_by_user_id,
         )
 
-    assert reviewing_team_ids(REPO.upper(), [team.id, other_team.id]) == ([team.id] if expected_reviewing else [])
+    # An environment reviews where its project does.
+    assert reviewing_team_ids(REPO.upper(), [environment.id, team.id, other_team.id]) == (
+        [environment.id, team.id] if expected_reviewing else []
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

@@ -34,6 +34,22 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 3. `channels/github/comments.py` runs in the task. It applies the comment's silent checks (listed in its module docstring), then hands the command to `logic/dispatcher.py`, which runs the steps every channel shares and calls the command's handler.
 4. `logic/handlers.py` calls the target product's facade and returns the text of the reply.
 
+## Commands from Slack
+
+The same commands run from a Slack message that mentions the PostHog app, with the pull request URL first:
+
+```text
+@PostHog https://github.com/PostHog/posthog/pull/123 review --deep
+```
+
+- Only a message that opens with the app's mention and reads exactly as a command runs one. Free text, such as "can you review this deeply", and a mistyped option go to the agent as before.
+- The `slack-commands` flag decides the rollout per organization, once, inside the Slack webhook. Outside it, the message also goes to the agent.
+- Every command that ran gets an answer in the thread, refusals included, because the message no longer reaches the agent.
+- The Slack app asks `may_hold_command` first, a check with no queries, so most mentions never reach this product. It hands the rest to `accept_slack_mention` inside its webhook, as plain text. This product reads it (`channels/slack/`), runs it in its own task like a pull request comment, and answers in the thread through the Slack integration the mention came in on.
+- A Slack command has no GitHub permission check. It runs as a PostHog account that is a member of the project, like the review trigger in the PostHog API and MCP.
+- It may run as the accounts the Slack app resolves for the person, the ones its agent acts as: first their linked PostHog account, else the member of a connected organization with their Slack email, then every other account linked to their Slack user. The command picks the project first, and the first of these accounts that is a member of it acts there.
+- It reaches only projects of organizations that connected that Slack workspace, the same scope the agent has. In a shared channel that has not approved PostHog, the message goes to the agent, whose approval gate applies.
+
 ## Adding a command
 
 Declare the command in `logic/schema.py`: an args dataclass built with `flag()`, `option()` and `text()`, and a `CommandDeclaration` in `COMMAND_DECLARATIONS`.

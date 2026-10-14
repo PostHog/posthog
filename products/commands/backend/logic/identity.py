@@ -29,7 +29,7 @@ logger = structlog.get_logger(__name__)
 @frozen
 class Requester:
     # The candidate projects, each with a linked account that is a member of it. In the order of the
-    # candidates, and within a project the most recently linked account first. Empty when no linked
+    # candidates, and within a project the channel's first choice first. Empty when no linked
     # account belongs to any of them.
     members: tuple[ProjectMember, ...]
 
@@ -72,8 +72,8 @@ def _project_members(users: list[User], team_ids: Sequence[int]) -> tuple[Projec
     teams_by_id = Team.objects.select_related("organization", "parent_team__organization").in_bulk(team_ids)
     teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
     member_team_ids = {user.id: _member_team_ids(user, teams) for user in users}
-    # When two linked accounts are members of the same project, the most recently linked one acts
-    # there, as in the Slack app: the person linked it last, so it is the one they use.
+    # When two linked accounts are members of the same project, the one the channel lists first acts
+    # there: on GitHub the most recently linked one, because the person linked it last.
     return tuple(
         ProjectMember(team_id=team.id, user_id=user.id)
         for team in teams
@@ -83,7 +83,7 @@ def _project_members(users: list[User], team_ids: Sequence[int]) -> tuple[Projec
 
 
 def resolve_requester(users: list[User], team_ids: Sequence[int]) -> Requester | UnresolvedRequester:
-    """The members among ``users`` (most recently linked first) of the candidate ``team_ids``."""
+    """The members among ``users`` (the channel's first choice first) of the candidate ``team_ids``."""
     if not users:
         return UnresolvedRequester(reason="unlinked")
     # The same rule that refuses an account's logins and API keys refuses its commands. Another
