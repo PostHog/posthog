@@ -50,6 +50,9 @@ Configure the destination through the environment before running the SQL suite:
 | `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` | JSON object mapping each of the seven metric names below to an existing immutable scorer **version UUID**, not a definition UUID or version number. |
 | `POSTHOG_OFFLINE_EVAL_HOST`            | App origin; defaults to `https://us.posthog.com`.                                                                                                   |
 
+The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
+Uploads, result links, and trace-destination checks use that same origin.
+
 Create the scorer definitions in the destination project before configuring their versions:
 
 | Metric name                          | Scorer kind                      |
@@ -80,6 +83,7 @@ hogli evals sql/eval_sql::eval_sql
 Without publishing configuration, the SQL run reports that offline uploads are disabled.
 Partial or invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
+The final summary retains the legacy PostHog results link alongside the offline upload status until an offline experiment URL is available.
 
 Each case and trial becomes a separate item, with one result per configured scorer.
 Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain their values.

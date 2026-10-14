@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 from parameterized import parameterized
+from posthoganalytics.ai.evaluations import EvaluationItem
 from pydantic import SecretStr
 
 from products.posthog_ai.eval_harness.engines.types import CaseResult, EvalSummary, ExperimentResult, ScorerResult
@@ -66,6 +67,14 @@ def _prepare(
         ),
         metadata={"agent_model": "test-model", "git_sha": "captured-revision", **(metadata or {})},
     )
+
+
+def _items(upload: OfflineEvalUpload) -> list[EvaluationItem]:
+    items: dict[str, EvaluationItem] = {}
+    for result in upload.results:
+        assert isinstance(result.item, EvaluationItem)
+        items[result.item_id] = result.item
+    return list(items.values())
 
 
 @parameterized.expand(
@@ -133,15 +142,14 @@ def test_prepare_assigns_stable_trial_ids_and_uses_captured_revision() -> None:
 
     upload = _prepare(publisher, cases)
     reordered = _prepare(publisher, list(reversed(cases)))
-    items = [item.to_dict() for item in upload.items]
+    items = [item.to_dict() for item in _items(upload)]
 
-    assert {item.id for item in upload.items} == {item.id for item in reordered.items}
+    assert {item.id for item in _items(upload)} == {item.id for item in _items(reordered)}
     assert [(item["case_key"], item["trial"]) for item in items] == [
         ("query-a", "1"),
         ("query-b", "0"),
         ("query-a", "0"),
     ]
-    assert {result.item_id for result in upload.results} == {item.id for item in upload.items}
     assert upload.experiment["expected_item_count"] == 3
     assert upload.experiment["expected_result_count"] == 6
     assert upload.experiment["application_version"] == "captured-revision"
@@ -156,7 +164,7 @@ def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_results() 
     case.expected = {"large_fixture": "x" * (300 * 1024)}
     case.metadata["not_json"] = object()
 
-    payload = _prepare(_publisher(), [case]).items[0].to_dict()["payload"]
+    payload = _items(_prepare(_publisher(), [case]))[0].to_dict()["payload"]
 
     assert payload["output"] == {"answer": "There are 3 events"}
     assert "expected_output" not in payload
@@ -206,7 +214,7 @@ def test_prepare_bounds_payload_details_without_losing_scores(
 
     with patch.object(json, "dumps", bounded_encode_json):
         upload = _prepare(_publisher(), [case], metadata)
-    payload = upload.items[0].to_dict()["payload"]
+    payload = _items(upload)[0].to_dict()["payload"]
     omitted = payload["metadata"]["omitted_fields"]
 
     assert payload["output"]["answer"] == "There are 3 events"
@@ -249,7 +257,7 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
         "numeric_metric": ScorerResult(status="ok", value=35.0),
     }
     upload = _prepare(publisher, [case])
-    item = upload.items[0].to_dict()
+    item = _items(upload)[0].to_dict()
     outcome = upload.results[0].to_dict()
     assert item.get("application_trace_id") == ("application-trace" if link_traces else None)
     if hosted:
@@ -493,6 +501,42 @@ def test_publish_refuses_a_different_destination(_name: str, host: str, project_
     assert server.requests == []
 
 
+@parameterized.expand(
+    [
+        ("us_ingestion", "https://us.i.posthog.com", "https://us.posthog.com"),
+        ("eu_ingestion", "https://eu.i.posthog.com/", "https://eu.posthog.com"),
+        ("legacy_app", "https://app.posthog.com", "https://us.posthog.com"),
+        ("default_port", " https://US.I.POSTHOG.COM:443/ ", "https://us.posthog.com"),
+        ("app", "https://us.posthog.com", "https://us.posthog.com"),
+        ("custom", "https://posthog.example.com:8443", "https://posthog.example.com:8443"),
+        ("custom_cloud_port", "https://us.i.posthog.com:8443", "https://us.i.posthog.com:8443"),
+        ("ipv6", "https://[::1]:8443", "https://[::1]:8443"),
+    ]
+)
+def test_publish_uses_the_same_origin_for_requests_and_result_links(_name: str, host: str, origin: str) -> None:
+    environment = {
+        "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
+        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": "123",
+        "POSTHOG_OFFLINE_EVAL_HOST": host,
+        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": json.dumps(
+            {metric: str(version) for metric, version in SCORER_VERSIONS.items()}
+        ),
+    }
+    with patch.dict("os.environ", environment, clear=True):
+        settings = OfflineEvalSettings.from_env(SUITE)
+    assert settings is not None
+    assert settings.host == origin
+    publisher = OfflineEvalPublisher(settings, SUITE)
+    upload = _prepare(publisher, [_case()])
+    server = OfflineServer()
+
+    with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(server.respond))):
+        url = asyncio.run(publisher.publish(upload))
+
+    assert all(str(request.url).startswith(f"{origin}/api/") for request in server.requests)
+    assert url == f"{origin}/project/123/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}"
+
+
 def test_settings_accept_a_shared_scorer_map_for_multiple_suites() -> None:
     environment = {
         "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
@@ -574,11 +618,11 @@ def test_prepare_preserves_every_case_when_optional_item_references_are_invalid(
 
     upload = _prepare(_publisher(link_traces=True), [healthy, malformed])
 
-    assert len(upload.items) == 2
+    assert len(_items(upload)) == 2
     assert len(upload.results) == 4
     assert all(result.to_dict()["status"] == "ok" for result in upload.results)
-    assert upload.items[0].to_dict()["case_key"] == "healthy"
-    item = upload.items[1].to_dict()
+    assert _items(upload)[0].to_dict()["case_key"] == "healthy"
+    item = _items(upload)[1].to_dict()
     assert omitted_field not in item
     assert omitted_field in item["payload"]["metadata"]["omitted_fields"]
     if omitted_field != "dataset_item_identifier":

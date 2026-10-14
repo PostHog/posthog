@@ -48,7 +48,6 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
         project_id=123,
         experiment_name="test-experiment",
         experiment={"id": str(UUID(int=1)), "started_at": "2026-01-01T00:00:00Z"},
-        items=(),
         results=(),
     )
     publisher = OfflineEvalPublisher(

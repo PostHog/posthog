@@ -22,7 +22,7 @@ from posthoganalytics.ai.evaluations import (
     ResultOptions,
     ScorerKind,
 )
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from posthog.dataclasses import frozen
 
@@ -92,6 +92,33 @@ class OfflineEvalSettings(BaseModel):
     request_timeout: float = Field(default=15, gt=0, allow_inf_nan=False)
     max_retries: int = Field(default=3, ge=0)
 
+    @field_validator("host")
+    @classmethod
+    def normalize_host(cls, host: str) -> str:
+        try:
+            parsed = urlsplit(host.strip().rstrip("/"))
+            port = parsed.port
+        except ValueError:
+            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin") from None
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path
+        ):
+            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin")
+        origin = parsed.netloc.lower()
+        if port in (None, 443):
+            origin = {
+                "app.posthog.com": "us.posthog.com",
+                "us.i.posthog.com": "us.posthog.com",
+                "eu.i.posthog.com": "eu.posthog.com",
+            }.get(parsed.hostname, origin.removesuffix(":443"))
+        return f"https://{origin}"
+
     @classmethod
     def from_env(cls, suite: OfflineEvalSuite) -> OfflineEvalSettings | None:
         prefix = "POSTHOG_OFFLINE_EVAL_"
@@ -99,7 +126,7 @@ class OfflineEvalSettings(BaseModel):
             return None
         try:
             settings = cls(
-                host=os.getenv(prefix + "HOST", "https://us.posthog.com").rstrip("/"),
+                host=os.getenv(prefix + "HOST", "https://us.posthog.com"),
                 project_id=int(os.environ[prefix + "PROJECT_ID"]),
                 api_key=SecretStr(os.environ[prefix + "API_KEY"]),
                 scorer_versions=json.loads(os.environ[prefix + "SCORER_VERSIONS"]),
@@ -109,21 +136,6 @@ class OfflineEvalSettings(BaseModel):
                 "Set POSTHOG_OFFLINE_EVAL_API_KEY, POSTHOG_OFFLINE_EVAL_PROJECT_ID and "
                 "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS (a JSON object of metric names to version UUIDs)"
             ) from None
-        try:
-            parsed = urlsplit(settings.host)
-            _ = parsed.port
-        except ValueError:
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin") from None
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-            or parsed.path
-        ):
-            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin")
         if not settings.api_key.get_secret_value().strip():
             raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_API_KEY must not be empty")
         if not set(suite.scorer_kinds) <= set(settings.scorer_versions):
@@ -172,7 +184,6 @@ class OfflineEvalUpload:
     project_id: int
     experiment_name: str
     experiment: ExperimentOptions
-    items: tuple[EvaluationItem, ...]
     results: tuple[EvaluationResult, ...]
 
 
@@ -425,7 +436,6 @@ class OfflineEvalPublisher:
             {key: str(value) if isinstance(value, UUID) else value for key, value in experiment.items()},
         )
         trials: Counter[str] = Counter()
-        items: list[EvaluationItem] = []
         scores: list[EvaluationResult] = []
         for index, case in enumerate(result.results):
             name = str(case.input.get("name", f"case-{index}"))
@@ -438,14 +448,12 @@ class OfflineEvalPublisher:
                 trial=trial,
                 metadata={**metadata, "braintrust_url": result.summary.experiment_url, "trial_index": trial},
             )
-            items.append(item)
             scores.extend(self._score(case, metric, item) for metric in self.suite.scorer_kinds)
         return OfflineEvalUpload(
             host=self.settings.host,
             project_id=self.settings.project_id,
             experiment_name=experiment_name,
             experiment=experiment,
-            items=tuple(items),
             results=tuple(scores),
         )
 
