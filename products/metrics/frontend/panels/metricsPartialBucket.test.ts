@@ -34,19 +34,25 @@ describe('partialBucketFraction', () => {
         ['last bucket complete', '2026-08-01T13:00:00Z', null],
         ['now before the last bucket', '2026-08-01T11:30:00Z', null],
     ])('%s', (_, now, expected) => {
-        expect(partialBucketFraction(BUCKETS, hourly, dayjs(now))).toBe(expected)
+        expect(partialBucketFraction(BUCKETS, hourly, 'UTC', dayjs(now))).toBe(expected)
     })
 
     it('uses the query interval, not the spacing of sparse buckets', () => {
         const sparse = ['2026-08-01T10:00:00Z', '2026-08-01T12:00:00Z']
-        expect(partialBucketFraction(sparse, hourly, dayjs('2026-08-01T13:00:00Z'))).toBeNull()
-        expect(partialBucketFraction(sparse, hourly, dayjs('2026-08-01T12:30:00Z'))).toBe(0.5)
+        expect(partialBucketFraction(sparse, hourly, 'UTC', dayjs('2026-08-01T13:00:00Z'))).toBeNull()
+        expect(partialBucketFraction(sparse, hourly, 'UTC', dayjs('2026-08-01T12:30:00Z'))).toBe(0.5)
     })
 
     it('picks the interval from the range when the query does not set one', () => {
         const fifteenMinutes = ['2026-08-01T11:45:00Z', '2026-08-01T12:00:00Z']
         const auto = query([], { dateRange: { date_from: '2026-08-01T00:00:00Z' } })
-        expect(partialBucketFraction(fifteenMinutes, auto, dayjs('2026-08-01T12:05:00Z'))).toBeCloseTo(1 / 3)
+        expect(partialBucketFraction(fifteenMinutes, auto, 'UTC', dayjs('2026-08-01T12:05:00Z'))).toBeCloseTo(1 / 3)
+    })
+
+    it('treats a relative range start as a rolling window, like the backend', () => {
+        const halfHours = ['2026-08-01T11:30:00Z', '2026-08-01T12:00:00Z']
+        const lastDay = query([], { dateRange: { date_from: '-1d' } })
+        expect(partialBucketFraction(halfHours, lastDay, 'UTC', dayjs('2026-08-01T12:05:00Z'))).toBeCloseTo(1 / 6)
     })
 
     it.each([
@@ -54,7 +60,7 @@ describe('partialBucketFraction', () => {
         ['buckets closer than the query interval', query([], { interval: 'day' })],
         ['no query', undefined],
     ])('stays solid for %s', (_, q) => {
-        expect(partialBucketFraction(BUCKETS, q, dayjs('2026-08-01T12:15:00Z'))).toBeNull()
+        expect(partialBucketFraction(BUCKETS, q, 'UTC', dayjs('2026-08-01T12:15:00Z'))).toBeNull()
     })
 })
 
@@ -78,6 +84,15 @@ describe('isExtrapolatable', () => {
     ])('formula %s', (formula, expected) => {
         const counters = [clause('a', { rangeFunction: 'increase' }), clause('b', { rangeFunction: 'increase' })]
         expect(isExtrapolatable(series('formula'), query(counters, { formula }))).toBe(expected)
+    })
+
+    it('ignores clauses the formula does not use', () => {
+        const clauses = [
+            clause('a', { rangeFunction: 'increase' }),
+            clause('b', { rangeFunction: 'increase' }),
+            clause('c', { aggregation: 'avg' }),
+        ]
+        expect(isExtrapolatable(series('formula'), query(clauses, { formula: 'a + b' }))).toBe(true)
     })
 
     it('does not extrapolate a formula over a gauge', () => {

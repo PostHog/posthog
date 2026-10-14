@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import type { MetricsAggregation, MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 
@@ -33,18 +33,15 @@ const MAX_BUCKET_COUNT = 500
 
 const COUNTER_FUNCTIONS: ReadonlySet<MetricsAggregation> = new Set(['rate', 'increase'])
 const FORMULA_OPERATORS = /[\s()+-]+/
-const IDENTIFIER = /^[A-Za-z_]\w*$/
 
-// Only a sum or difference of aliases scales linearly. A constant term does not grow with elapsed time.
-function isAdditiveFormula(formula: string): boolean {
-    return formula
-        .split(FORMULA_OPERATORS)
-        .filter(Boolean)
-        .every((token) => IDENTIFIER.test(token))
+// The backend resolves the range with `exact_timerange`, so a relative date is a rolling window from now.
+function resolveDateFrom(dateFrom: string, now: dayjs.Dayjs, timezone: string): dayjs.Dayjs | null {
+    const components = dateStringToComponents(dateFrom)
+    return components ? componentsToDayJs(components, now, timezone) : dateStringToDayJs(dateFrom, timezone)
 }
 
-function resolvedIntervalMs(query: MetricsPartialBucketQuery, now: dayjs.Dayjs): number | null {
-    const from = dateStringToDayJs(query.dateRange?.date_from ?? DEFAULT_DATE_FROM)
+function resolvedIntervalMs(query: MetricsPartialBucketQuery, now: dayjs.Dayjs, timezone: string): number | null {
+    const from = resolveDateFrom(query.dateRange?.date_from ?? DEFAULT_DATE_FROM, now, timezone)
     if (!from) {
         return null
     }
@@ -69,12 +66,13 @@ function resolvedIntervalMs(query: MetricsPartialBucketQuery, now: dayjs.Dayjs):
 export function partialBucketFraction(
     times: string[],
     query: MetricsPartialBucketQuery | undefined,
+    timezone: string = 'UTC',
     now: dayjs.Dayjs = dayjs()
 ): number | null {
     if (!query || query.dateRange?.date_to || times.length === 0) {
         return null
     }
-    const length = resolvedIntervalMs(query, now)
+    const length = resolvedIntervalMs(query, now, timezone)
     if (!length) {
         return null
     }
@@ -104,11 +102,14 @@ export function isExtrapolatable(series: MetricsChartSeries, query: MetricsParti
         return false
     }
     if (series.clause === 'formula') {
+        // Only a sum or difference of counter aliases scales linearly. A constant term does not grow with elapsed time.
+        const operands = (query.formula ?? '').split(FORMULA_OPERATORS).filter(Boolean)
         return (
-            !!query.formula &&
-            isAdditiveFormula(query.formula) &&
-            query.clauses.length > 0 &&
-            query.clauses.every(isCounterClause)
+            operands.length > 0 &&
+            operands.every((alias) => {
+                const clause = query.clauses.find((c) => c.name === alias)
+                return !!clause && isCounterClause(clause)
+            })
         )
     }
     const clause = query.clauses.find((c) => c.name === series.clause)
