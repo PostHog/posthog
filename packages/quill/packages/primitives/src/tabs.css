@@ -8,9 +8,6 @@
        TabsList
        ========================================================================= */
     .quill-tabs__list {
-        /* The active tab's fill, shared by the indicator and the active trigger so the two never disagree. */
-        --quill-tabs-active-bg: var(--background);
-
         z-index: 0;
         padding: 3px;
 
@@ -24,7 +21,11 @@
         border: 1px solid var(--border);
     }
 
-    /* --background sits below the list's --card in dark mode, so the active tab would sink. Lift it toward the foreground. */
+    /*
+     * --background sits below the list's --card in dark mode, so the active tab would sink. Lift it toward the
+     * foreground. Set only here: elsewhere the fill falls back to --background read on the trigger itself, which
+     * callers override per trigger to hide it.
+     */
     :is(.dark, [theme='dark']) .quill-tabs__list--variant-default {
         --quill-tabs-active-bg: color-mix(in oklab, var(--foreground) 12%, var(--card));
     }
@@ -54,7 +55,7 @@
 
     .quill-tabs__indicator--variant-default {
         z-index: -1;
-        background-color: var(--quill-tabs-active-bg);
+        background-color: var(--quill-tabs-active-bg, var(--background));
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
     }
@@ -130,7 +131,7 @@
 
     .quill-tabs__trigger[data-active] {
         color: var(--foreground);
-        background-color: var(--quill-tabs-active-bg) !important;
+        background-color: var(--quill-tabs-active-bg, var(--background)) !important;
     }
 
     .quill-tabs__trigger[data-active]:hover,

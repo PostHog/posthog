@@ -103,7 +103,7 @@ export interface settingsLogicValues {
     isCompactNavigationOpen: boolean
     isSearching: boolean
     levels: SettingLevelId[]
-    navLevel: 'organization' | 'project' | 'user'
+    navLevel: SettingsPaneLevel
     searchResults: SearchResultGroup[]
     searchTerm: string
     sections: SettingSection[]
@@ -181,7 +181,7 @@ export interface settingsLogicActions {
         setting: SettingId
     }
     setNavLevel: (level: SettingsPaneLevel) => {
-        level: 'organization' | 'project' | 'user'
+        level: SettingsPaneLevel
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
