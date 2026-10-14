@@ -1,6 +1,7 @@
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { getRegisteredTriggerTypes } from '../hogflows/registry/triggers/triggerTypeRegistry'
+import { DurationUnit, parseDuration } from '../hogflows/steps/durations'
 import { FREQUENCY_OPTIONS, TTL_OPTIONS } from '../hogflows/steps/StepTrigger'
 import type { HogFlow } from '../hogflows/types'
 
@@ -12,15 +13,17 @@ export const EXIT_CONDITION_LABELS: Record<HogFlow['exit_condition'], string> = 
         'People leave the workflow when they no longer match the trigger filters, or when they meet the conversion goal.',
 }
 
-const BUILT_IN_TRIGGER_LABELS: Record<string, string> = {
+type TriggerType = NonNullable<HogFlow['trigger']>['type']
+// Data warehouse triggers always match a registered trigger type, which supplies their label.
+type BuiltInTriggerType = Exclude<TriggerType, 'data-warehouse-table' | 'data-warehouse-view'>
+
+const BUILT_IN_TRIGGER_LABELS: Record<BuiltInTriggerType, string> = {
     event: 'when they perform',
     webhook: 'when a webhook is received',
     manual: 'when someone runs it manually',
     schedule: 'on a schedule',
     tracking_pixel: 'when a tracking pixel loads',
     batch: 'when a batch run starts',
-    'data-warehouse-table': 'when a row is added to a data warehouse table',
-    'data-warehouse-view': 'when a row is added to a data warehouse view',
     'internal-event': 'when PostHog records',
 }
 
@@ -32,7 +35,7 @@ export function triggerLeadIn(trigger: HogFlow['trigger']): string {
     if (registered) {
         return `People enter this workflow on ${registered.label.toLowerCase()}`
     }
-    return `People enter this workflow ${BUILT_IN_TRIGGER_LABELS[trigger.type] ?? 'when the trigger fires'}`
+    return `People enter this workflow ${BUILT_IN_TRIGGER_LABELS[trigger.type as BuiltInTriggerType] ?? 'when the trigger fires'}`
 }
 
 export function triggerEventNames(trigger: HogFlow['trigger']): string[] {
@@ -73,16 +76,14 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
     return threshold && threshold > 1 ? `${base}, then again every ${threshold} matching events` : base
 }
 
-const WINDOW_UNITS: Record<string, string> = { s: 'second', m: 'minute', h: 'hour', d: 'day', w: 'week' }
+const WINDOW_UNITS: Record<DurationUnit, string> = { s: 'second', m: 'minute', h: 'hour', d: 'day' }
 
 export function conversionWindowLabel(window: string | undefined): string | null {
-    // The workflow duration grammar, plus weeks, which older conversion goals use.
-    const match = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([smhdw])$/.exec(window ?? '')
-    if (!match) {
+    const parsed = window ? parseDuration(window) : null
+    if (!parsed || parsed.negative) {
         return null
     }
-    const amount = Number(match[1])
-    return `${match[1]} ${WINDOW_UNITS[match[2]]}${amount === 1 ? '' : 's'}`
+    return `${parsed.amountText} ${WINDOW_UNITS[parsed.unit]}${parsed.amount === 1 ? '' : 's'}`
 }
 
 type GoalEntity = { name?: string | null; id?: string | number | null }
