@@ -267,6 +267,11 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/pull_requests/': PULL_REQUESTS,
                 'api/projects/:team_id/engineering_analytics/attention_pull_requests/': ATTENTION_PULL_REQUESTS,
                 'api/projects/:team_id/engineering_analytics/workflow_health/': WORKFLOW_HEALTH,
+                'api/projects/:team_id/engineering_analytics/ci_data_freshness/': {
+                    runs_synced_at: '2026-07-01T23:50:00Z',
+                    jobs_synced_at: '2026-07-01T23:45:00Z',
+                    as_of: '2026-07-01T23:40:00Z',
+                },
             },
         }),
     ],

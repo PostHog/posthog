@@ -19,7 +19,7 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -402,10 +402,16 @@ class CuratedGitHubSource:
         return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables if table)
 
     def ci_data_freshness(self) -> CIDataFreshness:
-        """When the runs and jobs this handle reads were last synced from their sources."""
-        return resolve_ci_data_freshness(
+        """When the runs and jobs this handle reads were last synced from their sources, and the time
+        its CI answers are at least as fresh as."""
+        synced = resolve_ci_data_freshness(
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
+        reader = self._stored_ci_reader()
+        refreshed_at = reader.refreshed_at() if reader else None
+        if synced.as_of is None or refreshed_at is None:
+            return synced
+        return replace(synced, as_of=min(synced.as_of, refreshed_at))
 
     def _jobs_table(self) -> workflow_jobs.JobsTable:
         return depot_ci.with_depot_jobs(

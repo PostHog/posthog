@@ -34,6 +34,23 @@ tools:
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
         feature_flag: engineering-analytics
+    engineering-analytics-ci-data-freshness:
+        operation: engineering_analytics_ci_data_freshness
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: CI data freshness
+        description: >
+            How current the CI data of a repository is. Reach for this before you say that CI is green, red or
+            slow "now": every engineering analytics CI answer is at least as fresh as as_of, which can be some
+            minutes old. runs_synced_at and jobs_synced_at say when the runs and the jobs last synced from GitHub
+            (and Depot CI). as_of is the older of those, or the time the precomputed CI rows were last refreshed
+            when reads take them and that is older.
+        feature_flag: engineering-analytics
     engineering-analytics-ci-failure-logs:
         operation: engineering_analytics_ci_failure_logs
         enabled: true

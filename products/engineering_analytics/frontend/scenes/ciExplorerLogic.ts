@@ -31,7 +31,6 @@ import { CIActivityCommit, CIActivityDay, activityDays, commitRows } from '../li
 import {
     CIExplorerShareLevel,
     CIExplorerSummary,
-    oldestSync,
     shareLevels,
     summarize,
     totalJobSeconds,
@@ -137,6 +136,7 @@ export interface ciExplorerLogicValues {
     commits: CIActivityCommit[]
     currentHeadSha: string | null
     currentView: CIExplorerView
+    dataAsOf: string | null
     drawerOpen: boolean
     drawerTab: CIExplorerDrawerTab
     failedJobRuns: WorkflowRun[]
@@ -179,7 +179,6 @@ export interface ciExplorerLogicValues {
     shareLevels: CIExplorerShareLevel[]
     sourceId: string | null
     summary: CIExplorerSummary
-    syncedAt: string | null
     totalJobSeconds: number
     view: CIExplorerView
     workflowRunUrl: (runId: number, ciEngine: CIEngineEnumApi | null | undefined) => string
@@ -370,7 +369,7 @@ export interface ciExplorerLogicMeta {
         workflows: (workflowRuns: WorkflowRun[], jobsByRun: Record<string, WorkflowJobApi[]>) => CIExplorerWorkflow[]
         summary: (workflows: CIExplorerWorkflow[]) => CIExplorerSummary
         activity: (lifecycle: PRLifecycleApi | null, commits: CIActivityCommit[]) => CIActivityDay[]
-        syncedAt: (freshness: CIDataFreshnessApi | null) => string | null
+        dataAsOf: (freshness: CIDataFreshnessApi | null) => string | null
         totalJobSeconds: (workflows: CIExplorerWorkflow[]) => number
         shareLevels: (workflows: CIExplorerWorkflow[], focusedNodeId: string | null) => CIExplorerShareLevel[]
         focusLevels: (workflows: CIExplorerWorkflow[], focusedNodeId: string | null) => CIExplorerFocusLevel[]
@@ -734,10 +733,9 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
             (lifecycle: PRLifecycleApi | null, commits: CIActivityCommit[]): CIActivityDay[] =>
                 activityDays(lifecycle, commits),
         ],
-        syncedAt: [
+        dataAsOf: [
             (s) => [s.freshness],
-            (freshness: CIDataFreshnessApi | null): string | null =>
-                oldestSync(freshness?.runs_synced_at, freshness?.jobs_synced_at),
+            (freshness: CIDataFreshnessApi | null): string | null => freshness?.as_of ?? null,
         ],
         totalJobSeconds: [
             (s) => [s.workflows],

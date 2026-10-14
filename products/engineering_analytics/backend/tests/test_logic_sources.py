@@ -132,7 +132,7 @@ class TestResolveGitHubTables(BaseTest):
 
         freshness = resolve_ci_data_freshness(team=self.team, tables=resolve_github_tables(team=self.team))
 
-        assert (freshness.runs_synced_at, freshness.jobs_synced_at) == (expected, expected)
+        assert (freshness.runs_synced_at, freshness.jobs_synced_at, freshness.as_of) == (expected, expected, expected)
 
     @parameterized.expand(
         [

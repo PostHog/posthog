@@ -4459,6 +4459,21 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "engineering-analytics-ci-data-freshness": {
+        "description": "How current the CI data of a repository is. Reach for this before you say that CI is green, red or slow \"now\": every engineering analytics CI answer is at least as fresh as as_of, which can be some minutes old. runs_synced_at and jobs_synced_at say when the runs and the jobs last synced from GitHub (and Depot CI). as_of is the older of those, or the time the precomputed CI rows were last refreshed when reads take them and that is older.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI data freshness",
+        "title": "CI data freshness",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
     "engineering-analytics-ci-failure-logs": {
         "description": "The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.",
         "category": "Engineering analytics",

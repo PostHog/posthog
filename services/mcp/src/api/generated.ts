@@ -19769,6 +19769,11 @@ export namespace Schemas {
          * @nullable
          */
       jobs_synced_at: string | null;
+      /**
+         * Every CI answer for this repository is at least this fresh. It is the older of the two sync times. While CI reads take the precomputed CI rows, it is the time those rows were last refreshed when that is older. Use it to say how current a CI answer is. Null when the runs never synced.
+         * @nullable
+         */
+      as_of: string | null;
     }
 
     export interface CIFailureLogLine {

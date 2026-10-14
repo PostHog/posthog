@@ -121,7 +121,7 @@ A query on the raw tables parses every payload and repeats the hand-off shell fi
 - A stored read returns the rows of the raw read with three bounded differences. A job attempt or run with no creation time, such as a Depot attempt that never started, is in no stored day, so a read of the whole history leaves it out. It carries no cost. The copy flag of a job row reads the 7 days before its day, where a raw read reads from its floor. The shell flag of a run reads the 7 days after its day, where a raw read reads the whole history.
 - A query that the stored rows reject runs again on the raw tables, and the rest of the request reads the raw tables. The failure is logged as `engineering_analytics_stored_read_failed`. A read that ran out of time, memory or capacity, or lost its connection, is not run again, because the raw read is the heavier one.
 - A stored read carries the query type of the raw read with the suffix `.stored`, so the query log separates the two.
-- A stored read is as old as its oldest day, and no response states that age yet. The flag stays off for people until a response carries it.
+- The `ci_data_freshness` endpoint states how fresh CI answers are in `as_of`: the older of the runs and jobs sync times, or the last refresh of the stored days of today and yesterday when reads take the stored rows and it is older. Older days change rarely, so their age does not count. The product pages show `as_of` next to Refresh, and the `engineering-analytics-ci-data-freshness` MCP tool returns it.
 
 ### Exposed warehouse views
 

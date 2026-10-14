@@ -624,9 +624,12 @@ def resolve_ci_data_freshness(
             return None
         return min(github_synced_at, depot.synced_at)
 
+    runs_synced_at = watermark(tables.workflow_runs_synced_at)
+    jobs_synced_at = watermark(tables.workflow_jobs_synced_at) if tables.workflow_jobs else None
     return CIDataFreshness(
-        runs_synced_at=watermark(tables.workflow_runs_synced_at),
-        jobs_synced_at=watermark(tables.workflow_jobs_synced_at) if tables.workflow_jobs else None,
+        runs_synced_at=runs_synced_at,
+        jobs_synced_at=jobs_synced_at,
+        as_of=min(runs_synced_at, jobs_synced_at) if runs_synced_at and jobs_synced_at else runs_synced_at,
     )
 
 

@@ -94,6 +94,7 @@ const LIFECYCLE: PRLifecycleApi = {
 const FRESHNESS: CIDataFreshnessApi = {
     runs_synced_at: '2026-07-01T23:40:00Z',
     jobs_synced_at: '2026-07-01T23:35:00Z',
+    as_of: '2026-07-01T23:35:00Z',
 }
 
 const meta: Meta = {

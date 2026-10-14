@@ -46,7 +46,7 @@ export function CIExplorerScene(): JSX.Element {
         activePush,
         pullRequestUrl,
         locationUrl,
-        syncedAt,
+        dataAsOf,
         freshnessLoading,
         refreshing,
     } = useValues(ciExplorerLogic)
@@ -118,16 +118,16 @@ export function CIExplorerScene(): JSX.Element {
                             data-attr="ci-explorer-views"
                         />
                         <div className="flex items-center gap-2 pb-1 text-xs text-secondary">
-                            <Tooltip title="Last sync of the stored CI data. Refresh reloads it and does not start a sync.">
+                            <Tooltip title="CI data on this page is at least this fresh. Refresh reloads it and does not start a sync.">
                                 <span>
-                                    {syncedAt ? (
+                                    {dataAsOf ? (
                                         <>
-                                            Synced <TZLabel time={syncedAt} />
+                                            Updated <TZLabel time={dataAsOf} />
                                         </>
                                     ) : freshnessLoading ? (
-                                        'Checking sync time'
+                                        'Checking update time'
                                     ) : (
-                                        'Sync time unknown'
+                                        'Update time unknown'
                                     )}
                                 </span>
                             </Tooltip>

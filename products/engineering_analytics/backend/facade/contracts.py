@@ -542,10 +542,15 @@ class CIDataFreshness:
     Each time is when the last completed sync of the table started, so every stored row is at least
     that fresh. For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot
     time. None when a table never synced, or when the jobs table is not synced at all.
+
+    ``as_of`` is the time every CI answer of the repository is at least as fresh as: the older of the
+    two sync times, or the last refresh of the stored CI rows when reads take them and it is older.
+    None when the runs never synced.
     """
 
     runs_synced_at: datetime | None
     jobs_synced_at: datetime | None
+    as_of: datetime | None
 
 
 # A matrix selection names its jobs one by one, and the largest matrices hold fewer jobs than this.

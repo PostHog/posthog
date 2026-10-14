@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     link_schema,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import _CI_PRECOMPUTE, _CURATED
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 _RAW_READ = "engineering_analytics.test"
 _STORED_READ = f"{_RAW_READ}{STORED_QUERY_TYPE_SUFFIX}"
@@ -132,3 +133,27 @@ class TestStoredReads(BaseTest):
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
         # With no floor, the read needs every stored day from the first day of the history.
         assert {call.kwargs["since"] for call in mock_ensure.call_args_list} == ({first_day} if first_day else set())
+
+    @parameterized.expand(
+        [
+            ("stored_rows_older_than_the_sync", True, timedelta(minutes=30), timedelta(minutes=30)),
+            ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), timedelta(minutes=5)),
+            ("flag_off", False, timedelta(minutes=30), timedelta(minutes=5)),
+        ]
+    )
+    def test_ci_data_freshness_is_as_old_as_the_stored_rows_reads_take(
+        self, _name: str, flag: bool, stored_age: timedelta, expected_age: timedelta
+    ) -> None:
+        now = timezone.now()
+        ExternalDataSchema.objects.filter(team=self.team).update(last_synced_at=now - timedelta(minutes=5))
+        stored = SimpleNamespace(ready=True, job_ids=[uuid4()], computed_at=now - stored_age)
+
+        with (
+            patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
+            patch(f"{_CURATED}.refresh_ci_precompute"),
+            patch(f"{_CURATED}.team_flag", return_value=flag),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", return_value=stored),
+        ):
+            freshness = CuratedGitHubSource.for_team(self.team).ci_data_freshness()
+
+        assert freshness.as_of == now - expected_age

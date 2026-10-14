@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -32,6 +32,25 @@ export const EngineeringAnalyticsBrokenTestsQueryParams = () => zod.object({
         .describe(
             'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
         ),
+})
+
+/**
+ * When the stored CI data of a repository was last synced from its source: one time for workflow runs and one for workflow jobs. Each time is when the last completed sync started. For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot CI time. `as_of` is the time every CI answer is at least as fresh as, so use it, not the time of the request, to say how current a CI answer is.
+ */
+export const EngineeringAnalyticsCiDataFreshnessParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EngineeringAnalyticsCiDataFreshnessQueryParams = () => zod.object({
+    repo: zod.string().min(1).describe("'owner\/name' repository to report on."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe('Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.'),
 })
 
 /**

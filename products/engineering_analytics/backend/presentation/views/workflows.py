@@ -421,9 +421,10 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "When the stored CI data of a repository was last synced from its source: one time for workflow runs "
-            "and one for workflow jobs. Every stored row is at least that fresh, so use these times, not the time "
-            "of the request, to say how current a CI answer is. Each time is when the last completed sync started. "
-            "For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot CI time."
+            "and one for workflow jobs. Each time is when the last completed sync started. For a repository that "
+            "also syncs Depot CI, it is the older of the GitHub and the Depot CI time. `as_of` is the time every CI "
+            "answer is at least as fresh as, so use it, not the time of the request, to say how current a CI "
+            "answer is."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

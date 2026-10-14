@@ -150,6 +150,7 @@ threshold aren't recorded, so there is no honest denominator.
 | "What's failing on master right now?"  | `breaking_master` rows + `breaking_master_jobs` from the broken-tests tool |
 | "Is CI slow / expensive / PRs stuck?"  | The `diagnosing-ci-and-merge-bottlenecks` skill                            |
 | "Save this as a dashboard/insight"     | The `turning-engineering-analytics-into-insights` skill                    |
+| "How current is this CI answer?"       | `as_of` from the `engineering-analytics-ci-data-freshness` MCP tool        |
 
 ## Output expectations
 

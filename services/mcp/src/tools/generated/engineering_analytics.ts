@@ -31,6 +31,34 @@ const engineeringAnalyticsBrokenTests = (): ToolBase<
     },
 })
 
+const EngineeringAnalyticsCiDataFreshnessSchema = () => {
+    const EngineeringAnalyticsCiDataFreshnessQueryParams = orvalSchemas.EngineeringAnalyticsCiDataFreshnessQueryParams()
+    return EngineeringAnalyticsCiDataFreshnessQueryParams
+}
+
+const engineeringAnalyticsCiDataFreshness = (): ToolBase<
+    ReturnType<typeof EngineeringAnalyticsCiDataFreshnessSchema>,
+    Schemas.CIDataFreshness
+> => ({
+    name: 'engineering-analytics-ci-data-freshness',
+    schema: EngineeringAnalyticsCiDataFreshnessSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof EngineeringAnalyticsCiDataFreshnessSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CIDataFreshness>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/ci_data_freshness/`,
+            query: {
+                repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
+
 const EngineeringAnalyticsCiFailureLogsSchema = () => {
     const EngineeringAnalyticsCiFailureLogsQueryParams = orvalSchemas.EngineeringAnalyticsCiFailureLogsQueryParams()
     return EngineeringAnalyticsCiFailureLogsQueryParams
@@ -344,6 +372,7 @@ const workflowHealth = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-broken-tests': engineeringAnalyticsBrokenTests,
+    'engineering-analytics-ci-data-freshness': engineeringAnalyticsCiDataFreshness,
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
     'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,

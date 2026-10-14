@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsCiDataFreshness,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsTrunkQuarantine,
@@ -426,6 +427,8 @@ export interface engineeringAnalyticsLogicValues {
     cards: CardsData | null
     cardsLoading: boolean
     cardsStatus: LoaderStatus
+    ciDataAsOf: string | null
+    ciDataAsOfLoading: boolean
     ciStatusFilter: CIStatusFilter
     expandedTrunkQuarantineTeams: string[]
     filteredPullRequests: PullRequestRow[]
@@ -493,6 +496,21 @@ export interface engineeringAnalyticsLogicActions {
         payload?: any
     ) => {
         cards: CardsData
+        payload?: any
+    }
+    loadCiDataAsOf: () => any
+    loadCiDataAsOfFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCiDataAsOfSuccess: (
+        ciDataAsOf: string | null,
+        payload?: any
+    ) => {
+        ciDataAsOf: string | null
         payload?: any
     }
     loadPullRequests: () => any
@@ -720,6 +738,27 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         }),
 
         loaders(({ values }) => ({
+            // The time every CI answer of the repository in scope is at least as fresh as. Null with no
+            // repository in scope, until it loads, and when the lookup fails: the time only labels the data.
+            ciDataAsOf: [
+                null as string | null,
+                {
+                    loadCiDataAsOf: async (): Promise<string | null> => {
+                        if (!values.scopeRepo) {
+                            return null
+                        }
+                        try {
+                            const freshness = await engineeringAnalyticsCiDataFreshness(projectId(), {
+                                repo: values.scopeRepo,
+                                source_id: values.sourceId ?? undefined,
+                            })
+                            return freshness.as_of
+                        } catch {
+                            return null
+                        }
+                    },
+                },
+            ],
             cards: [
                 null as CardsData | null,
                 {
@@ -1174,6 +1213,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
 
         listeners(({ actions, values }) => ({
             refresh: () => {
+                actions.loadCiDataAsOf()
                 actions.loadCards()
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()

@@ -300,6 +300,13 @@ class CIDataFreshnessSerializer(DataclassSerializer):
                 "help_text": "The same time for the stored workflow jobs. Null when jobs are not synced.",
                 "allow_null": True,
             },
+            "as_of": {
+                "help_text": "Every CI answer for this repository is at least this fresh. It is the older of the two "
+                "sync times. While CI reads take the precomputed CI rows, it is the time those rows were last "
+                "refreshed when that is older. Use it to say how current a CI answer is. Null when the runs "
+                "never synced.",
+                "allow_null": True,
+            },
         }
 
 

@@ -66,6 +66,9 @@ to take one failing test or red run to a verdict, switch to the `investigating-c
   `workflow-health`, `pr-lifecycle`, and `team-ci-health`. Passing only `source_id` reads that source's default repo, not the one
   you picked. With a single source and repo the tools default to it.
 
+- **`engineering-analytics-ci-data-freshness`**: every CI answer for a repository is at least as fresh as its `as_of`,
+  which can be some minutes old. Check it before you describe CI as it is "now".
+
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
 
