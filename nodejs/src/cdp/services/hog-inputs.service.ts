@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -240,7 +240,7 @@ export class HogInputsService {
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
             if (options?.throwIfMissing && (!integrations[id] || integrations[id].team_id !== hogFunction.team_id)) {
-                throw new Error(
+                throw new HogConfigurationError(
                     `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
                 )
             }

@@ -10,6 +10,7 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { classifyHogError } from '../utils/hog-error-classification'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -323,9 +324,11 @@ describe('Hog Inputs', () => {
         ])('fails instead of running without the integration when it %s', async (_name, setup) => {
             setup()
 
-            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
-                "The integration for input 'oauth' no longer exists."
-            )
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            expect(error.message).toContain("The integration for input 'oauth' no longer exists.")
+            // Anything but `config` parks the event and blocks DLQ replay on a failure no replay can fix.
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
         })
 
         it('should not load a posthog connection', async () => {
