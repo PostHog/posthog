@@ -119,14 +119,20 @@ export function TrendsLineChart({
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -134,6 +140,7 @@ export function TrendsLineChart({
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -290,7 +297,7 @@ export function TrendsLineChart({
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
         [
             indexedResults,
@@ -300,6 +307,7 @@ export function TrendsLineChart({
             isStickiness,
             getTrendsColor,
             getLabel,
+            buildMeta,
         ]
     )
 

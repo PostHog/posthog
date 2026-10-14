@@ -1,11 +1,10 @@
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-
-import type { ActionFilter } from '~/types'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
+import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 
 export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
 
 interface SeriesIdentity {
-    action?: ActionFilter | null
+    series?: ResultSeries
     order?: number
     series_name?: string
 }
@@ -13,9 +12,8 @@ interface SeriesIdentity {
 export function getSeriesIdentification(series: Iterable<SeriesIdentity>): SeriesIdentification {
     const nameByEntity = new Map<number | string, string>()
     for (const item of series) {
-        if (item.action) {
-            const entityKey = item.action.order ?? `${item.action.type}:${item.action.id}`
-            nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(item.action) ?? '')
+        if (item.series?.node) {
+            nameByEntity.set(item.series.order, getResultSeriesName(item.series) ?? '')
         } else if (item.series_name != null && item.order != null) {
             nameByEntity.set(item.order, item.series_name)
         }

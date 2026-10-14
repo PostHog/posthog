@@ -5,7 +5,8 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { InsightType } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { BaseMathType, InsightType } from '~/types'
 
 import { InsightTooltip } from './InsightTooltip'
 import { InsightTooltipProps } from './insightTooltipUtils'
@@ -19,16 +20,17 @@ const data = {
             dataIndex: 7,
             datasetIndex: 2,
             dotted: true,
-            action: {
-                id: '$pageview',
-                type: 'events',
+            series: {
                 order: 0,
-                name: '$pageview',
-                custom_name: 'Pageview of people with very long names like this text',
-                math: 'dau',
-                math_property: null,
-                math_group_type_index: null,
-                properties: {},
+                node: {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Pageview of people with very long names like this text',
+                },
+                math: {
+                    math: 'dau',
+                },
             },
             label: '$pageview',
             color: '#1d4aff',
@@ -39,16 +41,14 @@ const data = {
             dataIndex: 7,
             datasetIndex: 3,
             dotted: true,
-            action: {
-                id: 'filter added',
-                type: 'events',
+            series: {
                 order: 1,
-                name: 'filter added',
-                custom_name: null,
-                math: null,
-                math_property: null,
-                math_group_type_index: null,
-                properties: {},
+                node: {
+                    kind: NodeKind.EventsNode,
+                    event: 'filter added',
+                    name: 'filter added',
+                },
+                math: {},
             },
             label: 'filter added',
             color: '#621da6',
@@ -92,26 +92,16 @@ export const Columns: Story = {
                 order: 1,
                 dotted: false,
                 breakdown_value: 'Safari',
-                action: {
-                    days: [
-                        '2025-05-29T00:00:00Z',
-                        '2025-05-30T00:00:00Z',
-                        '2025-05-31T00:00:00Z',
-                        '2025-06-01T00:00:00Z',
-                        '2025-06-02T00:00:00Z',
-                        '2025-06-03T00:00:00Z',
-                        '2025-06-04T00:00:00Z',
-                        '2025-06-05T00:00:00Z',
-                    ],
-                    id: '$autocapture',
-                    type: 'events',
+                series: {
                     order: 1,
-                    name: '$autocapture',
-                    custom_name: null,
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$autocapture',
+                        name: '$autocapture',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: '$autocapture - Safari',
                 color: '#42827e',
@@ -135,26 +125,17 @@ export const Columns: Story = {
                 order: 0,
                 dotted: false,
                 breakdown_value: 'Chrome',
-                action: {
-                    days: [
-                        '2025-05-29T00:00:00Z',
-                        '2025-05-30T00:00:00Z',
-                        '2025-05-31T00:00:00Z',
-                        '2025-06-01T00:00:00Z',
-                        '2025-06-02T00:00:00Z',
-                        '2025-06-03T00:00:00Z',
-                        '2025-06-04T00:00:00Z',
-                        '2025-06-05T00:00:00Z',
-                    ],
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'Pageview of people with very long names like this text',
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Pageview of people with very long names like this text',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: '$pageview - Chrome',
                 color: '#1d4aff',
@@ -178,26 +159,17 @@ export const Columns: Story = {
                 order: 0,
                 dotted: false,
                 breakdown_value: 'Safari',
-                action: {
-                    days: [
-                        '2025-05-29T00:00:00Z',
-                        '2025-05-30T00:00:00Z',
-                        '2025-05-31T00:00:00Z',
-                        '2025-06-01T00:00:00Z',
-                        '2025-06-02T00:00:00Z',
-                        '2025-06-03T00:00:00Z',
-                        '2025-06-04T00:00:00Z',
-                        '2025-06-05T00:00:00Z',
-                    ],
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'Pageview of people with very long names like this text',
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Pageview of people with very long names like this text',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: '$pageview - Safari',
                 color: '#621da6',
@@ -236,16 +208,17 @@ export const LongNames: Story = {
                 order: 0,
                 dotted: false,
                 breakdown_value: longBreakdownValue,
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: '$pageview - long',
                 color: '#1d4aff',
@@ -258,16 +231,16 @@ export const LongNames: Story = {
                 order: 1,
                 dotted: false,
                 breakdown_value: longBreakdownValue,
-                action: {
-                    id: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
-                    type: 'events',
+                series: {
                     order: 1,
-                    name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
-                    custom_name: null,
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                        name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
                 color: '#621da6',
@@ -280,16 +253,17 @@ export const LongNames: Story = {
                 order: 0,
                 dotted: false,
                 breakdown_value: anotherLongBreakdownValue,
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Pageview of people with extremely long custom names that go on and on and on',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: '$pageview - long',
                 color: '#1d4aff',
@@ -302,16 +276,16 @@ export const LongNames: Story = {
                 order: 1,
                 dotted: false,
                 breakdown_value: anotherLongBreakdownValue,
-                action: {
-                    id: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
-                    type: 'events',
+                series: {
                     order: 1,
-                    name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
-                    custom_name: null,
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                        name: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
+                    },
+                    math: {
+                        math: BaseMathType.TotalCount,
+                    },
                 },
                 label: 'some_event_with_an_extremely_long_machine_readable_name_that_keeps_going',
                 color: '#621da6',
@@ -335,16 +309,17 @@ export const MathTags: Story = {
                 order: 0,
                 dotted: false,
                 breakdown_value: 'Chrome',
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'avg',
-                    math_property: 'a_really_long_numeric_property_name_that_overflows',
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    math: {
+                        math: 'avg',
+                        math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    },
                 },
                 label: '$pageview - Chrome',
                 color: '#1d4aff',
@@ -357,16 +332,17 @@ export const MathTags: Story = {
                 order: 1,
                 dotted: false,
                 breakdown_value: 'Safari',
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 1,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'avg',
-                    math_property: 'a_really_long_numeric_property_name_that_overflows',
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                    },
+                    math: {
+                        math: 'avg',
+                        math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    },
                 },
                 label: '$pageview - Safari',
                 color: '#621da6',
@@ -388,16 +364,18 @@ export const MathTagsAsRows: Story = {
                 datasetIndex: 0,
                 order: 0,
                 dotted: false,
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'A really long series name that needs to be truncated',
-                    math: 'avg',
-                    math_property: 'a_really_long_numeric_property_name_that_overflows',
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'A really long series name that needs to be truncated',
+                    },
+                    math: {
+                        math: 'avg',
+                        math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    },
                 },
                 label: '$pageview',
                 color: '#1d4aff',
@@ -409,16 +387,18 @@ export const MathTagsAsRows: Story = {
                 datasetIndex: 1,
                 order: 1,
                 dotted: false,
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 1,
-                    name: '$pageview',
-                    custom_name: 'Another long series name that should also be truncated',
-                    math: 'avg',
-                    math_property: 'amount',
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Another long series name that should also be truncated',
+                    },
+                    math: {
+                        math: 'avg',
+                        math_property: 'amount',
+                    },
                 },
                 label: '$pageview',
                 color: '#621da6',
@@ -441,16 +421,18 @@ export const MathTagsSingleSeries: Story = {
                 datasetIndex: 0,
                 order: 0,
                 dotted: false,
-                action: {
-                    id: '$pageview',
-                    type: 'events',
+                series: {
                     order: 0,
-                    name: '$pageview',
-                    custom_name: 'Avg widgets per dashboard over the whole period',
-                    math: 'avg',
-                    math_property: 'dashboard_widget_count_property',
-                    math_hogql: null,
-                    math_group_type_index: null,
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'Avg widgets per dashboard over the whole period',
+                    },
+                    math: {
+                        math: 'avg',
+                        math_property: 'dashboard_widget_count_property',
+                    },
                 },
                 label: '$pageview',
                 color: '#1d4aff',
@@ -478,7 +460,7 @@ export function InWrapper(): JSX.Element {
                                 <SeriesLetter
                                     className="mr-2"
                                     hasBreakdown={hasBreakdown}
-                                    seriesIndex={datum?.action?.order ?? datum.id}
+                                    seriesIndex={datum?.series?.order ?? datum.id}
                                     seriesColor={datum.color}
                                 />
                                 {value}
