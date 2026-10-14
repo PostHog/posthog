@@ -24,8 +24,6 @@ import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
@@ -300,10 +298,9 @@ def _policy_payload(read: Callable[[], object], *, source: str, field: str) -> d
 # The read runs on the mint request, so it makes one attempt in about 2 seconds and then
 # mints unpinned. The SDK's get_remote_config_payload retries, and sleeps for a 429 or 503
 # Retry-After outside its timeout, which can hold a worker for minutes.
+# A plain requests session makes no retries.
 _PROMPT_READ_TIMEOUT_SECONDS = (1.0, 1.0)
 _PROMPT_READ_SESSION = requests.Session()
-for _scheme in ("https://", "http://"):
-    _PROMPT_READ_SESSION.mount(_scheme, HTTPAdapter(max_retries=Retry(total=0, raise_on_status=False)))
 
 
 def _read_remote_config_payload(key: str) -> object:
