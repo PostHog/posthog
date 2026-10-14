@@ -46,9 +46,10 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
         staleTime: 0,
     })
 
-    const pageSettled = page.isSuccess || page.isError
+    // Retrying missing evidence resets its status to pending, but must not hide an already loaded report.
+    const pageSettled = page.isFetched
     const signalsNeeded = !page.data
-    const signalsSettled = signals.isSuccess || signals.isError
+    const signalsSettled = signals.isFetched
     const ready =
         report.data !== undefined && artefacts.data !== undefined && pageSettled && (!signalsNeeded || signalsSettled)
 
@@ -95,7 +96,7 @@ function useLiveReport(reportId: string, enabled: boolean): QueryState<ReportVie
     }
     if (view) {
         const isRefetching =
-            (report.isFetching && report.data !== undefined) || (artefacts.isFetching && artefacts.data !== undefined)
+            report.isFetching || artefacts.isFetching || page.isFetching || signals.isFetching || task.isFetching
         return successQuery(view, { refetch, isRefetching })
     }
     return { ...loadingQuery<ReportView>(), refetch }

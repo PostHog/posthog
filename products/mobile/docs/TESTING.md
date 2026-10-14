@@ -11,6 +11,13 @@ pnpm test
 
 CI runs the same three checks, see [CI.md](CI.md).
 
+## Report refresh checks
+
+Open a report, scroll down, background the app, then return. The report and scroll position must stay
+visible while a small spinner beside Previous/Next shows the refresh, then fades away without moving
+the navigation controls. Repeat with an unavailable Today page or signals endpoint, and with a failed
+background request. A first load without cached data still shows the full loading state.
+
 ## Demo walkthrough on the iOS simulator
 
 `.argent/flows/demo-smoke.yaml` drives the demo end to end with [Argent](https://docs.expo.dev/agents/argent/), a device automation CLI from Software Mansion.
