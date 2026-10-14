@@ -130,71 +130,6 @@ export const Standard: Story = {
     args: {},
 }
 
-const WithRecentFilters: Decorator = (Story) => {
-    useMountedLogic(recentTaxonomicFiltersLogic)
-    useEffect(() => () => recentTaxonomicFiltersLogic.actions.clearRecentFilters(), [])
-    return <Story />
-}
-
-export const RememberedEventsWithRecents: Story = {
-    render: renderActionFilter,
-    args: {},
-    decorators: [WithRecentFilters],
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY],
-        mockDate: '2026-10-14T12:00:00Z',
-    },
-    play: async ({ canvasElement }) => {
-        const body = within(document.body)
-        const seriesPicker = (index: number): Promise<HTMLElement> =>
-            waitFor(() => {
-                const button = canvasElement.querySelector<HTMLElement>(`[data-attr="trend-element-subject-${index}"]`)
-                if (!button) {
-                    throw new Error(`Series picker ${index} is not ready`)
-                }
-                return button
-            })
-
-        await userEvent.click(await seriesPicker(0))
-        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
-        for (const recent of [
-            {
-                groupType: TaxonomicFilterGroupType.Actions,
-                groupName: 'Actions',
-                value: mockActionDefinition.id,
-                item: { name: mockActionDefinition.name, id: mockActionDefinition.id },
-            },
-            {
-                groupType: TaxonomicFilterGroupType.Events,
-                groupName: 'Events',
-                value: 'signed up',
-                item: { name: 'signed up', id: 'a' },
-            },
-        ]) {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter({ ...recent, teamId: MOCK_TEAM_ID })
-        }
-        await userEvent.click(await body.findByRole('button', { name: /Current category:/ }))
-        await userEvent.click(await body.findByRole('menuitem', { name: 'Events' }))
-        await userEvent.click(await seriesPicker(0))
-        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Add graph series' }))
-        await userEvent.click(await seriesPicker(1))
-        await body.findByRole('button', { name: /Current category: Events/ })
-        await body.findByText('logged out')
-    },
-}
-
-export const RecentPicksAfterRememberedEvents: Story = {
-    ...RememberedEventsWithRecents,
-    play: async (context) => {
-        await RememberedEventsWithRecents.play?.(context)
-        const body = within(document.body)
-        await userEvent.click(await body.findByRole('button', { name: /Current category: Events/ }))
-        await userEvent.click(await body.findByRole('menuitem', { name: 'Recent' }))
-        await body.findAllByText('signed up')
-        await body.findByText(mockActionDefinition.name)
-    },
-}
-
 export const Bordered: Story = {
     render: renderActionFilter,
     args: {
@@ -442,4 +377,69 @@ const renderLegacyActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX
 export const LegacyFilters: Story = {
     render: renderLegacyActionFilter as any,
     args: {},
+}
+
+const WithRecentFilters: Decorator = (Story) => {
+    useMountedLogic(recentTaxonomicFiltersLogic)
+    useEffect(() => () => recentTaxonomicFiltersLogic.actions.clearRecentFilters(), [])
+    return <Story />
+}
+
+export const RememberedEventsWithRecents: Story = {
+    render: renderActionFilter,
+    args: {},
+    decorators: [WithRecentFilters],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TAXONOMIC_FILTER_REMEMBER_CATEGORY],
+        mockDate: '2026-10-14T12:00:00Z',
+    },
+    play: async ({ canvasElement }) => {
+        const body = within(document.body)
+        const seriesPicker = (index: number): Promise<HTMLElement> =>
+            waitFor(() => {
+                const button = canvasElement.querySelector<HTMLElement>(`[data-attr="trend-element-subject-${index}"]`)
+                if (!button) {
+                    throw new Error(`Series picker ${index} is not ready`)
+                }
+                return button
+            })
+
+        await userEvent.click(await seriesPicker(0))
+        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+        for (const recent of [
+            {
+                groupType: TaxonomicFilterGroupType.Actions,
+                groupName: 'Actions',
+                value: mockActionDefinition.id,
+                item: { name: mockActionDefinition.name, id: mockActionDefinition.id },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'signed up',
+                item: { name: 'signed up', id: 'a' },
+            },
+        ]) {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({ ...recent, teamId: MOCK_TEAM_ID })
+        }
+        await userEvent.click(await body.findByRole('button', { name: /Current category:/ }))
+        await userEvent.click(await body.findByRole('menuitem', { name: 'Events' }))
+        await userEvent.click(await seriesPicker(0))
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Add graph series' }))
+        await userEvent.click(await seriesPicker(1))
+        await body.findByRole('button', { name: /Current category: Events/ })
+        await body.findByText('logged out')
+    },
+}
+
+export const RecentPicksAfterRememberedEvents: Story = {
+    ...RememberedEventsWithRecents,
+    play: async (context) => {
+        await RememberedEventsWithRecents.play?.(context)
+        const body = within(document.body)
+        await userEvent.click(await body.findByRole('button', { name: /Current category: Events/ }))
+        await userEvent.click(await body.findByRole('menuitem', { name: 'Recent' }))
+        await body.findAllByText('signed up')
+        await body.findByText(mockActionDefinition.name)
+    },
 }
