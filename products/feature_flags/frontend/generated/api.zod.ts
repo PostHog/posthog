@@ -1204,6 +1204,25 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const featureFlagsTestEvaluationBatchCreateBodyDistinctIdsMax = 1000
+
+export const FeatureFlagsTestEvaluationBatchCreateBody = /* @__PURE__ */ zod.object({
+    distinct_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(featureFlagsTestEvaluationBatchCreateBodyDistinctIdsMax)
+        .describe('Distinct IDs belonging to the same person. Duplicate IDs are evaluated once, in request order.'),
+    timestamp: zod.iso
+        .datetime({ offset: true })
+        .describe('Point in time for both person properties and flag conditions.'),
+    groups: zod.record(zod.string(), zod.unknown()).optional().describe('Groups for feature flag evaluation.'),
+})
+
+/**
  * Bulk delete feature flags by filter criteria or explicit IDs.
  *
  * Accepts either:

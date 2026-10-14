@@ -8,7 +8,10 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { PersonType } from '~/types'
 
-import { featureFlagsTestEvaluationCreate } from 'products/feature_flags/frontend/generated/api'
+import {
+    featureFlagsTestEvaluationBatchCreate,
+    featureFlagsTestEvaluationCreate,
+} from 'products/feature_flags/frontend/generated/api'
 import type {
     FeatureFlagConditionAnalysisApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -444,6 +447,22 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 }) => {
                     // Parse groups/timestamp once up front, not once per distinct ID.
                     const baseData = buildEvaluationRequest(formData, '')
+                    if (baseData.timestamp) {
+                        const response = await featureFlagsTestEvaluationBatchCreate(
+                            String(values.currentProjectId),
+                            flagId,
+                            {
+                                distinct_ids: distinctIds,
+                                timestamp: baseData.timestamp,
+                                groups: baseData.groups ?? {},
+                            }
+                        )
+                        return response.results.map(({ distinct_id, result, error }) => ({
+                            distinctId: distinct_id,
+                            result,
+                            error,
+                        }))
+                    }
 
                     return await Promise.all(
                         distinctIds.map(async (distinctId): Promise<PerDistinctIdEvaluation> => {

@@ -488,13 +488,30 @@ describe('featureFlagTestingLogic', () => {
             expect(logic.values.testError).toBe(expectedError)
         })
 
-        it('runs the batch evaluation for a person with merged distinct IDs', async () => {
+        it.each(['', '2026-01-01T00:00:00.000Z'])('evaluates merged IDs with timestamp %s', async (timestamp) => {
+            const requests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': async ({ request }) => {
+                        requests.push(await request.json())
+                        return [
+                            200,
+                            {
+                                results: [
+                                    { distinct_id: 'user-123', result: null, error: 'Evaluation unavailable' },
+                                    { distinct_id: 'user-456', result: { result: true }, error: null },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
             logic.actions.setSelectedPerson({
                 name: 'Jane Doe',
                 uuid: 'uuid-abc',
                 distinct_ids: ['user-123', 'user-456'],
             })
-            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp: '', groups: '' })
+            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp, groups: '' })
 
             await expectLogic(logic, () => {
                 logic.actions.submitTestEvaluation()
@@ -503,11 +520,19 @@ describe('featureFlagTestingLogic', () => {
                     logic.actionCreators.testAllDistinctIds({
                         flagId: 1,
                         distinctIds: ['user-123', 'user-456'],
-                        formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                        formData: { distinct_id: 'user-123', timestamp, groups: '' },
                     }),
                     'testAllDistinctIdsSuccess',
                 ])
                 .toNotHaveDispatchedActions(['testFlagEvaluation'])
+            expect(requests).toHaveLength(timestamp ? 1 : 0)
+            if (timestamp) {
+                expect(requests[0]).toEqual({ distinct_ids: ['user-123', 'user-456'], timestamp, groups: {} })
+                expect(logic.values.allEvaluations).toEqual([
+                    { distinctId: 'user-123', result: null, error: 'Evaluation unavailable' },
+                    { distinctId: 'user-456', result: { result: true }, error: null },
+                ])
+            }
         })
     })
 
@@ -515,6 +540,27 @@ describe('featureFlagTestingLogic', () => {
         // The failing responses fail the evaluation loader on purpose; kea-loaders would log each
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
+
+        it('surfaces one shared historical failure without falling back to individual requests', async () => {
+            const batch = jest.fn(() => [500, { error: 'Failed to build person properties at specified timestamp.' }])
+            const single = jest.fn(() => [200, {}])
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation_batch': batch,
+                    '/api/projects/:team/feature_flags/1/test_evaluation': single,
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.testAllDistinctIds({
+                    flagId: 1,
+                    distinctIds: ['user-123', 'user-456'],
+                    formData: { distinct_id: 'user-123', timestamp: '2026-01-01T00:00:00.000Z', groups: '' },
+                })
+            }).toDispatchActions(['testAllDistinctIdsFailure'])
+            expect(batch).toHaveBeenCalledTimes(1)
+            expect(single).not.toHaveBeenCalled()
+            expect(logic.values.testError).toContain('Unable to build person properties')
+        })
 
         it.each([
             {
