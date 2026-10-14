@@ -317,9 +317,7 @@ class TestTypeCoercionInBatchExportInputs:
             table_name="events",
             use_variant_type=True,
             use_automatic_schema_evolution=False,
-            batch_export_model=BatchExportModel(
-                name="events",
-                schema=None,
+            batch_export_model=BatchExportEventsModel(
                 filters=[{"type": "hogql", "key": "event = 'example_event'", "value": filter_value}],
             ),
         )
@@ -330,8 +328,7 @@ class TestTypeCoercionInBatchExportInputs:
 
         assert inputs.use_variant_type is True
         assert inputs.use_automatic_schema_evolution is False
-        assert inputs.batch_export_model is not None
-        assert inputs.batch_export_model.filters is not None
+        assert isinstance(inputs.batch_export_model, BatchExportEventsModel)
         assert inputs.batch_export_model.filters[0]["value"] is filter_value
 
     def test_optional_int_none_is_preserved(self):
