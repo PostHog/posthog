@@ -13,6 +13,7 @@ from posthog.models.async_migration import is_async_migration_complete
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.logic.event_property_purge import delete_event_properties_for_team
 
 logger = structlog.get_logger(__name__)
 
@@ -68,6 +69,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Each phase is its own batched helper so the Temporal deletion workflow can run them
     # as separate, individually-retryable activities while Celery keeps calling them in sequence.
     _delete_misc_small_tables_for_teams(team_ids)
+    _delete_event_properties_for_teams(team_ids)
     _delete_cohort_members_for_all_teams(team_ids)
     _delete_groups_for_teams(team_ids)
     _delete_group_type_mappings_for_teams(team_ids)
@@ -154,6 +156,18 @@ def _delete_retired_team_rows(tables: tuple[str, ...], team_ids: list[int], batc
                 if cursor.rowcount < batch_size:
                     break
                 time.sleep(0.1)
+
+
+def _delete_event_properties_for_teams(
+    team_ids: list[int], should_stop: Callable[[], bool] | None = None, batch_size: int = 10000
+) -> None:
+    """Batch-delete the teams' event properties before the Team cascade, which would delete them in one statement.
+
+    ``should_stop`` is checked before each batch.
+    """
+    for team_id in team_ids:
+        if not delete_event_properties_for_team(team_id, should_stop=should_stop, batch_size=batch_size):
+            raise TeamPurgeStopped(f"The event property purge of team {team_id} stopped before it finished")
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
