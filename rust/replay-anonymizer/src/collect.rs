@@ -392,7 +392,7 @@ mod tests {
             c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]),
             Err(DROP_TOO_LARGE)
         );
-        // Above the old 900 KiB cap, so a revert of the 20 MiB default fails here.
+        // A 1 MiB image is within the default cap.
         assert!(c.collect(vec![1u8; 1024 * 1024]).is_ok());
         assert_eq!(c.into_images().len(), 1);
     }
