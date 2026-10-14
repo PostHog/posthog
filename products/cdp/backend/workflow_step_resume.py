@@ -116,12 +116,14 @@ def emit_workflow_step_resume(
     status: WorkflowStepResumeStatus,
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
-    retry_delays: Sequence[float] = RESUME_RETRY_DELAYS_SECONDS,
+    retry_delays: Sequence[float] | None = None,
 ) -> None:
     """Wake the step which dispatched `origin_key`: a POST to the engine's API with the key
     provisioned, else the `$workflow_step_resume` internal event. A step that has not parked yet
-    gets a few short retries; a caller that retries on its own schedule passes no `retry_delays`.
-    With `raise_on_error` a wake that is not acknowledged raises, so the caller can retry it."""
+    gets a few short retries. With `raise_on_error` a wake that is not acknowledged raises instead,
+    and the caller retries it on its own schedule, so by default it gets no retries in place."""
+    if retry_delays is None:
+        retry_delays = () if raise_on_error else RESUME_RETRY_DELAYS_SECONDS
     capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
         if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():

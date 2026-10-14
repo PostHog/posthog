@@ -92,25 +92,31 @@ def _outcome(outcome: str) -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    "responses,attempts,taken",
+    "responses,raise_on_error,attempts,taken",
     [
-        ([_response(409), _outcome("delivered")], 2, True),
-        ([_outcome("stale_key")], 1, True),
-        ([_outcome("job_missing")], 1, True),
-        ([_response(409)] * 4, 4, False),
+        ([_response(409), _outcome("delivered")], False, 2, True),
+        ([_outcome("stale_key")], False, 1, True),
+        ([_outcome("job_missing")], False, 1, True),
+        ([_response(409)] * 4, False, 4, True),
+        # A caller that retries on its own schedule gets no sleeps here, and learns the wake was not taken.
+        ([_response(409)], True, 1, False),
     ],
 )
-def test_only_a_step_the_worker_still_holds_gets_a_short_retry(responses, attempts, taken) -> None:
+def test_only_a_step_the_worker_still_holds_gets_a_short_retry(responses, raise_on_error, attempts, taken) -> None:
     with (
         patch(_POST, side_effect=responses) as post,
         patch("products.cdp.backend.workflow_step_resume.time.sleep") as sleep,
         patch(_PRODUCE) as produce,
     ):
         if taken:
-            emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", raise_on_error=True)
+            emit_workflow_step_resume(
+                team_id=7, origin_key="job:step:3", status="completed", raise_on_error=raise_on_error
+            )
         else:
             with pytest.raises(WorkflowStepResumeNotTaken):
-                emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", raise_on_error=True)
+                emit_workflow_step_resume(
+                    team_id=7, origin_key="job:step:3", status="completed", raise_on_error=raise_on_error
+                )
 
     assert post.call_count == attempts
     assert sleep.call_count == attempts - 1
