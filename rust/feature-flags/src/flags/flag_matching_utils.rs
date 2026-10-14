@@ -1357,34 +1357,19 @@ pub async fn set_feature_flag_hash_key_overrides(
         .take(2)
         .map(jitter) // Add jitter to prevent thundering herd
         .collect();
-    let (distinct_ids_ref, hash_key_ref) = (&distinct_ids, &hash_key_override);
 
     retry_hash_key_call(
         team_id,
         db_operations::SET_HASH_KEY_OVERRIDES,
         retry_delays,
-        || async move {
-            match personhog {
-                Some(client) => {
-                    try_upsert_hash_key_overrides_through_personhog(
-                        router,
-                        client,
-                        team_id,
-                        distinct_ids_ref,
-                        hash_key_ref,
-                    )
-                    .await
-                }
-                None => {
-                    try_set_feature_flag_hash_key_overrides(
-                        router,
-                        team_id,
-                        distinct_ids_ref,
-                        hash_key_ref,
-                    )
-                    .await
-                }
-            }
+        || {
+            try_write_hash_key_overrides(
+                router,
+                personhog,
+                team_id,
+                &distinct_ids,
+                &hash_key_override,
+            )
         },
         |e| {
             if flag_error_is_foreign_key_constraint(e) {
@@ -1398,6 +1383,36 @@ pub async fn set_feature_flag_hash_key_overrides(
         },
     )
     .await
+}
+
+async fn try_write_hash_key_overrides(
+    router: &PostgresRouter,
+    personhog: Option<&RouterClient>,
+    team_id: TeamId,
+    distinct_ids: &[String],
+    hash_key_override: &str,
+) -> Result<bool, FlagError> {
+    match personhog {
+        Some(client) => {
+            try_upsert_hash_key_overrides_through_personhog(
+                router,
+                client,
+                team_id,
+                distinct_ids,
+                hash_key_override,
+            )
+            .await
+        }
+        None => {
+            try_set_feature_flag_hash_key_overrides(
+                router,
+                team_id,
+                distinct_ids,
+                hash_key_override,
+            )
+            .await
+        }
+    }
 }
 
 /// Gets the keys of the active, not deleted flags that have experience continuity enabled. These
