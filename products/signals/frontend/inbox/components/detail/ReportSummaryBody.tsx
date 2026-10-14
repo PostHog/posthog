@@ -2,9 +2,13 @@ import { Fragment, ReactNode, useCallback, useMemo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
+import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+
+import type { SignalReport } from '../../types'
 import { ChartPlacements } from '../../utils/chartPlacement'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { ReportChart } from './ReportChart'
+import { ReportCitedEvidence } from './ReportCitedEvidence'
 
 const PROSE_CLASS =
     'text-[15px] text-secondary leading-relaxed break-words [&>*+*]:mt-3.5 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-8 [&_h1]:text-lg [&_h2]:mt-8 [&_h2]:text-lg [&_h3]:mt-6 [&_h3]:text-base'
@@ -15,10 +19,17 @@ interface SummaryMarkdownProps {
     sourceOffset: number
     chartPlacements: ChartPlacements
     className?: string
+    evidence?: { report: SignalReport; signals: SignalNodeApi[] }
 }
 
 /** One slice of the summary. Owns its chart-ref callback so `LemonMarkdown` keeps its anchor component. */
-function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }: SummaryMarkdownProps): JSX.Element {
+function SummaryMarkdown({
+    markdown,
+    sourceOffset,
+    chartPlacements,
+    className,
+    evidence,
+}: SummaryMarkdownProps): JSX.Element {
     // Depends on placement alone. `LemonMarkdown` memoizes its anchor component on this callback, so
     // anything else in here would rebuild that component as the report polls and unmount every chart.
     const renderChartRef = useCallback(
@@ -29,14 +40,18 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
         [chartPlacements, sourceOffset]
     )
     return (
-        <LemonMarkdown className={className ?? PROSE_CLASS} disableImages renderChartRef={renderChartRef}>
-            {markdown}
-        </LemonMarkdown>
+        <>
+            <LemonMarkdown className={className ?? PROSE_CLASS} disableImages renderChartRef={renderChartRef}>
+                {markdown}
+            </LemonMarkdown>
+            {evidence && <ReportCitedEvidence markdown={markdown} {...evidence} />}
+        </>
     )
 }
 
 interface ReportSummaryBodyProps {
     summary: string
+    evidence?: SummaryMarkdownProps['evidence']
     chartPlacements: ChartPlacements
     implementButton?: ReactNode
     /**
@@ -58,6 +73,7 @@ interface ReportSummaryBodyProps {
  */
 export function ReportSummaryBody({
     summary,
+    evidence,
     chartPlacements,
     implementButton,
     pullRequestNote,
@@ -90,6 +106,7 @@ export function ReportSummaryBody({
                     markdown={parsed.lead}
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
+                    evidence={evidence}
                 />
                 {impactFallback}
                 {expectedImpactFallback}
@@ -105,6 +122,7 @@ export function ReportSummaryBody({
                     markdown={parsed.lead}
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
+                    evidence={evidence}
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />
             )}
@@ -119,6 +137,7 @@ export function ReportSummaryBody({
                             markdown={section.body}
                             sourceOffset={section.bodyOffset}
                             chartPlacements={chartPlacements}
+                            evidence={evidence}
                         />
                         {section.kind === 'expected-impact' && expectedImpact}
                         {section.kind === 'solution' && pullRequestNote && (
