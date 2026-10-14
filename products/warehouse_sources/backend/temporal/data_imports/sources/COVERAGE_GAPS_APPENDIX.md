@@ -12319,10 +12319,10 @@ Today (16): `countries`, `languages`, `movie_genres`, `movie_now_playing`, `movi
 
 Diffed against: <https://developer.themoviedb.org/reference/movie-details>
 
-- [ ] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
-- [ ] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
-- [ ] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
-- [ ] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
+- [x] `GET /3/discover/movie and /3/discover/tv` — The workhorse catalog query - lets a user pull arbitrary filtered slices instead of only the four curated popularity lists (high)
+- [x] `GET /3/movie/{movie_id}/credits and /3/tv/{series_id}/aggregate_credits` — Cast and crew membership joining the movies/tv and people tables we already sync - the single most-wanted relation (high)
+- [x] `GET /3/tv/{series_id}/season/{season_number} (seasons and episodes)` — Seasons and episodes are the child objects of every synced TV row; without them tv\_\* tables cannot be analyzed at episode grain (high)
+- [x] `GET /3/watch/providers/movie, /3/watch/providers/tv, /3/watch/providers/regions` — Streaming-provider lookup tables that resolve the provider IDs returned by the per-title watch/providers endpoints (high)
 - [ ] `GET /3/company/{company_id}` — Lookup table resolving the production_companies IDs already embedded in synced movie and tv rows (medium)
 - [ ] `GET /3/network/{network_id}` — Lookup table resolving the network IDs on synced TV series rows (medium)
 - [ ] `GET /3/certification/movie/list and /3/certification/tv/list` — Lookup tables of age/content certifications per country, needed to decode release_dates and content_ratings (medium)
