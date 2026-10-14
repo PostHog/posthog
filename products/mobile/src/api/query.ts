@@ -53,25 +53,40 @@ function queryStatusOf(body: unknown): QueryStatusApi | undefined {
     return isRecord(status) && typeof status.id === 'string' ? (status as unknown as QueryStatusApi) : undefined
 }
 
+/** `POST query/` has no cache-only read: the server turns a missing or `force_cache` value into `blocking`. */
+export type QueryRefresh = 'blocking' | 'force_blocking'
+
 export interface RunQueryOptions {
     signal?: AbortSignal
     pollIntervalMs?: number
     timeoutMs?: number
+    refresh?: QueryRefresh
+    /**
+     * False returns a response that still carries a running `query_status` as it is, so the caller keeps its old
+     * value instead of sending `GET query/{id}/` polls.
+     */
+    poll?: boolean
 }
 
 /**
- * `POST query/` with `refresh: 'blocking'`. The server answers inline for most queries; when it hands back a running
- * `query_status` instead, this polls `GET query/{id}/` until the status is complete.
+ * `POST query/`, `blocking` unless told otherwise. The server answers inline for most queries; when it hands back a
+ * running `query_status` instead, this polls `GET query/{id}/` until the status is complete.
  */
 export async function runQuery(query: unknown, options: RunQueryOptions = {}): Promise<unknown> {
-    const { signal, pollIntervalMs = QUERY_POLL_INTERVAL_MS, timeoutMs = QUERY_POLL_TIMEOUT_MS } = options
+    const {
+        signal,
+        pollIntervalMs = QUERY_POLL_INTERVAL_MS,
+        timeoutMs = QUERY_POLL_TIMEOUT_MS,
+        refresh = 'blocking',
+        poll = true,
+    } = options
     const body = await apiJson<unknown>(projectPath('query/'), {
         method: 'POST',
-        json: { query, client_query_id: randomUUID(), refresh: 'blocking' },
+        json: { query, client_query_id: randomUUID(), refresh },
         signal,
     })
     let status = queryStatusOf(body)
-    if (!status || status.complete !== false) {
+    if (!status || status.complete !== false || !poll) {
         if (status?.error) {
             throw new QueryFailedError(status.error_message)
         }

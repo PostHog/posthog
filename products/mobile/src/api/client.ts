@@ -2,6 +2,9 @@ import { fetch as streamingFetch } from 'expo/fetch'
 
 import { isRecord } from '@/lib/records'
 
+import { BudgetExceededError, budgetFamilyFor, trySpend } from './budget'
+import { recordServerDate } from './serverClock'
+
 export interface ApiAuth {
     host: string
     accessToken: string | null
@@ -130,11 +133,21 @@ function buildInit(init: ApiInit, accessToken: string, accept: string): RequestI
 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>
 
+// Test doubles and some web responses have no `Date` header, or no headers at all.
+function noteServerDate(response: Response): void {
+    recordServerDate(response.headers?.get?.('Date'))
+}
+
 async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: string): Promise<Response> {
     const auth = requireAuth()
     const url = apiUrl(path, init.query)
+    const family = budgetFamilyFor(path)
+    if (family && !trySpend(family)) {
+        throw new BudgetExceededError(family)
+    }
     const sent = auth.accessToken as string
     let response = await fetcher(url, buildInit(init, sent, accept))
+    noteServerDate(response)
     if (response.status === 401 && provider) {
         // A refresh elsewhere may already have rotated the token this request used. Refreshing
         // again would revoke that newer token and 401 every other in-flight request.
@@ -144,6 +157,7 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
             throw new NotSignedInError()
         }
         response = await fetcher(url, buildInit(init, token, accept))
+        noteServerDate(response)
     }
     return response
 }
