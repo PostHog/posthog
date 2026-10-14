@@ -1,7 +1,8 @@
+import { NewSurvey } from 'scenes/surveys/constants'
+
 import { Survey, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { buildApiSurveySnippet } from './apiSurveySnippet'
-import { NewSurvey } from './constants'
 
 const openQuestion = { id: 'q-1', type: SurveyQuestionType.Open, question: 'What do you think?' }
 const choiceQuestion = {
@@ -82,7 +83,7 @@ describe('buildApiSurveySnippet', () => {
                 'abc',
                 '$survey_responded/abc',
                 `
-    // How likely are you to recommend us to a friend or colleague…
+    // How likely are you to recommend us to a friend or colleague...
     '$survey_response_q-1': '10',
     // Pick
     '$survey_response_q-2': 'It\\'s fine',`

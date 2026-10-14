@@ -12,12 +12,13 @@ import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSu
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
-import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
+
+import { SurveyApiSnippet } from 'products/surveys/frontend/components/SurveyApiSnippet'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 
@@ -214,7 +215,7 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                             </div>
                         </div>
 
-                        <SurveyAPIEditor survey={survey} />
+                        <SurveyApiSnippet survey={survey} />
                     </div>
                 )}
             </div>

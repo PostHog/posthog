@@ -64,6 +64,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import { SurveyApiSnippet } from 'products/surveys/frontend/components/SurveyApiSnippet'
+
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
@@ -74,7 +76,6 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditIntroScreenContent } from './SurveyEditIntroScreenContent'
@@ -678,7 +679,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                 value={SurveyType.API}
                                                             >
                                                                 <div className="absolute left-4 w-[350px]">
-                                                                    <SurveyAPIEditor survey={survey} />
+                                                                    <SurveyApiSnippet survey={survey} />
                                                                 </div>
                                                             </PresentationTypeCard>
                                                             <PresentationTypeCard
