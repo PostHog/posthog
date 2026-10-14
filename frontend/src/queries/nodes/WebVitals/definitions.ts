@@ -1,7 +1,6 @@
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
 import { IconExclamation } from 'lib/lemon-ui/icons'
-import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 import { WebVitalsPercentile } from 'scenes/web-analytics/common'
 
 import { InsightQueryNode, WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
@@ -73,8 +72,11 @@ export const getMetric = (
     metric: WebVitalsMetric,
     percentile: WebVitalsPercentile
 ): number | undefined => {
+    // The toolbar bundles this file, so it indexes the query series itself instead of importing
+    // `getResultSeries` from `scenes/`. A web vitals query has no formulas, so `order` is always a series index.
+    const series = querySource && 'series' in querySource ? querySource.series : []
     const data = results?.find((result) => {
-        const node = getResultSeries(querySource, { order: result.order }).node
+        const node = result.order != null ? series[result.order] : undefined
         return node?.custom_name === metric && node.math === percentile
     })?.data
 
