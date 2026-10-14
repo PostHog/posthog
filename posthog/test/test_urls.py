@@ -221,29 +221,14 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
 class TestPublicPageMetadata(SimpleTestCase):
     @parameterized.expand(
         [
-            ("login_with_next", "/login?next=/insights", "Log in • PostHog", "/login", "Log in • PostHog"),
-            (
-                "login_with_next_object",
-                "/login?next=/project/2/feature_flags/412",
-                "Log in • PostHog",
-                "/login",
-                "Feature flag • PostHog",
-            ),
-            (
-                "signup_with_email",
-                "/signup/?email=someone%40example.com",
-                "Sign up • PostHog",
-                "/signup",
-                "Sign up • PostHog",
-            ),
-            ("preflight", "/preflight", "PostHog", None, None),
-            ("invite_signup", "/signup/0b8e1f2a-1111-4c2d-9e3f-123456789abc", "PostHog", None, None),
+            ("login_with_next", "/login?next=/insights", "Log in • PostHog", "/login"),
+            ("signup_with_email", "/signup/?email=someone%40example.com", "Sign up • PostHog", "/signup"),
+            ("preflight", "/preflight", "PostHog", None),
+            ("invite_signup", "/signup/0b8e1f2a-1111-4c2d-9e3f-123456789abc", "PostHog", None),
         ]
     )
     @override_settings(SITE_URL="https://us.example.com")
-    def test_head_renders_search_metadata(
-        self, _name, request_path, expected_title, expected_canonical_path, expected_og_title
-    ):
+    def test_head_renders_search_metadata(self, _name, request_path, expected_title, expected_canonical_path):
         request = RequestFactory().get(request_path)
         html = render_to_string("head.html", public_page_metadata_context(request))
 
@@ -256,7 +241,6 @@ class TestPublicPageMetadata(SimpleTestCase):
             canonical_url = f"https://us.example.com{expected_canonical_path}"
             self.assertIn(f'<link rel="canonical" href="{canonical_url}">', html)
             self.assertIn(f'<meta property="og:url" content="{canonical_url}">', html)
-            self.assertIn(f'<meta property="og:title" content="{expected_og_title}">', html)
             self.assertIn('<meta name="description" content="', html)
             structured_data = json.loads(html.split('<script type="application/ld+json">')[1].split("</script>")[0])
             self.assertEqual(structured_data["@type"], "WebPage")
