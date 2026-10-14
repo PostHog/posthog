@@ -121,18 +121,21 @@ class TestRouteThreadMessage(TestCase):
         defaults.update(overrides)
         return defaults
 
-    def _route(self, event: dict, slack_team_id: str = "T_SLACK") -> str:
+    def _route(self, event: dict, slack_team_id: str = "T_SLACK", *, is_ext_shared_channel: bool = False) -> str:
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        return route_posthog_code_event_to_relevant_region(request, event, slack_team_id)
+        return route_posthog_code_event_to_relevant_region(
+            request, event, slack_team_id, is_ext_shared_channel=is_ext_shared_channel
+        )
 
     # --- Cheap pre-DB gates ------------------------------------------------
 
     def test_top_level_message_dropped_before_db(self):
         """A message with no ``thread_ts`` (or where ``thread_ts == ts``) is a
-        top-level post in the channel, not a thread reply. Drop before
-        touching the DB — channel chatter dominates wire volume."""
+        top-level post in the channel, not a thread reply. One that fails the cheap
+        question gates is dropped before touching the DB, because channel chatter
+        dominates wire volume."""
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY
 
         event = self._make_event(thread_ts="1001.0000")  # same as ts
@@ -143,6 +146,81 @@ class TestRouteThreadMessage(TestCase):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_filter.assert_not_called()
+        mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("an untagged question", {}, True, None, False, True),
+            ("a private channel", {"channel_type": "group"}, True, None, False, True),
+            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
+            ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
+            ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
+            ("the flag is off", {}, False, None, False, False),
+            ("the author picks up only tagged messages", {}, True, UntaggedFollowupMode.NEVER, False, False),
+            ("an author without a PostHog account", {"user": "U_UNKNOWN"}, True, None, False, False),
+            ("an externally shared channel", {}, True, None, True, False),
+        ]
+    )
+    def test_top_level_question_starts_the_untagged_question_workflow(
+        self, _name, overrides, flag_on, author_mode, ext_shared, expect_dispatch
+    ):
+        if author_mode is not None:
+            SlackSettings.objects.create(
+                slack_workspace_id="T_SLACK", slack_user_id="U_BOB", untagged_followup_mode=author_mode
+            )
+        event = {
+            "type": "message",
+            "channel": "C002",
+            "channel_type": "channel",
+            "user": "U_BOB",
+            "ts": "2000.0000",
+            "text": "How many people signed up last week?",
+            **overrides,
+        }
+        with (
+            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure_reply,
+        ):
+            self._route(event, is_ext_shared_channel=ext_shared)
+
+        assert mock_start.called is expect_dispatch
+        # Nobody asked, so a drop says nothing, an unknown author included.
+        mock_failure_reply.assert_not_called()
+        if expect_dispatch:
+            kwargs = mock_start.call_args.kwargs
+            assert kwargs["untagged_question"] is True
+            assert kwargs["posthog_user"].id == self.bob.id
+            assert mock_start.call_args.args[1].id == self.integration.id
+
+    @parameterized.expand(
+        [
+            ("the other region holds the workspace", True, True),
+            ("nobody confirms it", None, False),
+        ]
+    )
+    def test_top_level_question_for_a_workspace_held_elsewhere_crosses_only_when_claimed(
+        self, _name, claimed, expect_proxy
+    ):
+        event = {
+            "type": "message",
+            "channel": "C002",
+            "channel_type": "channel",
+            "user": "U_BOB",
+            "ts": "2000.0000",
+            "text": "How many people signed up last week?",
+        }
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api.emit_slack_message_event", return_value=False),
+            patch("products.slack_app.backend.api._mirror_message_event_to_other_region"),
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=claimed),
+            patch("products.slack_app.backend.api._proxy_event_and_return_route", return_value="proxied") as proxy,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            self._route(event, slack_team_id="T_ELSEWHERE")
+
+        assert proxy.called is expect_proxy
         mock_start.assert_not_called()
 
     def test_no_user_dropped(self):

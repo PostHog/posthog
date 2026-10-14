@@ -42,20 +42,34 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
     value resolves to `NEVER`.
     """
 
+    return resolve_user_untagged_mode(integration.integration_id, slack_user_id)
+
+
+def resolve_user_untagged_mode(slack_workspace_id: str, slack_user_id: str | None) -> UntaggedFollowupMode:
     if not slack_user_id:
         return UntaggedFollowupMode.NEVER
 
     from products.slack_app.backend.models import SlackSettings
 
     row = (
-        SlackSettings.objects.filter(
-            slack_workspace_id=integration.integration_id,
-            slack_user_id=slack_user_id,
-        )
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
         .values("untagged_followup_mode")
         .first()
     )
-    stored = row["untagged_followup_mode"] if row else None
+    return _coerce_untagged_mode(row["untagged_followup_mode"] if row else None)
+
+
+def set_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str, mode: UntaggedFollowupMode) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"untagged_followup_mode": mode.value},
+    )
+
+
+def _coerce_untagged_mode(stored: str | None) -> UntaggedFollowupMode:
     if stored is None:
         return UntaggedFollowupMode.ASK
     if stored in UntaggedFollowupMode.values:
@@ -124,7 +138,9 @@ __all__ = [
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",
+    "resolve_user_untagged_mode",
     "set_auto_model_choice",
+    "set_untagged_followup_mode",
     "set_channel_welcome_mode",
     "resolve_untagged_followup_mode",
 ]

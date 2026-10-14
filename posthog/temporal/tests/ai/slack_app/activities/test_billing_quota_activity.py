@@ -21,7 +21,14 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         self.user = User.objects.create(email="alice@example.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
-    def _call(self, *, untagged_followup: bool, confirmed: bool) -> bool:
+    def _call(
+        self,
+        *,
+        untagged_followup: bool,
+        confirmed: bool,
+        untagged_question: bool = False,
+        untagged_question_confirmed: bool = False,
+    ) -> bool:
         inputs = PostHogCodeSlackMentionWorkflowInputs(
             event={},
             integration_id=self.integration.id,
@@ -29,6 +36,8 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
             user_id=self.user.id,
             untagged_followup=untagged_followup,
             untagged_followup_confirmed=confirmed,
+            untagged_question=untagged_question,
+            untagged_question_confirmed=untagged_question_confirmed,
         )
         return enforce_posthog_code_billing_quota_activity(inputs, "C001", "1000.0000", "U_BOB")
 
@@ -37,19 +46,28 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
             # The gate runs before the classifier and before the prompt, so an untagged
             # reply has asked for nothing yet. A denial under it would land in the thread
             # for every reply people write, chitchat included.
-            ("unconfirmed_reply", True, False, False),
-            ("confirmed_reply", True, True, True),
-            ("mention", False, False, True),
+            ("unconfirmed_reply", True, False, False, False, False),
+            ("confirmed_reply", True, True, False, False, True),
+            ("mention", False, False, False, False, True),
+            # A channel question nobody tagged us in is the same: a denial under it would
+            # announce in public that PostHog read a message nobody sent it.
+            ("unconfirmed_untagged_question", False, False, True, False, False),
+            ("confirmed_untagged_question", False, False, True, True, True),
         ]
     )
     def test_denial_reaches_the_thread_only_for_a_turn_that_asked_for_work(
-        self, _name, untagged_followup, confirmed, expect_denial
+        self, _name, untagged_followup, confirmed, untagged_question, untagged_question_confirmed, expect_denial
     ):
         with (
             patch("ee.billing.quota_limiting.is_team_limited", return_value=True),
             patch("products.slack_app.backend.api.post_quota_exhausted_denial") as mock_denial,
         ):
-            blocked = self._call(untagged_followup=untagged_followup, confirmed=confirmed)
+            blocked = self._call(
+                untagged_followup=untagged_followup,
+                confirmed=confirmed,
+                untagged_question=untagged_question,
+                untagged_question_confirmed=untagged_question_confirmed,
+            )
 
         assert blocked is True
         assert mock_denial.called is expect_denial

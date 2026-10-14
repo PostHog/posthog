@@ -33,7 +33,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_model_router_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_unprompted_answers_enabled,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -75,6 +79,7 @@ from products.slack_app.backend.services.slack_settings import (
     resolve_untagged_followup_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_untagged_followup_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
@@ -441,6 +446,7 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    untagged_mode_covers_channel_questions: bool = False,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
     has_project_access: bool = True,
@@ -488,7 +494,11 @@ def render_home_view(
     # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
-        blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+        blocks.extend(
+            _untagged_followups_section_blocks(
+                untagged_followup_mode, covers_channel_questions=untagged_mode_covers_channel_questions
+            )
+        )
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
@@ -952,11 +962,12 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 }
 
 
-def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
-    """Picker for how untagged replies land in the threads you started.
+def _untagged_followups_section_blocks(mode: UntaggedFollowupMode, *, covers_channel_questions: bool) -> list[dict]:
+    """Picker for how untagged messages land in the threads you started.
 
     Ask until picked. The choice covers every reply in those threads,
-    including the ones you write yourself.
+    including the ones you write yourself, and, behind the unprompted-answers
+    flag, the questions you post in a channel without a tag.
     """
     options = [
         {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
@@ -968,16 +979,21 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         "options": options,
         "initial_option": next(o for o in options if o["value"] == mode.value),
     }
+    if covers_channel_questions:
+        title = "💬 Messages without a tag"
+        subtitle = (
+            "What I do when nobody tags @PostHog: replies in a thread you started, "
+            "and questions you post in a channel that I can answer from your PostHog data."
+        )
+        note = "Applies to every reply in your threads, yours included."
+    else:
+        title = "💬 Thread follow-ups"
+        subtitle = "What I do with replies in a thread you started, when nobody tags @PostHog."
+        note = "Applies to every reply in those threads, yours included."
     return [
-        _section_title(
-            "💬 Thread follow-ups",
-            "What I do with replies in a thread you started, when nobody tags @PostHog.",
-        ),
+        _section_title(title, subtitle),
         {"type": "actions", "elements": [select]},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
-        },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]},
     ]
 
 
@@ -2076,11 +2092,7 @@ def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: 
     picked = (action.get("selected_option") or {}).get("value")
     if picked not in UntaggedFollowupMode.values:
         return
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"untagged_followup_mode": picked},
-    )
+    set_untagged_followup_mode(integration.integration_id, slack_user_id, UntaggedFollowupMode(picked))
 
 
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
@@ -2153,6 +2165,7 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        untagged_mode_covers_channel_questions=is_slack_app_unprompted_answers_enabled(integration),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id)

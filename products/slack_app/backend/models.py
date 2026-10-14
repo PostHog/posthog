@@ -113,11 +113,12 @@ class SlackUserProfileCache(UUIDModel):
 
 
 class UntaggedFollowupMode(models.TextChoices):
-    """What PostHog does with an untagged reply in a thread it already owns.
+    """What PostHog does with a message that does not tag it.
 
-    Read from the thread creator's settings row, so it governs everyone
-    replying in a thread that user started. An unset row resolves to ``ASK``,
-    so the person who replied can choose whether to send their message.
+    Read from the settings row of the person who started the thread, so it governs
+    every untagged reply in a thread PostHog owns, and the author's own top-level
+    channel question. An unset row resolves to ``ASK``, so the person who wrote the
+    message chooses whether to send it.
     """
 
     AUTO = "auto", "Always pick it up"
