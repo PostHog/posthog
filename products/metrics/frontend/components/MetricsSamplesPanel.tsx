@@ -7,13 +7,12 @@ import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
