@@ -53,6 +53,7 @@ model.save()
 The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
+A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
@@ -126,6 +127,10 @@ Four registries in `activity_log.py` tune it per scope:
 `changes_between` also reads named reverse relations.
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
+
+A relation field stores the related object as `{"id": <pk>}`.
+To store more, such as a name for the describer to show, add a branch for the model to `ActivityDetailEncoder` in `posthog/models/utils.py`.
+Never put a credential field in that branch.
 
 Destination activity logs record changes to `mappings` without their values.
 For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
