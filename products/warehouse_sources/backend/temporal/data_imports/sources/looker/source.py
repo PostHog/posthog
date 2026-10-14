@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError, RequestException
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LookerSource(ResumableSource[LookerSourceConfig, LookerResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOOKER_", "^LOOKERSDK_"),
+        npm=("@looker/sdk", "@looker/sdk-node", "@looker/embed-sdk"),
+        pypi=("looker-sdk",),
+        go=(
+            "github.com/looker-open-source/sdk-codegen/go",
+            "github.com/looker-open-source/looker-cli",
+            "github.com/looker-open-source/looker_o2c_migration_evaluation",
+        ),
+        rubygems=("looker-sdk",),
+    )
+
     supported_versions = ("4.0",)
     default_version = "4.0"
     api_docs_url = "https://docs.cloud.google.com/looker/docs/api-versioning"

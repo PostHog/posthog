@@ -20,7 +20,8 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority
+from products.review_hog.backend.reviewer.persistence import replace_dropped_findings, upsert_review_report
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
@@ -227,6 +228,36 @@ class TestPublishIdempotency(BaseTest):
         # Publishing runs arrive here still ACTIVE (finalize defers the idle write); the posted
         # save must restore rest or the row reads as in-progress until the staleness cutoff.
         assert report.status == ReviewReport.Status.IDLE
+
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_a_review_says_when_the_finding_budget_left_findings_out(self, _auth, _snapshot, mock_publish) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        cut = Issue(
+            id="1-1-2", title="Cut", file="a.py", lines=[], issue="i", suggestion="", priority=IssuePriority.CONSIDER
+        )
+        replace_dropped_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            run_index=1,
+            head_sha="sha1",
+            dropped=[
+                DroppedIssue(issue=cut, disposition="budget", rank=2),
+                DroppedIssue(issue=cut.model_copy(update={"id": "1-1-3"}), disposition="budget", rank=3),
+                DroppedIssue(issue=cut.model_copy(update={"id": "1-1-4"}), disposition="cap", rank=4),
+            ],
+            cap=4,
+            lens_part_count=1,
+        )
+
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
+
+        assert mock_publish.call_args.kwargs["budget_note"] == (
+            "This pull request reached its limit of 20 automatic review findings, so this review left out "
+            "2 lower-priority findings. Must-fix findings still post."
+        )
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

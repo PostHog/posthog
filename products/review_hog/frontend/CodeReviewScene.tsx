@@ -538,6 +538,7 @@ const DROP_REASON_LABEL: Record<ReviewDropDispositionEnumApi, string> = {
     dedup_anchor: 'Same spot as another finding',
     old_code: 'On unchanged code',
     cap: 'Over the limit',
+    budget: 'Over the pull request limit',
 }
 
 // Display order of the reasons: the label map's key order.
@@ -548,7 +549,9 @@ function DropReason({ finding }: { finding: ReviewDroppedFindingApi }): JSX.Elem
     return (
         <>
             <LemonTag type="muted" size="small">
-                {finding.disposition === 'cap' && finding.rank ? `${label} (#${finding.rank})` : label}
+                {(finding.disposition === 'cap' || finding.disposition === 'budget') && finding.rank
+                    ? `${label} (#${finding.rank})`
+                    : label}
             </LemonTag>
             {finding.comment_url && (
                 <Link to={finding.comment_url} target="_blank" targetBlankIcon className="text-xs">

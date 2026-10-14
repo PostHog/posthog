@@ -4,7 +4,9 @@ from typing import Any, Optional
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
-    INCREMENTAL_DATE_PARAM,
+    ENDPOINT_PARAMS,
+    ENDPOINT_PATHS,
+    INCREMENTAL_DATE_PARAMS,
     INCREMENTAL_FIELDS,
     TABLE_NAMES,
 )
@@ -37,7 +39,7 @@ def base_url(environment: str) -> str:
 
 
 def format_date_param(value: Any) -> str:
-    """Format an incremental watermark for Asaas's `dateCreated[ge]` filter (`YYYY-MM-DD`)."""
+    """Format an incremental watermark for Asaas's date filters (`YYYY-MM-DD`)."""
     if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
@@ -47,13 +49,13 @@ def format_date_param(value: Any) -> str:
 
 def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointResource:
     table_name = TABLE_NAMES[endpoint]
-    is_incremental_endpoint = should_use_incremental_field and endpoint in INCREMENTAL_FIELDS
+    is_incremental_endpoint = should_use_incremental_field and endpoint in INCREMENTAL_DATE_PARAMS
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(ENDPOINT_PARAMS.get(endpoint, {}))
     if is_incremental_endpoint:
-        params[INCREMENTAL_DATE_PARAM] = {
+        params[INCREMENTAL_DATE_PARAMS[endpoint]] = {
             "type": "incremental",
-            "cursor_path": "dateCreated",
+            "cursor_path": INCREMENTAL_FIELDS[endpoint][0]["field"],
             # Well before Asaas existed, so an unset watermark still fetches full history.
             "initial_value": "2000-01-01",
             "convert": format_date_param,
@@ -70,7 +72,7 @@ def get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointR
         else "replace",
         "endpoint": {
             "data_selector": "data[*]",
-            "path": f"{API_PATH}/{table_name}",
+            "path": f"{API_PATH}/{ENDPOINT_PATHS[endpoint]}",
             "params": params,
         },
         "table_format": "delta",
