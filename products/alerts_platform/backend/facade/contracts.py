@@ -169,7 +169,8 @@ class PlatformOwnershipHandover:
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
-    next_check_at: datetime | None
+    # The platform checks no earlier than a minute after the handover, whatever this says.
+    next_check_at: datetime
     at: datetime
 
 

@@ -76,7 +76,7 @@ def _cut_over_alert(alert_id: UUID, at: datetime) -> CutoverSkip | None:
                 state=PLATFORM_HANDOVER_STATE[alert.state],
                 last_notified_at=alert.last_notified_at,
                 consecutive_failures=alert.consecutive_failures,
-                next_check_at=alert.next_check_at if alert.enabled else None,
+                next_check_at=alert.next_check_at or at,
                 at=at,
             )
         )

@@ -371,13 +371,10 @@ def take_ownership(handover: PlatformOwnershipHandover) -> None:
         configuration.owner = PlatformAlertOwner.PLATFORM
         configuration.owner_changed_at = handover.at
         configuration.consecutive_failures = handover.consecutive_failures
-        update_fields = ["owner", "owner_changed_at", "consecutive_failures"]
-        if handover.next_check_at is not None:
-            # A platform check that started before the handover records only rows still due, so a
-            # schedule after the handover keeps it from recording over the carried state.
-            configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
-            update_fields.append("next_check_at")
-        configuration.save(update_fields=update_fields)
+        # A platform check that started before the handover records only rows still due, so a
+        # schedule after the handover keeps it from recording over the carried state.
+        configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at"])
 
         alert = _alerts_for_write(handover.team_id, [configuration])[str(configuration.id)]
         alert.state = handover.state

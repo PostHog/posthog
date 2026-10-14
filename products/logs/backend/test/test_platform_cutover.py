@@ -36,6 +36,7 @@ class TestPlatformCutover(APIBaseTest):
                 "not_firing",
             ),
             ("broken", {"state": State.BROKEN, "consecutive_failures": 5}, "broken"),
+            ("broken_never_scheduled", {"state": State.BROKEN, "next_check_at": None}, "broken"),
             ("disabled", {"enabled": False, "next_check_at": None}, "not_firing"),
             ("broken_past_due", {"state": State.BROKEN, "next_check_at": NOW - timedelta(hours=1)}, "broken"),
             (
@@ -58,9 +59,11 @@ class TestPlatformCutover(APIBaseTest):
         with team_scope(self.team.id):
             copy = platform_testing.copy_of(alert.id)
             instance = platform_testing.alert_for(copy.id)
-        assert (copy.owner, copy.consecutive_failures) == ("platform", alert.consecutive_failures)
-        if alert.enabled:
-            assert copy.next_check_at is not None and copy.next_check_at > NOW
+        assert (copy.owner, copy.consecutive_failures, copy.next_check_at) == (
+            "platform",
+            alert.consecutive_failures,
+            max(alert.next_check_at or NOW, NOW + timedelta(minutes=1)),
+        )
         assert instance is not None
         assert (instance.state, instance.last_notified_at, instance.snooze_until) == (
             platform_state,
