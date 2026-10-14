@@ -43,6 +43,14 @@ class SchemaDriftError(IncrementalWriteError):
     """
 
 
+class TableUnreadableError(IncrementalWriteError):
+    """deltalite found no usable log for a table that opened earlier in the same run.
+
+    The cause can be a storage listing glitch or a concurrent rewrite. An upsert cannot repair the
+    table in place, so the caller clears the watermark and the retry rebuilds it.
+    """
+
+
 def assert_schema_matches(batch: pa.RecordBatch, target: pa.Schema) -> None:
     """Refuse to upsert unless the batch's columns and types match the table's exactly.
 
@@ -163,7 +171,12 @@ def upsert_batch(
     """
     import deltalite
 
-    lite = deltalite.DeltaLiteTable.open(table_uri, storage_options)
+    try:
+        lite = deltalite.DeltaLiteTable.open(table_uri, storage_options)
+    except deltalite.DeltaLiteTableNotFoundError as err:
+        raise TableUnreadableError(
+            "The stored table could not be read during an incremental update. It will be rebuilt on the next attempt."
+        ) from err
     return lite.upsert(
         pa.Table.from_batches([batch]),
         list(unique_key),
