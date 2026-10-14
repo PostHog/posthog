@@ -215,6 +215,7 @@ class TestRateLimit(BaseTest):
             with retry_limit.run(task_id=2):
                 pass
 
+        assert time_helper.sleep_times
         assert sum(time_helper.sleep_times) <= retry_limit.retry_timeout
 
     def test_retry_mechanism_acquires_slot(self):
