@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZUORA_",),
+        script_hosts=("static.zuora.com",),
+        pypi=("zuora-sdk",),
+        maven=(
+            "com.zuora.sdk:zuora-sdk-java",
+            "com.zuora.sdk:zuora-java",
+            "com.zuora.sdk:zuora-sdk-java-core",
+            "com.zuora.sdk:zuora-sdk-java-root",
+        ),
+    )
+
     api_docs_url = "https://developer.zuora.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

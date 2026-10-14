@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ UNREACHABLE_ERROR = "Couldn't reach your Dynamics 365 environment. Check the env
 
 @SourceRegistry.register
 class Dynamics365Source(ResumableSource[Dynamics365SourceConfig, Dynamics365ResumeConfig]):
+    codebase_detection = detect(env=("^DYNAMICS365_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (DYNAMICS365_API_VERSION,)
     default_version = DYNAMICS365_API_VERSION

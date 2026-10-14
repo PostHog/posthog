@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResumeConfig]):
+    codebase_detection = detect(
+        env=("^BIGCOMMERCE_",),
+        script_hosts=("checkout-sdk.bigcommerce.com",),
+        npm=(
+            "node-bigcommerce",
+            "@bigcommerce/checkout-sdk",
+            "@bigcommerce/catalyst-client",
+            "@bigcommerce/stencil-utils",
+        ),
+        pypi=("bigcommerce",),
+        composer=("bigcommerce/api",),
+        rubygems=("bigcommerce",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
