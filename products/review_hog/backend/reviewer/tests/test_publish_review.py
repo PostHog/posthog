@@ -486,8 +486,8 @@ class TestPublishReviewGate:
                 None,
                 True,
                 [("o/r", 1, "+1")],
-                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:2 -->",
-                "<!-- reviewhog:clean-reply:rep:2 -->",
+                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
             ),
             (
                 "standard_requested_after_published_findings_replies",
@@ -496,8 +496,8 @@ class TestPublishReviewGate:
                 "old",
                 True,
                 [],
-                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:2 -->",
-                "<!-- reviewhog:clean-reply:rep:2 -->",
+                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
             ),
             # The reply carries the note's marker too, so a later automatic turn does not repeat the note.
             (
@@ -507,8 +507,8 @@ class TestPublishReviewGate:
                 None,
                 True,
                 [("o/r", 1, "+1")],
-                f"{_LARGE_NOTE}\n\n<!-- reviewhog:clean-reply:rep:2 --><!-- reviewhog:large-pr-note:rep:sha -->",
-                "<!-- reviewhog:clean-reply:rep:2 -->",
+                f"{_LARGE_NOTE}\n\n<!-- reviewhog:clean-reply:rep:sha --><!-- reviewhog:large-pr-note:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
             ),
         ]
     )

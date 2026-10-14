@@ -210,12 +210,14 @@ def _large_pr_note_marker(report_id: str, head_sha: str) -> str:
     return f"{_large_pr_note_prefix(report_id)}{head_sha} -->"
 
 
-def _clean_reply_marker(report_id: str, run_index: int) -> str:
+def _clean_reply_marker(report_id: str, head_sha: str) -> str:
     """The hidden marker of the reply to a requested Standard turn that found nothing.
 
-    It is per turn, so each request gets one reply and a retry of the same turn does not post it again.
+    It is per head, not per turn: a workflow retry starts a new turn after the old one counted, so a turn
+    index would post the reply again. A later request on the same head also adds nothing, because the
+    first reply already answers it.
     """
-    return f"<!-- reviewhog:clean-reply:{report_id}:{run_index} -->"
+    return f"<!-- reviewhog:clean-reply:{report_id}:{head_sha} -->"
 
 
 def publish_review(
@@ -290,7 +292,7 @@ def publish_review(
         if replies or large_pr_parts is not None:
             # Not a published turn: the watermark stays unset, so a later turn on this head can still publish.
             summary = render_review_summary(review_mode, head_sha, Counter(), large_pr_parts)
-            hidden = _clean_reply_marker(report_id, run_index) if replies else ""
+            hidden = _clean_reply_marker(report_id, head_sha) if replies else ""
             if large_pr_parts is not None:
                 hidden = f"{hidden}{_large_pr_note_marker(report_id, head_sha)}"
             _post_github_review(
@@ -301,8 +303,8 @@ def publish_review(
                 [],
                 token=token,
                 head_sha=head_sha,
-                # A reply posts once per turn. The large pull request note alone posts once per pull request.
-                marker=_clean_reply_marker(report_id, run_index) if replies else _large_pr_note_prefix(report_id),
+                # A reply posts once per head. The large pull request note alone posts once per pull request.
+                marker=_clean_reply_marker(report_id, head_sha) if replies else _large_pr_note_prefix(report_id),
                 installation_id=installation_id,
                 review_mode=review_mode,
             )
