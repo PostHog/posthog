@@ -1926,6 +1926,13 @@ class EstimateResponseSerializer(serializers.Serializer):
             "segment instead of adding it to a per-month total."
         ),
     )
+    free_only_monthly_credits_left = serializers.IntegerField(
+        help_text=(
+            "The monthly credit rate the organization's free credits still cover for one more free-only scanner, "
+            "after the other free-only scanners and backfills. The forecast caps a free-only scanner at this rate, "
+            "because free-only scanners share one pool."
+        ),
+    )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
     )
@@ -2674,13 +2681,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
         try:
-            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+            org_state = check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         except QuotaLimitExceeded:
             self._report_quota_exhausted(scanner, "on_demand")
             raise
         # Deliberately outside the analytics wrapper above: that event means "the org ran out of
         # credits", and firing it for a self-imposed per-scanner cap would corrupt that metric.
-        check_scanner_quota(scanner)
+        check_scanner_quota(scanner, org_state)
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
@@ -3161,7 +3168,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # One projection read, excluding the scanner being edited, so the editor adds this estimate on top of a
         # consistent snapshot instead of subtracting a possibly-stale per-scanner field.
-        projection = spend_projection(self.team.organization_id, exclude_scanner_id=scanner_id)
+        projection = spend_projection(
+            self.team.organization_id, exclude_scanner_id=scanner_id, include_free_headroom=True
+        )
 
         return Response(
             EstimateResponseSerializer(
@@ -3173,6 +3182,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
                     "other_enabled_scanners_monthly_credits": projection.scanners_monthly_credits,
                     "active_backfill_credits": projection.backfills_committed_credits,
+                    "free_only_monthly_credits_left": projection.free_only_monthly_credits_left or 0,
                     "sampling_rate": sampling_rate,
                 }
             ).data

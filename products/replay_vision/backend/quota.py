@@ -142,6 +142,9 @@ class SpendProjection:
     scanners_monthly_credits: int
     # Committed-but-unspent credits of active backfills. A one-off charge, not a rate.
     backfills_committed_credits: int
+    # The monthly rate the free credits still cover after the other free-only scanners and backfills.
+    # Only the editor's forecast asks for it, so it is None unless requested.
+    free_only_monthly_credits_left: int | None = None
 
     @property
     def total(self) -> int:
@@ -441,12 +444,27 @@ def compute_scanner_budget(
     return budgets[scanner.id]
 
 
+def _remaining_as_monthly_rate(budget: ScannerBudget | None, now: datetime) -> float:
+    """The 30-day rate whose share of the days left lands exactly on what the budget has left."""
+    if budget is None or budget.remaining is None:
+        return math.inf
+    days_left = max((budget.period_end - now).total_seconds() / 86400, 0)
+    return budget.remaining * ESTIMATE_MONTH_DAYS / days_left if days_left > 0 else math.inf
+
+
+@frozen
+class ScannerRates:
+    total: int
+    # The share of `total` that free-only scanners draw from the org's free credits.
+    free_only: int
+
+
 def _sum_enabled_scanner_estimated_credits(
     organization_id: UUID,
     free_budget: Callable[[], ScannerBudget],
     exclude_scanner_id: UUID | None = None,
     free_credits_claimed: int = 0,
-) -> int:
+) -> ScannerRates:
     """Projected monthly credit spend of the org's enabled scanners' cached estimates.
 
     A capped scanner can only spend what its limit has left this period. Surfaces pro-rate this
@@ -468,10 +486,7 @@ def _sum_enabled_scanner_estimated_credits(
     now = datetime.now(UTC)
 
     def capped_rate(rate: float, budget: ScannerBudget | None) -> float:
-        if budget is None or budget.remaining is None:
-            return rate
-        days_left = max((budget.period_end - now).total_seconds() / 86400, 0)
-        return min(rate, budget.remaining * ESTIMATE_MONTH_DAYS / days_left) if days_left > 0 else rate
+        return min(rate, _remaining_as_monthly_rate(budget, now))
 
     total = 0.0
     free_only_total = 0.0
@@ -481,11 +496,14 @@ def _sum_enabled_scanner_estimated_credits(
             free_only_total += rate
         else:
             total += rate
+    free_only_rate = 0.0
     if has_free_only and period is not None:
         # Free-only backfills already claim part of the pool, so the sweep rate gets only the rest.
         free = free_budget()
-        total += capped_rate(free_only_total, replace(free, credits_used=free.credits_used + free_credits_claimed))
-    return round(total)
+        free_only_rate = capped_rate(
+            free_only_total, replace(free, credits_used=free.credits_used + free_credits_claimed)
+        )
+    return ScannerRates(total=round(total + free_only_rate), free_only=round(free_only_rate))
 
 
 @frozen
@@ -546,12 +564,17 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
 
 
 def spend_projection(
-    organization_id: UUID, exclude_scanner_id: UUID | None = None, *, org_state: QuotaState | None = None
+    organization_id: UUID,
+    exclude_scanner_id: UUID | None = None,
+    *,
+    org_state: QuotaState | None = None,
+    include_free_headroom: bool = False,
 ) -> SpendProjection:
     """The org's rest-of-period commitments, priced.
 
     `exclude_scanner_id` drops one scanner's stored estimate, for the editor's "others plus
-    proposal" forecast. `org_state` is the org's spend when the caller already read it. Callers
+    proposal" forecast. `org_state` is the org's spend when the caller already read it.
+    `include_free_headroom` adds the free-credit rate left for one more free-only scanner. Callers
     never touch the underlying scanner or backfill rows.
     """
 
@@ -564,13 +587,24 @@ def spend_projection(
     free_only_backfills = backfills.free_only
     if free_only_backfills:
         # A free-only backfill pauses when the free credits run out, so it commits only what is left of them.
-        free_left = free_budget().remaining
-        free_only_backfills = min(free_only_backfills, free_left if free_left is not None else free_only_backfills)
+        credits_left = free_budget().remaining
+        free_only_backfills = min(
+            free_only_backfills, credits_left if credits_left is not None else free_only_backfills
+        )
+    rates = _sum_enabled_scanner_estimated_credits(
+        organization_id, free_budget, exclude_scanner_id, free_credits_claimed=free_only_backfills
+    )
+    free_left: int | None = None
+    if include_free_headroom:
+        free = free_budget()
+        pool = replace(free, credits_used=free.credits_used + free_only_backfills)
+        pool_rate = _remaining_as_monthly_rate(pool, datetime.now(UTC))
+        # Past the period end there is no rate to share, and an unbounded rate leaves nothing to cap.
+        free_left = max(0, round(pool_rate - rates.free_only)) if math.isfinite(pool_rate) else 0
     return SpendProjection(
-        scanners_monthly_credits=_sum_enabled_scanner_estimated_credits(
-            organization_id, free_budget, exclude_scanner_id, free_credits_claimed=free_only_backfills
-        ),
+        scanners_monthly_credits=rates.total,
         backfills_committed_credits=backfills.paid + free_only_backfills,
+        free_only_monthly_credits_left=free_left,
     )
 
 

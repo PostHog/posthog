@@ -31,6 +31,7 @@ from products.replay_vision.backend.quota import (
     compute_quota_snapshot,
     compute_scanner_budget,
     compute_scanner_budgets,
+    spend_projection,
 )
 from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
@@ -815,6 +816,23 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
             snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         # 15 of 30 days left: the 500 free credits left, pro-rated back to a 30-day rate, cover both scanners.
         assert snapshot.projected_monthly_credits == 1000
+
+    @parameterized.expand(
+        [
+            ("room_left_after_the_other", 20, 1000 - 300),
+            ("other_uses_it_all", 100, 0),
+        ]
+    )
+    @time_machine.travel("2026-09-16T00:00:00Z", tick=False)
+    def test_free_headroom_is_what_other_free_only_scanners_leave(
+        self, _name: str, other_estimate: int, expected_left: int
+    ) -> None:
+        seed_scanner_spend(self.scanner, FREE_TIER_MONTHLY_CREDITS - 500)
+        self._make_scanner(team=self.team, name="free-other", estimate=other_estimate, free_only=True)
+        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+            projection = spend_projection(self.organization.id, include_free_headroom=True)
+        # The 500 free credits left over 15 days are a 1000-credit monthly rate, shared with the other scanner.
+        assert projection.free_only_monthly_credits_left == expected_left
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")
