@@ -46,7 +46,7 @@ export const scannerPickerLogic = kea<scannerPickerLogicType>([
         scanners: [
             [] as ReplayScannerApi[],
             {
-                loadScanners: async (): Promise<ReplayScannerApi[]> => {
+                loadScanners: async (_, breakpoint): Promise<ReplayScannerApi[]> => {
                     if (!values.currentTeamId) {
                         return []
                     }
@@ -56,6 +56,8 @@ export const scannerPickerLogic = kea<scannerPickerLogicType>([
                             limit: SCANNER_PAGE_SIZE,
                             offset,
                         })
+                        // Stops paging once the picker unmounts or a newer load starts.
+                        breakpoint()
                         scanners.push(...page.results)
                         if (!page.next || page.results.length === 0) {
                             return scanners
