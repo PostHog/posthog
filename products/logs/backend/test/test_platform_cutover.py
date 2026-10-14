@@ -8,7 +8,10 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import get_configuration, upsert_configuration
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_alert_backfill import platform_upsert_of
 from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
 
 NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
@@ -89,6 +92,22 @@ class TestPlatformCutover(APIBaseTest):
         assert result.skipped == reason
         alert.refresh_from_db()
         assert alert.owner == "source"
+
+    def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self) -> None:
+        alert = self._alert()
+        upsert_configuration(platform_upsert_of(alert))
+        with team_scope(self.team.id):
+            copy = platform_testing.copy_of(alert.id)
+            platform_testing.start_firing(copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1))
+        LogsAlertConfiguration.objects.filter(id=alert.id).update(enabled=False, next_check_at=None)
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == CutoverSkip.PLATFORM_FIRING
+        view = get_configuration(team_id=self.team.id, source_kinds=[SourceKind.LOGS], configuration_id=copy.id)
+        assert view is not None and view.enabled
+        with team_scope(self.team.id):
+            assert platform_testing.copy_of(alert.id).owner == "source"
 
     def test_a_second_run_leaves_a_moved_alert_alone(self) -> None:
         self._alert()

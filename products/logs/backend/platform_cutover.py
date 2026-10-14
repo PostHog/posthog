@@ -71,6 +71,7 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
         ):
             return CutoverSkip.CHECK_DUE
 
+        savepoint = transaction.savepoint()
         upsert_configuration(platform_upsert_of(alert))
         taken = take_ownership(
             PlatformOwnershipHandover(
@@ -84,7 +85,11 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
             )
         )
         if not taken:
+            # The copy stays as live delivery left it. A copy disabled here would drop out of
+            # discovery and never resolve the firing it is inside.
+            transaction.savepoint_rollback(savepoint)
             return CutoverSkip.PLATFORM_FIRING
+        transaction.savepoint_commit(savepoint)
         LogsAlertConfiguration.objects.filter(id=alert.id).update(
             owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
         )

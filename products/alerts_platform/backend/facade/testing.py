@@ -64,6 +64,16 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     return PlatformAlertConfiguration.objects.filter(id__in=list(configuration_ids), next_check_at__lte=at).count()
 
 
+def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
+    """Put a configuration's instance inside a firing, as live delivery can leave one."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key="",
+        defaults={"state": "firing", "firing_started_at": at},
+    )
+
+
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
     row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
