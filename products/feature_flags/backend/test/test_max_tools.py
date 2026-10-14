@@ -61,7 +61,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert "Successfully created" in result
         assert artifact["flag_key"] == "test-flag"
         assert artifact["flag_name"] == "Test Flag"
-        assert "/feature_flags/" in artifact["url"]
+        assert "/feature-flags/" in artifact["url"]
 
         flag = await FeatureFlag.objects.aget(key="test-flag", team=self.team)
         assert flag.name == "Test Flag"
