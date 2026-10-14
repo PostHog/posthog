@@ -439,11 +439,12 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "usage": usage,
     }
     response = httpx.Response(200, stream=httpx.ByteStream(json.dumps(response_body).encode()))
+    prompt = "Is the response polite? Return N/A when no response text is supplied."
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
-        "evaluation_config": {"prompt": "Is the response polite? Return N/A when no response text is supplied."},
+        "evaluation_config": {"prompt": prompt},
     }
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
@@ -483,7 +484,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         assert "those instructions require N/A" in instructions
         assert "essential context or evidence is missing" in instructions
         assert "even if the result would be a fail" in instructions
-        assert instructions.endswith(evaluation["evaluation_config"]["prompt"])
+        assert instructions.endswith(prompt)
         assert result["applicable"] is (applicability >= 0.5)
     else:
         assert "applicable" not in sent["questions"]
