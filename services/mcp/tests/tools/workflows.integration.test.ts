@@ -13,7 +13,7 @@ import {
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from '@/tools/workflows/batch'
-import { workflowsArchive, workflowsDisable, workflowsEnable } from '@/tools/workflows/lifecycle'
+import { workflowsDisable, workflowsEnable } from '@/tools/workflows/lifecycle'
 
 describe('Workflows', { concurrent: false }, () => {
     let context: Context
@@ -29,7 +29,6 @@ describe('Workflows', { concurrent: false }, () => {
     const getInvocationTool = GENERATED_TOOLS['workflows-get-invocation']!()
     const enableTool = workflowsEnable()
     const disableTool = workflowsDisable()
-    const archiveTool = workflowsArchive()
     const blastRadiusTool = workflowsBlastRadius()
     const runBatchTool = workflowsRunBatch()
     const scheduleCreateTool = workflowsScheduleCreate()
@@ -48,7 +47,7 @@ describe('Workflows', { concurrent: false }, () => {
     afterEach(async () => {
         // Hard delete is intentionally not exposed as an MCP tool, but the underlying API
         // endpoint still exists. Call it directly for teardown so we actually remove the rows
-        // instead of leaving archived workflows behind in the shared integration env.
+        // instead of leaving workflows behind in the shared integration env.
         const projectId = await context.stateManager.getProjectId()
         for (const id of createdWorkflowIds) {
             try {
@@ -446,14 +445,6 @@ describe('Workflows', { concurrent: false }, () => {
             expect(disabled.status).toBe('draft')
         })
 
-        it('should archive a draft workflow', async () => {
-            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
-            createdWorkflowIds.push(created.id)
-
-            const archived = parseToolResponse(await archiveTool.handler(context, { id: created.id }))
-            expect(archived.status).toBe('archived')
-        })
-
         it('should treat enabling an already-active workflow as a no-op', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
             createdWorkflowIds.push(created.id)
@@ -465,7 +456,7 @@ describe('Workflows', { concurrent: false }, () => {
     })
 
     describe('full lifecycle', () => {
-        it('should create → enable → disable → archive', async () => {
+        it('should create → enable → disable', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
             const id = created.id
             createdWorkflowIds.push(id)
@@ -475,9 +466,6 @@ describe('Workflows', { concurrent: false }, () => {
 
             const disabled = parseToolResponse(await disableTool.handler(context, { id }))
             expect(disabled.status).toBe('draft')
-
-            const archived = parseToolResponse(await archiveTool.handler(context, { id }))
-            expect(archived.status).toBe('archived')
         })
     })
 

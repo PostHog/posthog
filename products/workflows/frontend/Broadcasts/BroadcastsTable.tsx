@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { deleteDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -37,7 +37,7 @@ export function BroadcastsTable(): JSX.Element {
         useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
-    const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
+    const { setFilters, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
@@ -104,8 +104,8 @@ export function BroadcastsTable(): JSX.Element {
                 return (
                     <More
                         overlay={
-                            isArchived ? (
-                                <>
+                            <>
+                                {isArchived && (
                                     <LemonButton
                                         fullWidth
                                         onClick={() => restoreBroadcast(item)}
@@ -114,30 +114,20 @@ export function BroadcastsTable(): JSX.Element {
                                     >
                                         Restore as draft
                                     </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => deleteBroadcast(item)}
-                                        disabledReason={accessReason}
-                                        data-attr="broadcast-row-delete"
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                </>
-                            ) : (
+                                )}
                                 <LemonButton
                                     fullWidth
                                     status="danger"
-                                    onClick={() => archiveBroadcast(item)}
+                                    onClick={() => deleteBroadcast(item)}
                                     disabledReason={
                                         accessReason ??
-                                        archiveDisabledReason(rowDetailsById[item.id]?.batchJobStatuses ?? null)
+                                        deleteDisabledReason(rowDetailsById[item.id]?.batchJobStatuses ?? null)
                                     }
-                                    data-attr="broadcast-row-archive"
+                                    data-attr="broadcast-row-delete"
                                 >
-                                    Archive
+                                    Delete
                                 </LemonButton>
-                            )
+                            </>
                         }
                     />
                 )

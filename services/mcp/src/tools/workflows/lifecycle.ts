@@ -14,7 +14,7 @@ type LifecycleResult = WithPostHogUrl<Schemas.HogFlow>
 const patchStatus = async (
     context: Context,
     params: LifecycleParams,
-    status: 'active' | 'draft' | 'archived'
+    status: 'active' | 'draft'
 ): Promise<LifecycleResult> => {
     const projectId = await context.stateManager.getProjectId()
     const result = await context.api.request<Schemas.HogFlow>({
@@ -37,11 +37,4 @@ export const workflowsDisable = (): ToolBase<typeof LifecycleSchema, LifecycleRe
         name: 'workflows-disable',
         schema: LifecycleSchema,
         handler: (context, params) => patchStatus(context, params, 'draft'),
-    })
-
-export const workflowsArchive = (): ToolBase<typeof LifecycleSchema, LifecycleResult> =>
-    withUiApp('workflow', {
-        name: 'workflows-archive',
-        schema: LifecycleSchema,
-        handler: (context, params) => patchStatus(context, params, 'archived'),
     })

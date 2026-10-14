@@ -310,7 +310,7 @@ export interface workflowLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
-    archiveWorkflow: (workflow: HogFlow) => {
+    deleteWorkflow: (workflow: HogFlow) => {
         workflow: HogFlow
     } // workflowsLogic
     autoSaveWorkflow: () => {
@@ -3110,7 +3110,7 @@ export const workflowLogic = kea<workflowLogicType>([
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
-        actions: [workflowsLogic, ['archiveWorkflow'], resourceEditedLogic, ['resourceEdited']],
+        actions: [workflowsLogic, ['deleteWorkflow'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({

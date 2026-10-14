@@ -484,7 +484,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived"
             ),
         origin_product: zod
             .union([
@@ -889,7 +889,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived"
             ),
         trigger_masking: zod
             .union([
@@ -1290,7 +1290,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived"
             ),
         trigger_masking: zod
             .union([
@@ -1892,7 +1892,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
                 .optional()
                 .describe(
-                    'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                    "draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived"
                 ),
             origin_product: zod
                 .union([
@@ -2774,7 +2774,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived')
             .optional()
             .describe(
-                'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                "draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived"
             ),
         origin_product: zod
             .union([

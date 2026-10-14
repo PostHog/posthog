@@ -21,7 +21,7 @@ import { useBroadcastAgentPanel } from './useBroadcastAgentPanel'
 export function BroadcastWizard(): JSX.Element {
     const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
-    const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
+    const { setStep, prevStep, continueStep, launchBroadcast, deleteBroadcast } = useActions(broadcastWizardLogic)
     const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
     useBroadcastAgentPanel()
 
@@ -30,18 +30,18 @@ export function BroadcastWizard(): JSX.Element {
             <BroadcastSceneHeader
                 canEdit
                 actions={
-                    // A draft not saved yet has nothing to archive.
+                    // A draft not saved yet has nothing to delete.
                     broadcastId ? (
                         <LemonMenu
                             items={[
                                 {
-                                    label: 'Archive',
+                                    label: 'Delete',
                                     status: 'danger',
-                                    onClick: archiveBroadcast,
+                                    onClick: deleteBroadcast,
                                     disabledReason:
                                         manageDisabledReason(broadcast?.user_access_level) ??
                                         (saving || launching ? 'Wait for the broadcast to finish saving' : undefined),
-                                    'data-attr': 'broadcast-archive',
+                                    'data-attr': 'broadcast-delete',
                                 },
                             ]}
                         >

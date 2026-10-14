@@ -15142,7 +15142,7 @@
         }
     },
     "workflows-update": {
-        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

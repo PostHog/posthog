@@ -655,7 +655,7 @@ export interface HogFlowApi {
     /** Optional description. */
     description?: string
     readonly version: number
-    /** draft (no execution), active (live), archived (disabled).
+    /** draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.
      *
      * * `draft` - Draft
      * * `active` - Active
@@ -756,7 +756,7 @@ export interface HogFlowUpdateApi {
     /** Optional description. */
     description?: string
     readonly version: number
-    /** draft (no execution), active (live), archived (disabled).
+    /** draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.
      *
      * * `draft` - Draft
      * * `active` - Active
@@ -857,7 +857,7 @@ export interface PatchedHogFlowUpdateApi {
     /** Optional description. */
     description?: string
     readonly version?: number
-    /** draft (no execution), active (live), archived (disabled).
+    /** draft (no execution) or active (live). Older workflows can still be archived, but a workflow can't be moved to archived. Disable or delete it instead.
      *
      * * `draft` - Draft
      * * `active` - Active

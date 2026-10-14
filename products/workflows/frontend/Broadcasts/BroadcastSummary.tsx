@@ -31,7 +31,7 @@ import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { deleteDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -278,7 +278,7 @@ export function BroadcastSummary(): JSX.Element {
         goalEnabled,
         conversion,
     } = useValues(broadcastWizardLogic)
-    const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
+    const { moveToDraft, duplicateBroadcast, setSummaryTab, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
@@ -344,24 +344,15 @@ export function BroadcastSummary(): JSX.Element {
                   disabledReason: accessReason,
                   'data-attr': 'broadcast-restore',
               }
-            : {
-                  label: 'Archive',
-                  status: 'danger' as const,
-                  onClick: archiveBroadcast,
-                  disabledReason:
-                      accessReason ??
-                      archiveDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
-                  'data-attr': 'broadcast-archive',
-              },
-        isArchived
-            ? {
-                  label: 'Delete',
-                  status: 'danger' as const,
-                  onClick: deleteBroadcast,
-                  disabledReason: accessReason,
-                  'data-attr': 'broadcast-delete',
-              }
             : null,
+        {
+            label: 'Delete',
+            status: 'danger' as const,
+            onClick: deleteBroadcast,
+            disabledReason:
+                accessReason ?? deleteDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
+            'data-attr': 'broadcast-delete',
+        },
     ]
     const actionsMenu = (
         <LemonMenu items={actionItems}>

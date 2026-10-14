@@ -71,7 +71,7 @@ import {
     parseBroadcastAudiencePrefill,
     SOURCE_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
-import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
+import { confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -289,9 +289,6 @@ export interface broadcastWizardLogicActions {
     ) => {
         base: HogFlowApi | null
         broadcast: HogFlowApi
-    }
-    archiveBroadcast: () => {
-        value: true
     }
     collapseRun: (runId: string) => {
         runId: string
@@ -648,7 +645,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraft: true,
         moveToDraftFinished: true,
         duplicateBroadcast: true,
-        archiveBroadcast: true,
         restoreBroadcast: true,
         deleteBroadcast: true,
         duplicateBroadcastFinished: true,
@@ -1853,11 +1849,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 )
             }
             actions.moveToDraftFinished()
-        },
-        archiveBroadcast: () => {
-            if (values.currentProjectId && values.broadcast) {
-                confirmArchiveBroadcast(String(values.currentProjectId), values.broadcast, actions.loadBroadcast)
-            }
         },
         restoreBroadcast: async () => {
             if (values.currentProjectId && values.broadcast) {

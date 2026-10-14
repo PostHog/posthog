@@ -15449,20 +15449,6 @@
         },
         "feature_flag": "engineering-analytics"
     },
-    "workflows-archive": {
-        "description": "Archive a workflow — sets its status to 'archived', retiring it from active use while keeping it readable via workflows-list / workflows-get. Use when the user asks to archive, retire, or clean up a workflow they no longer run; the workflow must be a draft or disabled first. Not a delete: no content or history is removed. Adjacent intents: workflows-enable takes a workflow live; workflows-discard-draft throws away staged edits without changing status.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Archive workflow",
-        "title": "Archive workflow",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "workflows-blast-radius": {
         "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch, and before schedule-create on a workflow with a 'batch' trigger. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed until they say yes. A 'schedule' trigger has no audience, so skip this and call schedule-create directly. The response's confirm_token signs the sized audience - pass it to workflows-run-batch along with the acknowledged count; it expires in 15 minutes and goes stale if the audience filters change.",
         "category": "Workflows",
@@ -15872,7 +15858,7 @@
         }
     },
     "workflows-update": {
-        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion, trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow, content fields stage a draft (published with workflows-publish) while name/description apply immediately. Status changes go through workflows-enable.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

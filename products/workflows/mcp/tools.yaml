@@ -438,7 +438,7 @@ tools:
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
             content fields stage a draft (published with workflows-publish) while name/description apply immediately.
-            Status changes go through workflows-enable / workflows-archive.
+            Status changes go through workflows-enable.
         exclude_params:
             - status
             - actions

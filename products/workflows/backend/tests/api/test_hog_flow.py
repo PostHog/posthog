@@ -2298,16 +2298,15 @@ class TestHogFlowAPI(APIBaseTest):
         assert activate.status_code == 200, activate.json()
         return flow_id
 
-    @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
-    def test_mcp_can_disable_active_workflow(self, _name, target_status):
+    def test_mcp_can_disable_active_workflow(self):
         flow_id = self._create_active_hog_flow()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"status": target_status},
+            {"status": "draft"},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == target_status
+        assert response.json()["status"] == "draft"
 
     def test_mcp_can_modify_draft_workflow(self):
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -2372,7 +2371,7 @@ class TestHogFlowAPI(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 400, response.json()
-        assert "workflows-enable / workflows-disable / workflows-archive" in response.json()["detail"]
+        assert "workflows-enable / workflows-disable" in response.json()["detail"]
 
     def test_non_mcp_can_mix_status_with_other_field_updates(self):
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -5148,42 +5147,24 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.delete(f"/api/projects/{another_team.id}/hog_flows/{flow_id}")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_hog_flow_draft_invalid_can_be_archived(self):
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {
-                "type": "event",
-                "filters": {
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                },
-            },
-        }
-        incomplete_action = {
-            "id": "action_1",
-            "name": "action_1",
-            "type": "function",
-            "config": {},
-        }
+    @parameterized.expand([("draft",), ("active",)])
+    def test_hog_flow_cannot_be_archived(self, flow_status):
+        flow_id = self._create_flow(flow_status=flow_status)
 
-        hog_flow = {
-            "name": "Draft to Archive Flow",
-            "status": "draft",
-            "actions": [trigger_action, incomplete_action],
-        }
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "archived"})
 
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 201, response.json()
-        flow_id = response.json()["id"]
-        assert response.json()["status"] == "draft"
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "status"
+        assert HogFlow.objects.get(id=flow_id).status == flow_status
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"status": "archived"},
-        )
+    def test_archived_hog_flow_can_be_restored_to_draft(self):
+        flow_id = self._create_flow()
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ARCHIVED)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "archived"
+        assert response.json()["status"] == "draft"
 
     def test_hog_flow_draft_to_active_rejects_incomplete(self):
         trigger_action = {
@@ -5231,11 +5212,7 @@ class TestHogFlowAPI(APIBaseTest):
         return response.json()["id"]
 
     def _archive_flow(self, flow_id: str) -> None:
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"status": "archived"},
-        )
-        assert response.status_code == 200, response.json()
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ARCHIVED)
 
     def test_bulk_delete_workflows_of_any_status(self):
         ids = [self._create_flow(name=f"Flow {status}", flow_status=status) for status in ("draft", "active")]
@@ -5328,7 +5305,7 @@ class TestHogFlowAPI(APIBaseTest):
         create_response = self.client.post(f"/api/projects/{another_team.id}/hog_flows", hog_flow)
         assert create_response.status_code == 201
         flow_id = create_response.json()["id"]
-        self.client.patch(f"/api/projects/{another_team.id}/hog_flows/{flow_id}", {"status": "archived"})
+        HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ARCHIVED)
 
         self.client.force_login(self.user)
         response = self.client.post(

@@ -71,7 +71,7 @@ import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from
 // injection reaching the agent would just ignore it. Register this only once edits made while disabled
 // stage a draft too, or re-enabling a workflow edited while disabled requires publish confirmation.
 // The factory stays in lifecycle.ts for that day.
-import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
+import { workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -137,10 +137,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sync-logs': externalDataSyncLogs,
 
-    // Workflows lifecycle (thin wrappers over hog_flows_partial_update so MCP gets
-    // an idiomatic enable/disable/archive surface without three new REST endpoints).
+    // Workflows lifecycle (a thin wrapper over hog_flows_partial_update so MCP gets
+    // an idiomatic enable surface without a new REST endpoint).
     'workflows-enable': workflowsEnable,
-    'workflows-archive': workflowsArchive,
 
     // Workflows batch (hand-rolled: blast-radius sizing + echo-back guard before fan-out,
     // composing the existing user_blast_radius / batch_jobs / schedules endpoints).

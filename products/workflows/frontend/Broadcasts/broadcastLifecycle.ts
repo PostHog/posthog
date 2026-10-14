@@ -15,7 +15,7 @@ export interface ManagedBroadcast {
     name?: string | null
 }
 
-/** Archive, restore and delete need editor access to the broadcast, as they do for a workflow. */
+/** Restore and delete need editor access to the broadcast, as they do for a workflow. */
 export function manageDisabledReason(userAccessLevel: string | null | undefined): string | undefined {
     return (
         getAccessControlDisabledReason(
@@ -29,15 +29,15 @@ export function manageDisabledReason(userAccessLevel: string | null | undefined)
 const RUNNING_BATCH_JOB_STATUSES = ['waiting', 'queued', 'active']
 
 /**
- * Archiving only cancels a running send's people as they come up, so a send in flight is stopped first.
+ * Deleting doesn't stop a send that is already running, so a send in flight has to finish first.
  * Null means the runs haven't loaded, and a send could be running.
  */
-export function archiveDisabledReason(batchJobStatuses: (string | null | undefined)[] | null): string | undefined {
+export function deleteDisabledReason(batchJobStatuses: (string | null | undefined)[] | null): string | undefined {
     if (batchJobStatuses === null) {
         return 'Checking whether a send is running'
     }
     return batchJobStatuses.some((status) => RUNNING_BATCH_JOB_STATUSES.includes(status ?? ''))
-        ? 'This broadcast is sending. Wait for it to finish before archiving it.'
+        ? 'This broadcast is sending. Wait for it to finish before deleting it.'
         : undefined
 }
 
@@ -47,37 +47,6 @@ function label(broadcast: ManagedBroadcast): string {
 
 function errorDetail(error: any): string {
     return error?.detail || error?.message || 'unknown error'
-}
-
-export function confirmArchiveBroadcast(projectId: string, broadcast: ManagedBroadcast, onDone: () => void): void {
-    LemonDialog.open({
-        width: 500,
-        title: 'Archive broadcast?',
-        description: `"${label(broadcast)}" moves to the archived list and any schedule stops sending. You can restore it later as a draft.`,
-        primaryButton: {
-            children: 'Archive',
-            type: 'primary',
-            status: 'danger',
-            'data-attr': 'broadcast-archive-confirm',
-            onClick: async () => {
-                try {
-                    // A send can start between opening the menu and confirming, so the runs are checked again here.
-                    const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
-                    const runningReason = archiveDisabledReason(jobs.map((job) => job.status))
-                    if (runningReason) {
-                        lemonToast.error(runningReason)
-                        return
-                    }
-                    await hogFlowsPartialUpdate(projectId, broadcast.id, { status: 'archived' })
-                    lemonToast.success(`Archived "${label(broadcast)}"`)
-                    onDone()
-                } catch (error: any) {
-                    lemonToast.error(`Couldn't archive the broadcast: ${errorDetail(error)}`)
-                }
-            },
-        },
-        secondaryButton: { children: 'Cancel' },
-    })
 }
 
 export async function restoreBroadcast(
@@ -106,6 +75,13 @@ export function confirmDeleteBroadcast(projectId: string, broadcast: ManagedBroa
             'data-attr': 'broadcast-delete-confirm',
             onClick: async () => {
                 try {
+                    // A send can start between opening the menu and confirming, so the runs are checked again here.
+                    const jobs = await hogFlowsBatchJobsList(projectId, broadcast.id)
+                    const runningReason = deleteDisabledReason(jobs.map((job) => job.status))
+                    if (runningReason) {
+                        lemonToast.error(runningReason)
+                        return
+                    }
                     await hogFlowsDestroy(projectId, broadcast.id)
                     lemonToast.success(`Deleted "${label(broadcast)}"`)
                     onDone()

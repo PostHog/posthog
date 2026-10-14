@@ -794,21 +794,19 @@ class TestWorkflowProposals(APIBaseTest):
         assert scout is not None
         assert {field: getattr(scout, field) for field in kept} == kept
 
-    @parameterized.expand([("archived",), ("draft",)])
-    def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag, status):
+    def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag):
         flow_id = self._create_active_flow(optimize=False)
         self._toggle(flow_id, True)
         assert self._suggestions_scout() is not None
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": status})
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
         assert response.status_code == 200, response.json()
         assert self._suggestions_scout() is None
 
-        if status == "draft":
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
-            assert response.status_code == 200, response.json()
-            assert self._suggestions_scout() is not None
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 200, response.json()
+        assert self._suggestions_scout() is not None
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -911,7 +909,7 @@ class TestWorkflowProposals(APIBaseTest):
         )
 
         archived = self._create_active_flow()
-        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{archived}", {"status": "archived"})
+        HogFlow.objects.filter(id=archived).update(status=HogFlow.State.ARCHIVED)
 
         listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows?optimization_enabled=true")
 

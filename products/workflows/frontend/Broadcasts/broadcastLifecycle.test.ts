@@ -1,6 +1,6 @@
-import { archiveDisabledReason } from './broadcastLifecycle'
+import { deleteDisabledReason } from './broadcastLifecycle'
 
-describe('archiveDisabledReason', () => {
+describe('deleteDisabledReason', () => {
     it.each([
         { runs: 'runs not loaded yet', statuses: null, blocked: true },
         { runs: 'no runs', statuses: [], blocked: false },
@@ -8,7 +8,7 @@ describe('archiveDisabledReason', () => {
         { runs: 'rows whose runs have not loaded', statuses: [undefined], blocked: false },
         { runs: 'a queued run', statuses: ['queued'], blocked: true },
         { runs: 'an older run still sending', statuses: ['completed', 'active'], blocked: true },
-    ])('with $runs blocks archiving: $blocked', ({ statuses, blocked }) => {
-        expect(!!archiveDisabledReason(statuses)).toBe(blocked)
+    ])('with $runs blocks deleting: $blocked', ({ statuses, blocked }) => {
+        expect(!!deleteDisabledReason(statuses)).toBe(blocked)
     })
 })

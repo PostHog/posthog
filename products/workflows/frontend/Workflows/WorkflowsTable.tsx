@@ -139,7 +139,6 @@ export function WorkflowsTable(): JSX.Element {
         loadWorkflows,
         toggleWorkflowStatus,
         duplicateWorkflow,
-        archiveWorkflow,
         restoreWorkflow,
         deleteWorkflow,
         deleteSelectedWorkflows,
@@ -348,24 +347,21 @@ export function WorkflowsTable(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonDivider />
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.Workflow}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={workflow.user_access_level}
-                                >
-                                    <LemonButton
-                                        data-attr="workflow-archive-restore"
-                                        fullWidth
-                                        status={workflow.status === 'archived' ? 'default' : 'danger'}
-                                        onClick={() => {
-                                            workflow.status === 'archived'
-                                                ? restoreWorkflow(workflow)
-                                                : archiveWorkflow(workflow)
-                                        }}
+                                {workflow.status === 'archived' && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Workflow}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={workflow.user_access_level}
                                     >
-                                        {workflow.status === 'archived' ? 'Restore' : 'Archive'}
-                                    </LemonButton>
-                                </AccessControlAction>
+                                        <LemonButton
+                                            data-attr="workflow-archive-restore"
+                                            fullWidth
+                                            onClick={() => restoreWorkflow(workflow)}
+                                        >
+                                            Restore
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Workflow}
                                     minAccessLevel={AccessControlLevel.Editor}

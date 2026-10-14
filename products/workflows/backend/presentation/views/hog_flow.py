@@ -2692,7 +2692,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     status = serializers.ChoiceField(
         choices=HogFlowState.choices,
         required=False,
-        help_text="draft (no execution), active (live), archived (disabled).",
+        help_text=(
+            "draft (no execution) or active (live). Older workflows can still be archived, but a workflow "
+            "can't be moved to archived. Disable or delete it instead."
+        ),
     )
     trigger_masking = HogFlowMaskingSerializer(
         required=False,
@@ -2984,6 +2987,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
         ]
+
+    def validate_status(self, value: str) -> str:
+        instance = cast(Optional[WorkflowEditState], self.instance)
+        if value == HogFlowState.ARCHIVED and (instance is None or instance.status != HogFlowState.ARCHIVED):
+            raise serializers.ValidationError("Workflows can't be archived. Disable or delete the workflow instead.")
+        return value
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4715,8 +4724,8 @@ class HogFlowViewSet(
             # status + field payload is rejected so MCP can't sneak a transition through a field update.
             if has_status and has_non_status:
                 raise exceptions.ValidationError(
-                    "Status changes via MCP must use workflows-enable / workflows-disable / "
-                    "workflows-archive — they can't be combined with other field updates."
+                    "Status changes via MCP must use workflows-enable / workflows-disable — they can't be "
+                    "combined with other field updates."
                 )
 
             # Whole-graph replacement through a plain update wipes any step the payload omits - a

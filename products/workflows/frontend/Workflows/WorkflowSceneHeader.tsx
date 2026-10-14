@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
+import { IconClock, IconCopy, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -51,7 +51,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         submitWorkflow,
         setWorkflowValue,
         duplicate,
-        archiveWorkflow,
+        deleteWorkflow,
         discardChanges,
         publishDraft,
         discardDraft,
@@ -105,13 +105,13 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             {({ disabledReason }) => (
                                 <SceneMenuBarItem
                                     variant="destructive"
-                                    onClick={() => archiveWorkflow(workflow)}
-                                    data-attr="workflow-menubar-archive"
+                                    onClick={() => deleteWorkflow(workflow)}
+                                    data-attr="workflow-menubar-delete"
                                     disabled={!!disabledReason}
                                     tooltip={disabledReason ?? undefined}
                                 >
-                                    <IconArchive />
-                                    Archive
+                                    <IconTrash />
+                                    Delete
                                 </SceneMenuBarItem>
                             )}
                         </AccessControlAction>
@@ -279,14 +279,14 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             {({ disabledReason }) => (
                                                 <ButtonPrimitive
                                                     menuItem
-                                                    onClick={() => archiveWorkflow(workflow)}
+                                                    onClick={() => deleteWorkflow(workflow)}
                                                     variant="danger"
-                                                    data-attr="workflow-archive-btn"
+                                                    data-attr="workflow-delete-btn"
                                                     disabled={!!disabledReason}
                                                     tooltip={disabledReason ?? undefined}
                                                 >
-                                                    <IconArchive />
-                                                    Archive
+                                                    <IconTrash />
+                                                    Delete
                                                 </ButtonPrimitive>
                                             )}
                                         </AccessControlAction>

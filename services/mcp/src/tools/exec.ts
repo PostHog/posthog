@@ -620,7 +620,6 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ['loops-create', '"workflows-create"'],
             ['loops-create-execute', '"workflows-create"'],
             ['loops-create-prepare', '"workflows-create"'],
-            ['loops-destroy', '"workflows-archive"'],
             ['loops-list', '"workflows-list"'],
             ['loops-partial-update', '"workflows-patch-graph" or "workflows-update"'],
             ['loops-preview-create', '"workflows-test-run"'],
@@ -632,6 +631,10 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
                 `Tool "${removed}" was removed. Loops run on workflows: read the building-loops skill, then use ${replacement} with origin_product "loops".`,
         ])
     ),
+    'loops-destroy': () =>
+        'Tool "loops-destroy" was removed. Loops run on workflows, and workflows can no longer be archived. Ask the user to delete the loop in PostHog.',
+    'workflows-archive': () =>
+        'Tool "workflows-archive" was removed because workflows can no longer be archived. Ask the user to delete the workflow in PostHog.',
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
     'loops-runs-retrieve': () =>
