@@ -18,6 +18,16 @@ class FirstTimeForUserDataWarehouseConfig:
     """The row identifier, e.g. ast.Field(chain=[id_field]); becomes argMin(<id_field>, timestamp)."""
 
 
+PERSON_MEMBERSHIP_OPS = (
+    ast.CompareOperationOp.In,
+    ast.CompareOperationOp.NotIn,
+    ast.CompareOperationOp.GlobalIn,
+    ast.CompareOperationOp.GlobalNotIn,
+    ast.CompareOperationOp.InCohort,
+    ast.CompareOperationOp.NotInCohort,
+)
+
+
 class QueryAlternator:
     """Allows query_builder to modify the query without having to expose the whole AST interface"""
 
@@ -91,17 +101,51 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         dwh_config: FirstTimeForUserDataWarehouseConfig | None = None,
         math_group_type_index: int | None = None,
     ):
-        self._filters = filters
-        self._filters_with_breakdown = filters_with_breakdown
         self._is_first_matching_event = is_first_matching_event
         self._dwh_config = dwh_config
         self._math_group_type_index = math_group_type_index
+        person_filters = self._person_membership_filters(filters)
+        self._filters = self._without(filters, person_filters)
+        self._filters_with_breakdown = self._without(filters_with_breakdown, person_filters)
         query.select = self._select_expr(date_from)
         query.select_from = self._select_from_expr(ratio)
-        query.where = self._where_expr(date_to, event_or_action_filter, self._matching_event_prefilter())
+        query.where = self._where_expr(
+            date_to, event_or_action_filter, self._matching_event_prefilter(), person_filters
+        )
         query.group_by = self._group_by_expr()
         query.having = self._having_expr()
         super().__init__(query)
+
+    @staticmethod
+    def _conjuncts(expr: ast.Expr) -> list[ast.Expr]:
+        if isinstance(expr, ast.And):
+            return [
+                conjunct for inner in expr.exprs for conjunct in FirstTimeForUserEventsQueryAlternator._conjuncts(inner)
+            ]
+        return [expr]
+
+    def _person_membership_filters(self, filters: ast.Expr | None) -> list[ast.Expr]:
+        # A set membership check inside minIf() puts the set name into the aggregate column name. Distributed
+        # queries can hash that set differently on the initiator and the shards, and then fail with
+        # THERE_IS_NO_COLUMN. A check on person_id has one value per person_id group, so WHERE gives the same result.
+        if filters is None or self._dwh_config is not None or self._math_group_type_index is not None:
+            return []
+        return [
+            conjunct
+            for conjunct in self._conjuncts(filters)
+            if isinstance(conjunct, ast.CompareOperation)
+            and conjunct.op in PERSON_MEMBERSHIP_OPS
+            and isinstance(conjunct.left, ast.Field)
+            and conjunct.left.chain == ["person_id"]
+        ]
+
+    def _without(self, expr: ast.Expr | None, removed: list[ast.Expr]) -> ast.Expr | None:
+        if expr is None or not removed:
+            return expr
+        remaining = [conjunct for conjunct in self._conjuncts(expr) if conjunct not in removed]
+        if not remaining:
+            return None
+        return remaining[0] if len(remaining) == 1 else ast.And(exprs=remaining)
 
     def _select_expr(self, date_from: ast.Expr):
         min_timestamp_with_condition_filters = (
@@ -156,12 +200,15 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         date_to: ast.Expr,
         event_or_action_filter: ast.Expr | None = None,
         prefilter: ast.Expr | None = None,
+        person_filters: list[ast.Expr] | None = None,
     ) -> ast.Expr:
         where_filters = [date_to]
         if event_or_action_filter is not None:
             where_filters.append(event_or_action_filter)
         if prefilter is not None:
             where_filters.append(prefilter)
+        if person_filters:
+            where_filters.extend(person_filters)
 
         if len(where_filters) > 1:
             where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))

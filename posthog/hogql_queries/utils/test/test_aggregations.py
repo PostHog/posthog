@@ -1,5 +1,7 @@
 from typing import cast
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
@@ -232,6 +234,55 @@ class TestFirstTimeForUserEventsQueryAlternator:
             ast.Field(chain=["timestamp"]),
             ast.And(exprs=[date_from, filters_with_breakdown]),
         ]
+
+    @parameterized.expand(
+        [
+            ("not_in_cohort", "person_id NOT IN COHORT 5", False),
+            ("in_cohort_first_matching", "person_id IN COHORT 5", True),
+            ("not_in_subquery", "person_id NOT IN (SELECT person_id FROM cohort_people)", False),
+        ]
+    )
+    def test_person_membership_filters_move_from_min_if_to_where(
+        self, _name: str, person_filter_sql: str, is_first_matching_event: bool
+    ) -> None:
+        query = ast.SelectQuery(select=[])
+        date_from, date_to = parse_expr("1 = 1"), parse_expr("2 = 2")
+        event_filter, person_filter = parse_expr("3 = 3"), parse_expr(person_filter_sql)
+        filters = ast.And(exprs=[event_filter, ast.And(exprs=[person_filter])])
+
+        FirstTimeForUserEventsQueryAlternator(
+            query,
+            date_from,
+            date_to,
+            filters=filters,
+            filters_with_breakdown=ast.And(exprs=[filters, parse_expr("4 = 4")]),
+            is_first_matching_event=is_first_matching_event,
+        ).build()
+
+        assert isinstance(query.where, ast.And)
+        assert person_filter in query.where.exprs
+        for select in query.select:
+            assert isinstance(select, ast.Alias)
+            assert person_filter.to_hogql() not in select.expr.to_hogql()
+        assert isinstance(query.select[1], ast.Alias)
+        assert isinstance(query.select[1].expr, ast.Call)
+        assert query.select[1].expr.args[1] == ast.And(
+            exprs=[date_from, ast.And(exprs=[event_filter, parse_expr("4 = 4")])]
+        )
+
+    def test_person_membership_filter_stays_in_min_if_when_grouping_by_group(self) -> None:
+        query = ast.SelectQuery(select=[])
+        date_from, date_to = parse_expr("1 = 1"), parse_expr("2 = 2")
+        filters = parse_expr("person_id NOT IN COHORT 5")
+
+        FirstTimeForUserEventsQueryAlternator(
+            query, date_from, date_to, filters=filters, math_group_type_index=0
+        ).build()
+
+        assert query.where == date_to
+        assert isinstance(query.select[1], ast.Alias)
+        assert isinstance(query.select[1].expr, ast.Call)
+        assert query.select[1].expr.args[1] == ast.And(exprs=[date_from, filters])
 
     def test_query_with_ratio_expr(self):
         query = ast.SelectQuery(select=[])

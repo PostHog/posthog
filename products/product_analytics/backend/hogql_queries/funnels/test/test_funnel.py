@@ -27,6 +27,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    CohortPropertyFilter,
     CompareFilter,
     DateRange,
     EventPropertyFilter,
@@ -4929,6 +4930,38 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert query.dateRange is not None
         query.dateRange.date_from = "2024-03-19"
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual(results[1]["count"], 1)
+
+    @parameterized.expand([(FunnelMathType.FIRST_TIME_FOR_USER,), (FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,)])
+    def test_first_time_for_user_funnel_with_negated_cohort(self, math: FunnelMathType) -> None:
+        _create_person(distinct_ids=["excluded"], team=self.team, properties={"email": "excluded@example.com"})
+        _create_person(distinct_ids=["included"], team=self.team, properties={"email": "included@example.com"})
+        _create_person(distinct_ids=["returning"], team=self.team, properties={"email": "returning@example.com"})
+        for distinct_id in ["excluded", "included", "returning"]:
+            _create_event(team=self.team, event="event1", distinct_id=distinct_id, timestamp="2024-03-21T13:00:00Z")
+            _create_event(team=self.team, event="event2", distinct_id=distinct_id, timestamp="2024-03-22T13:00:00Z")
+        _create_event(team=self.team, event="event1", distinct_id="returning", timestamp="2024-03-01T13:00:00Z")
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "value": "excluded@example.com", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(
+                    event="event1",
+                    math=math,
+                    properties=[CohortPropertyFilter(key="id", value=cohort.pk, operator=PropertyOperator.NOT_IN)],
+                ),
+                EventsNode(event="event2"),
+            ],
+            dateRange=DateRange(date_from="2024-03-20", date_to="2024-03-24"),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
         self.assertEqual(results[0]["count"], 1)
         self.assertEqual(results[1]["count"], 1)
 
