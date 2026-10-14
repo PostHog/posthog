@@ -345,7 +345,7 @@ const AXIS_FORMATS: Record<string, MetricFormat> = {
     duration_ms: { valueFormat: 'duration', unit: 'ms' },
 }
 
-function chartFormat(insight: TrendsInsight | undefined): MetricFormat {
+export function chartFormat(insight: TrendsInsight | undefined): MetricFormat {
     const axis = asRecord(insight?.source.trendsFilter)?.aggregationAxisFormat
     return (typeof axis === 'string' ? AXIS_FORMATS[axis] : undefined) ?? { valueFormat: 'number', unit: null }
 }
