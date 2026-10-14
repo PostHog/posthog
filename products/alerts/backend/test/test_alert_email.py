@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -12,6 +11,7 @@ from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVEN
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade.contracts import DestinationType
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 
 class TestInsightAlertEmailDestination(APIBaseTest):

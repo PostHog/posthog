@@ -1,7 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconShare } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPlus, IconShare } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -18,6 +19,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BIEditor } from './BIEditor'
 import { biEditorLogic } from './biEditorLogic'
+import { BIResultSummary } from './BIResultSummary'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -30,7 +32,9 @@ export const scene: SceneExport = {
 
 export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { chartTypesOpen } = useValues(biEditorLogic({ tabId }))
+    const { activePanel } = useValues(biEditorLogic({ tabId }))
+    const { setActivePanel } = useActions(biEditorLogic({ tabId }))
+    const [settingsContainer, setSettingsContainer] = useState<HTMLDivElement | null>(null)
     const logic = biSceneLogic({ tabId })
     const {
         name,
@@ -85,15 +89,19 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     return (
         <BindLogic logic={biSceneLogic} props={{ tabId }}>
             <div className="flex h-full min-h-0 flex-col" data-attr="bi-worksheet">
-                <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                <header className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
                     <LemonButton size="small" to={urls.businessIntelligence()}>
                         Worksheets
+                    </LemonButton>
+                    <LemonButton size="small" icon={<IconPlus />} to={`${urls.businessIntelligenceNew()}#q=`}>
+                        New worksheet
                     </LemonButton>
                     <LemonInput
                         aria-label="Worksheet name"
                         value={name}
                         onChange={setName}
                         maxLength={400}
+                        size="small"
                         className="min-w-40 flex-1"
                     />
                     <LemonButton size="small" onClick={undo} disabledReason={!canUndo ? 'Nothing to undo' : undefined}>
@@ -104,42 +112,48 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     </LemonButton>
                     <LemonButton
                         size="small"
-                        onClick={() => saveInsight({ asCopy: true })}
-                        loading={insightLoading}
-                        disabledReason={copyDisabledReason}
-                        data-attr="bi-save-copy"
-                    >
-                        Save a copy
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
                         icon={<IconShare />}
                         onClick={shareWorksheet}
                         data-attr="bi-share-worksheet"
                     >
                         Share
                     </LemonButton>
-                    <LemonButton
-                        size="small"
-                        onClick={() => setExportViewOpen(true)}
-                        disabledReason={
-                            saveDisabledReason ||
-                            (!userHasAccess(AccessControlResourceType.WarehouseObjects, AccessControlLevel.Editor)
-                                ? 'You do not have permission to create warehouse views'
-                                : undefined)
-                        }
-                        data-attr="bi-export-sql-view"
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Save a copy',
+                                onClick: () => saveInsight({ asCopy: true }),
+                                disabledReason: insightLoading ? 'Saving worksheet' : copyDisabledReason,
+                                'data-attr': 'bi-save-copy',
+                            },
+                            {
+                                label: 'Save as SQL view',
+                                onClick: () => setExportViewOpen(true),
+                                disabledReason:
+                                    saveDisabledReason ||
+                                    (!userHasAccess(
+                                        AccessControlResourceType.WarehouseObjects,
+                                        AccessControlLevel.Editor
+                                    )
+                                        ? 'You do not have permission to create warehouse views'
+                                        : undefined),
+                                'data-attr': 'bi-export-sql-view',
+                            },
+                            {
+                                label: 'Discard changes',
+                                onClick: discardChanges,
+                                disabledReason: !hasUnsavedChanges ? 'No changes to discard' : undefined,
+                                'data-attr': 'bi-discard-changes',
+                            },
+                        ]}
                     >
-                        Save as SQL view
-                    </LemonButton>
-                    <LemonButton
-                        size="small"
-                        onClick={discardChanges}
-                        disabledReason={!hasUnsavedChanges ? 'No changes to discard' : undefined}
-                        data-attr="bi-discard-changes"
-                    >
-                        Discard changes
-                    </LemonButton>
+                        <LemonButton
+                            icon={<IconEllipsis />}
+                            size="small"
+                            aria-label="Worksheet actions"
+                            data-attr="bi-worksheet-actions"
+                        />
+                    </LemonMenu>
                     <LemonButton
                         type="primary"
                         size="small"
@@ -158,7 +172,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                         <Spinner />
                     </div>
                 ) : (
-                    <BIEditor tabId={tabId}>
+                    <BIEditor tabId={tabId} settingsPanelRef={setSettingsContainer}>
                         {lastRunQuery ? (
                             <Query
                                 query={lastRunQuery}
@@ -172,16 +186,26 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                 context={{
                                     insightProps: { dashboardItemId: `new-bi-${tabId}` },
                                     showOpenEditorButton: false,
-                                    chartTypeSelectorClassName: chartTypesOpen ? '@3xl/bi-editor:hidden' : undefined,
+                                    chartTypeSelectorClassName: 'hidden',
+                                    visualizationSettingsPanel: {
+                                        isOpen: activePanel === 'display',
+                                        onToggle: () => setActivePanel(activePanel === 'display' ? null : 'display'),
+                                        container: settingsContainer,
+                                    },
                                 }}
                             />
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
                                 {worksheet.config.source
-                                    ? 'Press Run to see the results of this worksheet.'
+                                    ? worksheet.config.rows.length ||
+                                      worksheet.config.columns.length ||
+                                      worksheet.config.values.length
+                                        ? 'Press Run to see the results of this worksheet.'
+                                        : 'Drag or double-click a field to start. Dimensions define groups; measures calculate a value for each group.'
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>
                         )}
+                        <BIResultSummary tabId={tabId} />
                     </BIEditor>
                 )}
                 <LemonModal

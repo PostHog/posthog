@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     ConversionGoalFilter,
     MARKETING_INTEGRATION_CONFIGS,
@@ -41,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { SEARCH_PERFORMANCE_QUERY_KEY } from 'products/marketing_analytics/frontend/search/searchPerformance'
 import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
@@ -346,6 +348,8 @@ describe('marketingAnalyticsLogic', () => {
         logic.mount()
         const tiles = marketingAnalyticsTilesLogic()
         tiles.mount()
+        const search = searchPerformanceLogic()
+        search.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
             const goal: ConversionGoalFilter = {
@@ -361,9 +365,125 @@ describe('marketingAnalyticsLogic', () => {
                     marketing_analytics_config: { conversion_goals: [goal] },
                 })
             ).toFinishAllListeners()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+            })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
+            search.actions.setMetrics('conversions')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            for (const sourceType of ['GoogleAds', 'BingAds'] as const) {
+                await expectLogic(logic, () =>
+                    logic.actions.loadSourcesSuccess({
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: 'search-ads',
+                                source_type: sourceType,
+                                source_id: 'example-account',
+                                connection_id: 'example-search',
+                                status: ExternalDataJobStatus.Completed,
+                                prefix: null,
+                                description: 'Example search ads',
+                                created_via: 'web',
+                                latest_error: null,
+                                sync_frequency: '24hour',
+                                job_inputs: {},
+                                user_access_level: AccessControlLevel.Admin,
+                                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                                schemas: (sourceType === 'GoogleAds'
+                                    ? ['keyword', 'keyword_stats']
+                                    : ['keyword_performance_report']
+                                ).map(
+                                    (name) =>
+                                        ({
+                                            id: name,
+                                            name,
+                                            should_sync: true,
+                                            status: ExternalDataSchemaStatus.Completed,
+                                            last_synced_at: dayjs(),
+                                            table: { name, hogql_name: name },
+                                        }) as ExternalDataSourceSchema
+                                ),
+                            } as ExternalDataSource,
+                        ],
+                    })
+                ).toFinishAllListeners()
+                expect(search.values.query.includePostHogConversions).toBe(true)
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.displayMetrics).toBe('conversions')
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+                })
+                expect(search.values.query.includePostHogConversions).toBe(true)
+                logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                logic.actions.setAdPerformanceConversionGoals(true)
+            }
+            search.actions.setBreakdown('page')
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
+            })
+            expect(logic.values.includeConversionGoals).toBe(true)
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            expect(search.values.displayMetrics).toBe('traffic')
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
+            expect(search.values.query.includePostHogConversions).toBe(true)
+            search.actions.selectRow({
+                page: 'https://example.com/pricing',
+                keyword: null,
+                platform: 'GoogleSearchConsole',
+                matchType: null,
+                currency: null,
+                clicks: 10,
+                impressions: 100,
+                cost: null,
+                conversions: null,
+                ctr: 0.1,
+                cpc: null,
+                cpa: null,
+            })
+            expect(search.values.detailQuery).toMatchObject({
+                page: 'https://example.com/pricing',
+                normalizePageUrls: true,
+                includePostHogConversions: false,
+            })
+            const searchNode = dataNodeLogic({
+                key: SEARCH_PERFORMANCE_QUERY_KEY,
+                query: search.values.query,
+                autoLoad: false,
+            })
+            searchNode.mount()
+            const reloadSearch = jest.spyOn(searchNode.actions, 'loadData')
+            const saveSetting = (config: Record<string, unknown>): void => {
+                teamLogic.actions.updateCurrentTeamSuccess(teamLogic.values.currentTeam!, {
+                    marketing_analytics_config: config,
+                })
+            }
+            saveSetting({ attribution_window_days: 30 })
+            expect(reloadSearch).not.toHaveBeenCalled()
+            saveSetting({ filter_test_accounts: true })
+            expect(reloadSearch).toHaveBeenCalledWith('force_async')
+            search.actions.setMetrics('traffic')
+            expect(search.values.query.includePostHogConversions).toBe(false)
+            saveSetting({ filter_test_accounts: false })
+            expect(reloadSearch).toHaveBeenCalledTimes(1)
+            await expectLogic(searchNode).toFinishAllListeners()
+            searchNode.unmount()
+            search.actions.setMetrics('conversions')
             const savedQuery: DataTableNode = {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -420,12 +540,19 @@ describe('marketingAnalyticsLogic', () => {
             logic.actions.setTileColumnSelection(MarketingAnalyticsColumnsSchemaNames.ReportedConversion)
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
                 logic.actions.setAdPerformanceConversionGoals(true)
+                expect(search.values.query.includePostHogConversions).toBe(true)
                 const chartBefore = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 logic.actions.setAdPerformanceConversionGoals(false)
+                expect(search.values.query.includePostHogConversions).toBe(false)
+                expect(search.values.detailQuery).toMatchObject({
+                    normalizePageUrls: false,
+                    includePostHogConversions: false,
+                })
                 const chartAfter = (tiles.values.marketingChartTile.query as InsightVizNode).source as TrendsQuery
                 expect(chartAfter).toEqual(chartBefore)
                 expect(chartAfter.series).toHaveLength(1)
@@ -455,6 +582,7 @@ describe('marketingAnalyticsLogic', () => {
                     legacyState === 'other-tab' ? MarketingAnalyticsTab.DASHBOARD : MarketingAnalyticsTab.AD_PERFORMANCE
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: legacyState !== 'flag-off',
                 })
                 expect(logic.values.includeConversionGoals).toBe(true)
@@ -465,6 +593,7 @@ describe('marketingAnalyticsLogic', () => {
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
         } finally {
+            search.unmount()
             tiles.unmount()
         }
     })
@@ -473,10 +602,19 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
+        const search = searchPerformanceLogic()
+        search.mount()
+        search.actions.setBreakdown('page')
+        search.actions.setMetrics('conversions')
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Configure a conversion goal')
         await expectLogic(logic, () =>
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...teamLogic.values.currentTeam!,
@@ -494,6 +632,12 @@ describe('marketingAnalyticsLogic', () => {
             })
         ).toFinishAllListeners()
         expect(logic.values.includeConversionGoals).toBe(true)
+        expect(search.values.displayMetrics).toBe('conversions')
+        expect(search.values.conversionsDisabledReason).toBeNull()
+        logic.actions.setAdPerformanceConversionGoals(false)
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Include conversion goals')
+        search.unmount()
     })
 
     it('separates an ad source missing its required tables from having no source at all', async () => {
@@ -684,37 +828,33 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        databaseTableListLogic.actions.loadDatabaseSuccess({
-            tables: {
-                example_campaigns: {
-                    id: tableId,
-                    name: 'example_campaigns',
-                    type: 'data_warehouse',
-                    url_pattern: 'https://example.s3.amazonaws.com/campaigns',
-                    ...(type === 'managed'
-                        ? {
-                              schema: {
-                                  id: sourceId,
-                                  name: 'example_campaigns',
-                                  should_sync: true,
-                                  incremental: false,
-                                  status: ExternalDataSchemaStatus.Completed,
-                              },
-                              source: {
-                                  id: 'example-source',
-                                  source_type: 'BigQuery',
-                                  status: 'Completed',
-                                  prefix: '',
-                              },
-                          }
-                        : {}),
-                    fields: {
-                        cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
-                    },
-                } satisfies DatabaseSchemaDataWarehouseTable,
+        const table: DatabaseSchemaDataWarehouseTable = {
+            id: tableId,
+            name: 'example_campaigns',
+            type: 'data_warehouse',
+            url_pattern: 'https://example.s3.amazonaws.com/campaigns',
+            ...(type === 'managed'
+                ? {
+                      schema: {
+                          id: sourceId,
+                          name: 'example_campaigns',
+                          should_sync: true,
+                          incremental: false,
+                          status: ExternalDataSchemaStatus.Completed,
+                      },
+                      source: {
+                          id: 'example-source',
+                          source_type: 'BigQuery',
+                          status: 'Completed',
+                          prefix: '',
+                      },
+                  }
+                : {}),
+            fields: {
+                cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
             },
-            joins: [],
-        })
+        }
+        databaseTableListLogic.actions.loadDatabaseSuccess({ tables: { example_campaigns: table }, joins: [] })
 
         for (const sourceMap of [{}, { campaign: 'campaign' }] as SourceMap[]) {
             await expectLogic(logic, () =>
@@ -751,6 +891,17 @@ describe('marketingAnalyticsLogic', () => {
         expect(logic.values.allAvailableSourcesWithStatus).toEqual([
             expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
         ])
+        expect(logic.values.hasSyncedMarketingSources).toBe(true)
+        if (type === 'managed') {
+            for (const status of [ExternalDataSchemaStatus.Running, ExternalDataSchemaStatus.Failed, undefined]) {
+                databaseTableListLogic.actions.loadDatabaseSuccess({
+                    tables: { example_campaigns: { ...table, schema: { ...table.schema!, status } } },
+                    joins: [],
+                })
+                expect(logic.values.validExternalTables).toHaveLength(1)
+                expect(logic.values.hasSyncedMarketingSources).toBe(false)
+            }
+        }
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
@@ -803,6 +954,7 @@ describe('marketingAnalyticsLogic', () => {
     it('carries dashboard view, breakdown and filters in the URL', async () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
         })
         logic = marketingAnalyticsLogic()

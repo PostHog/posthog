@@ -26,6 +26,8 @@ import type {
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
+    LogsNaturalLanguageQueryRequestApi,
+    LogsNaturalLanguageQueryResponseApi,
     LogsRetentionRuleApi,
     LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
@@ -665,6 +667,26 @@ export const logsMetricRulesDestroy = async (projectId: string, id: string, opti
     })
 }
 
+export const getLogsNaturalLanguageQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/natural_language_query/`
+}
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreate = async (
+    projectId: string,
+    logsNaturalLanguageQueryRequestApi: LogsNaturalLanguageQueryRequestApi,
+    options?: RequestInit
+): Promise<LogsNaturalLanguageQueryResponseApi> => {
+    return apiMutator<LogsNaturalLanguageQueryResponseApi>(getLogsNaturalLanguageQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsNaturalLanguageQueryRequestApi),
+    })
+}
+
 export const getLogsPatternsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/patterns/`
 }
@@ -1256,7 +1278,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

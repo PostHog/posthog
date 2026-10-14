@@ -2,8 +2,10 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -65,6 +67,8 @@ class YouSignSource(
     ResumableSource[YouSignSourceConfig, YousignResumeConfig],
     WebhookSource[YouSignSourceConfig],
 ):
+    codebase_detection = detect(env=("^(YOU_SIGN|YOUSIGN)_",), script_hosts=("cdn.yousign.tech",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)

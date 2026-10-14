@@ -35,7 +35,7 @@ jobs:
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
-            # Pushes default to 'false' because `semgrep ci` already scans the whole tree on a push.
+            # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -89,7 +89,7 @@ jobs:
                         - 'nodejs/**'
                         - 'packages/**'
                         - 'services/agent-proxy/**'
-                        - 'services/integration-service/**'
+                        - 'services/credentials-service/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
                         - 'services/stripe-app/**'
@@ -169,6 +169,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -216,6 +218,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -252,6 +256,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -290,6 +296,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
@@ -306,7 +314,7 @@ jobs:
                       --include /nodejs
                       --include /packages
                       --include /services/agent-proxy
-                      --include /services/integration-service
+                      --include /services/credentials-service
                       --include /services/mcp
                       --include /services/oauth-proxy
                       --include /services/stripe-app
@@ -332,6 +340,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             # Single-rule scan — keeps the failure surface here aligned with the
             # job name. Other custom TS rules (no-direct-fuse-instantiation,
@@ -370,6 +380,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             # exclude all directories already scanned by other jobs
             #
@@ -522,9 +534,9 @@ jobs:
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep --test .semgrep/
 
-            # semgrep-general runs `semgrep ci`, which drops every match that the merge-base
-            # copy of a file also has. A rule-only change leaves every workflow unchanged, so
-            # that scan cannot report what the edited rule now matches. This full scan can.
+            # On a pull request semgrep-general scans only the changed files. A rule-only change
+            # leaves every workflow unchanged, so that scan cannot report what the edited rule
+            # now matches. This full scan can.
             - name: Scan workflows with the workflow rules
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \

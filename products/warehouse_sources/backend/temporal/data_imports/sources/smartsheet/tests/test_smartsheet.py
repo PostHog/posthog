@@ -1,11 +1,18 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smartsheet import (
+    SmartsheetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import (
     ENDPOINTS,
     SMARTSHEET_ENDPOINTS,
@@ -13,98 +20,54 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.smartsheet import (
     PAGE_SIZE,
     SmartsheetResumeConfig,
-    smartsheet_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the smartsheet module.
-SMARTSHEET_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.smartsheet.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.source import SmartsheetSource
 
 
-def _response(items: list[dict[str, Any]], total_pages: int) -> Response:
-    body = {"pageNumber": 1, "pageSize": PAGE_SIZE, "totalPages": total_pages, "data": items}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _response(items: list[dict[str, Any]], total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"pageNumber": 1, "pageSize": PAGE_SIZE, "totalPages": total_pages, "data": items},
+    )
 
 
-def _make_manager(resume_state: SmartsheetResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run shows
-    only the final page — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock):
-    return smartsheet_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(SmartsheetSource(), SmartsheetSourceConfig(access_token="token")).run(
+        endpoint, script, **inputs
+    )
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_through_total_pages(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session, [_response([{"id": 1}, {"id": 2}], total_pages=2), _response([{"id": 3}], total_pages=2)]
+    def test_paginates_through_total_pages(self) -> None:
+        result = _run(
+            "sheets", [_response([{"id": 1}, {"id": 2}], total_pages=2), _response([{"id": 3}], total_pages=2)]
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("sheets", manager))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
+        assert [r["id"] for r in result.rows] == [1, 2, 3]
         # Each request asks for an explicit ascending page number plus the fixed page size.
-        assert params[0]["page"] == 1
-        assert params[0]["pageSize"] == PAGE_SIZE
-        assert params[1]["page"] == 2
+        assert result.params("page") == ["1", "2"]
+        assert result.requests[0].param("pageSize") == str(PAGE_SIZE)
         # State is saved once — only while a further page remains — pointing at the next page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == SmartsheetResumeConfig(next_page=2)
+        assert result.saved_states == [SmartsheetResumeConfig(next_page=2)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": 9}], total_pages=3)])
+    def test_resumes_from_saved_page(self) -> None:
+        result = _run(
+            "sheets",
+            [_response([{"id": 9}], total_pages=3)],
+            resume_state=SmartsheetResumeConfig(next_page=3),
+        )
 
-        manager = _make_manager(SmartsheetResumeConfig(next_page=3))
-        _rows(_source("sheets", manager))
-
-        assert params[0]["page"] == 3
+        assert result.params("page")[0] == "3"
 
 
 class TestSmartsheetSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
+    def test_response_metadata_per_endpoint(self, endpoint) -> None:
         config = SMARTSHEET_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        response = _run(endpoint, always(_response([], total_pages=1))).response
 
         expected_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
@@ -124,10 +87,9 @@ class TestSmartsheetSourceResponse:
 
 
 class TestValidateCredentials:
-    @mock.patch(SMARTSHEET_SESSION_PATCH)
-    def test_validate_credentials_probes_users_me(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_validate_credentials_probes_users_me(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            validate_credentials("token")
 
-        validate_credentials("token")
-
-        assert mock_session.return_value.get.call_args.args[0] == "https://api.smartsheet.com/2.0/users/me"
+        assert [request.url for request in network.requests_log] == ["https://api.smartsheet.com/2.0/users/me"]
+        assert network.session_options[0]["redact_values"] == ("token",)

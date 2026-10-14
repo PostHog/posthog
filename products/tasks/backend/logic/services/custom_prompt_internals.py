@@ -4,10 +4,10 @@ import re
 import json
 import asyncio
 import logging
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -21,8 +21,9 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.facade.contracts import AgentTaskRunDTO
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.facade.api import upload_task_run_artifacts
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -46,7 +47,7 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -130,6 +131,13 @@ class CustomPromptSandboxContext:
     Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
     a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
     tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
+    codex_max_subagents: int | None = None
+    """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
+    ``None`` keeps the Codex default of 3."""
+    codex_shared_prompt_cache: bool = False
+    """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
+    agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
+    sub-agents included."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -258,6 +266,46 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+SESSION_FILE_ARTIFACT_TYPE = "context"
+
+
+def _with_session_files(
+    files: Sequence[SessionFile],
+    description: str,
+    team_id: int,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None,
+) -> Callable[[UUID], dict[str, JsonValue] | None]:
+    """Wrap `before_task_dispatch` so the run has its files before the workflow starts."""
+
+    def attach(run_id: UUID) -> dict[str, JsonValue] | None:
+        state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
+        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifact_ids: list[JsonValue] = [uuid4().hex for _ in files]
+        artifacts = [
+            {
+                "id": artifact_id,
+                "name": file.name,
+                "type": SESSION_FILE_ARTIFACT_TYPE,
+                "content_bytes": file.content.encode("utf-8"),
+                "content_type": "text/plain; charset=utf-8",
+            }
+            for artifact_id, file in zip(artifact_ids, files, strict=True)
+        ]
+        if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
+            raise RuntimeError(f"Could not attach session files to run {run_id}")
+        # The prompt goes as the pending message, because only that path sends the files with it.
+        pending: dict[str, JsonValue] = {
+            **(state or {}),
+            "pending_user_message": description,
+            "pending_user_artifact_ids": artifact_ids,
+        }
+        # Startup and the pending-message forwarder both deliver this prompt and dedupe on the id.
+        stamp_pending_user_message_id(pending)
+        return pending
+
+    return attach
+
+
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -276,6 +324,7 @@ async def _create_task_and_trigger(
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    files: Sequence[SessionFile] = (),
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -289,10 +338,16 @@ async def _create_task_and_trigger(
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
         extra_run_state["caller_ends_run"] = True
+    if context.codex_max_subagents is not None:
+        extra_run_state["codex_max_subagents"] = context.codex_max_subagents
+    if context.codex_shared_prompt_cache:
+        extra_run_state["codex_shared_prompt_cache"] = True
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
             extra_run_state["analytics_query_context"] = queries
+    if files:
+        before_task_dispatch = _with_session_files(files, description, context.team_id, before_task_dispatch)
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,

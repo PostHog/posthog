@@ -18,10 +18,13 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.model_contract import readable_head_names, trained_head_files
+from products.signals.backend.ranking.model_store import ONNX_PROJECT_VECTOR_KINDS_KEY
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -60,22 +63,25 @@ def _entry(
     prefix: str,
 ) -> ServingManifestEntry | None:
     """One manifest entry, or None when the model has no head a store could load. Only the refit
-    boosters are named: the holdout fits grade a promotion and never serve."""
+    models are named: the holdout fits grade a promotion and never serve."""
     heads = sorted(trained_head_files(metadata, HEADS_BY_NAME))
     if not heads:
         return None
     key = model_key(metadata["model_name"], metadata["model_version"])
+    # A model published before the field existed is per-head XGBoost, so the old default reads
+    # as what it is rather than as missing.
+    model_kind = metadata.get("model_kind") or DEFAULT_MODEL_KIND
     return ServingManifestEntry(
         key=key,
         model_name=metadata["model_name"],
         model_version=metadata["model_version"],
-        # A model published before the field existed is per-head XGBoost, so the old default reads
-        # as what it is rather than as missing.
-        model_kind=metadata.get("model_kind") or DEFAULT_MODEL_KIND,
+        model_kind=model_kind,
         roles=list(roles),
         labels=dict(labels),
         prefix=serving_model_prefix(prefix, key),
         heads=heads,
+        model_file=ONNX_MODEL_FILE if model_kind == ONNX_MODEL_KIND else None,
+        reads_project_vectors=bool(metadata.get(ONNX_PROJECT_VECTOR_KINDS_KEY)),
     )
 
 

@@ -23,6 +23,7 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         my_choice_id: null,
         my_result: { flash: true, reason: 'project_everyone' },
         inherited_result: { flash: true, reason: 'project_everyone' },
+        repository_result: { flash: true, reason: 'project_everyone' },
         ...overrides,
     }
 }
@@ -69,6 +70,7 @@ describe('reviewHogRepositoriesLogic', () => {
                             total: overviewTotal,
                             has_more: false,
                             next_offset: null,
+                            my_choices_unlike_default: 0,
                         },
                     ]
                 },

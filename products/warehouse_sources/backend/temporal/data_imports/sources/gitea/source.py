@@ -1,8 +1,10 @@
 import secrets
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -60,6 +62,8 @@ class GiteaSource(
     WebhookSource[GiteaSourceConfig],
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(env=("^GITEA_",), npm=("gitea-js",), go=("code.gitea.io/sdk/gitea",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

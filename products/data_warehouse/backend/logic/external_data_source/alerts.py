@@ -8,10 +8,10 @@ from django.core.cache import cache
 import structlog
 from prometheus_client import Counter
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 from products.warehouse_sources.backend.facade.api import get_sync_alert_context
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 

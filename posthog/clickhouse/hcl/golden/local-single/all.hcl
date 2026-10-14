@@ -985,7 +985,7 @@ database "posthog" {
       type = "UInt16"
     }
     column "interface" {
-      type = "UInt8"
+      type = "Enum8('Unknown'=0, 'TCP'=1, 'HTTP'=2, 'gRPC'=3, 'MySQL'=4, 'PostgreSQL'=5, 'Local'=6, 'TCP_Interserver'=7, 'Prometheus'=8, 'Background'=9, 'ArrowFlight'=10)"
     }
     column "os_user" {
       type = "String"
@@ -1015,7 +1015,7 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "http_method" {
-      type = "UInt8"
+      type = "Enum8('UNKNOWN'=0, 'GET'=1, 'POST'=2, 'OPTIONS'=3, 'PUT'=4, 'DELETE'=5, 'HEAD'=6)"
     }
     column "http_user_agent" {
       type = "String"
@@ -1974,9 +1974,19 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"
@@ -3184,8 +3194,17 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
       collection           = "warpstream_ingestion"
@@ -11666,7 +11685,7 @@ SQL
   }
 
   table "sharded_flag_evaluations" {
-    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)"]
+    order_by     = ["team_id", "flag_key", "toDate(timestamp)", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
     ttl          = "toDate(timestamp) + toIntervalDay(90)"
     settings = {
@@ -11697,9 +11716,19 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"
@@ -11780,9 +11809,10 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 
@@ -17569,9 +17599,19 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -20950,7 +20990,10 @@ SELECT
   distinct_id,
   created_at,
   person_id,
+  if(empty(person_properties), '{}', person_properties) AS person_properties,
+  person_created_at,
   now64() AS inserted_at,
+  person_mode,
   _timestamp,
   _offset,
   _partition
@@ -20981,8 +21024,17 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type = "DateTime64(3)"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

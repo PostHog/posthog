@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,16 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class FirecrawlSource(ResumableSource[FirecrawlSourceConfig, FirecrawlResumeConfig]):
+    codebase_detection = detect(
+        env=("^FIRECRAWL_",),
+        npm=("@mendable/firecrawl-js", "firecrawl"),
+        pypi=("firecrawl-py", "firecrawl"),
+        cargo=("firecrawl", "firecrawl_rs"),
+        go=("github.com/firecrawl/firecrawl-go", "github.com/mendableai/firecrawl-go"),
+        maven=("com.firecrawl:firecrawl-java",),
+        rubygems=("firecrawl-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog - safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

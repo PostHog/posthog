@@ -9,7 +9,7 @@ import pytest
 from django.conf import settings as django_settings
 from django.test import override_settings
 
-from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.models import DatabaseField, ExpressionField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
@@ -23,12 +23,14 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.dags.flag_evaluations_backfill import _COPIED_COLUMNS
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
+    _FLAG_EVALUATIONS_TYPED_COLUMNS,
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SELECT_SQL,
@@ -200,7 +202,7 @@ def test_flag_evaluations_mv_projection_matches_column_template():
 
 
 @pytest.mark.usefixtures("clickhouse_database")
-def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
+def test_flag_evaluations_mv_overrides_producer_values() -> None:
     select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
         f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
     )
@@ -216,16 +218,19 @@ def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
                 'user' AS distinct_id,
                 timestamp AS created_at,
                 generateUUIDv4() AS person_id,
+                arrayJoin(['', '{"email": "a@example.com"}']) AS person_properties,
+                timestamp AS person_created_at,
                 timestamp AS inserted_at,
+                'full' AS person_mode,
                 toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
                 0 AS _offset,
                 0 AS _partition
         )
-        SELECT inserted_at > timestamp FROM ("""
+        SELECT inserted_at > timestamp, person_properties FROM ("""
         + select
-        + ")"
+        + ") ORDER BY person_properties"
     )
-    assert rows == [(1,)]
+    assert rows == [(1, '{"email": "a@example.com"}'), (1, "{}")]
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
@@ -241,18 +246,43 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
 
 
+# The comment above _COPIED_COLUMNS gives the reason the backfill leaves out each of these columns.
+_FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
+
+
+def test_flag_evaluations_backfill_copies_every_stored_column():
+    # A column that the backfill does not copy gets its DEFAULT on every backfilled row. No error
+    # reports this. The typed columns compute their DEFAULT from properties, so the copy leaves them
+    # out by design. Any other new column fails here until the copy or the set above names it.
+    stored = {column.split()[0] for column in _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())}
+    typed = set(_declared_column_names(_FLAG_EVALUATIONS_TYPED_COLUMNS))
+
+    assert typed
+    assert stored == set(_COPIED_COLUMNS) | typed | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+
+
 def _hogql_column_names(table: Table) -> set[str]:
     names: set[str] = set()
     for field in table.fields.values():
         if isinstance(field, Table):
             names |= _hogql_column_names(field)
-        elif isinstance(field, DatabaseField):
+        elif isinstance(field, DatabaseField) and not isinstance(field, ExpressionField):
             names.add(field.name)
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
+# The person columns stay hidden until every stored row carries the values the producer writes.
+# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
+# test-account filters and keep lifecycle from counting anyone as new.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
+    "_timestamp",
+    "_offset",
+    "_partition",
+    "person_properties",
+    "person_created_at",
+    "person_mode",
+}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

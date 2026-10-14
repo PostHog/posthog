@@ -13,9 +13,9 @@ the Inbox link matches on it.
 from typing import Literal
 
 from posthog.dataclasses import frozen
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.receivers import pick_reviewer, resolve_assigned_reviewers
 
 PullRequestOwnerSource = Literal["author", "inbox_reviewer", "none"]
@@ -41,12 +41,6 @@ def is_active_member(*, team_id: int, user_id: int) -> bool:
     return OrganizationMembership.objects.filter(
         organization__team__id=team_id, user_id=user_id, user__is_active=True
     ).exists()
-
-
-def posthog_app_login() -> str | None:
-    """The login GitHub gives the PostHog GitHub App, which opens self-driving pull requests."""
-    slug = get_instance_setting("GITHUB_APP_SLUG")
-    return f"{slug}[bot]".lower() if slug else None
 
 
 class PullRequestOwnerResolver:

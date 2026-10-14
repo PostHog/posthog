@@ -1,48 +1,43 @@
-import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
     FORMS_PAGE_SIZE,
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     SUBMISSIONS_PAGE_SIZE,
-    TALLY_API_VERSION,
     TALLY_BASE_URL,
     WEBHOOKS_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import (
     TallyResumeConfig,
-    tally_source,
     validate_credentials,
 )
-
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-TALLY_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally.make_tracked_session"
-)
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 BASE = TALLY_BASE_URL
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"
 
 
-def _resp(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _resp(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
-def _page(rows: list[dict[str, Any]], key: str = "items", has_more: bool = False) -> Response:
+def _page(rows: list[dict[str, Any]], key: str = "items", has_more: bool = False) -> ScriptedResponse:
     return _resp({key: rows, "page": 1, "limit": 50, "hasMore": has_more})
 
 
@@ -51,58 +46,20 @@ def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
     return parts.path, tuple(sorted(parse_qsl(parts.query)))
 
 
-def _make_manager(resume_state: TallyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver(submission_filter: Literal["completed", "all"] = SUBMISSION_FILTER_COMPLETED) -> SourceDriver:
+    return SourceDriver(TallySource(), TallySourceConfig(api_key="key", submission_filter=submission_filter))
 
 
-def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
-    session.headers = {}
-    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
-        _norm(url): list(queue) for url, queue in responses_by_url.items()
-    }
-    param_snapshots: list[dict[str, Any]] = []
+def _by_url(responses_by_url: dict[str, list[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    normalized = {_norm(url): list(queue) for url, queue in responses_by_url.items()}
 
-    def _prepare(request: Any) -> Any:
-        param_snapshots.append(dict(request.params or {}))
-        return request.prepare()
-
-    def _send(prepared: Any, **_kwargs: Any) -> Response:
-        queue = normalized.get(_norm(prepared.url))
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        queue = normalized.get(_norm(request.url))
         if not queue:
-            raise AssertionError(f"unexpected request url {prepared.url!r}")
+            raise UnexpectedRequest(f"unexpected request url {request.url!r}")
         return queue.pop(0)
 
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return param_snapshots
-
-
-def _run(
-    endpoint: str,
-    responses_by_url: dict[str, list[Response]],
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
-    # Endpoints that disable sample capture build their own session in `_client_config`, so patch
-    # that factory too and point it at the same wired session the rest client would otherwise use.
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession, mock.patch(TALLY_SESSION_PATCH) as MockTallySession:
-        session = MockSession.return_value
-        MockTallySession.return_value = session
-        params = _wire(session, responses_by_url)
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager if manager is not None else _make_manager(),
-            **kwargs,
-        )
-        rows = [row for page in cast(Any, response.items()) for row in page]
-    return rows, params, session
+    return respond
 
 
 class TestSourceResponseShape:
@@ -116,23 +73,16 @@ class TestSourceResponseShape:
             ("folders", ["workspaceId", "id"], "createdAt", "asc"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_shape(
         self,
         endpoint: str,
         expected_keys: list[str],
         expected_partition_key: str,
         expected_sort_mode: str,
-        _MockSession: Any,
     ) -> None:
-        response = tally_source(
-            api_key="key",
-            api_version=TALLY_API_VERSION,
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
+        empty: dict[str, list[Any]] = {key: [] for key in ("items", "webhooks", "submissions", "questions", "folders")}
+        response = _driver().run(endpoint, always(_resp({**empty, "hasMore": False}))).response
+        assert response is not None
         assert response.name == endpoint
         # Child tables aggregate rows from every form, so their key must carry the parent form id.
         assert response.primary_keys == expected_keys
@@ -149,10 +99,9 @@ class TestPagination:
             FORMS_PAGE_1: [_page([{"id": "F1"}], has_more=True)],
             f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=2": [_page([{"id": "F2"}], has_more=False)],
         }
-        rows, params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}, {"id": "F2"}]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
+        result = _driver().run("forms", _by_url(responses))
+        assert result.rows == [{"id": "F1"}, {"id": "F2"}]
+        assert result.params("page") == ["1", "2"]
 
     @parameterized.expand(
         [
@@ -166,22 +115,22 @@ class TestPagination:
     ) -> None:
         # /workspaces documents no page-size param, so sending one would be an undocumented param;
         # the other two carry the vendor's documented maximum.
-        rows, params, _session = _run(endpoint, {url: [_page([{"id": "X"}], key=selector)]})
-        assert rows == [{"id": "X"}]
-        assert params[0].get("limit") == expected_limit
+        result = _driver().run(endpoint, _by_url({url: [_page([{"id": "X"}], key=selector)]}))
+        assert result.rows == [{"id": "X"}]
+        assert result.requests[0].param("limit") == (str(expected_limit) if expected_limit is not None else None)
 
 
 class TestTopLevelResume:
     def test_resumes_from_saved_page(self) -> None:
         responses = {f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=4": [_page([{"id": "F9"}])]}
-        rows, params, _session = _run("forms", responses, _make_manager(TallyResumeConfig(next_page=4)))
-        assert rows == [{"id": "F9"}]
-        assert params[0]["page"] == 4
+        result = _driver().run("forms", _by_url(responses), resume_state=TallyResumeConfig(next_page=4))
+        assert result.rows == [{"id": "F9"}]
+        assert result.params("page") == ["4"]
 
 
 class TestFanOut:
     @parameterized.expand([(SUBMISSION_FILTER_COMPLETED,), (SUBMISSION_FILTER_ALL,)])
-    def test_submission_filter_is_sent_verbatim(self, submission_filter: str) -> None:
+    def test_submission_filter_is_sent_verbatim(self, submission_filter: Literal["completed", "all"]) -> None:
         # Tally documents no default for `filter`, so the chosen value must always be sent.
         responses = {
             FORMS_PAGE_1: [_page([{"id": "F1"}])],
@@ -189,8 +138,8 @@ class TestFanOut:
                 _resp({"submissions": [], "hasMore": False})
             ],
         }
-        _rows, params, _session = _run("submissions", responses, submission_filter=submission_filter)
-        assert params[1]["filter"] == submission_filter
+        result = _driver(submission_filter).run("submissions", _by_url(responses))
+        assert result.requests[1].param("filter") == submission_filter
 
     def test_resume_continues_mid_form_from_the_saved_page(self) -> None:
         responses = {
@@ -202,9 +151,9 @@ class TestFanOut:
         state = TallyResumeConfig(
             fanout_state={"completed": [], "current": "/forms/F1/submissions", "child_state": {"page": 3}}
         )
-        rows, params, _session = _run("submissions", responses, _make_manager(state))
-        assert rows == [{"id": "S3", "formId": "F1"}]
-        assert params[1]["page"] == 3
+        result = _driver().run("submissions", _by_url(responses), resume_state=state)
+        assert result.rows == [{"id": "S3", "formId": "F1"}]
+        assert result.requests[1].param("page") == "3"
 
 
 class TestWebhookSecrets:
@@ -212,7 +161,6 @@ class TestWebhookSecrets:
         # Webhook signing secrets and custom auth headers are credentials — persisting them would let
         # anyone with warehouse read access forge signed deliveries or reuse embedded tokens. They
         # must land as null, and the raw responses must stay out of HTTP sample capture.
-        session = mock.MagicMock()
         responses = {
             f"{BASE}/webhooks?limit={WEBHOOKS_PAGE_SIZE}&page=1": [
                 _page(
@@ -228,75 +176,57 @@ class TestWebhookSecrets:
                 )
             ],
         }
-        with mock.patch(TALLY_SESSION_PATCH, return_value=session) as mock_tally_session:
-            _wire(session, responses)
-            response = tally_source(
-                api_key="key",
-                api_version=TALLY_API_VERSION,
-                endpoint="webhooks",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=_make_manager(),
-            )
-            rows = [row for page in cast(Any, response.items()) for row in page]
+        result = _driver().run("webhooks", _by_url(responses))
 
-        assert rows == [{"id": "W1", "url": "https://example.com/hook", "signingSecret": None, "httpHeaders": None}]
-        assert mock_tally_session.call_args.kwargs["capture"] is False
+        assert result.rows == [
+            {"id": "W1", "url": "https://example.com/hook", "signingSecret": None, "httpHeaders": None}
+        ]
+        assert result.session_options
+        assert all(options["capture"] is False for options in result.session_options)
 
 
 class TestIncremental:
     def test_future_watermark_is_clamped_to_now(self) -> None:
         # A watermark ahead of the clock would filter out every submission, syncing nothing forever.
         future = datetime.now(UTC) + timedelta(days=30)
-        captured: dict[str, Any] = {}
 
-        def _send(prepared: Any, **_kwargs: Any) -> Response:
-            if "/submissions" in prepared.url:
-                captured.update(dict(parse_qsl(urlsplit(prepared.url).query)))
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if "/submissions" in request.path:
                 return _resp({"submissions": [], "hasMore": False})
             return _page([{"id": "F1"}])
 
-        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            session.headers = {}
-            session.prepare_request.side_effect = lambda request: request.prepare()
-            session.send.side_effect = _send
-            response = tally_source(
-                api_key="key",
-                api_version=TALLY_API_VERSION,
-                endpoint="submissions",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=future,
-            )
-            list(cast(Any, response.items()))
+        result = _driver().run(
+            "submissions",
+            script,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=future,
+            incremental_field="submittedAt",
+        )
 
-        assert captured["startDate"] < future.strftime("%Y-%m-%dT%H:%M:%SZ")
+        submissions = [request for request in result.requests if "/submissions" in request.path]
+        start_date = submissions[0].param("startDate")
+        assert start_date is not None
+        assert start_date < future.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class TestRetryClassification:
     @parameterized.expand([(429,), (500,), (503,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_transient_status_is_retried(self, status: int, _sleep: Any) -> None:
+    def test_transient_status_is_retried(self, status: int) -> None:
         responses = {FORMS_PAGE_1: [_resp({"error": "later"}, status=status), _page([{"id": "F1"}])]}
-        rows, _params, _session = _run("forms", responses)
-        assert rows == [{"id": "F1"}]
+        result = _driver().run("forms", _by_url(responses))
+        assert result.rows == [{"id": "F1"}]
 
     @parameterized.expand([(401,), (403,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_credential_error_fails_loud(self, status: int, _sleep: Any) -> None:
+    def test_credential_error_fails_loud(self, status: int) -> None:
         responses = {FORMS_PAGE_1: [_resp({"error": "nope"}, status=status)]}
-        with pytest.raises(requests.HTTPError):
-            _run("forms", responses)
+        result = _driver().run("forms", _by_url(responses))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(TALLY_SESSION_PATCH)
-    def test_status_mapping(self, status: int, expected_ok: bool, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        ok, returned_status = validate_credentials("key")
+    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
+            ok, returned_status = validate_credentials("key")
         assert ok is expected_ok
         assert returned_status == status

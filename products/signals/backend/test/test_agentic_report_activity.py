@@ -52,6 +52,7 @@ from products.signals.backend.report_generation.research import (
     PriorityUpdate,
     ReportPresentationOutput,
     ReportResearchOutput,
+    ResearchReviewerDecision,
     SignalFinding,
     _resolve_actionability_response,
     _resolve_priority_response,
@@ -1500,6 +1501,41 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         assert artefact_count == 0
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("selected", [False, True])
+async def test_research_returns_reviewer_decision_only_when_enabled(enabled: bool, selected: bool) -> None:
+    decision = ResearchReviewerDecision.model_validate(
+        {
+            "reviewers": [{"user_uuid": "00000000-0000-4000-8000-000000000001", "reason": "Owns this component."}]
+            if selected
+            else [],
+            "reason": "Checked ownership and corrections for this component.",
+        }
+    )
+    finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+    session = Mock(task=Mock(id="research-task-id"), end=AsyncMock())
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="No change needed.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Report", summary="Summary", reviewer_decision=decision),
+        ]
+    )
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start", AsyncMock(return_value=(session, finding))
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(
+            _build_signals()[:1], Mock(team_id=1), reviewer_selection_enabled=enabled
+        )
+    assert result.reviewer_decision == (decision if enabled else None)
+
+
 @parameterized.expand(
     [
         ("immediately_actionable", ActionabilityChoice.IMMEDIATELY_ACTIONABLE, None),
@@ -1630,7 +1666,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
     labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
     assert labels == expected_labels
     if failure is asyncio.CancelledError:
-        session.end.assert_awaited_once_with(status="failed", error=str(verification_error))
+        session.end.assert_awaited_once_with(status="failed", error=str(verification_error), error_type=None)
     else:
         session.end.assert_awaited_once_with()
     if failure is not None and failure is not asyncio.CancelledError:

@@ -447,6 +447,17 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityDashboard(),
+            searchKeywords: ['llm observability', 'llm costs', 'token usage'],
+            searchTabs: [
+                { name: 'Traces', href: urls.aiObservabilityTraces() },
+                { name: 'Generations', href: urls.aiObservabilityGenerations() },
+                { name: 'Sessions', href: urls.aiObservabilitySessions() },
+                { name: 'Users', href: urls.aiObservabilityUsers() },
+                { name: 'Errors', href: urls.aiObservabilityErrors() },
+                { name: 'Tools', href: urls.aiObservabilityTools() },
+                { name: 'Sentiment', href: urls.aiObservabilitySentiment() },
+                { name: 'Reviews', href: urls.aiObservabilityReviews() },
+            ],
             sceneKey: 'AIObservability',
         },
         {
@@ -457,6 +468,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_playground' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-playground-light)', 'var(--color-product-llm-playground-dark)'],
             href: urls.aiObservabilityPlayground(),
+            searchKeywords: ['prompt testing', 'model comparison'],
             sceneKey: 'AIObservabilityPlayground',
         },
         {
@@ -467,6 +479,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)', 'var(--color-product-llm-clusters-dark)'],
             href: urls.aiObservabilityClusters(),
+            searchKeywords: ['topics'],
             sceneKey: 'AIObservabilityClusters',
         },
         {
@@ -477,6 +490,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_datasets' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-datasets-light)', 'var(--color-product-llm-datasets-dark)'],
             href: urls.aiObservabilityDatasets(),
+            searchKeywords: ['test sets', 'golden set'],
             flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
             tags: ['beta'],
             sceneKey: 'AIObservabilityDatasets',
@@ -489,6 +503,15 @@ export const manifest: ProductManifest = {
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
             href: urls.aiObservabilityEvaluations(),
+            searchKeywords: ['llm judge', 'llm as a judge', 'grading'],
+            searchTabs: [
+                {
+                    name: 'Offline evals',
+                    href: urls.aiObservabilityOfflineEvaluations(),
+                    flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
+                },
+                { name: 'Scorers', href: urls.aiObservabilityScorers() },
+            ],
             sceneKey: 'AIObservabilityEvaluations',
         },
         {
@@ -499,6 +522,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_tags' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
             href: urls.aiObservabilityTags(),
+            searchKeywords: ['llm tags', 'auto-tagging'],
             flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
             tags: ['alpha'],
             sceneKey: 'AIObservabilityTags',
@@ -511,6 +535,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)', 'var(--color-product-llm-prompts-dark)'],
             href: urls.aiObservabilityPrompts(),
+            searchKeywords: ['prompt management', 'prompt templates'],
             sceneKey: 'AIObservabilityPrompts',
         },
     ],

@@ -1355,11 +1355,11 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, '/pricing'))
 
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-pageview_urls-0'))
             // The two matching URLs collapse into one row, which is the contains shortcut.
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
+            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')).not.toBeNull()
             expect(screen.queryByTestId('prop-filter-pageview_urls-1')).not.toBeInTheDocument()
         })
 
@@ -1372,10 +1372,10 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, '/pricing'))
 
             const row = await waitFor(() => {
-                const el = document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')
+                const el = document.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')
                 expect(el).not.toBeNull()
                 return el as HTMLElement
             })
@@ -1383,12 +1383,12 @@ describe('TaxonomicFilter', () => {
 
             expect(onChangeMock).toHaveBeenCalledWith(
                 expect.objectContaining({ type: TaxonomicFilterGroupType.PageviewUrls }),
-                'pricing',
+                '/pricing',
                 expect.objectContaining({
                     _type: 'quick_filter',
                     propertyKey: '$current_url',
                     operator: PropertyOperator.IContains,
-                    filterValue: 'pricing',
+                    filterValue: '/pricing',
                     propertyFilterType: PropertyFilterType.Event,
                     // Tagged so commit telemetry can distinguish the URL-contains shortcut
                     // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
@@ -1407,7 +1407,7 @@ describe('TaxonomicFilter', () => {
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
                 // Two substantive groups so the aggregated "All" tab survives (a single
-                // substantive group drops it); Events has no 'pricing' match so the URL
+                // substantive group drops it); Events has no '/pricing' match so the URL
                 // shortcut is still the only aggregated row.
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
@@ -1418,12 +1418,12 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            await user.type(searchInput, '/pricing')
 
             // The Suggested filters tab is the default and aggregates each group's top matches —
             // the URL group must contribute the single shortcut there, not raw URLs.
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
+            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')).not.toBeNull()
             expect(screen.queryByTestId('prop-filter-suggested_filters-1')).not.toBeInTheDocument()
         })
 
@@ -1465,12 +1465,12 @@ describe('TaxonomicFilter', () => {
             // A query unique to this test, so this stays sound even if the `apiCache` reset in
             // beforeEach ever goes away — a cached non-empty response under the same URL would
             // make the negative assertions below pass for the wrong reason.
-            await withoutDebounceDelay((user) => user.type(searchInput, 'nomatchquery'))
+            await withoutDebounceDelay((user) => user.type(searchInput, '/nomatchquery'))
 
             await waitFor(() => expect(valuesFetched).toBe(true))
             await waitFor(() => {
-                expect(screen.queryByText('URL contains "nomatchquery"')).not.toBeInTheDocument()
-                expect(document.querySelector('[data-attr="taxonomic-shortcut-nomatchquery-property"]')).toBeNull()
+                expect(screen.queryByText('URL contains "/nomatchquery"')).not.toBeInTheDocument()
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-/nomatchquery-property"]')).toBeNull()
             })
         })
     })

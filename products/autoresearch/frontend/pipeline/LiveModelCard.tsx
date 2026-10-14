@@ -5,6 +5,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { FeatureImportanceChart } from './FeatureImportanceChart'
 import { MetricCard } from './MetricCard'
+import { SectionCard } from './SectionCard'
 
 /** The champion model: its metrics, feature drivers, and the agent's description. Renders nothing before a champion exists. */
 export function LiveModelCard(): JSX.Element | null {
@@ -13,15 +14,18 @@ export function LiveModelCard(): JSX.Element | null {
         return null
     }
     return (
-        <div className="border rounded p-4 space-y-4">
-            <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-muted">Live model</span>
-                {champion.is_preliminary && (
-                    <Tooltip title="Promoted on holdout AUC alone. Realized metrics confirm it once prediction horizons elapse.">
-                        <LemonTag type="warning">Preliminary</LemonTag>
-                    </Tooltip>
-                )}
-            </div>
+        <SectionCard
+            title={
+                <>
+                    Live model
+                    {champion.is_preliminary && (
+                        <Tooltip title="Promoted on holdout AUC alone. Realized metrics confirm it once prediction horizons elapse.">
+                            <LemonTag type="warning">Preliminary</LemonTag>
+                        </Tooltip>
+                    )}
+                </>
+            }
+        >
             <div className="grid grid-cols-2 gap-3">
                 <MetricCard
                     label="Holdout AUC"
@@ -43,6 +47,6 @@ export function LiveModelCard(): JSX.Element | null {
             {champion.agent_description && (
                 <div className="text-sm text-muted italic">"{champion.agent_description}"</div>
             )}
-        </div>
+        </SectionCard>
     )
 }
