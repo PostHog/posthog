@@ -2134,7 +2134,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
             ("deactivated_keeps_invites", "is_active", "/signup/{invite_id}", status.HTTP_200_OK),
             ("deactivated_keeps_billing", "is_active", "/organization/billing", status.HTTP_200_OK),
             ("deactivated_keeps_stripe_return", "is_active", "/billing/authorization_status", status.HTTP_200_OK),
+            ("deactivated_keeps_partner_consent", "is_active", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_keeps_invites", "is_pending_deletion", "/signup/{invite_id}", status.HTTP_200_OK),
+            ("pending_deletion_keeps_partner_consent", "is_pending_deletion", "/agentic/authorize", status.HTTP_200_OK),
             ("pending_deletion_drops_billing", "is_pending_deletion", "/organization/billing", status.HTTP_302_FOUND),
             (
                 "pending_deletion_drops_stripe_return",
