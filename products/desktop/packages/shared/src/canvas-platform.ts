@@ -20,8 +20,8 @@ export const CANVAS_PLATFORM_MANIFEST = {
       url: "https://esm.sh/@posthog/quill@0.3.0-beta.18?external=react,react-dom",
     },
     "@posthog/quill-charts": {
-      version: "0.3.0-beta.30",
-      url: "https://esm.sh/@posthog/quill-charts@0.3.0-beta.30?external=react,react-dom&deps=@floating-ui/react@0.27.20",
+      version: "0.3.0-beta.31",
+      url: "https://esm.sh/@posthog/quill-charts@0.3.0-beta.31?external=react,react-dom&deps=@floating-ui/react@0.27.20",
     },
     recharts: {
       version: "2.15.0",
