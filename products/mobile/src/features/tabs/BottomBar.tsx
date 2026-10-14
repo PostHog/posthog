@@ -12,13 +12,11 @@ import { colors, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 interface BottomBarProps {
-    selected: 'home' | 'chats'
+    selected: 'home' | 'chats' | 'views'
     onHome: () => void
     onChats: () => void
+    onViews: () => void
     onNewChat: () => void
-    onProducts: () => void
-    /** Dims the Products slot when there is no project to open in the web app. */
-    productsDisabled?: boolean
 }
 
 interface NavSlotProps {
@@ -67,14 +65,7 @@ function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement 
     )
 }
 
-export function BottomBar({
-    selected,
-    onHome,
-    onChats,
-    onNewChat,
-    onProducts,
-    productsDisabled = false,
-}: BottomBarProps): ReactElement {
+export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: BottomBarProps): ReactElement {
     const insets = useScreenInsets()
     return (
         <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 34) }]}>
@@ -91,13 +82,11 @@ export function BottomBar({
                 ) : (
                     <NavSlot label="Chats" Icon={SpacesIcon} onPress={onChats} testID="inbox-nav-chat" />
                 )}
-                <NavSlot
-                    label="Products"
-                    Icon={ViewsIcon}
-                    onPress={onProducts}
-                    disabled={productsDisabled}
-                    testID="inbox-nav-products"
-                />
+                {selected === 'views' ? (
+                    <SelectedSlot label="Views" Icon={ViewsIcon} testID="inbox-nav-views" />
+                ) : (
+                    <NavSlot label="Views" Icon={ViewsIcon} onPress={onViews} testID="inbox-nav-views" />
+                )}
             </View>
             <Pressable44
                 onPress={onNewChat}

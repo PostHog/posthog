@@ -26,7 +26,6 @@ export type AnalyticsEvent =
     | 'mobile_session_stopped'
     | 'mobile_chats_opened'
     | 'mobile_chat_opened'
-    | 'mobile_products_opened'
     | 'mobile_project_picker_opened'
     | 'mobile_project_switched'
     | 'mobile_push_opened'
