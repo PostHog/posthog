@@ -239,7 +239,7 @@ class _StoppingAppsApi:
 
 
 @pytest.fixture
-def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], _StoppingAppsApi]:
+def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[..., _StoppingAppsApi]:
     def install(linger_polls: int) -> _StoppingAppsApi:
         apps = _StoppingAppsApi(linger_polls)
         clock = _FakeClock()
@@ -259,18 +259,19 @@ def stopping_apps(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], _StoppingA
 
 
 def test_stop_scales_processors_only_after_the_consumer_pods_are_gone(
-    stopping_apps: Callable[[int], _StoppingAppsApi],
+    stopping_apps: Callable[..., _StoppingAppsApi],
 ) -> None:
     apps = stopping_apps(linger_polls=2)
 
-    stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig())
+    # Each deployment drains in 20 s of polls, within its own 30 s budget; together they would exceed one.
+    stop_shadow_lane(dagster.build_op_context(), ShadowLaneStopConfig(stop_timeout_seconds=30))
 
     assert apps.scales == [(SHADOW_CONSUMER_DEPLOYMENT, 0), (SHADOW_PROCESSOR_DEPLOYMENT, 0)]
     assert apps.consumer_pods_at_scale == [4, 0]
 
 
 def test_stop_leaves_processors_up_while_a_consumer_pod_lingers(
-    stopping_apps: Callable[[int], _StoppingAppsApi],
+    stopping_apps: Callable[..., _StoppingAppsApi],
 ) -> None:
     apps = stopping_apps(linger_polls=100)
 
