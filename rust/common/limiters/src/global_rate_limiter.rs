@@ -72,7 +72,7 @@ const CUSTOM_THRESHOLDS_LAST_REFRESH_GAUGE: &str =
 /// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
 /// keeps these gauges fresh enough without scanning the cache every tick.
 const TIER_SCAN_INTERVAL_TICKS: u64 = 30;
-/// Updates taken per receive. Tokio's budget allows 128 receives per task poll, and one update per receive lets a starved pod fall behind.
+/// Batch receives so Tokio's 128-receive poll budget cannot throttle the drain on a starved pod.
 const UPDATE_DRAIN_BATCH: usize = 256;
 /// Tier label order, indexed by `PressureTier::index()`.
 const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
@@ -1034,8 +1034,7 @@ impl GlobalRateLimiterImpl {
                         Self::absorb_requests(&config, &mut write_batch, &mut update_buf, scope);
                     }
                     _ = tick.tick() => {
-                        // A tick that outlasts its interval leaves the next one ready at once, so take
-                        // what is queued first or the random `select!` can starve the channel.
+                        // Drain the queue first, or back-to-back overrun ticks can starve the channel.
                         let mut queued = update_rx.len();
                         metrics::gauge!(GLOBAL_RATE_LIMITER_CHANNEL_DEPTH_GAUGE, "scope" => scope)
                             .set(queued as f64);
@@ -2809,7 +2808,7 @@ mod tests {
         };
         let limiter = GlobalRateLimiterImpl::new(config, vec![mock.clone()]).unwrap();
 
-        // Each write blocks for five tick intervals, so the next tick is always ready when one ends.
+        // Writes outlast the tick interval, so every tick overruns.
         for round in 0..60 {
             for i in 0..200 {
                 limiter.check_limit(&format!("r{round}k{i}"), 1, None).await;
@@ -2836,7 +2835,7 @@ mod tests {
         for i in 0..400 {
             limiter.check_limit(&format!("first{i}"), 1, None).await;
         }
-        // The background task gets one poll here, and a single `recv` would take only 128 updates.
+        // One poll of the background task; a single `recv` would take only 128 updates.
         tokio::task::yield_now().await;
         for i in 0..300 {
             limiter.check_limit(&format!("second{i}"), 1, None).await;
