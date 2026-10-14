@@ -19,6 +19,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, PropertyDefinition
 
@@ -349,17 +350,22 @@ class TestMCPEventPreview(ClickhouseTestMixin, MCPEventSubscriptionTestCase):
                 timestamp=timezone.now(),
                 properties={"rating": rating, "plan": "enterprise"},
             )
-        response = self.client.post(
-            self.url + "preview/",
-            {
-                "project_id": self.team.pk,
-                "filters": {
-                    "events": [{"id": "example_event", "type": "events"}],
-                    "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}],
+        with (
+            tags_context(product=None, feature=None),
+            patch("posthog.clickhouse.client.execute.DEBUG", True),
+            patch("posthog.clickhouse.client.execute.TEST", False),
+        ):
+            response = self.client.post(
+                self.url + "preview/",
+                {
+                    "project_id": self.team.pk,
+                    "filters": {
+                        "events": [{"id": "example_event", "type": "events"}],
+                        "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}],
+                    },
                 },
-            },
-            HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"],
-        )
+                HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"],
+            )
         self.assertEqual(response.status_code, 200, response.json())
         examples = response.json()["examples"]
         self.assertEqual(len(examples), 1)
