@@ -37,6 +37,9 @@ Keep it if the flagged code, as written and as actually reached, would cause one
   quadratic behavior.
 - **Resource / reliability defects** — leaked connections / file handles, unreleased locks,
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
+- **A CI approach the repository already rejected** — the finding cites an entry in the repository's
+  record of tried CI approaches, the entry exists, it describes what the change does, and its reason
+  still applies to this change.
 
 A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
@@ -59,6 +62,30 @@ Drop it if it is any of:
 - **Already handled** — the supposed problem is prevented elsewhere (a parent caller, a default, a
   framework guarantee, existing validation), which you confirmed by reading the surrounding code.
 - **Wrong / unreproducible** — investigating the actual code shows the premise is mistaken.
+- **Defensive validation of an internal service** — see the next section.
+
+## Drop demands to guard calls to internal services
+
+A finding may ask to validate, re-check, retry, or fall back around a call to a service that the same
+organization builds and runs: another product's facade, an internal API, a queue consumer, or a sibling
+service in the repository. Drop that finding unless it names a concrete, reproducible failure: a specific
+response or input the service can produce today (shown by its code, schema, or tests), and the wrong
+result the calling code then gives. Set `is_valid = false`. Do not keep it at a lower priority and do not
+reword it as a suggestion. Each extra guard against a trusted service adds code that every later reader
+has to understand.
+
+This rule does not cover data that comes from outside the organization's control. User input, webhook
+payloads, and third-party API responses still need validation, and the security criteria above apply to
+them.
+
+Drop: "The call to the quota service in `fetch_quota_window()` can return malformed data. Validate the
+response against a schema and fall back to an empty window." The finding names no response that is
+malformed. The quota service builds the response from a typed serializer in the same repository.
+
+Keep: "The `QuotaWindow` serializer in the quota service sets `window_end` with `allow_null=True` and
+returns `null` for organizations without a plan. `fetch_quota_window()` calls `.isoformat()` on it, so the
+usage page raises `AttributeError` for each of those organizations." The finding names the response, where
+the service produces it, and the failure it causes.
 
 ## How to decide
 
