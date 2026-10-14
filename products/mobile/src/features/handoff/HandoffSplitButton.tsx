@@ -9,7 +9,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, fonts, radii, type } from '@/ui/tokens'
 
 import { openExternalHandoff } from './externalHandoff'
-import { useHandoffPreferenceStore } from './handoffPreferenceStore'
+import { handoffAgentName, useHandoffPreferenceStore } from './handoffPreferenceStore'
 
 interface HandoffSplitButtonProps {
     report: ReportView
@@ -25,7 +25,7 @@ export function HandoffSplitButton({
     pending,
 }: HandoffSplitButtonProps): ReactElement {
     const target = useHandoffPreferenceStore((state) => state.target)
-    const agentName = target === 'posthog' ? POSTHOG_AGENT.name : target === 'claude' ? 'Claude Code' : 'Codex'
+    const agentName = handoffAgentName(target)
     const [error, setError] = useState<string | null>(null)
     const handOff = useAsyncAction(async () => {
         if (pending) {

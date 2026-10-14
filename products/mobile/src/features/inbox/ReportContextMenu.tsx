@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactElement, useState } from 'react'
-import { type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
 
 import type { InboxItem } from '@/model/types'
@@ -7,6 +7,7 @@ import { FloatingCard } from '@/ui/FloatingCard'
 import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ClockIcon } from '@/ui/icons/ClockIcon'
+import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { ReassignIcon } from '@/ui/icons/ReassignIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -26,6 +27,12 @@ interface ReportContextMenuProps {
     anchor: RowAnchor
     /** Dims Reassign while the report's current reviewers are unknown. */
     reassignDisabled: boolean
+    handoffLabel: string
+    showHandoff: boolean
+    handoffDisabled: boolean
+    handoffPending: boolean
+    handoffError?: string
+    onHandOff: () => void
     onClose: () => void
     onReassign: () => void
     onSnooze: () => void
@@ -37,21 +44,35 @@ interface ContextMenuRowProps {
     label: string
     Icon: ComponentType<IconProps>
     disabled?: boolean
+    pending?: boolean
     onPress: () => void
     testID: string
 }
 
-function ContextMenuRow({ label, Icon, disabled = false, onPress, testID }: ContextMenuRowProps): ReactElement {
+function ContextMenuRow({
+    label,
+    Icon,
+    disabled = false,
+    pending = false,
+    onPress,
+    testID,
+}: ContextMenuRowProps): ReactElement {
     return (
         <Pressable44
             onPress={onPress}
             disabled={disabled}
-            accessibilityHint={disabled ? 'Loading the report' : undefined}
+            accessibilityState={{ busy: pending, disabled }}
             pressedBackground={colors.sunken}
             style={styles.row}
             testID={testID}
         >
-            <Icon size={22} color={disabled ? colors.disabled : colors.ink} />
+            <View style={styles.icon}>
+                {pending ? (
+                    <ActivityIndicator size="small" color={colors.ink} />
+                ) : (
+                    <Icon size={22} color={disabled ? colors.disabled : colors.ink} />
+                )}
+            </View>
             <Text style={[styles.rowLabel, disabled && styles.disabledLabel]}>{label}</Text>
         </Pressable44>
     )
@@ -62,6 +83,12 @@ export function ReportContextMenu({
     item,
     anchor,
     reassignDisabled,
+    handoffLabel,
+    showHandoff,
+    handoffDisabled,
+    handoffPending,
+    handoffError,
+    onHandOff,
     onClose,
     onReassign,
     onSnooze,
@@ -117,18 +144,46 @@ export function ReportContextMenu({
                     </Text>
                 </View>
                 <View style={styles.divider} />
+                {showHandoff ? (
+                    <ContextMenuRow
+                        label={handoffLabel}
+                        Icon={PlayIcon}
+                        disabled={handoffDisabled || handoffPending}
+                        pending={handoffPending}
+                        onPress={onHandOff}
+                        testID="inbox-row-menu-handoff"
+                    />
+                ) : null}
+                {handoffError ? (
+                    <Text style={styles.error} accessibilityRole="alert" testID="inbox-row-menu-handoff-error">
+                        {handoffError}
+                    </Text>
+                ) : null}
                 <ContextMenuRow
                     label="Reassign"
                     Icon={ReassignIcon}
-                    disabled={reassignDisabled}
+                    disabled={reassignDisabled || handoffPending}
                     onPress={onReassign}
                     testID="inbox-row-menu-reassign"
                 />
-                <ContextMenuRow label="Snooze" Icon={ClockIcon} onPress={onSnooze} testID="inbox-row-menu-snooze" />
-                <ContextMenuRow label="Chat" Icon={ChatBubbleIcon} onPress={onChat} testID="inbox-row-menu-chat" />
+                <ContextMenuRow
+                    label="Snooze"
+                    disabled={handoffPending}
+                    Icon={ClockIcon}
+                    onPress={onSnooze}
+                    testID="inbox-row-menu-snooze"
+                />
+                <ContextMenuRow
+                    label="Chat"
+                    disabled={handoffPending}
+                    Icon={ChatBubbleIcon}
+                    onPress={onChat}
+                    testID="inbox-row-menu-chat"
+                />
                 {item.read ? null : (
                     <ContextMenuRow
                         label="Mark as read"
+                        disabled={handoffPending}
                         Icon={CheckIcon}
                         onPress={onMarkRead}
                         testID="inbox-row-menu-mark-read"
@@ -178,6 +233,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
+    icon: { width: 22, alignItems: 'center' },
+    error: { ...type.metaSmall, color: colors.orange, paddingHorizontal: 14, paddingVertical: 8 },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
