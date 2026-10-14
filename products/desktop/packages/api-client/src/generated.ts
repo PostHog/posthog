@@ -210,6 +210,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
