@@ -97,6 +97,7 @@ def publish_persisted_review(
     capped_lens_parts: int | None = None,
     footer: str = "",
     draft_notice: str = "",
+    comment_commands_on: bool = False,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -112,6 +113,7 @@ def publish_persisted_review(
     event loop.
 
     `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
+    `comment_commands_on` picks the trigger the finding budget note points to.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if review_already_published(report, head_sha, review_mode):
@@ -143,7 +145,7 @@ def publish_persisted_review(
         capped_lens_parts=capped_lens_parts,
         footer=footer,
         findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
-        budget_note=budget_note(over_budget) if over_budget else "",
+        budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
     )
     if outcome.posted:
         if report.outcomes_emitted_at is not None:
@@ -192,12 +194,6 @@ def publish_persisted_review(
     else:
         _mark_report_idle(team_id, report_id)
     return outcome
-
-
-def _budget_note_marker(report_id: str) -> str:
-    """The hidden marker every review with the finding budget note carries. It names no head, so the note-only
-    review finds any earlier note on the pull request and posts once."""
-    return f"<!-- reviewhog:budget-note:{report_id} -->"
 
 
 def _review_marker(report_id: str, head_sha: str, review_mode: str | None = None) -> str:
@@ -262,8 +258,8 @@ def publish_review(
 
     `findings_footer` follows `footer` only on a review that posts findings, never on the clean-turn note.
 
-    `budget_note` says the finding budget left findings out. A Standard turn that keeps nothing posts it on
-    its own, once per pull request, so an author whose pushes stop getting findings learns why.
+    `budget_note` says the finding budget left findings out. A turn that keeps nothing stays silent: once
+    the budget is spent an automatic review only looks for must-fix findings.
     """
     logger.info(f"Publishing review for {owner}/{repo}#{pr_number}")
 
@@ -274,7 +270,7 @@ def publish_review(
     # `footer` closes the review whichever body posts, so the inline-only body keeps it too.
     footer_block = f"{footer}\n\n" if footer else ""
     note_block = f"{large_pr_note(large_pr_parts)}\n\n" if large_pr_parts is not None else ""
-    budget_block = f"{budget_note}\n{_budget_note_marker(report_id)}\n\n" if budget_note else ""
+    budget_block = f"{budget_note}\n\n" if budget_note else ""
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
@@ -302,25 +298,11 @@ def publish_review(
                 owner,
                 repo,
                 pr_number,
-                f"{summary}\n\n{budget_block}{footer_block}{_large_pr_note_marker(report_id, head_sha)}",
+                f"{summary}\n\n{footer_block}{_large_pr_note_marker(report_id, head_sha)}",
                 [],
                 token=token,
                 head_sha=head_sha,
                 marker=_large_pr_note_prefix(report_id),
-                installation_id=installation_id,
-                review_mode=review_mode,
-            )
-        elif standard and budget_note:
-            summary = render_review_summary(review_mode, head_sha, Counter(), None)
-            _post_github_review(
-                owner,
-                repo,
-                pr_number,
-                f"{summary}\n\n{budget_block}{footer_block}".rstrip(),
-                [],
-                token=token,
-                head_sha=head_sha,
-                marker=_budget_note_marker(report_id),
                 installation_id=installation_id,
                 review_mode=review_mode,
             )

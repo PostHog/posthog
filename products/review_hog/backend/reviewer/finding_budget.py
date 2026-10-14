@@ -1,9 +1,11 @@
-"""The finding budget: how many findings Standard reviews post on one pull request in total.
+"""The finding budget: how many findings automatic Standard reviews post on one pull request in total.
 
 Each Standard turn already keeps only a few findings (`compose_flash_findings`). On a busy pull request
 those add up turn after turn, and the late ones are rarely acted on. The budget counts every finding
-ever posted on the pull request, by any review mode. Once the count reaches `FINDING_BUDGET`, a turn
-posts only its must-fix findings, and the others drop with the `budget` disposition.
+ever posted on the pull request, by any review mode and trigger. Once the count reaches `FINDING_BUDGET`,
+an automatic turn posts only its must-fix findings, and the others drop with the `budget` disposition.
+Automatic reviews run on every pull request as a safeguard, so past the budget they only raise what must
+be fixed. A review someone asks for (a comment, the label, the UI) is not limited.
 
 The count never goes down. Fixing or resolving a finding gives no budget back, because a coding agent
 that fixes and resolves everything would otherwise refill it forever. A dropped finding is not queued
@@ -22,6 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -39,11 +42,13 @@ def budget_arm(repository: str, pr_number: int | None) -> BudgetArm:
     return "budget" if digest[0] % 2 == 0 else "control"
 
 
-def budget_note(dropped: int) -> str:
+def budget_note(dropped: int, comment_commands_on: bool) -> str:
     """The line a review ends with when the budget kept some of its findings off the pull request."""
+    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{REVIEW_LABEL}` label"
     return (
-        f"This pull request reached its limit of {FINDING_BUDGET} review findings, so this review left out "
-        f"{pluralize(dropped, 'lower-priority finding')}. Must-fix findings still post."
+        f"This pull request reached its limit of {FINDING_BUDGET} automatic review findings, so this review left "
+        f"out {pluralize(dropped, 'lower-priority finding')}. Must-fix findings still post. {trigger} for a review "
+        "without the limit."
     )
 
 

@@ -405,6 +405,8 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    # Only an automatic turn is held to the finding budget. None on payloads from before the field.
+    trigger_source: str | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -1777,9 +1779,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
                 input.team_id, input.report_id, input.head_sha, snapshot.pr_files
             )
-            budget = await database_sync_to_async(_finding_budget, thread_sensitive=False)(
-                input.team_id, input.report_id, prior_findings
-            )
+            budget_left = None
+            if input.trigger_source == TRIGGER_AUTOMATIC:
+                budget = await database_sync_to_async(_finding_budget, thread_sensitive=False)(
+                    input.team_id, input.report_id, prior_findings
+                )
+                budget_left = budget.left
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1792,7 +1797,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
-                budget_left=budget.left,
+                budget_left=budget_left,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -2055,10 +2060,12 @@ def _publish(input: PublishInput) -> PublishResult:
     if input.trigger_source == TRIGGER_LABEL and comment_commands_enabled(input.team_id):
         footer = label_commands_hint(input.review_mode)
     # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
-    # without automatic reviews too.
+    # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
+    comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
-        draft_notice = draft_review_notice(comment_commands_enabled(input.team_id))
+        comment_commands_on = comment_commands_enabled(input.team_id)
+        draft_notice = draft_review_notice(comment_commands_on)
     outcome = publish_persisted_review(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -2074,6 +2081,7 @@ def _publish(input: PublishInput) -> PublishResult:
         capped_lens_parts=input.capped_lens_parts,
         footer=footer,
         draft_notice=draft_notice,
+        comment_commands_on=comment_commands_on,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(

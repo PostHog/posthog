@@ -255,8 +255,9 @@ class TestPublishIdempotency(BaseTest):
         _publish(_publish_input(self.team.id, report_id, "sha1"))
 
         assert mock_publish.call_args.kwargs["budget_note"] == (
-            "This pull request reached its limit of 20 review findings, so this review left out "
-            "2 lower-priority findings. Must-fix findings still post."
+            "This pull request reached its limit of 20 automatic review findings, so this review left out "
+            "2 lower-priority findings. Must-fix findings still post. Add the `posthog-review` label for a "
+            "review without the limit."
         )
 
     @patch(_PUBLISH)

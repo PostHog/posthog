@@ -526,14 +526,14 @@ class TestPublishReviewGate:
 
     @parameterized.expand(
         [
-            ("keeps_nothing_posts_the_note_alone", IssuePriority.CONSIDER, False),
+            ("keeps_nothing_stays_silent", IssuePriority.CONSIDER, False),
             ("posts_findings_with_the_note", IssuePriority.SHOULD_FIX, True),
         ]
     )
     @patch(_POST)
     @patch(_LOAD_FINDINGS)
     @patch(_REPORT)
-    def test_standard_turn_says_when_the_finding_budget_left_findings_out(
+    def test_standard_turn_notes_the_finding_budget_only_when_it_posts(
         self,
         _name: str,
         priority: IssuePriority,
@@ -542,9 +542,8 @@ class TestPublishReviewGate:
         mock_load: MagicMock,
         mock_post: MagicMock,
     ) -> None:
-        # Once the budget is spent a turn often keeps nothing, and a silent turn leaves the author guessing
-        # why pushes stopped getting findings. Every review with the note carries a marker without a head,
-        # so the note-only review posts once per pull request.
+        # Past the budget an automatic turn only looks for must-fix findings, so a turn that keeps nothing
+        # must not post a review just to say so.
         self._wire_report(mock_report_cls, "old")
         mock_load.return_value = [(_finding(priority=priority), _verdict())]
 
@@ -564,10 +563,10 @@ class TestPublishReviewGate:
         )
 
         assert outcome.posted is expected_posted
-        mock_post.assert_called_once()
-        assert "Budget note.\n<!-- reviewhog:budget-note:rep -->" in mock_post.call_args.args[3]
-        if not expected_posted:
-            assert mock_post.call_args.kwargs["marker"] == "<!-- reviewhog:budget-note:rep -->"
+        if expected_posted:
+            assert "Budget note." in mock_post.call_args.args[3]
+        else:
+            mock_post.assert_not_called()
 
     @parameterized.expand(
         [
