@@ -7,6 +7,8 @@ import { Heatmap, type HeatmapBrushData, type HeatmapCellDatum } from './Heatmap
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e'],
     backgroundColor: '#ffffff',
+    // Light, as a dark theme sets it, so a label that borrows axis ink fails the contrast test.
+    axisColor: '#cccccc',
     gridColor: '#eeeeee',
     crosshairColor: '#888888',
 }
@@ -107,7 +109,7 @@ describe('Heatmap', () => {
             const labels = renderLabelled((cell) => String(cell.value))
             const byText = new Map(labels.map((el) => [el.textContent, el.style.color]))
             expect(byText.get('10')).toBe('rgb(255, 255, 255)')
-            expect(byText.get('0')).not.toBe('rgb(255, 255, 255)')
+            expect(byText.get('0')).toBe('rgb(17, 17, 17)')
         })
     })
 
