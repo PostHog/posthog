@@ -92,4 +92,27 @@ describe('membersLogic', () => {
             expect(result).toContain(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
         })
     })
+
+    describe('removeMember', () => {
+        it.each([
+            { status: 404, removed: true, finalAction: 'removeMemberSuccess' },
+            { status: 500, removed: false, finalAction: 'removeMemberFailure' },
+        ])('handles a $status response from the delete call', async ({ status, removed, finalAction }) => {
+            useMocks({
+                delete: {
+                    '/api/organizations/:organization/members/:uuid/': () => [status, { detail: 'Error' }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadAllMembers()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.removeMember(MOCK_SECOND_ORGANIZATION_MEMBER)
+            }).toDispatchActions([finalAction])
+
+            const uuids = logic.values.members?.map((member) => member.user.uuid)
+            expect(uuids?.includes(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)).toBe(!removed)
+        })
+    })
 })

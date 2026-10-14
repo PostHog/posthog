@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -276,12 +277,24 @@ export const membersLogic = kea<membersLogicType>([
                 return members
             },
             removeMember: async (member: OrganizationMemberType) => {
-                await api.organizationMembers.delete(member.user.uuid)
-                lemonToast.success(
-                    <>
-                        Removed <b>{member.user.first_name}</b> from organization
-                    </>
-                )
+                try {
+                    await api.organizationMembers.delete(member.user.uuid)
+                    lemonToast.success(
+                        <>
+                            Removed <b>{member.user.first_name}</b> from organization
+                        </>
+                    )
+                } catch (error) {
+                    // A stale list can still show a member that someone already removed in another session.
+                    if (!(error instanceof ApiError && error.status === 404)) {
+                        throw error
+                    }
+                    lemonToast.info(
+                        <>
+                            <b>{member.user.first_name}</b> was already removed from organization
+                        </>
+                    )
+                }
                 actions.postRemoveMember(member.user.uuid)
                 return values.members?.filter((thisMember) => thisMember.user.id !== member.user.id) ?? null
             },
