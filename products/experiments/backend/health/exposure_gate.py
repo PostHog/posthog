@@ -64,6 +64,11 @@ _BEFORE_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").before.multivaria
 _AFTER_VARIANTS_PATH = '$.changes[*] ? (@.field == "filters").after.multivariate.variants'
 # Events can arrive after the window ends, so a "nobody" answer for a recent window can still change.
 _SETTLED_AFTER = timedelta(hours=1)
+# A recent "nobody" is kept briefly, so page loads in that hour do not each run the scan again.
+_RECENT_NOBODY_CACHE_SECONDS = int(timedelta(minutes=5).total_seconds())
+# A cohort recalculates, so an old window's "nobody" can turn into a yes when the cohort takes in people
+# exposed in it.
+_COHORT_NOBODY_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 # The scan is too large for a request. These are expected, so they are not reported.
 _TOO_EXPENSIVE_ERRORS = (
     ClickHouseQueryTimeOut,
@@ -141,7 +146,13 @@ class _ExposureGate:
         self._experiment = experiment
         self._launched_at = launched_at
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
-        self._exposure_action_version = _exposure_action_version(experiment)
+        action = _exposure_action(experiment)
+        self._exposure_action_version = action.updated_at.isoformat() if action else None
+        self._settled_nobody_cache_seconds = (
+            _COHORT_NOBODY_CACHE_SECONDS
+            if _mentions_cohort([experiment.exposure_criteria, action.steps_json if action else None])
+            else _ANSWER_CACHE_SECONDS
+        )
         self._started_at = monotonic()
         self._query_count = 0
         self._stopped = False
@@ -181,8 +192,13 @@ class _ExposureGate:
             cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
             self._stopped = True
             return None
-        if answer or timezone.now() - window_end > _SETTLED_AFTER:
-            cache.set(cache_key, answer, _ANSWER_CACHE_SECONDS)
+        if answer:
+            cache_seconds = _ANSWER_CACHE_SECONDS
+        elif timezone.now() - window_end > _SETTLED_AFTER:
+            cache_seconds = self._settled_nobody_cache_seconds
+        else:
+            cache_seconds = _RECENT_NOBODY_CACHE_SECONDS
+        cache.set(cache_key, answer, cache_seconds)
         return answer
 
     def _cache_key(self, window_start: datetime, window_end: datetime, variant_keys: Sequence[str]) -> str:
@@ -208,17 +224,20 @@ class _ExposureGate:
         return f"experiment_split_exposure:{experiment.team_id}:{experiment.id}:{digest}"
 
 
-def _exposure_action_version(experiment: Experiment) -> str | None:
+def _exposure_action(experiment: Experiment) -> Action | None:
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     config = criteria.exposure_config if criteria else None
     if not isinstance(config, ActionsNode):
         return None
-    updated_at = (
-        Action.objects.filter(team_id=experiment.team_id, id=int(config.id))
-        .values_list("updated_at", flat=True)
-        .first()
-    )
-    return updated_at.isoformat() if updated_at else None
+    return Action.objects.filter(team_id=experiment.team_id, id=int(config.id)).only("updated_at", "steps_json").first()
+
+
+def _mentions_cohort(value: object) -> bool:
+    if isinstance(value, dict):
+        return value.get("type") == "cohort" or any(_mentions_cohort(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_mentions_cohort(item) for item in value)
+    return False
 
 
 def _load_split_history(experiment: Experiment) -> SplitHistory | None:
@@ -264,8 +283,11 @@ def _exposed_between(gate: _ExposureGate, counted: Sequence[SplitChange]) -> boo
     last = counted[-1]
     if not same_assignment(first.before, last.after):
         return None
-    # The splits in force between the first and the last change.
-    variant_keys = sorted({key for change in counted[:-1] for key in split_variant_keys(change.after)})
+    in_between = [change.after for change in counted[:-1]]
+    # A flag without variants serves `true`, so people can be exposed with no variant key to look for.
+    if any(not split_variant_keys(split) for split in in_between):
+        return None
+    variant_keys = sorted({key for split in in_between for key in split_variant_keys(split)})
     return gate.exposed(window_start=first.changed_at, window_end=last.changed_at, variant_keys=variant_keys)
 
 

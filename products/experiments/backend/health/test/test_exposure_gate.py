@@ -28,6 +28,13 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"
+_BY_COHORT: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "id", "value": 1, "type": "cohort"}],
+    }
+}
 
 
 def _split(control: int, test: int) -> list[dict[str, Any]]:
@@ -202,18 +209,41 @@ class TestLoadSplitHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("exposed", True, timedelta(minutes=10), 0),
-            ("nobody_in_a_settled_window", False, timedelta(hours=2), 0),
-            ("nobody_in_a_recent_window", False, timedelta(minutes=10), 1),
+            ("exposed", True, timedelta(minutes=10), {}, timedelta(days=2), 0),
+            ("nobody_in_a_settled_window", False, timedelta(hours=2), {}, timedelta(days=2), 0),
+            ("nobody_in_a_recent_window_minutes_later", False, timedelta(minutes=10), {}, timedelta(minutes=1), 0),
+            ("nobody_in_a_recent_window_later", False, timedelta(minutes=10), {}, timedelta(minutes=10), 1),
+            ("nobody_with_a_cohort_filter", False, timedelta(hours=2), _BY_COHORT, timedelta(hours=2), 1),
+            ("exposed_with_a_cohort_filter", True, timedelta(hours=2), _BY_COHORT, timedelta(days=2), 0),
         ]
     )
-    def test_answer_cache(self, _name: str, answer: bool, change_age: timedelta, expected_queries: int) -> None:
+    def test_answer_cache(
+        self,
+        _name: str,
+        answer: bool,
+        change_age: timedelta,
+        exposure_criteria: dict[str, Any],
+        next_load_after: timedelta,
+        expected_queries: int,
+    ) -> None:
+        self.experiment.exposure_criteria = exposure_criteria
+        self.experiment.save()
         self._log_split_changes([_split(50, 50), _split(60, 40)], first_at=timezone.now() - change_age)
         self._load([answer])
 
-        _, query = self._load([answer])
+        with time_machine.travel(timezone.now() + next_load_after):
+            _, query = self._load([answer])
 
         self.assertEqual(query.call_count, expected_queries)
+
+    def test_revert_through_a_flag_without_variants_leaves_in_between_unknown(self) -> None:
+        self._log_split_changes([_split(50, 50), [], _split(50, 50)])
+
+        history, query = self._load([True])
+
+        assert history is not None
+        self.assertIsNone(history.exposed_between)
+        self.assertEqual(query.call_count, 1)
 
 
 class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
