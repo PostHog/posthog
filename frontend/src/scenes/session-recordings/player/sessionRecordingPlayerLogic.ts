@@ -812,10 +812,9 @@ export interface sessionRecordingPlayerLogicValues {
     debugSnapshots: eventWithTime[]
     doctorDiagnostics: DoctorDiagnostics | null
     endReached: boolean
-    followLive: boolean
-    liveWaitingForData: boolean
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
+    followLive: boolean
     forceShowPlayerChrome: boolean
     fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
     hasLateFullSnapshot: boolean
@@ -835,6 +834,7 @@ export interface sessionRecordingPlayerLogicValues {
     jumpTimeMs: number
     leadingRecoveryTimestamp: number | null
     leadingUnplayableMs: number
+    liveWaitingForData: boolean
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
     matchingEventSkipTarget: MatchingEventSkipTarget
@@ -1189,14 +1189,14 @@ export interface sessionRecordingPlayerLogicActions {
     setDebugSnapshotTypes: (types: EventType[]) => {
         types: EventType[]
     }
-    setFollowLive: (followLive: boolean) => {
-        followLive: boolean
-    }
     setEndReached: (reached?: boolean) => {
         reached: boolean
     }
     setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => {
         props: SessionRecordingPlayerExplorerProps | null
+    }
+    setFollowLive: (followLive: boolean) => {
+        followLive: boolean
     }
     setIsCommenting: (isCommenting: boolean) => {
         isCommenting: boolean

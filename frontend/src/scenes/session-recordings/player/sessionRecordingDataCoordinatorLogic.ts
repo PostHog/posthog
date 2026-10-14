@@ -266,10 +266,10 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     snapshotsLoading: boolean // metaLogic
     trackedWindow: number | null // metaLogic
     uuidToIndex: Record<string, number> // metaLogic
+    livePolling: boolean // snapLogic
     snapshotStore: SnapshotStore // snapLogic
     sourceLoadingStates: SourceLoadingState[] // snapLogic
     storeVersion: number // snapLogic
-    livePolling: boolean // snapLogic
     bufferedToTime: number | null
     createExportJSON: () => ExportedSessionRecordingFileV2
     customRRWebEvents: customEvent[]
@@ -492,7 +492,8 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             start: Dayjs | null,
             end: Dayjs | null,
             sessionPlayerMetaData: SessionRecordingType | null,
-            fullyLoaded: boolean
+            fullyLoaded: boolean,
+            livePolling: boolean
         ) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],

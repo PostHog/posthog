@@ -55,8 +55,8 @@ export interface snapshotDataLogicValues {
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
-    livePolling: boolean
     isSnapshotUnauthorized: boolean
+    livePolling: boolean
     loadAllMode: boolean
     loadingSources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'>[]
     pollingInterval: number
