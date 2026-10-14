@@ -801,12 +801,16 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ]
         }
 
+        // When the URL already shows this drawer state, the write only cleans up the trace param,
+        // so it replaces: Back must not stop on a lowercase or malformed spelling of the same state.
+        const urlShowsTrace = (traceId: string | null): boolean =>
+            traceIdFromUrl(router.values.searchParams) === traceId
+
         return {
             syncUrl: () => buildUrl(),
-            // A trace the URL already names only gets its id case fixed, so Back must not stop on the old spelling.
-            openTrace: ({ traceId }) => drawerUrl(traceIdFromUrl(router.values.searchParams) === traceId),
+            openTrace: ({ traceId }) => drawerUrl(urlShowsTrace(traceId)),
             selectSpan: () => drawerUrl(true),
-            closeTrace: () => drawerUrl(false),
+            closeTrace: () => drawerUrl(urlShowsTrace(null)),
         }
     }),
 ])

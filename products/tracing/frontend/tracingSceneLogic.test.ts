@@ -52,10 +52,14 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.selectedTraceId).toBe(expected)
     })
 
-    it('rewrites a lowercase trace id in the URL without adding a back step', () => {
+    it.each([
+        ['a lowercase trace id', null, '4bf92f3577b34da6a3ce929d0e0e4736', '4BF92F3577B34DA6A3CE929D0E0E4736'],
+        ['a trace id with path characters', '4BF92F3577B34DA6A3CE929D0E0E4736', 'a/b', undefined],
+    ])('cleans up %s in the URL without adding a back step', (_name, openTraceId, urlTraceId, expected) => {
         jest.spyOn(api.tracing, 'getTrace').mockResolvedValue({ results: [], hasMore: false })
-        mountAt({ trace: '4bf92f3577b34da6a3ce929d0e0e4736' })
-        expect(router.values.searchParams.trace).toBe('4BF92F3577B34DA6A3CE929D0E0E4736')
+        mountAt(openTraceId ? { trace: openTraceId } : {})
+        router.actions.push('/tracing', { trace: urlTraceId })
+        expect(router.values.searchParams.trace).toBe(expected)
         expect(router.values.lastMethod).toBe('REPLACE')
     })
 
