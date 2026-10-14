@@ -1017,9 +1017,25 @@ describe('PushNotificationService', () => {
             const sentTokens = (): string[] =>
                 mockTrackedFetch.mock.calls.map((call: any) => call[0].fetchParams.headers.Authorization)
             const jwtCacheKey = `@posthog/apns-provider-jwt/${createHash('sha256').update(`TEAM456:KEY123:${testEcKey}`).digest('hex')}`
+            const tokenIssuedMinutesAgo = (minutes: number): string =>
+                `e30.${Buffer.from(JSON.stringify({ iat: Math.floor(Date.now() / 1000) - minutes * 60 })).toString('base64url')}.sig`
 
             beforeEach(() => {
                 mockTrackedFetch.mockReset()
+                valkeyStore.set(jwtCacheKey, tokenIssuedMinutesAgo(30))
+            })
+
+            it('keeps a rejected token that is younger than the refresh window', async () => {
+                const youngToken = tokenIssuedMinutesAgo(1)
+                valkeyStore.set(jwtCacheKey, youngToken)
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const result = await send()
+
+                expect(result.error).toContain('InvalidProviderToken')
+                expect(sentTokens()).toHaveLength(1)
+                expect(valkeyStore.get(jwtCacheKey)).toBe(youngToken)
+                expect([...valkeyStore.keys()].some((key) => key.includes('jwt-refresh'))).toBe(false)
             })
 
             it.each(['InvalidProviderToken', 'ExpiredProviderToken'])(

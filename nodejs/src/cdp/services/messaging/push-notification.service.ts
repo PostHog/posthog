@@ -61,7 +61,7 @@ const pushNotificationSendDurationMs = new Histogram({
 
 const apnsProviderTokenRefreshCounter = new Counter({
     name: 'push_notification_apns_token_refresh_total',
-    help: 'APNs provider tokens replaced after Apple rejected one. outcome: minted = a new token was signed; adopted = another pod had already replaced it; skipped = a refresh for this key happened inside the refresh window.',
+    help: 'APNs provider tokens replaced after Apple rejected one. outcome: minted = a new token was signed; adopted = another pod had already replaced it; skipped = a refresh for this key, or the rejected token itself, is inside the refresh window.',
     labelNames: ['outcome'],
 })
 
@@ -808,6 +808,14 @@ export class PushNotificationService {
         const replacement = await this.readReplacementApnsJwt(cacheKey, rejectedJwt)
         if (replacement) {
             return replacement
+        }
+
+        // Apple answers a second token inside its refresh window with TooManyProviderTokenUpdates for the rest of
+        // that window, so a new token cannot help while the rejected one is still young.
+        const rejectedIssuedAtMs = apnsJwtIssuedAtMs(rejectedJwt)
+        if (rejectedIssuedAtMs !== null && Date.now() - rejectedIssuedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000) {
+            apnsProviderTokenRefreshCounter.labels({ outcome: 'skipped' }).inc()
+            return null
         }
 
         // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
