@@ -2,12 +2,11 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
-
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web.slack_response import SlackResponse
+from temporalio.exceptions import ApplicationError
 
-from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.types import (
     SlackAppUnfurlChartsPostInput,
@@ -18,14 +17,24 @@ from posthog.temporal.ai.slack_app.types import (
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
-from products.slack_app.backend.logic.link_unfurl_charts import (
-    chart_cache_key,
-    post_unfurl_charts,
-    prepare_unfurl_charts,
-)
+from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, prepare_unfurl_charts
 
 _URL = "https://us.posthog.com/project/1/insights/abc123"
+_SHORT_URL = "https://us.posthog.com/i/abc123"
 _TEXT_CARD = {"type": "section", "text": {"type": "mrkdwn", "text": "*Weekly active users • Trends insight*"}}
+
+
+def _slack_error(code: str, status_code: int) -> SlackApiError:
+    response = SlackResponse(
+        client=None,
+        http_verb="POST",
+        api_url="https://slack.com/api/chat.unfurl",
+        req_args={},
+        data={"ok": False, "error": code},
+        headers={"Retry-After": "30"},
+        status_code=status_code,
+    )
+    return SlackApiError(code, response)
 
 
 class TestLinkUnfurlCharts(BaseTest):
@@ -42,40 +51,35 @@ class TestLinkUnfurlCharts(BaseTest):
             query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
         )
 
-    def _inputs(self, user: User) -> SlackAppUnfurlChartsWorkflowInputs:
+    def _inputs(self, urls: tuple[str, ...] = (_URL,)) -> SlackAppUnfurlChartsWorkflowInputs:
         return SlackAppUnfurlChartsWorkflowInputs(
             team_id=self.team.pk,
             integration_id=self.integration.id,
-            user_id=user.pk,
+            user_id=self.user.pk,
             slack_user_id="U1",
             channel="C1",
             message_ts="123.456",
             unfurl_id=None,
             source=None,
-            unfurls={_URL: {"blocks": [_TEXT_CARD]}},
-            charts=[SlackUnfurlChartRequest(url=_URL, insight_id=self.insight.id, title="Weekly active users")],
+            unfurls={url: {"blocks": [_TEXT_CARD]} for url in urls},
+            charts=[
+                SlackUnfurlChartRequest(url=url, insight_id=self.insight.id, title="Weekly active users")
+                for url in urls
+            ],
             export_task_queue="unused",
         )
 
-    @parameterized.expand([("same_user", True), ("other_user", False)])
-    def test_prepare_reuses_a_cached_render_only_for_the_same_user(self, _name: str, expect_cached: bool) -> None:
-        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
-        key = chart_cache_key(team_id=self.team.pk, insight=self.insight, user_id=self.user.pk)
-        cache.set(key, 987654, 60)
-        self.addCleanup(cache.delete, key)
+    def _post(self, inputs: SlackAppUnfurlChartsWorkflowInputs, asset: ExportedAsset) -> None:
+        post_unfurl_charts(
+            SlackAppUnfurlChartsPostInput(
+                request=inputs,
+                rendered=[SlackUnfurlChartAsset(insight_id=self.insight.id, asset_id=asset.id)],
+                elapsed_ms=1,
+            )
+        )
 
-        prepared = prepare_unfurl_charts(self._inputs(self.user if expect_cached else other_user))
-
-        assert len(prepared.assets) == 1
-        assert prepared.assets[0].cached is expect_cached
-        assert (prepared.assets[0].asset_id == 987654) is expect_cached
-
-    @parameterized.expand([("rendered", None, True), ("render_failed", "Export failed", False)])
-    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
-    def test_post_adds_the_chart_under_the_title_only_when_the_render_succeeded(
-        self, _name: str, exception: str | None, expect_unfurl: bool, mock_slack: MagicMock
-    ) -> None:
-        asset = ExportedAsset.objects.create(
+    def _asset(self, exception: str | None = None) -> ExportedAsset:
+        return ExportedAsset.objects.create(
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -84,13 +88,26 @@ class TestLinkUnfurlCharts(BaseTest):
             exception=exception,
         )
 
-        post_unfurl_charts(
-            SlackAppUnfurlChartsPostInput(
-                request=self._inputs(self.user),
-                rendered=[SlackUnfurlChartAsset(url=_URL, asset_id=asset.id, cache_key="unused", cached=False)],
-                elapsed_ms=1,
-            )
-        )
+    def test_prepare_renders_an_insight_once_for_two_links_to_it(self) -> None:
+        prepared = prepare_unfurl_charts(self._inputs(urls=(_URL, _SHORT_URL)))
+
+        assert [asset.insight_id for asset in prepared.assets] == [self.insight.id]
+
+    @parameterized.expand(
+        [
+            ("rendered", None, True, True),
+            ("render_failed", "Export failed", True, False),
+            ("public_sharing_turned_off", None, False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
+    def test_post_adds_the_chart_under_the_title_only_when_allowed(
+        self, _name: str, exception: str | None, public_sharing: bool, expect_unfurl: bool, mock_slack: MagicMock
+    ) -> None:
+        self.organization.allow_publicly_shared_resources = public_sharing
+        self.organization.save()
+
+        self._post(self._inputs(), self._asset(exception))
 
         chat_unfurl = mock_slack.return_value.client.chat_unfurl
         if not expect_unfurl:
@@ -103,32 +120,34 @@ class TestLinkUnfurlCharts(BaseTest):
         assert blocks[1]["image_url"].startswith("http")
 
     @parameterized.expand(
-        [("rejected_payload", "cannot_parse_attachment", False), ("rate_limited", "ratelimited", True)]
+        [
+            ("rejected_payload", "cannot_parse_attachment", 200, None),
+            ("rate_limited", "ratelimited", 429, ApplicationError),
+            ("slack_outage", "internal_error", 500, SlackApiError),
+        ]
     )
     @patch("products.slack_app.backend.logic.link_unfurl_charts.capture_slack_event")
     @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
-    def test_post_retries_only_a_rate_limited_unfurl(
-        self, _name: str, slack_error: str, expect_raise: bool, mock_slack: MagicMock, mock_capture: MagicMock
+    def test_post_retries_only_a_transient_slack_error(
+        self,
+        _name: str,
+        slack_error: str,
+        status_code: int,
+        expected_raise: type[Exception] | None,
+        mock_slack: MagicMock,
+        mock_capture: MagicMock,
     ) -> None:
-        asset = ExportedAsset.objects.create(
-            team=self.team,
-            created_by=self.user,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            insight=self.insight,
-            content=b"png",
-        )
-        mock_slack.return_value.client.chat_unfurl.side_effect = SlackApiError(slack_error, {"error": slack_error})
-        post = SlackAppUnfurlChartsPostInput(
-            request=self._inputs(self.user),
-            rendered=[SlackUnfurlChartAsset(url=_URL, asset_id=asset.id, cache_key="unused", cached=False)],
-            elapsed_ms=1,
-        )
+        mock_slack.return_value.client.chat_unfurl.side_effect = _slack_error(slack_error, status_code)
+        inputs, asset = self._inputs(), self._asset()
 
-        if expect_raise:
-            with pytest.raises(SlackApiError):
-                post_unfurl_charts(post)
+        if expected_raise is not None:
+            with pytest.raises(expected_raise) as raised:
+                self._post(inputs, asset)
+            if isinstance(raised.value, ApplicationError):
+                assert raised.value.next_retry_delay is not None
+                assert raised.value.next_retry_delay.total_seconds() == 30
             mock_capture.assert_not_called()
             return
-        post_unfurl_charts(post)
+        self._post(inputs, asset)
         assert mock_capture.call_args.kwargs["charts_shown"] == 0
         assert mock_capture.call_args.kwargs["failure_reason"] == slack_error

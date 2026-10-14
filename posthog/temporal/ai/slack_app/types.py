@@ -45,10 +45,8 @@ class SlackAppUnfurlChartsWorkflowInputs:
 
 @frozen
 class SlackUnfurlChartAsset:
-    url: str
+    insight_id: int
     asset_id: int
-    cache_key: str
-    cached: bool
 
 
 @frozen

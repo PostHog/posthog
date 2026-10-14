@@ -18,7 +18,6 @@ from posthog.temporal.ai.slack_app.types import (
 )
 from posthog.temporal.exports.workflows import ExportAssetWorkflowInputs
 
-_CACHED_ASSET_ID = 1
 _RENDERED_ASSET_ID = 2
 _FAILING_ASSET_ID = 3
 
@@ -31,14 +30,8 @@ async def _fake_prepare(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppU
     return SlackAppUnfurlChartsPrepared(
         distinct_id="user-1",
         assets=[
-            SlackUnfurlChartAsset(
-                url=f"https://example.com/{asset_id}", asset_id=asset_id, cache_key="k", cached=cached
-            )
-            for asset_id, cached in (
-                (_CACHED_ASSET_ID, True),
-                (_RENDERED_ASSET_ID, False),
-                (_FAILING_ASSET_ID, False),
-            )
+            SlackUnfurlChartAsset(insight_id=asset_id, asset_id=asset_id)
+            for asset_id in (_RENDERED_ASSET_ID, _FAILING_ASSET_ID)
         ],
     )
 
@@ -97,4 +90,4 @@ async def test_a_failed_render_still_posts_the_other_charts(
 
     assert sorted(rendered_asset_ids) == [_RENDERED_ASSET_ID, _FAILING_ASSET_ID]
     assert len(posted) == 1
-    assert sorted(asset.asset_id for asset in posted[0].rendered) == [_CACHED_ASSET_ID, _RENDERED_ASSET_ID]
+    assert [asset.asset_id for asset in posted[0].rendered] == [_RENDERED_ASSET_ID]

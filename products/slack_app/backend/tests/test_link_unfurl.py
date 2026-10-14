@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,6 +33,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
+from products.slack_app.backend.tasks import start_slack_unfurl_charts
 from products.tasks.backend.models import Task
 
 
@@ -167,6 +170,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("public_sharing_off", True, False, False),
         ]
     )
+    @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
     @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
     @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled")
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -181,7 +185,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_resolve: MagicMock,
         mock_flag: MagicMock,
         mock_sync_connect: MagicMock,
+        mock_delay: MagicMock,
     ) -> None:
+        # Runs the queued task in process, through JSON like the Celery broker.
+        mock_delay.side_effect = lambda **kwargs: start_slack_unfurl_charts(**json.loads(json.dumps(kwargs)))
         self.organization.allow_publicly_shared_resources = public_sharing
         self.organization.save()
         mock_resolve.return_value = MagicMock(user=self.user)

@@ -38,13 +38,12 @@ class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY_POLICY,
         )
-        rendered = [asset for asset in prepared.assets if asset.cached]
-        to_render = [asset for asset in prepared.assets if not asset.cached]
         results = await asyncio.gather(
-            *(self._render(inputs, prepared.distinct_id, asset) for asset in to_render),
+            *(self._render(inputs, prepared.distinct_id, asset) for asset in prepared.assets),
             return_exceptions=True,
         )
-        for asset, result in zip(to_render, results):
+        rendered = []
+        for asset, result in zip(prepared.assets, results):
             if isinstance(result, BaseException):
                 workflow.logger.warning(
                     "slack_app_unfurl_chart_render_failed",

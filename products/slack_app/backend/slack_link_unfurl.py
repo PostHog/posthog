@@ -6,6 +6,7 @@ Ticket subjects and messages are customer-authored, so every one goes through `e
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
@@ -453,23 +454,23 @@ def _attach_public_slack_thread_reference(
     )
 
 
-def _start_unfurl_charts(
+def start_unfurl_charts(
     *,
     integration: Integration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
     charts: list[SlackUnfurlChartRequest],
-) -> bool:
+) -> None:
     """Start the workflow that adds chart images to the posted cards. Best effort: a failure keeps the text cards.
 
     The image url opens without a PostHog login, so an organization that turns off public
     sharing gets no charts.
     """
     if not integration.team.organization.allow_publicly_shared_resources:
-        return False
+        return
     if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=str(user.distinct_id)):
-        return False
+        return
     channel = event["channel"]
     message_ts = event["message_ts"]
     inputs = SlackAppUnfurlChartsWorkflowInputs(
@@ -498,9 +499,35 @@ def _start_unfurl_charts(
         )
     except WorkflowAlreadyStartedError:
         # Slack sent the event again while the first run is still rendering.
-        return False
+        pass
     except Exception:
         logger.warning("slack_app_unfurl_charts_dispatch_failed", team_id=integration.team_id, exc_info=True)
+
+
+def _queue_unfurl_charts(
+    *,
+    integration: Integration,
+    user: User,
+    event: dict,
+    unfurls: dict[str, dict],
+    charts: list[SlackUnfurlChartRequest],
+) -> bool:
+    """Queue ``start_unfurl_charts`` on Celery. The flag check and the Temporal start make network
+    calls, and the webhook must ack within Slack's three-second budget."""
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import start_slack_unfurl_charts  # noqa: PLC0415
+
+    try:
+        start_slack_unfurl_charts.delay(
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            user_id=user.pk,
+            event=event,
+            unfurls=unfurls,
+            charts=[dataclasses.asdict(chart) for chart in charts],
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_charts_queue_failed", team_id=integration.team_id, exc_info=True)
         return False
     return True
 
@@ -695,7 +722,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
     else:
-        charts_started = bool(chart_requests) and _start_unfurl_charts(
+        charts_queued = bool(chart_requests) and _queue_unfurl_charts(
             integration=integration,
             user=user,
             event=event,
@@ -711,5 +738,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurled_count=len(unfurls),
             skipped_count=len(skipped),
             followup_invite_shown=invite is not None,
-            charts_started=charts_started,
+            charts_queued=charts_queued,
         )
