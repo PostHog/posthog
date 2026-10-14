@@ -145,6 +145,10 @@ class SourceBusyError(Exception):
     """A refresh is already running for this source."""
 
 
+class SourceClaimLostError(Exception):
+    """The run's PROCESSING claim was released or taken over, so it must not write."""
+
+
 class GeneratedSourceReadOnlyError(Exception):
     """A system-managed source cannot be changed through user mutation paths."""
 
@@ -1435,6 +1439,19 @@ def claim_url_source(
     return source
 
 
+def _lock_claimed_source(source: KnowledgeSource, team_id: int) -> KnowledgeSource:
+    """
+    Lock the source row and confirm `source`'s run still holds the PROCESSING claim.
+
+    Call inside `transaction.atomic()` before each write, so a timed-out run whose thread keeps going
+    cannot write after `release_failed_source` or the stale sweep ended its claim.
+    """
+    fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+    if fresh.status != SourceStatus.PROCESSING or fresh.processing_claim_id != source.processing_claim_id:
+        raise SourceClaimLostError(f"Source {source.id} is no longer claimed by this run.")
+    return fresh
+
+
 def _ingest_url_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
     """
     Fetch + parse + chunk a single-URL source that's already claimed PROCESSING.
@@ -1449,7 +1466,7 @@ def _ingest_url_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSou
         result, title, text = _fetch_and_parse(normalized, etag=None)
     except (InvalidUrlError, UrlFetchFailedError, EmptyContentError) as exc:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             now = timezone.now()
             fresh.status = SourceStatus.ERROR
             fresh.error_message = str(exc)
@@ -1471,6 +1488,7 @@ def _ingest_url_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSou
     content_hash = sha256_of(text)
     try:
         with transaction.atomic():
+            _lock_claimed_source(source, team_id)
             _replace_source_content(
                 source=source,
                 team_id=team_id,
@@ -1497,7 +1515,7 @@ def _ingest_url_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSou
             )
     except QuotaExceededError:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             fresh.status = SourceStatus.ERROR
             fresh.error_message = "Quota exceeded"
             fresh.last_refresh_at = timezone.now()
@@ -1558,9 +1576,13 @@ def ingest_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None
         return source
     if source.source_type != SourceType.URL or not source.source_url:
         return source
-    if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
-        return _ingest_crawl_source(source=source, team_id=team_id)
-    return _ingest_url_source(source=source, team_id=team_id)
+    try:
+        if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
+            return _ingest_crawl_source(source=source, team_id=team_id)
+        return _ingest_url_source(source=source, team_id=team_id)
+    except SourceClaimLostError:
+        logger.info("business_knowledge.ingest.claim_lost", source_id=str(source.id))
+        return get_for_team(source.id, team_id)
 
 
 @with_team_scope(canonical=True)
@@ -1597,29 +1619,14 @@ def claim_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | None
     return source
 
 
-@with_team_scope(canonical=True)
-def execute_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None) -> KnowledgeSource | None:
-    """
-    Actually re-fetch + rebuild a source that's already claimed PROCESSING.
-
-    Called from a Temporal activity or as an inline fallback. The claim must
-    have happened beforehand via `claim_refresh_source`.
-    """
-    try:
-        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
-    except KnowledgeSource.DoesNotExist:
-        return None
-    if _is_claimed_by_another_run(source, claim_id):
-        return source
-
-    _ensure_user_managed_source(source)
+def _refresh_claimed_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
     try:
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
             return _refresh_crawl_source(source=source, team_id=team_id)
         return _refresh_single_source(source=source, team_id=team_id)
     except QuotaExceededError:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
             fresh.last_refresh_at = timezone.now()
             fresh.last_refresh_status = RefreshStatus.ERROR
@@ -1637,6 +1644,29 @@ def execute_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | No
                 ]
             )
         raise
+
+
+@with_team_scope(canonical=True)
+def execute_refresh_source(*, source_id: UUID, team_id: int, claim_id: UUID | None = None) -> KnowledgeSource | None:
+    """
+    Actually re-fetch + rebuild a source that's already claimed PROCESSING.
+
+    Called from a Temporal activity or as an inline fallback. The claim must
+    have happened beforehand via `claim_refresh_source`.
+    """
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+    if _is_claimed_by_another_run(source, claim_id):
+        return source
+
+    _ensure_user_managed_source(source)
+    try:
+        return _refresh_claimed_source(source=source, team_id=team_id)
+    except SourceClaimLostError:
+        logger.info("business_knowledge.refresh.claim_lost", source_id=str(source.id))
+        return get_for_team(source.id, team_id)
 
 
 @with_team_scope(canonical=True)
@@ -1696,7 +1726,7 @@ def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> Knowledg
         result, title, text = _fetch_and_parse(normalized, etag=source.last_etag or None)
     except (InvalidUrlError, UrlFetchFailedError, EmptyContentError) as exc:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             # Leave existing chunks intact so queries keep working even while
             # refresh is broken — that's why last_refresh_status is separate.
             fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
@@ -1719,7 +1749,7 @@ def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> Knowledg
 
     if result.status == 304:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             fresh.status = SourceStatus.READY
             fresh.last_refresh_at = timezone.now()
             fresh.last_refresh_status = RefreshStatus.NOT_MODIFIED
@@ -1742,7 +1772,7 @@ def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> Knowledg
 
     new_hash = sha256_of(text)
     with transaction.atomic():
-        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+        fresh = _lock_claimed_source(source, team_id)
         existing_doc = (
             KnowledgeDocument.objects.filter(team_id=team_id, source_id=fresh.id).order_by("created_at").first()
         )
@@ -1916,7 +1946,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
 
     def _mark_error(error_msg: str) -> KnowledgeSource:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             now = timezone.now()
             fresh.status = SourceStatus.ERROR
             fresh.error_message = error_msg
@@ -1987,6 +2017,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
                 return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
 
             with transaction.atomic():
+                _lock_claimed_source(source, team_id)
                 for outcome in ok_outcomes:
                     _insert_document_and_chunks(
                         source=source,
@@ -2005,6 +2036,8 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         _delete_crawl_documents(source=source, team_id=team_id)
         _mark_error(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
         raise
+    except SourceClaimLostError:
+        raise
     except Exception:
         _delete_crawl_documents(source=source, team_id=team_id)
         raise
@@ -2012,24 +2045,27 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not written_any:
         return _mark_error(first_error or "All pages failed to fetch.")
 
-    source.status = SourceStatus.READY
-    source.last_refresh_at = timezone.now()
-    source.last_refresh_status = RefreshStatus.SUCCESS
-    source.last_refresh_error = ""
-    source.save(
-        update_fields=[
-            "status",
-            "last_refresh_at",
-            "last_refresh_status",
-            "last_refresh_error",
-            "updated_at",
-        ]
-    )
+    with transaction.atomic():
+        fresh = _lock_claimed_source(source, team_id)
+        fresh.status = SourceStatus.READY
+        fresh.last_refresh_at = timezone.now()
+        fresh.last_refresh_status = RefreshStatus.SUCCESS
+        fresh.last_refresh_error = ""
+        fresh.save(
+            update_fields=[
+                "status",
+                "last_refresh_at",
+                "last_refresh_status",
+                "last_refresh_error",
+                "updated_at",
+            ]
+        )
     return get_for_team(source.id, team_id) or source
 
 
 def _delete_crawl_documents(*, source: KnowledgeSource, team_id: int) -> None:
     with transaction.atomic():
+        _lock_claimed_source(source, team_id)
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source.id).delete()
         KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).delete()
 
@@ -2061,7 +2097,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             fresh.status = SourceStatus.READY if fresh.documents.exists() else SourceStatus.ERROR
             fresh.last_refresh_at = timezone.now()
             fresh.last_refresh_status = RefreshStatus.ERROR
@@ -2129,6 +2165,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     # case the page comes back soon).
     if vanished_ids:
         with transaction.atomic():
+            _lock_claimed_source(source, team_id)
             now = timezone.now()
             KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
             KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
@@ -2140,7 +2177,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     outcomes = crawl.iter_fetch(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     for batch in batched(outcomes, CRAWL_WRITE_BATCH_SIZE, strict=False):
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             for outcome in batch:
                 existing = existing_by_url.pop(outcome.url, None)
                 if outcome.status == "not_modified":
@@ -2198,7 +2235,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         else:
             error_msg = first_error or "All pages failed to fetch."
         with transaction.atomic():
-            fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+            fresh = _lock_claimed_source(source, team_id)
             now = timezone.now()
             fresh.last_refresh_at = now
             fresh.last_refresh_status = RefreshStatus.ERROR
@@ -2222,7 +2259,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         return get_for_team(source.id, team_id) or fresh
 
     with transaction.atomic():
-        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+        fresh = _lock_claimed_source(source, team_id)
         fresh.status = SourceStatus.READY
         fresh.last_refresh_at = timezone.now()
         fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED

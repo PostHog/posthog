@@ -753,6 +753,43 @@ class TestRefreshCrawlSource(APIBaseTest):
         assert source.status == SourceStatus.ERROR
         assert source.last_refresh_status == RefreshStatus.ERROR
 
+    @parameterized.expand(
+        [
+            ("ingest", True, SourceStatus.ERROR, False),
+            ("refresh", False, SourceStatus.READY, True),
+        ]
+    )
+    def test_run_released_while_fetching_writes_nothing_after_the_release(
+        self, _name: str, is_ingest: bool, expected_status: str, expect_documents_left: bool
+    ) -> None:
+        urls = ["https://example.com/a"]
+        source = self._seed(urls)
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(
+            status=SourceStatus.PROCESSING, processing_claim_id=_CURRENT_CLAIM_ID
+        )
+        real_iter_fetch = crawl.iter_fetch
+
+        def iter_fetch_released_by_the_workflow(*args: Any, **kwargs: Any) -> Iterator[crawl.CrawlOutcome]:
+            logic.release_failed_source(
+                source_id=source.id, team_id=self.team.id, claim_id=_CURRENT_CLAIM_ID, discard_documents=is_ingest
+            )
+            yield from real_iter_fetch(*args, **kwargs)
+
+        behaviours = {url: _ok(url, b"<html><body>Changed body.</body></html>") for url in urls}
+        run = logic.ingest_source if is_ingest else logic.execute_refresh_source
+        with (
+            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
+            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
+            patch.object(crawl, "iter_fetch", side_effect=iter_fetch_released_by_the_workflow),
+        ):
+            run(source_id=source.id, team_id=self.team.id, claim_id=_CURRENT_CLAIM_ID)
+
+        source.refresh_from_db()
+        assert source.status == expected_status
+        assert source.last_refresh_status == RefreshStatus.ERROR
+        assert KnowledgeDocument.objects.unscoped().filter(source=source).exists() == expect_documents_left
+        assert not KnowledgeDocument.objects.unscoped().filter(source=source, content__contains="Changed").exists()
+
     def test_claim_refresh_retry_with_its_own_claim_id_continues_and_another_stays_busy(self) -> None:
         source = self._seed(["https://example.com/a"])
 
