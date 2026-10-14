@@ -106,13 +106,14 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
             self._put_project_access_control({**subject, "access_level": level})
 
         logs = list(ActivityLog.objects.filter(scope="AccessControl").order_by("created_at"))
-        assert [(log.activity, log.detail["changes"][0]["after"]) for log in logs] == [
+        details = [log.detail or {} for log in logs]
+        assert [(log.activity, detail["changes"][0]["after"]) for log, detail in zip(logs, details)] == [
             ("created", "member"),
             ("updated", "admin"),
             ("deleted", None),
         ]
         assert {log.user for log in logs} == {self.user}
-        assert logs[0].detail["context"] == {
+        assert details[0]["context"] == {
             "resource": "project",
             "resource_id": str(self.team.id),
             "access_level": "member",

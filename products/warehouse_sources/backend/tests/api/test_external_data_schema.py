@@ -4593,6 +4593,7 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
 
         log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
         assert log.user == self.user
+        assert log.detail is not None
         assert [c for c in log.detail["changes"] if c["field"] == field] == [
             {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
         ]

@@ -17,6 +17,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.logic.table_activity import snapshot_table
 from products.data_warehouse.backend.presentation.views.table import (
     CreateTableFromUploadSerializer,
     SimpleTableSerializer,
@@ -70,6 +71,27 @@ class TestTableNameValidation(SimpleTestCase):
             instance.clean()
         with self.assertRaises(DjangoValidationError):
             instance.save()
+
+
+class TestTableActivitySnapshot(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "plain",
+                "https://bucket.s3.amazonaws.com/data/*.parquet",
+                "https://bucket.s3.amazonaws.com/data/*.parquet",
+            ),
+            ("userinfo", "https://key:secret@bucket.example.com/data.csv", "https://bucket.example.com/data.csv"),
+            (
+                "signed_query",
+                "https://bucket.example.com/data.csv?X-Amz-Signature=abc",
+                "https://bucket.example.com/data.csv?<redacted>",
+            ),
+        ]
+    )
+    def test_url_secrets_stay_out_of_the_snapshot(self, _name: str, url_pattern: str, expected: str):
+        table = DataWarehouseTable(name="t", format="CSV", url_pattern=url_pattern)
+        assert snapshot_table(table)["url_pattern"] == expected
 
 
 class TestTable(APIBaseTest):
@@ -336,6 +358,7 @@ class TestTable(APIBaseTest):
 
         log = ActivityLog.objects.get(scope="DataWarehouseTable", item_id=str(table.id))
         assert (log.activity, log.user) == ("updated", self.user)
+        assert log.detail is not None
         assert log.detail["changes"] == [
             {
                 "type": "DataWarehouseTable",
@@ -482,13 +505,15 @@ class TestTable(APIBaseTest):
         assert response.status_code == 400
         assert DataWarehouseTable.objects.count() == 1
 
-    def test_delete_table(self):
+    @parameterized.expand([("delete_endpoint", "delete", 204), ("patch_deleted_flag", "patch", 200)])
+    def test_delete_table(self, _name: str, method: str, expected_status: int):
         table = DataWarehouseTable.objects.create(
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
         )
-        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}"
+        response = self.client.delete(url) if method == "delete" else self.client.patch(url, {"deleted": True})
 
-        assert response.status_code == 204
+        assert response.status_code == expected_status
 
         table.refresh_from_db()
 
@@ -1155,13 +1180,15 @@ class TestTable(APIBaseTest):
                 DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com",
                 DATAWAREHOUSE_BUCKET="test-warehouse-bucket",
             ):
-                response = self.client.post(
-                    f"/api/projects/{self.team.id}/warehouse_tables/file/",
-                    {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
-                    format="multipart",
-                )
-
-        assert response.status_code == 201
+                # The second upload changes no metadata and must still be logged.
+                for _ in range(2):
+                    test_file.seek(0)
+                    response = self.client.post(
+                        f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                        {"file": test_file, "name": "existing_table", "format": "CSVWithNames"},
+                        format="multipart",
+                    )
+                    assert response.status_code == 201
 
         # Verify the table was updated
         existing_table.refresh_from_db()
@@ -1178,8 +1205,15 @@ class TestTable(APIBaseTest):
         }
 
         # Verify S3 client was called to upload the file
-        mock_s3.upload_fileobj.assert_called_once_with(
+        mock_s3.upload_fileobj.assert_called_with(
             ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/updated_file.csv"
+        )
+
+        assert (
+            ActivityLog.objects.filter(
+                scope="DataWarehouseTable", item_id=str(existing_table.id), activity="updated", user=self.user
+            ).count()
+            == 2
         )
 
     def _delete_all_from_s3(self, s3_client, bucket_name, prefix=""):

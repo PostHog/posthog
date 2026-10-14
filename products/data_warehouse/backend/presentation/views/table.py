@@ -1005,7 +1005,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 # the URL above is always scoped to this team's own managed/ prefix, never taken
                 # verbatim from request input the way the PATCH endpoint's url_pattern field is.
                 table.save(internally_computed_url_pattern=True)
-                log_table_activity(table, "created" if created_table else "updated", before=before)
+                # A re-upload replaces the data even when no metadata changes, so it is always logged.
+                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
 
                 # Validate columns in background
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))

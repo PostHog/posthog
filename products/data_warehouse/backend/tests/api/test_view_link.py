@@ -248,7 +248,7 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
 
         logs = ActivityLog.objects.filter(scope="DataWarehouseJoin", item_id=view_link["id"]).order_by("created_at")
-        assert [(log.activity, log.user, log.detail["name"]) for log in logs] == [
+        assert [(log.activity, log.user, (log.detail or {}).get("name")) for log in logs] == [
             ("created", self.user, "events.some_field"),
             ("deleted", self.user, "events.some_field"),
         ]
@@ -266,6 +266,7 @@ class TestViewLinkQuery(APIBaseTest):
         rename_direct_postgres_join_references(team_id=self.team.id, old_name="old_name", new_name="new_name")
 
         log = ActivityLog.objects.get(scope="DataWarehouseJoin", item_id=str(join.id), activity="updated")
+        assert log.detail is not None
         assert log.detail["changes"] == [
             {
                 "type": "DataWarehouseJoin",
