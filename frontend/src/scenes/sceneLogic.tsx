@@ -59,6 +59,7 @@ import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
@@ -934,6 +935,16 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
+                if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                    // Same reasons as the organization block above, including skipping the onboarding redirects.
+                    if (isPathOpenWhileProjectPendingDeletion(router.values.location.pathname)) {
+                        actions.loadScene(sceneId, sceneKey, params, method)
+                    } else {
+                        router.actions.replace(urls.projectPendingDeletion())
+                    }
+                    return
+                }
+
                 if (sceneId === Scene.OrganizationDeactivated || sceneId === Scene.OrganizationPendingDeletion) {
                     // The organization is open again, so let the member back in, as the server does. The server
                     // only matches the bare block path, and the router writes it with a `/project/<id>` prefix.
@@ -1206,8 +1217,12 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            // This route skips `openScene`, so it applies the organization block itself, as the server does.
+            // This route skips `openScene`, so it applies the organization block and the project lockout itself.
             if (leaveBlockedOrganizationPath()) {
+                return
+            }
+            if (projectLogic.findMounted()?.values.currentProject?.is_pending_deletion) {
+                router.actions.replace(urls.projectPendingDeletion())
                 return
             }
             return actions.loadScene(Scene.Error404, undefined, emptySceneParams, method)

@@ -4,11 +4,14 @@ from typing import Any
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
@@ -43,6 +46,14 @@ def setup_data():
     organization = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=organization, name="Test Team")
     return {"organization": organization, "team": team}
+
+
+@pytest.fixture
+def no_full_catalog_build():
+    # A full build loads every warehouse table and view of the team. On a large warehouse project
+    # that holds the GIL long enough to starve the worker's event loop, so eval reads must not do it.
+    with patch.object(Database, "create_for", side_effect=AssertionError("eval read built the full HogQL catalog")):
+        yield
 
 
 def _insert_ai_event(
@@ -665,6 +676,7 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(hours=1)
 
 
+@pytest.mark.usefixtures("no_full_catalog_build")
 class TestCheckTraceSettledActivity:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
@@ -744,6 +756,7 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
+@pytest.mark.usefixtures("no_full_catalog_build")
 class TestCheckSessionSettledActivity:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):

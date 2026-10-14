@@ -217,6 +217,8 @@ class TestFieldCharsetResult:
         [
             (FIELD_TYPE.ENUM, 8, "ao\u00fbt".encode("latin1"), "ao\u00fbt"),
             (FIELD_TYPE.SET, 255, "co\u00fbt".encode(), "co\u00fbt"),
+            (FIELD_TYPE.ENUM, 255, "ao\u00fbt".encode("latin1"), "ao\ufffdt"),
+            (FIELD_TYPE.VAR_STRING, 255, "ao\u00fbt".encode("latin1"), "ao\ufffdt"),
             (242, 63, b"\x00\xfb", b"\x00\xfb"),
             (FIELD_TYPE.LONG, 63, b"42", 42),
             (FIELD_TYPE.NEWDECIMAL, 63, b"1.50", Decimal("1.50")),
@@ -229,7 +231,7 @@ class TestFieldCharsetResult:
         result.field_count = 1
         result._get_descriptions()
 
-        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))  # type: ignore[attr-defined]
+        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))
 
         assert row == (expected,)
 
