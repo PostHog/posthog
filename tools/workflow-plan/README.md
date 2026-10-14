@@ -1,6 +1,6 @@
 # workflow-plan
 
-Evaluates the `if:` conditions in `.github/workflows/*.yml` the way GitHub does, against synthetic PR, push, schedule, and cancellation scenarios, and reports which jobs and steps run.
+Evaluates the `if:` conditions in `.github/workflows/*.yml` and `.depot/workflows/*.yml` the way GitHub does, against synthetic PR, push, schedule, and cancellation scenarios, and reports which jobs and steps run.
 The evaluator is GitHub's own [`@actions/expressions`](https://www.npmjs.com/package/@actions/expressions), so operator precedence, coercion, `contains`, `fromJSON`, and the `labels.*.name` filter syntax behave as they do in Actions.
 
 ## See a workflow's run plan
@@ -15,7 +15,7 @@ A cell reads `▶` for a job that runs, `✗` for one that fails, `⊘` for one 
 In a terminal the header row is bold and every second row has a shaded background; set `NO_COLOR` to turn that off.
 Every paths filter is stubbed as if all of its filters matched.
 Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped and a matrix built from such an output has no cell count.
-Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/scenarios.ts` supplies it per workflow path: the release plan output, and the Depot shadow's sampling variable and dice roll so `.depot/workflows/ci-backend.yml` plans as sampled in.
+Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/scenarios.ts` supplies it per workflow path, for example the release plan output.
 
 ## Pin the intended behavior in a test
 
