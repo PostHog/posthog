@@ -33,11 +33,13 @@ describe('reviewHogRepositoriesLogic', () => {
     let requests: string[]
     let overviewCalls: number
     let overviewTotal: number
+    let overviewViews: string[]
 
     beforeEach(() => {
         requests = []
         overviewCalls = 0
         overviewTotal = 0
+        overviewViews = []
         useMocks({
             get: {
                 '/api/projects/:team_id/review_hog/project_settings/': () => [
@@ -59,8 +61,9 @@ describe('reviewHogRepositoriesLogic', () => {
                         can_edit: true,
                     },
                 ],
-                '/api/projects/:team_id/review_hog/repository_overview/': () => {
+                '/api/projects/:team_id/review_hog/repository_overview/': ({ request }) => {
                     overviewCalls += 1
+                    overviewViews.push(new URL(request.url).searchParams.get('view') ?? '')
                     return [
                         200,
                         {
@@ -70,6 +73,9 @@ describe('reviewHogRepositoriesLogic', () => {
                             total: overviewTotal,
                             has_more: false,
                             next_offset: null,
+                            folded: 0,
+                            folded_preview: [],
+                            folded_result: null,
                             my_choices_unlike_default: 0,
                         },
                     ]
@@ -136,6 +142,19 @@ describe('reviewHogRepositoriesLogic', () => {
         await expectLogic(logic, () => logic.actions.setMyChoice(picked, value)).toFinishAllListeners()
 
         expect(requests).toEqual(expected)
+    })
+
+    it('folds the repositories that follow the project until the viewer opens the fold or searches', async () => {
+        await expectLogic(logic).toDispatchActions(['loadOverviewSuccess'])
+        expect(overviewViews.at(-1)).toEqual('differs')
+
+        await expectLogic(logic, () => logic.actions.setFoldOpen(true)).toDispatchActions(['loadOverviewSuccess'])
+        expect(overviewViews.at(-1)).toEqual('all')
+
+        await expectLogic(logic, () => logic.actions.setFoldOpen(false)).toDispatchActions(['loadOverviewSuccess'])
+        await expectLogic(logic, () => logic.actions.setSearch('web')).toDispatchActions(['loadOverviewSuccess'])
+        // A search lists every match, so a folded repository stays one search away.
+        expect(overviewViews.at(-1)).toEqual('all')
     })
 
     it('a new exception starts as a copy of the project rule and its list', async () => {

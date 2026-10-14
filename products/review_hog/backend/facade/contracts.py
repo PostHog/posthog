@@ -365,6 +365,10 @@ class ReviewRepositoryOverviewPage:
     entries: Sequence[ReviewRepositoryOverviewEntry]
     # Entries that match the search and the view, on every page.
     total: int
+    # The repositories the 'differs' view leaves out. Empty for every other view.
+    folded: int
+    folded_preview: Sequence[str]
+    folded_result: AutomaticReviewDecision | None
     my_choices_unlike_default: int
 
 

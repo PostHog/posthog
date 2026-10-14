@@ -649,15 +649,22 @@ const meta: Meta<typeof CodeReviewScene> = {
                         const view = params.get('view') ?? 'all'
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
-                        const entries = REPOSITORY_NAMES.filter((name) => name.includes(search))
-                            .map(overviewEntry)
-                            .filter(
-                                (entry) =>
-                                    view === 'all' ||
-                                    (view === 'in_project' && entry.in_project) ||
-                                    (view === 'exceptions' && entry.exception !== null) ||
-                                    (view === 'mine' && entry.my_choice !== null)
-                            )
+                        const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
+                        // Same rule as the server: this project's settings apply with no exception and no own choice.
+                        const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
+                            entry.owner === 'this_project' &&
+                            entry.in_project &&
+                            entry.exception === null &&
+                            entry.my_choice === null
+                        const entries = matching.filter(
+                            (entry) =>
+                                view === 'all' ||
+                                (view === 'in_project' && entry.in_project) ||
+                                (view === 'exceptions' && entry.exception !== null) ||
+                                (view === 'mine' && entry.my_choice !== null) ||
+                                (view === 'differs' && !follows(entry))
+                        )
+                        const folded = view === 'differs' ? matching.filter(follows) : []
                         const page = entries.slice(offset, offset + limit)
                         return [
                             200,
@@ -668,6 +675,9 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                folded: folded.length,
+                                folded_preview: folded.slice(0, 3).map((entry) => entry.full_name),
+                                folded_result: folded[0]?.my_result ?? null,
                                 my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]

@@ -8,6 +8,7 @@ repositories of an installation, and a project only stores what differs from wha
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from functools import cached_property
 from typing import Any
 from uuid import UUID
 
@@ -383,6 +384,7 @@ class RepositoryOverview:
         self.team = team
         self.user = user
         self.installation_id = installation_id
+        self.repositories = repositories
         self.rows = RepositoryOwnership.rows_for_listing(
             (str(repository["full_name"]) for repository in repositories),
             (repository["id"] for repository in repositories if isinstance(repository.get("id"), int)),
@@ -447,7 +449,29 @@ class RepositoryOverview:
             return len(self.viewer.choices)
         return sum(1 for choice in self.viewer.choices if choice.mode != self.viewer.default_mode)
 
+    @cached_property
+    def all_entries(self) -> list[OverviewEntry]:
+        # Every view except 'all' filters on computed entries, and the 'differs' view also counts the rest.
+        return [self.entry(repository) for repository in self.repositories]
+
+    @staticmethod
+    def follows_project(entry: OverviewEntry) -> bool:
+        """No exception and no own choice, so the entry gets exactly what every other such entry gets."""
+        has_exception = entry.repository is not None and entry.repository.flash_for is not None
+        return (
+            entry.owner == RepositoryOwnerKind.THIS_PROJECT
+            and entry.in_project
+            and not has_exception
+            and entry.my_choice is None
+        )
+
+    def folded(self) -> list[OverviewEntry]:
+        """The entries the 'differs' view leaves out."""
+        return [entry for entry in self.all_entries if self.follows_project(entry)]
+
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:
+        if view == RepositoryOverviewView.DIFFERS:
+            return not self.follows_project(entry)
         if view == RepositoryOverviewView.IN_PROJECT:
             return entry.in_project
         if view == RepositoryOverviewView.EXCEPTIONS:
@@ -456,15 +480,12 @@ class RepositoryOverview:
             return entry.my_choice is not None
         return True
 
-    def page(
-        self, repositories: Sequence[Mapping[str, Any]], *, view: str, offset: int, limit: int
-    ) -> tuple[list[OverviewEntry], int]:
+    def page(self, *, view: str, offset: int, limit: int) -> tuple[list[OverviewEntry], int]:
         """One page of entries and the total that match the view."""
         if view == RepositoryOverviewView.ALL:
-            return [self.entry(repository) for repository in repositories[offset : offset + limit]], len(repositories)
-        matching = [
-            entry for entry in (self.entry(repository) for repository in repositories) if self._in_view(entry, view)
-        ]
+            page = self.repositories[offset : offset + limit]
+            return [self.entry(repository) for repository in page], len(self.repositories)
+        matching = [entry for entry in self.all_entries if self._in_view(entry, view)]
         return matching[offset : offset + limit], len(matching)
 
 

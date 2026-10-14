@@ -97685,6 +97685,12 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
+      /** With view 'differs': how many repositories the view leaves out because this project reviews them with no exception and no own choice. 0 for the other views. */
+      folded: number;
+      /** With view 'differs': the names of the first left-out repositories, at most 3. Empty for the other views. */
+      folded_preview: string[];
+      /** With view 'differs': what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null when nothing is left out, and for the other views. */
+      folded_result: AutomaticReviewDecision | null;
       /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
       my_choices_unlike_default: number;
     }
@@ -128650,12 +128656,13 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
      *
      * * `all` - All repositories
      * * `in_project` - In this project
      * * `exceptions` - With exceptions
      * * `mine` - My choices
+     * * `differs` - Different from the project
      * @minLength 1
      */
     view?: ReviewHogRepositoryOverviewRetrieveView;
@@ -128669,6 +128676,7 @@ export namespace Schemas {
       InProject: 'in_project',
       Exceptions: 'exceptions',
       Mine: 'mine',
+      Differs: 'differs',
     } as const;
 
     export type ReviewHogReviewsListParams = {

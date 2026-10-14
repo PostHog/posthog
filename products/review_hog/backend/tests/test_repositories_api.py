@@ -362,6 +362,14 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]
+        # web follows the project with no exception and no own choice, so only the fold counts it.
+        differs = self.client.get(f"{url}&view=differs").json()
+        assert sorted(entry["full_name"] for entry in differs["results"]) == ["example-org/api", "example-org/docs"]
+        assert (differs["folded"], differs["folded_preview"], differs["folded_result"]) == (
+            1,
+            ["example-org/web"],
+            {"flash": True, "reason": "own_default"},
+        )
         page = self.client.get(f"{url}&view=in_project&limit=1").json()
         assert (page["total"], page["has_more"], page["next_offset"]) == (2, True, 1)
         searched = self.client.get(f"{url}&search=API").json()

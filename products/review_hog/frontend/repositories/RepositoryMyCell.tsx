@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, type LemonSelectOptions, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -44,6 +44,14 @@ export function RepositoryMyCell({
         content = <span className="text-xs text-secondary">No automatic review. Not part of this project.</span>
     } else {
         const note = myChoiceNote(entry)
+        const choices = myChoiceOptions(entry)
+        // With a choice of your own, going back reads as removing it, the same way an exception is removed.
+        const options: LemonSelectOptions<MyChoiceValue> = hasChoice
+            ? [
+                  { options: [{ value: 'follow', label: 'Remove my choice' }] },
+                  { options: withYouIcons(choices.filter((option) => option.value !== 'follow')) },
+              ]
+            : withYouIcons(choices)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
                 <span className="flex items-center gap-2">
@@ -63,7 +71,7 @@ export function RepositoryMyCell({
                         size="small"
                         aria-label={`My choice for ${name}`}
                         value={value}
-                        options={withYouIcons(myChoiceOptions(entry))}
+                        options={options}
                         onChange={(picked) => setMyChoice(entry, picked)}
                         disabledReason={busyReason}
                         data-attr="review-hog-my-choice"
