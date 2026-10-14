@@ -524,7 +524,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("ai consent withdrawn after the click", False, "own-run", 0, False),
-            ("a run whose lease ran out", True, "stale-run", 1, True),
+            ("a run whose lease ran out before it started", True, "stale-run", 0, True),
         ]
     )
     @patch(f"{SERVICE}.suggest_ideas", return_value=[])
@@ -546,6 +546,20 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert suggest_ideas.call_count == model_calls
         assert (cache.get(_generation_lock_key(self.team)) is not None) is lock_left
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_run_that_loses_its_lease_does_not_replace_the_newer_cards(self, suggest_ideas: MagicMock, _flag) -> None:
+        def newer_run_takes_over(**_kwargs: object) -> list:
+            cache.set(_generation_lock_key(self.team), "newer-run", 60)
+            return [_idea("trial_started")]
+
+        suggest_ideas.side_effect = newer_run_takes_over
+        cache.set(_generation_lock_key(self.team), "own-run", 60)
+
+        run_data_suggestions(team_id=self.team.id, user_id=self.user.id, lock_token="own-run")
+
+        assert cache.get(_cache_key(self.team)) is None
+        assert cache.get(_generation_lock_key(self.team)) == "newer-run"
 
     @parameterized.expand(
         [
