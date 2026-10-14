@@ -1,6 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
-import { daysUntilCapReached, freeOnlyMonthlyRate, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
+import {
+    daysUntilCapReached,
+    freeCreditsCoverage,
+    freeOnlyMonthlyRate,
+    hasBillableSpend,
+    projectQuota,
+    quotaUx,
+} from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('hasBillableSpend', () => {
@@ -132,6 +139,18 @@ describe('freeOnlyMonthlyRate', () => {
         ['org limit below the free credits', makeQuota({ credit_limit: 1_000, remaining: 1_000 }), 1_500],
     ])('%s', (_name, quota, expected) => {
         expect(freeOnlyMonthlyRate(quota, 3_000)).toBeCloseTo(expected, 0)
+    })
+})
+
+describe('freeCreditsCoverage', () => {
+    it.each([
+        [2_500, 3_000, 'the first 3 weeks'],
+        [2_500, 5_000, 'the first 2 weeks'],
+        [2_500, 6_000, 'the first 12 days'],
+        [2_500, 75_000, 'the first day'],
+        [2_500, 1_000_000, 'the first day'],
+    ])('%s free credits at %s a month cover %s', (allowance, monthlyCredits, expected) => {
+        expect(freeCreditsCoverage(allowance, monthlyCredits)).toBe(expected)
     })
 })
 

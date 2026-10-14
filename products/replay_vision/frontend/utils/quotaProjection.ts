@@ -77,6 +77,15 @@ export function freeOnlyMonthlyRate(quota: VisionQuotaApi | null, monthlyCredits
     return daysRemaining > 0 ? Math.min(monthlyCredits, (left * ESTIMATE_MONTH_DAYS) / daysRemaining) : monthlyCredits
 }
 
+/** How much of a month a monthly allowance covers at a monthly rate, for example "the first 3 weeks". */
+export function freeCreditsCoverage(allowance: number, monthlyCredits: number): string {
+    const days = Math.max(1, Math.floor((allowance / monthlyCredits) * ESTIMATE_MONTH_DAYS))
+    if (days >= 14) {
+        return `the first ${Math.floor(days / 7)} weeks`
+    }
+    return days === 1 ? 'the first day' : `the first ${days} days`
+}
+
 /**
  * True when the org's whole limit is the free allocation, so it is on the free plan rather than
  * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.

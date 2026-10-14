@@ -18,6 +18,7 @@ import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { DEFAULT_GOAL_BUDGET, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
@@ -304,6 +305,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // projects above it.
     const budgetCredits = scanner.credit_limit ?? (scanner.free_only ? DEFAULT_GOAL_BUDGET : goalBudgetInput)
     const overBudget = monthlyCredits != null && budgetCredits != null && monthlyCredits > budgetCredits
+    // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
+    const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
 
     const saveDisabledReason =
         getReplayVisionEditDisabledReason(scanner.user_access_level) ??
@@ -401,18 +404,25 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     <StatRow label="Activity filter">
                         <LemonTag type="muted">{activityFilterLabel(scanner.sampling_mode)}</LemonTag>
                     </StatRow>
-                    <StatRow label="Cost estimate">
+                    <StatRow label={freeCreditsOnly ? 'Free credits' : 'Cost estimate'}>
                         {monthlyCredits != null ? (
-                            <span>
-                                about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
-                            </span>
+                            freeCreditsOnly ? (
+                                <span>
+                                    uses about <span>{monthlyCredits.toLocaleString()}</span> of your{' '}
+                                    <span>{DEFAULT_GOAL_BUDGET.toLocaleString()}</span> free credits a month
+                                </span>
+                            ) : (
+                                <span>
+                                    about {formatCreditCount(monthlyCredits)} a month (≈ {creditsToUsd(monthlyCredits)})
+                                </span>
+                            )
                         ) : scannerEstimateLoading ? (
                             <Spinner />
                         ) : (
                             <span className="text-muted">Not available</span>
                         )}
                     </StatRow>
-                    {scanner.free_only ? (
+                    {scanner.free_only && !freeCreditsOnly ? (
                         <StatRow label="Spend">
                             <span className="text-muted">Free credits only</span>
                         </StatRow>
@@ -423,11 +433,16 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                         </StatRow>
                     ) : null}
                 </div>
-                {overBudget ? (
+                {overBudget && freeCreditsOnly ? (
+                    <LemonBanner type="info">
+                        Your free credits cover about{' '}
+                        <span>{freeCreditsCoverage(DEFAULT_GOAL_BUDGET, monthlyCredits)}</span> of the month. After that
+                        it pauses until they reset.
+                    </LemonBanner>
+                ) : overBudget ? (
                     <LemonBanner type="warning">
-                        {scanner.free_only && scanner.credit_limit == null ? 'Free credits' : 'Your budget'} won't last
-                        the month at about <span>{monthlyObservations?.toLocaleString()}</span> recordings a month.
-                        Narrow the eligible recordings above.
+                        Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
+                        recordings a month. Narrow the eligible recordings above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
