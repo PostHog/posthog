@@ -62,6 +62,7 @@ export type {
     WorkflowsBroadcastsCreateRequestSchema37,
     WorkflowsBroadcastsCreateRequestSchema36,
     WorkflowsBroadcastsCreateRequestSchema45,
+    WorkflowsBroadcastsCreateRequestSchema56,
     WorkflowsBroadcastsCreateRequestSchema57Item,
     WorkflowsBroadcastsCreateRequestSchema57,
     WorkflowsBroadcastsCreateInput,

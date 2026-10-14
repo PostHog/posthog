@@ -40,7 +40,6 @@ export type {
     McpAnalyticsMcpAnalyticsSessionsListResponseShape2,
     McpAnalyticsMcpAnalyticsSessionsListData,
     McpAnalyticsMcpAnalyticsSessionsListOutput,
-    McpAnalyticsMcpAnalyticsSessionsToolCallsRequestSchema2,
     McpAnalyticsMcpAnalyticsSessionsToolCallsInput,
     McpAnalyticsMcpAnalyticsSessionsToolCallsResponseShape2,
     McpAnalyticsMcpAnalyticsSessionsToolCallsData,

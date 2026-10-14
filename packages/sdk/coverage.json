@@ -405,6 +405,11 @@
         "method": "autoresearch.autoresearchOnlinePerformanceRetrieve"
     },
     {
+        "toolName": "autoresearch-partial-update",
+        "status": "exported",
+        "method": "autoresearch.autoresearchPartialUpdate"
+    },
+    {
         "toolName": "autoresearch-resolve-template-create",
         "status": "exported",
         "method": "autoresearch.autoresearchResolveTemplateCreate"
@@ -825,6 +830,11 @@
         "method": "cdpFunctions.cdpFunctionsRetrieve"
     },
     {
+        "toolName": "change-feed-list",
+        "status": "exported",
+        "method": "annotations.changeFeedList"
+    },
+    {
         "toolName": "change-request-get",
         "status": "exported",
         "method": "platformFeatures.changeRequestGet"
@@ -963,6 +973,11 @@
         "toolName": "conversations-retrieve",
         "status": "exported",
         "method": "posthogAi.conversationsRetrieve"
+    },
+    {
+        "toolName": "conversations-tickets-compose-create",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsComposeCreate"
     },
     {
         "toolName": "conversations-tickets-list",
@@ -2550,6 +2565,16 @@
         "method": "signals.inboxSourceConfigsUpdate"
     },
     {
+        "toolName": "inbox-steering-instructions-get",
+        "status": "exported",
+        "method": "signals.inboxSteeringInstructionsGet"
+    },
+    {
+        "toolName": "inbox-steering-instructions-update",
+        "status": "exported",
+        "method": "signals.inboxSteeringInstructionsUpdate"
+    },
+    {
         "toolName": "insight-create",
         "status": "exported",
         "method": "productAnalytics.insightCreate"
@@ -3280,81 +3305,6 @@
         "method": "logs.logsSparklineQuery"
     },
     {
-        "toolName": "loop-channel-instructions-retrieve",
-        "status": "exported",
-        "method": "tasks.loopChannelInstructionsRetrieve"
-    },
-    {
-        "toolName": "loop-channel-instructions-update",
-        "status": "exported",
-        "method": "tasks.loopChannelInstructionsUpdate"
-    },
-    {
-        "toolName": "loop-context-wiki-channel-resolve",
-        "status": "exported",
-        "method": "contextLayer.loopContextWikiChannelResolve"
-    },
-    {
-        "toolName": "loop-context-wiki-page-retrieve",
-        "status": "exported",
-        "method": "contextLayer.loopContextWikiPageRetrieve"
-    },
-    {
-        "toolName": "loop-context-wiki-page-update",
-        "status": "exported",
-        "method": "contextLayer.loopContextWikiPageUpdate"
-    },
-    {
-        "toolName": "loops-create-execute",
-        "status": "exported",
-        "method": "tasks.loopsCreateExecute"
-    },
-    {
-        "toolName": "loops-create-prepare",
-        "status": "exported",
-        "method": "tasks.loopsCreatePrepare"
-    },
-    {
-        "toolName": "loops-destroy",
-        "status": "exported",
-        "method": "tasks.loopsDestroy"
-    },
-    {
-        "toolName": "loops-list",
-        "status": "exported",
-        "method": "tasks.loopsList"
-    },
-    {
-        "toolName": "loops-partial-update",
-        "status": "exported",
-        "method": "tasks.loopsPartialUpdate"
-    },
-    {
-        "toolName": "loops-preview-create",
-        "status": "exported",
-        "method": "tasks.loopsPreviewCreate"
-    },
-    {
-        "toolName": "loops-retrieve",
-        "status": "exported",
-        "method": "tasks.loopsRetrieve"
-    },
-    {
-        "toolName": "loops-review",
-        "status": "exported",
-        "method": "tasks.loopsReview"
-    },
-    {
-        "toolName": "loops-run-create",
-        "status": "exported",
-        "method": "tasks.loopsRunCreate"
-    },
-    {
-        "toolName": "loops-runs-retrieve",
-        "status": "exported",
-        "method": "tasks.loopsRunsRetrieve"
-    },
-    {
         "toolName": "managed-migrations-support-get",
         "status": "exported",
         "method": "managedMigrations.managedMigrationsSupportGet"
@@ -3373,6 +3323,16 @@
         "toolName": "managed-warehouse-monitoring-get",
         "status": "exported",
         "method": "dataWarehouse.managedWarehouseMonitoringGet"
+    },
+    {
+        "toolName": "managed-warehouse-trino-metric-history-get",
+        "status": "exported",
+        "method": "dataWarehouse.managedWarehouseTrinoMetricHistoryGet"
+    },
+    {
+        "toolName": "managed-warehouse-trino-monitoring-get",
+        "status": "exported",
+        "method": "dataWarehouse.managedWarehouseTrinoMonitoringGet"
     },
     {
         "toolName": "marketing-analytics-conversion-goals",
@@ -3495,6 +3455,16 @@
         "method": "core.mediaImagesList"
     },
     {
+        "toolName": "metric-attribute-values-list",
+        "status": "exported",
+        "method": "metrics.metricAttributeValuesList"
+    },
+    {
+        "toolName": "metric-attributes-list",
+        "status": "exported",
+        "method": "metrics.metricAttributesList"
+    },
+    {
         "toolName": "metric-describe",
         "status": "exported",
         "method": "dataCatalog.metricDescribe"
@@ -3508,6 +3478,11 @@
         "toolName": "metric-names-list",
         "status": "exported",
         "method": "metrics.metricNamesList"
+    },
+    {
+        "toolName": "metrics-dashboard-panels-validate",
+        "status": "exported",
+        "method": "metrics.metricsDashboardPanelsValidate"
     },
     {
         "toolName": "notebook-edit",
@@ -4190,6 +4165,21 @@
         "method": "signals.scoutReportChecksList"
     },
     {
+        "toolName": "scout-rubric-generate",
+        "status": "exported",
+        "method": "signals.scoutRubricGenerate"
+    },
+    {
+        "toolName": "scout-rubric-get",
+        "status": "exported",
+        "method": "signals.scoutRubricGet"
+    },
+    {
+        "toolName": "scout-rubric-save",
+        "status": "exported",
+        "method": "signals.scoutRubricSave"
+    },
+    {
         "toolName": "scout-run-now",
         "status": "exported",
         "method": "signals.scoutRunNow"
@@ -4235,6 +4225,11 @@
         "method": "signals.scoutScratchpadSearch"
     },
     {
+        "toolName": "scout-trial-archive",
+        "status": "exported",
+        "method": "signals.scoutTrialArchive"
+    },
+    {
         "toolName": "scout-trial-create",
         "status": "exported",
         "method": "signals.scoutTrialCreate"
@@ -4243,6 +4238,31 @@
         "toolName": "scout-trial-get",
         "status": "exported",
         "method": "signals.scoutTrialGet"
+    },
+    {
+        "toolName": "scout-trial-list",
+        "status": "exported",
+        "method": "signals.scoutTrialList"
+    },
+    {
+        "toolName": "scout-trial-report",
+        "status": "exported",
+        "method": "signals.scoutTrialReport"
+    },
+    {
+        "toolName": "scout-trial-resume",
+        "status": "exported",
+        "method": "signals.scoutTrialResume"
+    },
+    {
+        "toolName": "scout-trial-setup",
+        "status": "exported",
+        "method": "signals.scoutTrialSetup"
+    },
+    {
+        "toolName": "scout-trial-start",
+        "status": "exported",
+        "method": "signals.scoutTrialStart"
     },
     {
         "toolName": "session-recording-bulk-delete",
@@ -4588,6 +4608,11 @@
         "toolName": "subscriptions-retrieve",
         "status": "exported",
         "method": "subscriptions.subscriptionsRetrieve"
+    },
+    {
+        "toolName": "subscriptions-summaries-list",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsSummariesList"
     },
     {
         "toolName": "subscriptions-test-delivery-create",
@@ -4970,6 +4995,16 @@
         "method": "replayVision.visionQuotaSpendSeriesGet"
     },
     {
+        "toolName": "vision-requests-create",
+        "status": "exported",
+        "method": "replayVision.visionRequestsCreate"
+    },
+    {
+        "toolName": "vision-requests-get",
+        "status": "exported",
+        "method": "replayVision.visionRequestsGet"
+    },
+    {
         "toolName": "vision-scanners-affected-cohort-create",
         "status": "exported",
         "method": "replayVision.visionScannersAffectedCohortCreate"
@@ -5013,6 +5048,11 @@
         "toolName": "vision-scanners-create",
         "status": "exported",
         "method": "replayVision.visionScannersCreate"
+    },
+    {
+        "toolName": "vision-scanners-dashboard-create",
+        "status": "exported",
+        "method": "replayVision.visionScannersDashboardCreate"
     },
     {
         "toolName": "vision-scanners-delete",

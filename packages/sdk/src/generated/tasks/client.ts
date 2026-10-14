@@ -8,18 +8,6 @@ import type {
     TasksChannelInstructionsUpdateOutput,
     TasksChannelListOutput,
     TasksChannelRetrieveOutput,
-    TasksLoopChannelInstructionsRetrieveOutput,
-    TasksLoopChannelInstructionsUpdateOutput,
-    TasksLoopsCreateExecuteOutput,
-    TasksLoopsCreatePrepareOutput,
-    TasksLoopsDestroyOutput,
-    TasksLoopsListOutput,
-    TasksLoopsPartialUpdateOutput,
-    TasksLoopsPreviewCreateOutput,
-    TasksLoopsRetrieveOutput,
-    TasksLoopsReviewOutput,
-    TasksLoopsRunCreateOutput,
-    TasksLoopsRunsRetrieveOutput,
     TasksTasksArtifactsListOutput,
     TasksTasksCommentsListOutput,
     TasksTasksCommentsRetrieveOutput,
@@ -55,35 +43,6 @@ export function createTasksClient(runtime: Runtime): TasksClient {
         channelList: (input, options) => runtime.executeTool<TasksChannelListOutput>('channel-list', input, options),
         channelRetrieve: (input, options) =>
             runtime.executeTool<TasksChannelRetrieveOutput>('channel-retrieve', input, options),
-        loopChannelInstructionsRetrieve: (input, options) =>
-            runtime.executeTool<TasksLoopChannelInstructionsRetrieveOutput>(
-                'loop-channel-instructions-retrieve',
-                input,
-                options
-            ),
-        loopChannelInstructionsUpdate: (input, options) =>
-            runtime.executeTool<TasksLoopChannelInstructionsUpdateOutput>(
-                'loop-channel-instructions-update',
-                input,
-                options
-            ),
-        loopsCreateExecute: (input, options) =>
-            runtime.executeTool<TasksLoopsCreateExecuteOutput>('loops-create-execute', input, options),
-        loopsCreatePrepare: (input, options) =>
-            runtime.executeTool<TasksLoopsCreatePrepareOutput>('loops-create-prepare', input, options),
-        loopsDestroy: (input, options) => runtime.executeTool<TasksLoopsDestroyOutput>('loops-destroy', input, options),
-        loopsList: (input, options) => runtime.executeTool<TasksLoopsListOutput>('loops-list', input, options),
-        loopsPartialUpdate: (input, options) =>
-            runtime.executeTool<TasksLoopsPartialUpdateOutput>('loops-partial-update', input, options),
-        loopsPreviewCreate: (input, options) =>
-            runtime.executeTool<TasksLoopsPreviewCreateOutput>('loops-preview-create', input, options),
-        loopsRetrieve: (input, options) =>
-            runtime.executeTool<TasksLoopsRetrieveOutput>('loops-retrieve', input, options),
-        loopsReview: (input, options) => runtime.executeTool<TasksLoopsReviewOutput>('loops-review', input, options),
-        loopsRunCreate: (input, options) =>
-            runtime.executeTool<TasksLoopsRunCreateOutput>('loops-run-create', input, options),
-        loopsRunsRetrieve: (input, options) =>
-            runtime.executeTool<TasksLoopsRunsRetrieveOutput>('loops-runs-retrieve', input, options),
         tasksArtifactsList: (input, options) =>
             runtime.executeTool<TasksTasksArtifactsListOutput>('tasks-artifacts-list', input, options),
         tasksCommentsList: (input, options) =>

@@ -22,6 +22,8 @@ import type {
     ReplayVisionVisionObservationsSignalReportsListOutput,
     ReplayVisionVisionQuotaGetOutput,
     ReplayVisionVisionQuotaSpendSeriesGetOutput,
+    ReplayVisionVisionRequestsCreateOutput,
+    ReplayVisionVisionRequestsGetOutput,
     ReplayVisionVisionScannersAffectedCohortCreateOutput,
     ReplayVisionVisionScannersBackfillsCancelOutput,
     ReplayVisionVisionScannersBackfillsCreateOutput,
@@ -31,6 +33,7 @@ import type {
     ReplayVisionVisionScannersBackfillsResumeOutput,
     ReplayVisionVisionScannersCountsOutput,
     ReplayVisionVisionScannersCreateOutput,
+    ReplayVisionVisionScannersDashboardCreateOutput,
     ReplayVisionVisionScannersDeleteOutput,
     ReplayVisionVisionScannersDraftOutput,
     ReplayVisionVisionScannersDuplicateOutput,
@@ -126,6 +129,10 @@ export function createReplayVisionClient(runtime: Runtime): ReplayVisionClient {
                 input,
                 options
             ),
+        visionRequestsCreate: (input, options) =>
+            runtime.executeTool<ReplayVisionVisionRequestsCreateOutput>('vision-requests-create', input, options),
+        visionRequestsGet: (input, options) =>
+            runtime.executeTool<ReplayVisionVisionRequestsGetOutput>('vision-requests-get', input, options),
         visionScannersAffectedCohortCreate: (input, options) =>
             runtime.executeTool<ReplayVisionVisionScannersAffectedCohortCreateOutput>(
                 'vision-scanners-affected-cohort-create',
@@ -172,6 +179,12 @@ export function createReplayVisionClient(runtime: Runtime): ReplayVisionClient {
             runtime.executeTool<ReplayVisionVisionScannersCountsOutput>('vision-scanners-counts', input, options),
         visionScannersCreate: (input, options) =>
             runtime.executeTool<ReplayVisionVisionScannersCreateOutput>('vision-scanners-create', input, options),
+        visionScannersDashboardCreate: (input, options) =>
+            runtime.executeTool<ReplayVisionVisionScannersDashboardCreateOutput>(
+                'vision-scanners-dashboard-create',
+                input,
+                options
+            ),
         visionScannersDelete: (input, options) =>
             runtime.executeTool<ReplayVisionVisionScannersDeleteOutput>('vision-scanners-delete', input, options),
         visionScannersDraft: (input, options) =>

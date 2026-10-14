@@ -9,6 +9,8 @@ import type {
     DataWarehouseExternalDataSyncLogsOutput,
     DataWarehouseManagedWarehouseMetricHistoryGetOutput,
     DataWarehouseManagedWarehouseMonitoringGetOutput,
+    DataWarehouseManagedWarehouseTrinoMetricHistoryGetOutput,
+    DataWarehouseManagedWarehouseTrinoMonitoringGetOutput,
     DataWarehouseSavedQueryColumnAnnotationsCreateOutput,
     DataWarehouseSavedQueryColumnAnnotationsListOutput,
     DataWarehouseSqlVariablesCreateOutput,
@@ -61,6 +63,18 @@ export function createDataWarehouseClient(runtime: Runtime): DataWarehouseClient
         managedWarehouseMonitoringGet: (input, options) =>
             runtime.executeTool<DataWarehouseManagedWarehouseMonitoringGetOutput>(
                 'managed-warehouse-monitoring-get',
+                input,
+                options
+            ),
+        managedWarehouseTrinoMetricHistoryGet: (input, options) =>
+            runtime.executeTool<DataWarehouseManagedWarehouseTrinoMetricHistoryGetOutput>(
+                'managed-warehouse-trino-metric-history-get',
+                input,
+                options
+            ),
+        managedWarehouseTrinoMonitoringGet: (input, options) =>
+            runtime.executeTool<DataWarehouseManagedWarehouseTrinoMonitoringGetOutput>(
+                'managed-warehouse-trino-monitoring-get',
                 input,
                 options
             ),

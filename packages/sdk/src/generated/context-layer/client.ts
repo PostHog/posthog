@@ -6,9 +6,6 @@ import type {
     ContextLayerContextWikiChannelResolveOutput,
     ContextLayerContextWikiPageRetrieveOutput,
     ContextLayerContextWikiPageUpdateOutput,
-    ContextLayerLoopContextWikiChannelResolveOutput,
-    ContextLayerLoopContextWikiPageRetrieveOutput,
-    ContextLayerLoopContextWikiPageUpdateOutput,
     ContextLayerTaskContextWikiChannelResolveOutput,
     ContextLayerTaskContextWikiPageProposeOutput,
     ContextLayerTaskContextWikiPageRetrieveOutput,
@@ -31,24 +28,6 @@ export function createContextLayerClient(runtime: Runtime): ContextLayerClient {
             ),
         contextWikiPageUpdate: (input, options) =>
             runtime.executeTool<ContextLayerContextWikiPageUpdateOutput>('context-wiki-page-update', input, options),
-        loopContextWikiChannelResolve: (input, options) =>
-            runtime.executeTool<ContextLayerLoopContextWikiChannelResolveOutput>(
-                'loop-context-wiki-channel-resolve',
-                input,
-                options
-            ),
-        loopContextWikiPageRetrieve: (input, options) =>
-            runtime.executeTool<ContextLayerLoopContextWikiPageRetrieveOutput>(
-                'loop-context-wiki-page-retrieve',
-                input,
-                options
-            ),
-        loopContextWikiPageUpdate: (input, options) =>
-            runtime.executeTool<ContextLayerLoopContextWikiPageUpdateOutput>(
-                'loop-context-wiki-page-update',
-                input,
-                options
-            ),
         taskContextWikiChannelResolve: (input, options) =>
             runtime.executeTool<ContextLayerTaskContextWikiChannelResolveOutput>(
                 'task-context-wiki-channel-resolve',

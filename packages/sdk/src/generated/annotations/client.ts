@@ -8,6 +8,7 @@ import type {
     AnnotationsAnnotationRetrieveOutput,
     AnnotationsAnnotationsListOutput,
     AnnotationsAnnotationsPartialUpdateOutput,
+    AnnotationsChangeFeedListOutput,
 } from '../api.js'
 
 export function createAnnotationsClient(runtime: Runtime): AnnotationsClient {
@@ -26,5 +27,7 @@ export function createAnnotationsClient(runtime: Runtime): AnnotationsClient {
                 input,
                 options
             ),
+        changeFeedList: (input, options) =>
+            runtime.executeTool<AnnotationsChangeFeedListOutput>('change-feed-list', input, options),
     }
 }

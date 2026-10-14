@@ -15,6 +15,7 @@ export type {
     IntegrationsIntegrationsChannelsRetrieveData,
     IntegrationsIntegrationsChannelsRetrieveOutput,
     IntegrationsIntegrationsGithubReposRetrieveRequestSchema1,
+    IntegrationsIntegrationsGithubReposRetrieveRequestSchema2,
     IntegrationsIntegrationsGithubReposRetrieveInput,
     IntegrationsIntegrationsGithubReposRetrieveResponseShape2,
     IntegrationsIntegrationsGithubReposRetrieveData,

@@ -25,4 +25,11 @@ export type {
     AnnotationsAnnotationsPartialUpdateInput,
     AnnotationsAnnotationsPartialUpdateData,
     AnnotationsAnnotationsPartialUpdateOutput,
+    AnnotationsChangeFeedListRequestSchema0,
+    AnnotationsChangeFeedListRequestSchema1,
+    AnnotationsChangeFeedListRequestSchema2,
+    AnnotationsChangeFeedListInput,
+    AnnotationsChangeFeedListResponseShape2,
+    AnnotationsChangeFeedListData,
+    AnnotationsChangeFeedListOutput,
 } from '../api.js'

@@ -639,6 +639,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).annotationsPartialUpdate(input, { ...options, signal })
                 ),
+            changeFeedList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).changeFeedList(input, { ...options, signal })
+                ),
         })
     )
     const autoresearch = new LazyClient<AutoresearchClient>(
@@ -670,6 +674,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             autoresearchOnlinePerformanceRetrieve: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).autoresearchOnlinePerformanceRetrieve(input, { ...options, signal })
+                ),
+            autoresearchPartialUpdate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).autoresearchPartialUpdate(input, { ...options, signal })
                 ),
             autoresearchResolveTemplateCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -1106,18 +1114,6 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).contextWikiPageUpdate(input, { ...options, signal })
                 ),
-            loopContextWikiChannelResolve: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopContextWikiChannelResolve(input, { ...options, signal })
-                ),
-            loopContextWikiPageRetrieve: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopContextWikiPageRetrieve(input, { ...options, signal })
-                ),
-            loopContextWikiPageUpdate: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopContextWikiPageUpdate(input, { ...options, signal })
-                ),
             taskContextWikiChannelResolve: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).taskContextWikiChannelResolve(input, { ...options, signal })
@@ -1142,6 +1138,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 createConversationsClient(runtime)
             ),
         (load) => ({
+            conversationsTicketsComposeCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).conversationsTicketsComposeCreate(input, { ...options, signal })
+                ),
             conversationsTicketsList: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).conversationsTicketsList(input, { ...options, signal })
@@ -1832,6 +1832,14 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             managedWarehouseMonitoringGet: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).managedWarehouseMonitoringGet(input, { ...options, signal })
+                ),
+            managedWarehouseTrinoMetricHistoryGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).managedWarehouseTrinoMetricHistoryGet(input, { ...options, signal })
+                ),
+            managedWarehouseTrinoMonitoringGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).managedWarehouseTrinoMonitoringGet(input, { ...options, signal })
                 ),
             savedQueryColumnAnnotationsCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -2977,9 +2985,21 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).characterizeMetricAnomaly(input, { ...options, signal })
                 ),
+            metricAttributesList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).metricAttributesList(input, { ...options, signal })
+                ),
+            metricAttributeValuesList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).metricAttributeValuesList(input, { ...options, signal })
+                ),
             metricNamesList: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).metricNamesList(input, { ...options, signal })
+                ),
+            metricsDashboardPanelsValidate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).metricsDashboardPanelsValidate(input, { ...options, signal })
                 ),
             queryMetrics: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -3523,6 +3543,14 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).visionQuotaSpendSeriesGet(input, { ...options, signal })
                 ),
+            visionRequestsCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).visionRequestsCreate(input, { ...options, signal })
+                ),
+            visionRequestsGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).visionRequestsGet(input, { ...options, signal })
+                ),
             visionScannersAffectedCohortCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).visionScannersAffectedCohortCreate(input, { ...options, signal })
@@ -3558,6 +3586,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             visionScannersCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).visionScannersCreate(input, { ...options, signal })
+                ),
+            visionScannersDashboardCreate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).visionScannersDashboardCreate(input, { ...options, signal })
                 ),
             visionScannersDelete: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -3757,6 +3789,14 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).inboxSourceConfigsUpdate(input, { ...options, signal })
                 ),
+            inboxSteeringInstructionsGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).inboxSteeringInstructionsGet(input, { ...options, signal })
+                ),
+            inboxSteeringInstructionsUpdate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).inboxSteeringInstructionsUpdate(input, { ...options, signal })
+                ),
             scoutCheckRecordResult: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutCheckRecordResult(input, { ...options, signal })
@@ -3849,6 +3889,18 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutReportChecksList(input, { ...options, signal })
                 ),
+            scoutRubricGenerate: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutRubricGenerate(input, { ...options, signal })
+                ),
+            scoutRubricGet: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutRubricGet(input, { ...options, signal })
+                ),
+            scoutRubricSave: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutRubricSave(input, { ...options, signal })
+                ),
             scoutRunNow: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutRunNow(input, { ...options, signal })
@@ -3885,6 +3937,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutScratchpadSearch(input, { ...options, signal })
                 ),
+            scoutTrialArchive: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialArchive(input, { ...options, signal })
+                ),
             scoutTrialCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutTrialCreate(input, { ...options, signal })
@@ -3892,6 +3948,26 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             scoutTrialGet: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).scoutTrialGet(input, { ...options, signal })
+                ),
+            scoutTrialList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialList(input, { ...options, signal })
+                ),
+            scoutTrialReport: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialReport(input, { ...options, signal })
+                ),
+            scoutTrialResume: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialResume(input, { ...options, signal })
+                ),
+            scoutTrialSetup: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialSetup(input, { ...options, signal })
+                ),
+            scoutTrialStart: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).scoutTrialStart(input, { ...options, signal })
                 ),
             signalsScoutConfigCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
@@ -4195,6 +4271,10 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).subscriptionsRetrieve(input, { ...options, signal })
                 ),
+            subscriptionsSummariesList: (input, options) =>
+                runtime.runWithDeadline(options, async (signal) =>
+                    (await load()).subscriptionsSummariesList(input, { ...options, signal })
+                ),
             subscriptionsTestDeliveryCreate: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).subscriptionsTestDeliveryCreate(input, { ...options, signal })
@@ -4272,54 +4352,6 @@ export function createNamespaces(runtime: Runtime): GeneratedClient {
             channelRetrieve: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>
                     (await load()).channelRetrieve(input, { ...options, signal })
-                ),
-            loopChannelInstructionsRetrieve: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopChannelInstructionsRetrieve(input, { ...options, signal })
-                ),
-            loopChannelInstructionsUpdate: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopChannelInstructionsUpdate(input, { ...options, signal })
-                ),
-            loopsCreateExecute: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsCreateExecute(input, { ...options, signal })
-                ),
-            loopsCreatePrepare: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsCreatePrepare(input, { ...options, signal })
-                ),
-            loopsDestroy: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsDestroy(input, { ...options, signal })
-                ),
-            loopsList: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsList(input, { ...options, signal })
-                ),
-            loopsPartialUpdate: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsPartialUpdate(input, { ...options, signal })
-                ),
-            loopsPreviewCreate: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsPreviewCreate(input, { ...options, signal })
-                ),
-            loopsRetrieve: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsRetrieve(input, { ...options, signal })
-                ),
-            loopsReview: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsReview(input, { ...options, signal })
-                ),
-            loopsRunCreate: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsRunCreate(input, { ...options, signal })
-                ),
-            loopsRunsRetrieve: (input, options) =>
-                runtime.runWithDeadline(options, async (signal) =>
-                    (await load()).loopsRunsRetrieve(input, { ...options, signal })
                 ),
             tasksArtifactsList: (input, options) =>
                 runtime.runWithDeadline(options, async (signal) =>

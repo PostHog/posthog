@@ -21,7 +21,6 @@ export type {
     VisualReviewVisualReviewReposPartialUpdateResponseShape2,
     VisualReviewVisualReviewReposPartialUpdateData,
     VisualReviewVisualReviewReposPartialUpdateOutput,
-    VisualReviewVisualReviewReposQuarantineCreateRequestSchema0,
     VisualReviewVisualReviewReposQuarantineCreateInput,
     VisualReviewVisualReviewReposQuarantineCreateResponseShape2,
     VisualReviewVisualReviewReposQuarantineCreateResponseShape3,

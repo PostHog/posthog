@@ -9,6 +9,7 @@ import type {
     AutoresearchAutoresearchModelsListOutput,
     AutoresearchAutoresearchModelsRetrieveOutput,
     AutoresearchAutoresearchOnlinePerformanceRetrieveOutput,
+    AutoresearchAutoresearchPartialUpdateOutput,
     AutoresearchAutoresearchResolveTemplateCreateOutput,
     AutoresearchAutoresearchRetrieveOutput,
     AutoresearchAutoresearchRunsListOutput,
@@ -51,6 +52,12 @@ export function createAutoresearchClient(runtime: Runtime): AutoresearchClient {
         autoresearchOnlinePerformanceRetrieve: (input, options) =>
             runtime.executeTool<AutoresearchAutoresearchOnlinePerformanceRetrieveOutput>(
                 'autoresearch-online-performance-retrieve',
+                input,
+                options
+            ),
+        autoresearchPartialUpdate: (input, options) =>
+            runtime.executeTool<AutoresearchAutoresearchPartialUpdateOutput>(
+                'autoresearch-partial-update',
                 input,
                 options
             ),

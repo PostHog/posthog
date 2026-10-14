@@ -25,6 +25,8 @@ import type {
     SignalsInboxSourceConfigsPartialUpdateOutput,
     SignalsInboxSourceConfigsRetrieveOutput,
     SignalsInboxSourceConfigsUpdateOutput,
+    SignalsInboxSteeringInstructionsGetOutput,
+    SignalsInboxSteeringInstructionsUpdateOutput,
     SignalsScoutCheckRecordResultOutput,
     SignalsScoutConfigCreateOutput,
     SignalsScoutConfigDeleteOutput,
@@ -48,6 +50,9 @@ import type {
     SignalsScoutReportCheckCreateOutput,
     SignalsScoutReportCheckListOutput,
     SignalsScoutReportChecksListOutput,
+    SignalsScoutRubricGenerateOutput,
+    SignalsScoutRubricGetOutput,
+    SignalsScoutRubricSaveOutput,
     SignalsScoutRunNowOutput,
     SignalsScoutRunsEmissionReportsOutput,
     SignalsScoutRunsEmissionsListOutput,
@@ -57,8 +62,14 @@ import type {
     SignalsScoutScratchpadForgetOutput,
     SignalsScoutScratchpadRememberOutput,
     SignalsScoutScratchpadSearchOutput,
+    SignalsScoutTrialArchiveOutput,
     SignalsScoutTrialCreateOutput,
     SignalsScoutTrialGetOutput,
+    SignalsScoutTrialListOutput,
+    SignalsScoutTrialReportOutput,
+    SignalsScoutTrialResumeOutput,
+    SignalsScoutTrialSetupOutput,
+    SignalsScoutTrialStartOutput,
     SignalsSignalsScoutConfigCreateOutput,
     SignalsSignalsScoutConfigDeleteOutput,
     SignalsSignalsScoutConfigListOutput,
@@ -154,6 +165,18 @@ export function createSignalsClient(runtime: Runtime): SignalsClient {
             ),
         inboxSourceConfigsUpdate: (input, options) =>
             runtime.executeTool<SignalsInboxSourceConfigsUpdateOutput>('inbox-source-configs-update', input, options),
+        inboxSteeringInstructionsGet: (input, options) =>
+            runtime.executeTool<SignalsInboxSteeringInstructionsGetOutput>(
+                'inbox-steering-instructions-get',
+                input,
+                options
+            ),
+        inboxSteeringInstructionsUpdate: (input, options) =>
+            runtime.executeTool<SignalsInboxSteeringInstructionsUpdateOutput>(
+                'inbox-steering-instructions-update',
+                input,
+                options
+            ),
         scoutCheckRecordResult: (input, options) =>
             runtime.executeTool<SignalsScoutCheckRecordResultOutput>('scout-check-record-result', input, options),
         scoutConfigCreate: (input, options) =>
@@ -199,6 +222,12 @@ export function createSignalsClient(runtime: Runtime): SignalsClient {
             runtime.executeTool<SignalsScoutReportCheckListOutput>('scout-report-check-list', input, options),
         scoutReportChecksList: (input, options) =>
             runtime.executeTool<SignalsScoutReportChecksListOutput>('scout-report-checks-list', input, options),
+        scoutRubricGenerate: (input, options) =>
+            runtime.executeTool<SignalsScoutRubricGenerateOutput>('scout-rubric-generate', input, options),
+        scoutRubricGet: (input, options) =>
+            runtime.executeTool<SignalsScoutRubricGetOutput>('scout-rubric-get', input, options),
+        scoutRubricSave: (input, options) =>
+            runtime.executeTool<SignalsScoutRubricSaveOutput>('scout-rubric-save', input, options),
         scoutRunNow: (input, options) => runtime.executeTool<SignalsScoutRunNowOutput>('scout-run-now', input, options),
         scoutRunsEmissionReports: (input, options) =>
             runtime.executeTool<SignalsScoutRunsEmissionReportsOutput>('scout-runs-emission-reports', input, options),
@@ -216,10 +245,22 @@ export function createSignalsClient(runtime: Runtime): SignalsClient {
             runtime.executeTool<SignalsScoutScratchpadRememberOutput>('scout-scratchpad-remember', input, options),
         scoutScratchpadSearch: (input, options) =>
             runtime.executeTool<SignalsScoutScratchpadSearchOutput>('scout-scratchpad-search', input, options),
+        scoutTrialArchive: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialArchiveOutput>('scout-trial-archive', input, options),
         scoutTrialCreate: (input, options) =>
             runtime.executeTool<SignalsScoutTrialCreateOutput>('scout-trial-create', input, options),
         scoutTrialGet: (input, options) =>
             runtime.executeTool<SignalsScoutTrialGetOutput>('scout-trial-get', input, options),
+        scoutTrialList: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialListOutput>('scout-trial-list', input, options),
+        scoutTrialReport: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialReportOutput>('scout-trial-report', input, options),
+        scoutTrialResume: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialResumeOutput>('scout-trial-resume', input, options),
+        scoutTrialSetup: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialSetupOutput>('scout-trial-setup', input, options),
+        scoutTrialStart: (input, options) =>
+            runtime.executeTool<SignalsScoutTrialStartOutput>('scout-trial-start', input, options),
         signalsScoutConfigCreate: (input, options) =>
             runtime.executeTool<SignalsSignalsScoutConfigCreateOutput>('signals-scout-config-create', input, options),
         signalsScoutConfigDelete: (input, options) =>

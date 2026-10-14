@@ -10,6 +10,7 @@ import type {
     SubscriptionsSubscriptionsListOutput,
     SubscriptionsSubscriptionsPartialUpdateOutput,
     SubscriptionsSubscriptionsRetrieveOutput,
+    SubscriptionsSubscriptionsSummariesListOutput,
     SubscriptionsSubscriptionsTestDeliveryCreateOutput,
 } from '../api.js'
 
@@ -41,6 +42,12 @@ export function createSubscriptionsClient(runtime: Runtime): SubscriptionsClient
             ),
         subscriptionsRetrieve: (input, options) =>
             runtime.executeTool<SubscriptionsSubscriptionsRetrieveOutput>('subscriptions-retrieve', input, options),
+        subscriptionsSummariesList: (input, options) =>
+            runtime.executeTool<SubscriptionsSubscriptionsSummariesListOutput>(
+                'subscriptions-summaries-list',
+                input,
+                options
+            ),
         subscriptionsTestDeliveryCreate: (input, options) =>
             runtime.executeTool<SubscriptionsSubscriptionsTestDeliveryCreateOutput>(
                 'subscriptions-test-delivery-create',

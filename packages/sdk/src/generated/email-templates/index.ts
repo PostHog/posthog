@@ -2,7 +2,6 @@
 export type {
     EmailTemplatesClient,
     EmailTemplatesWorkflowsCreateEmailTemplateRequestSchema2,
-    EmailTemplatesWorkflowsCreateEmailTemplateRequestSchema10,
     EmailTemplatesWorkflowsCreateEmailTemplateRequestSchema6BodyHeadersItem,
     EmailTemplatesWorkflowsCreateEmailTemplateRequestSchema6BodyFootersItem,
     EmailTemplatesWorkflowsCreateEmailTemplateRequestSchema6Body,

@@ -161,8 +161,6 @@ export type {
     CdpFunctionsCdpFunctionsListRevisionsResponseShape2,
     CdpFunctionsCdpFunctionsListRevisionsData,
     CdpFunctionsCdpFunctionsListRevisionsOutput,
-    CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema0,
-    CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema1,
     CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema2,
     CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema3,
     CdpFunctionsCdpFunctionsLogsRetrieveRequestSchema4,

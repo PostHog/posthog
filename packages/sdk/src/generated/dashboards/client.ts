@@ -356,6 +356,7 @@ const listDefinition: OperationDefinition = {
     method: 'GET',
     path: '/api/projects/{project_id}/dashboards/',
     bindings: [
+        { name: 'created_by', wireName: 'created_by', location: 'query', explode: true },
         { name: 'exclude_generated', wireName: 'exclude_generated', location: 'query', explode: true },
         { name: 'folder', wireName: 'folder', location: 'query', explode: true },
         { name: 'limit', wireName: 'limit', location: 'query', explode: true },
@@ -372,6 +373,7 @@ const listDefinition: OperationDefinition = {
                 DashboardsListInput: {
                     type: 'object',
                     properties: {
+                        created_by: { type: 'string', format: 'uuid' },
                         exclude_generated: { type: 'boolean' },
                         folder: { type: 'string' },
                         limit: { type: 'integer' },

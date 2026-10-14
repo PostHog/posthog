@@ -116,7 +116,6 @@ export type {
     PlatformFeaturesUserHomeSettingsGetOutput,
     PlatformFeaturesUserHomeSettingsUpdateRequestSchema0Item,
     PlatformFeaturesUserHomeSettingsUpdateRequestSchema0,
-    PlatformFeaturesUserHomeSettingsUpdateRequestSchema14,
     PlatformFeaturesUserHomeSettingsUpdateRequestSchema23,
     PlatformFeaturesUserHomeSettingsUpdateRequestSchema12,
     PlatformFeaturesUserHomeSettingsUpdateRequestSchema12Variant1,

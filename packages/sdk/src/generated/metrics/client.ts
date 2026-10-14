@@ -4,7 +4,10 @@ import type { OperationDefinition } from '../../runtime/operation.js'
 import type {
     MetricsClient,
     MetricsCharacterizeMetricAnomalyOutput,
+    MetricsMetricAttributesListOutput,
+    MetricsMetricAttributeValuesListOutput,
     MetricsMetricNamesListOutput,
+    MetricsMetricsDashboardPanelsValidateOutput,
     MetricsQueryMetricsOutput,
 } from '../api.js'
 
@@ -12,8 +15,18 @@ export function createMetricsClient(runtime: Runtime): MetricsClient {
     return {
         characterizeMetricAnomaly: (input, options) =>
             runtime.executeTool<MetricsCharacterizeMetricAnomalyOutput>('characterize-metric-anomaly', input, options),
+        metricAttributesList: (input, options) =>
+            runtime.executeTool<MetricsMetricAttributesListOutput>('metric-attributes-list', input, options),
+        metricAttributeValuesList: (input, options) =>
+            runtime.executeTool<MetricsMetricAttributeValuesListOutput>('metric-attribute-values-list', input, options),
         metricNamesList: (input, options) =>
             runtime.executeTool<MetricsMetricNamesListOutput>('metric-names-list', input, options),
+        metricsDashboardPanelsValidate: (input, options) =>
+            runtime.executeTool<MetricsMetricsDashboardPanelsValidateOutput>(
+                'metrics-dashboard-panels-validate',
+                input,
+                options
+            ),
         queryMetrics: (input, options) =>
             runtime.executeTool<MetricsQueryMetricsOutput>('query-metrics', input, options),
     }
