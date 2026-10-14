@@ -1,7 +1,12 @@
 # prod-eu deltas to base logs objects.
 database "posthog" {
-  # EU drops whole parts on TTL for the attributes table; dev and prod-us still
+  # EU drops whole parts on TTL for the attribute tables; dev and prod-us still
   # rewrite parts to expire rows.
+  patch_table "log_attributes2" {
+    settings = {
+      ttl_only_drop_parts = "1"
+    }
+  }
   patch_table "log_attributes3" {
     settings = {
       ttl_only_drop_parts = "1"
