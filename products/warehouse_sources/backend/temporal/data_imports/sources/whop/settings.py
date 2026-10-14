@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
@@ -29,7 +29,7 @@ WHOP_API_KEYS_URL = "https://whop.com/dashboard/developer"
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class WhopEndpointConfig:
     path: str
     # Whether the company filter is a required query param. The rest accept it as an optional narrowing
