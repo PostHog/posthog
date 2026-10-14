@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
@@ -326,7 +327,8 @@ function LogsViewerContent({
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
-            <SceneDivider />
+            {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}
+            <LemonDivider className="my-0" />
         </>
     )
 

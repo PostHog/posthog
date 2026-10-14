@@ -2,6 +2,7 @@
 // flush borders, squared inner corners, rounded outer corners.
 .DateRangePickerButtonGroup {
     display: flex;
+    min-width: 0;
 
     > .LemonButton {
         --lemon-button-radius: 0;
