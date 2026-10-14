@@ -28,7 +28,7 @@ TMDB_BASE_URL = "https://api.themoviedb.org/3"
 MAX_PAGES = 500
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TMDbResumeConfig:
     # Next page number to fetch. Page-number pagination means a single integer is enough to resume.
     next_page: int | None = None

@@ -4,7 +4,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class TMDbEndpointConfig:
     path: str
     # Key in the JSON response holding the list of rows. "results" for the paginated list/trending
