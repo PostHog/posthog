@@ -57,7 +57,7 @@ export function buildGatewayEnv(
     snapshotKind,
     prewarmed,
     executionEnvironment,
-    sharedPromptCache = false,
+    sharedPromptCache,
   }: GatewayEnvInput = {},
   logger: Logger,
 ): GatewayEnv {
@@ -160,11 +160,8 @@ export function buildGatewayEnv(
         openaiCustomHeaders["X-PostHog-Flex-Fallback"] = "standard";
       }
     }
-    // Codex sends a per-session prompt_cache_key, which keeps runs that start
-    // from the same prefix on separate caches. A run's sub-agents get their
-    // task as an encrypted message, so a prompt cache marker cannot reach
-    // them. This header makes the Go gateway drop the key on every request of
-    // the Codex process, sub-agents included.
+    // The Go gateway then drops Codex's per-session prompt_cache_key on every
+    // request of the process, sub-agents included, so runs share one cache.
     if (sharedPromptCache) {
       openaiCustomHeaders["X-PostHog-Prompt-Cache-Scope"] = "shared";
     }

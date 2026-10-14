@@ -112,8 +112,7 @@ async def run_sandbox_review(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
         codex_max_subagents=codex_max_subagents,
-        # ReviewHog sessions start from the same instructions and tools. Coordinator sub-agents carry no
-        # prompt cache marker, so only the run-wide scope lets them read that prefix from earlier runs.
+        # Coordinator sub-agents carry no prompt cache marker, so only the run-wide scope shares their prefix.
         codex_shared_prompt_cache=True,
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.

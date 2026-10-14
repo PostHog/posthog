@@ -1686,7 +1686,8 @@ class TestCreateTaskAndTriggerForwardsContext:
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
         public_state = _public_task_run_state(persisted.state)
-        assert (public_state["codex_max_subagents"], public_state["codex_shared_prompt_cache"]) == (9, True)
+        assert public_state["codex_max_subagents"] == 9
+        assert public_state["codex_shared_prompt_cache"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
