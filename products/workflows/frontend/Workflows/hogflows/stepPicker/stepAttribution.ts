@@ -19,36 +19,34 @@ export type StepAttribution = {
     vendor: string | null
     operation: string | null
     category: StepCategory | null
-    highlight: boolean
 }
 
-type StepAttributionOptions = { operation?: string; highlight?: boolean }
-
-const posthogStep = (
-    product: StepProduct,
-    category: StepCategory,
-    { operation, highlight }: StepAttributionOptions = {}
-): StepAttribution => ({ product, vendor: null, operation: operation ?? null, category, highlight: !!highlight })
+const posthogStep = (product: StepProduct, category: StepCategory): StepAttribution => ({
+    product,
+    vendor: null,
+    operation: null,
+    category,
+})
 
 const thirdPartyStep = (
     vendor: string,
     category: StepCategory,
-    { operation, highlight }: StepAttributionOptions = {}
-): StepAttribution => ({ product: null, vendor, operation: operation ?? null, category, highlight: !!highlight })
+    { operation }: { operation?: string } = {}
+): StepAttribution => ({ product: null, vendor, operation: operation ?? null, category })
 
 export const STEP_ATTRIBUTION: Record<string, StepAttribution> = {
-    'template-email': posthogStep('workflows', 'messaging', { highlight: true }),
+    'template-email': posthogStep('workflows', 'messaging'),
     'template-twilio': thirdPartyStep('Twilio', 'messaging'),
-    'template-slack': thirdPartyStep('Slack', 'messaging', { highlight: true }),
+    'template-slack': thirdPartyStep('Slack', 'messaging'),
     'template-webhook': posthogStep('workflows', 'developer'),
     'template-native-push': posthogStep('workflows', 'messaging'),
-    'template-posthog-create-task': posthogStep('tasks', 'ai', { highlight: true }),
-    'template-posthog-run-scout': posthogStep('signals', 'ai', { highlight: true }),
-    'template-posthog-classify': posthogStep('workflows', 'ai', { highlight: true }),
+    'template-posthog-create-task': posthogStep('tasks', 'ai'),
+    'template-posthog-run-scout': posthogStep('signals', 'ai'),
+    'template-posthog-classify': posthogStep('workflows', 'ai'),
     'step-delay': posthogStep('workflows', 'flow'),
     'step-wait_until_time_window': posthogStep('workflows', 'flow'),
     'step-wait_until_condition': posthogStep('workflows', 'flow'),
-    'step-conditional_branch': posthogStep('workflows', 'flow', { highlight: true }),
+    'step-conditional_branch': posthogStep('workflows', 'flow'),
     'step-random_cohort_branch': posthogStep('workflows', 'flow'),
     'template-posthog-set-variable': posthogStep('workflows', 'flow'),
     'template-posthog-capture': posthogStep('core', 'posthog_data'),
@@ -56,10 +54,8 @@ export const STEP_ATTRIBUTION: Record<string, StepAttribution> = {
     'template-posthog-group-identify': posthogStep('core', 'posthog_data'),
     'template-posthog-get-ticket': posthogStep('support', 'support'),
     'template-posthog-update-ticket': posthogStep('support', 'support'),
-    'template-posthog-send-ticket-message': posthogStep('support', 'support', { highlight: true }),
-    'template-posthog-create-customer-task': posthogStep('customer_analytics', 'customer_analytics', {
-        highlight: true,
-    }),
+    'template-posthog-send-ticket-message': posthogStep('support', 'support'),
+    'template-posthog-create-customer-task': posthogStep('customer_analytics', 'customer_analytics'),
     'template-posthog-create-account': posthogStep('customer_analytics', 'customer_analytics'),
     'template-posthog-get-account': posthogStep('customer_analytics', 'customer_analytics'),
     'template-posthog-tag-account': posthogStep('customer_analytics', 'customer_analytics'),
@@ -153,6 +149,5 @@ export function unclassifiedDestinationAttribution(name: string, tags: string[])
         vendor: name,
         operation: null,
         category: mappedTag ? CATEGORY_BY_TEMPLATE_TAG[mappedTag] : null,
-        highlight: false,
     }
 }

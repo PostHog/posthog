@@ -23,7 +23,15 @@ export function StepPickerModal({
     const { isRowScopedTrigger } = useValues(workflowLogic)
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} simple hideCloseButton width="92vw" maxWidth={MODAL_MAX_WIDTH_PX}>
+        <LemonModal
+            isOpen={isOpen}
+            onClose={onClose}
+            simple
+            hideCloseButton
+            width="92vw"
+            maxWidth={MODAL_MAX_WIDTH_PX}
+            contentRef={(dialog) => dialog?.setAttribute('aria-label', 'Add step')}
+        >
             <div className="h-[88vh]">
                 <StepPicker
                     surface={surface}

@@ -90,6 +90,7 @@ describe('StepPicker', () => {
 
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
     })
 
     it('finds a vendor step by vendor name and adds it from the row', async () => {
@@ -224,11 +225,54 @@ describe('StepPicker', () => {
         expect(screen.getByPlaceholderText('Search steps')).toHaveValue('')
         expect(screen.getByText('HubSpot')).toBeInTheDocument()
     })
+    it('goes back to All steps from the search breadcrumb without tracking the abandoned search', async () => {
+        renderPicker()
+        await waitFor(() => expect(screen.getByText('HubSpot')).toBeInTheDocument())
+        jest.useFakeTimers()
+
+        fireEvent.click(screen.getByText('Flow control'))
+        fireEvent.change(screen.getByPlaceholderText('Search steps'), { target: { value: 'hub' } })
+        fireEvent.click(within(breadcrumb()).getByText('All steps'))
+        await jest.advanceTimersByTimeAsync(1000)
+
+        expect(screen.getByText('Third party, A to Z')).toBeInTheDocument()
+        expect(captured('workflow step picker searched')).toEqual([])
+    })
+
+    it('waits for integrations before saying a third-party favorite is missing', async () => {
+        renderPicker()
+        fireEvent.change(screen.getByPlaceholderText('Search steps'), { target: { value: 'hub' } })
+        fireEvent.click(await waitFor(() => stepTitleElement('Create contact')))
+        fireEvent.click(within(stepDetails()).getByText('Add to favorites'))
+        unmount()
+
+        let respondWithTemplates: () => void = () => {}
+        const templatesResponse = new Promise<void>((resolve) => {
+            respondWithTemplates = resolve
+        })
+        useMocks({
+            get: {
+                [TEMPLATES_PATH]: async () => {
+                    await templatesResponse
+                    return { count: DESTINATION_TEMPLATES.length, results: DESTINATION_TEMPLATES }
+                },
+            },
+        })
+        startKea()
+        renderPicker()
+        fireEvent.click(screen.getByText('Favorites'))
+
+        expect(screen.queryByText('No favorites yet. Star a step to keep it here.')).not.toBeInTheDocument()
+
+        respondWithTemplates()
+        await waitFor(() => expect(visibleRowTitles()).toEqual(['Create contact']))
+    })
+
     it('keeps starred steps under Favorites until they are unstarred', async () => {
         renderPicker()
 
         fireEvent.click(screen.getByText('Favorites'))
-        expect(screen.getByText('No favorites yet. Star a step to keep it here.')).toBeInTheDocument()
+        expect(await screen.findByText('No favorites yet. Star a step to keep it here.')).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Highlights'))
         fireEvent.click(await waitFor(() => stepTitleElement('Slack')))
@@ -254,7 +298,7 @@ describe('StepPicker', () => {
         renderPicker()
 
         fireEvent.click(screen.getByText('Recently used'))
-        expect(screen.getByText('Steps you add show up here.')).toBeInTheDocument()
+        expect(await screen.findByText('Steps you add show up here.')).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Highlights'))
         const picks = ['Create AI task', 'Classify with AI', 'Run scout', 'Send message', 'Create task', 'Email']

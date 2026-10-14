@@ -47,7 +47,6 @@ export type StepCatalogEntry = {
     vendor: string | null
     category: StepCategory | null
     tags: string[]
-    highlight: boolean
     status: 'alpha' | 'beta' | null
 }
 
@@ -89,14 +88,14 @@ function toEntry(
         vendor: attribution.vendor,
         category: attribution.category,
         tags,
-        highlight: attribution.highlight,
         status,
     }
 }
 
-function stepEntry(action: CreateActionType): StepCatalogEntry {
+function stepEntry(action: CreateActionType, templates: HogFunctionTemplateType[]): StepCatalogEntry {
     const attribution = STEP_ATTRIBUTION[stepCatalogIdOf(action)] ?? unclassifiedDestinationAttribution(action.name, [])
-    return toEntry(action, attribution, { tags: [], status: null })
+    const template = templates.find((candidate) => candidate.id === templateIdOf(action))
+    return toEntry(action, attribution, { tags: template?.category ?? [], status: null })
 }
 
 function destinationEntry(template: HogFunctionTemplateType): StepCatalogEntry {
@@ -134,9 +133,10 @@ export function buildStepCatalog(input: StepCatalogInput): StepCatalogEntry[] {
     const registeredActions = getRegisteredActionNodeCategories(input.featureFlags).flatMap(
         (category) => category.nodes
     )
+    const templates = input.destinationTemplates ?? []
     const entries = [
-        ...[...builtInActions, ...registeredActions].map(stepEntry),
-        ...destinationEntries(input.destinationTemplates ?? []),
+        ...[...builtInActions, ...registeredActions].map((action) => stepEntry(action, templates)),
+        ...destinationEntries(templates),
     ]
 
     return input.isRowScopedTrigger

@@ -17,7 +17,7 @@ const EMPTY_VIEW_MESSAGES: Partial<Record<StepPickerView, string>> = {
     recents: 'Steps you add show up here.',
 }
 
-const VIEWS_SUBTITLED_WITH_PROVIDER: StepPickerView[] = ['highlights', 'favorites', 'recents']
+const VIEWS_ACROSS_PROVIDERS: StepPickerView[] = ['highlights', 'favorites', 'recents']
 
 export function StepPickerList(): JSX.Element {
     const {
@@ -109,11 +109,19 @@ export function StepPickerList(): JSX.Element {
                 </div>
             )
         }
+        if (!VIEWS_ACROSS_PROVIDERS.includes(view)) {
+            return stepList(viewSteps, withDescription)
+        }
         const emptyViewMessage = EMPTY_VIEW_MESSAGES[view]
-        if (viewSteps.length === 0 && emptyViewMessage) {
+        if (viewSteps.length === 0 && emptyViewMessage && !isLoadingIntegrations && !integrationsFailed) {
             return <div className="py-12 text-center text-sm text-secondary">{emptyViewMessage}</div>
         }
-        return stepList(viewSteps, VIEWS_SUBTITLED_WITH_PROVIDER.includes(view) ? withProvider : withDescription)
+        return (
+            <>
+                {stepList(viewSteps, withProvider)}
+                {integrationsSkeleton}
+            </>
+        )
     }
 
     return (
