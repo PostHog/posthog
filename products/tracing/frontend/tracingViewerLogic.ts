@@ -315,10 +315,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 !!selectedTraceId &&
                 traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
         ],
-        // tracingDataLogic's traceSpansLoadFailed is a single flag for its most recent full-trace
-        // fetch. Opening a different trace whose prefetch is already complete (see openTrace below)
-        // skips that fetch entirely, so the flag can still read true for a trace that was never
-        // asked to load. Scope it to the trace the failed request was actually for.
+        // openTrace skips the fetch for a complete prefetch, so the raw flag can belong to a previous trace.
         selectedTraceLoadFailed: [
             (s) => [s.traceSpansLoadFailed, s.traceLoadContext, s.selectedTraceId],
             (

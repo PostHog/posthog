@@ -964,9 +964,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as Span[],
             {
                 loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
-                    // Snapshotted before the await: filters can change while this request is in
-                    // flight, and the capture on an empty result must describe the filters that
-                    // produced it, not whatever is active once the response lands.
+                    // Filters can change while the request is in flight; the empty-result capture must describe these.
                     cache.traceLoadFiltersActive =
                         values.filters.serviceNames.length > 0 || hasFilterConditions(values.queryFilterGroup)
                     const response = await api.tracing.getTrace(traceId, {
@@ -1413,8 +1411,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             if (traceSpans.length === 0) {
                 // The same filters that scope the span list also scope this single-trace lookup, so an
                 // empty result can mean "filtered out" rather than "never sent" — carry that distinction.
-                // Read the snapshot the loader took before its await, not current `values`, which may
-                // have moved on while the request was in flight.
                 posthog.capture('tracing trace unavailable', { filters_active: cache.traceLoadFiltersActive ?? false })
             }
         },

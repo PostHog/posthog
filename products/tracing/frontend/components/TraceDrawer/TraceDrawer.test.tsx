@@ -71,7 +71,7 @@ describe('TraceDrawer', () => {
         })
 
         expect(screen.queryByText("Couldn't load trace")).toBeNull()
-        expect(screen.queryByText("Couldn't refresh this trace. Showing the spans already loaded.")).not.toBeNull()
+        expect(screen.queryByText("Couldn't load the full trace. Showing the spans loaded so far.")).not.toBeNull()
         expect(screen.getAllByText('GET /checkout').length).toBeGreaterThan(0)
 
         // LemonBanner renders its action twice (one per responsive breakpoint), both wired to the

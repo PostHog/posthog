@@ -206,7 +206,7 @@ export function TraceDrawer({
                                 action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}
                                 data-attr="tracing-trace-load-error-banner"
                             >
-                                Couldn't refresh this trace. Showing the spans already loaded.
+                                Couldn't load the full trace. Showing the spans loaded so far.
                             </LemonBanner>
                         )}
                         <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} limit={aiEventsLimit} />
