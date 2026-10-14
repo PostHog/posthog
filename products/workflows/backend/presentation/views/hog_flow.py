@@ -574,10 +574,11 @@ _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 # The scan runs as the workflow's owner, but whoever saves the step chooses which sessions it reads and
 # where the answers go, so the editor needs recording access too.
 _REPLAY_VISION_TEMPLATE_ID = "template-posthog-replay-vision"
-# Each group lists the scopes that let a token read one of the things the step reads.
+# Each group lists the scopes that grant one thing the step needs: reading recordings, and starting scans,
+# which the scan APIs gate on scanner write.
 _REPLAY_VISION_STEP_SCOPES = (
     ("session_recording:read", "session_recording:write"),
-    ("replay_scanner:read", "replay_scanner:write"),
+    ("replay_scanner:write",),
 )
 
 
@@ -1794,7 +1795,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if strict and template_id == _CLASSIFY_TEMPLATE_ID:
                     self._validate_classify_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
-                    self._validate_replay_vision_action(data["config"]["inputs"], strict=strict)
+                    self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only

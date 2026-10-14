@@ -7421,6 +7421,32 @@ class TestReplayVisionActionValidation(APIBaseTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert error_attr in str(response.json()), response.json()
 
+    def test_a_web_draft_can_hold_the_step_before_it_has_inputs(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Draft",
+                "actions": [
+                    {
+                        "id": "trigger_node",
+                        "name": "trigger_1",
+                        "type": "trigger",
+                        "config": {"type": "event", "filters": {}},
+                    },
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {"template_id": "template-posthog-replay-vision"},
+                    },
+                ],
+                "edges": [],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     @parameterized.expand([("editable", "editor", status.HTTP_201_CREATED), ("restricted", "none", 400)])
     def test_the_step_needs_the_editors_own_access_to_the_scanner(
         self, _name: str, scanner_access: str, expected: int
@@ -7439,9 +7465,9 @@ class TestReplayVisionActionValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("recording_and_scanner_scopes", ["hog_flow:write", "session_recording:read", "replay_scanner:read"], 201),
-            ("no_recording_scope", ["hog_flow:write", "replay_scanner:read"], 400),
-            ("no_scanner_scope", ["hog_flow:write", "session_recording:read"], 400),
+            ("recording_and_scanner_scopes", ["hog_flow:write", "session_recording:read", "replay_scanner:write"], 201),
+            ("no_recording_scope", ["hog_flow:write", "replay_scanner:write"], 400),
+            ("scanner_read_only", ["hog_flow:write", "session_recording:read", "replay_scanner:read"], 400),
         ]
     )
     def test_a_key_needs_the_scopes_for_what_the_step_reads(self, _name: str, scopes: list[str], expected: int) -> None:
