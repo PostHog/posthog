@@ -43,7 +43,7 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.guest_query import resolve_guest_query
+from posthog.api.services.guest_query import guest_may_read_query, remember_joined_query, resolve_guest_query
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
@@ -363,6 +363,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 )
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
+                if is_enforced_guest(request) and isinstance(result.get("query_status"), dict):
+                    remember_joined_query(self.team.pk, result["query_status"], request.user.pk)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:
@@ -473,8 +475,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
-        # A query status holds the full results, so a guest may read only the queries they started.
-        if is_enforced_guest(request) and query_status.user_id != request.user.pk:
+        # A query status holds the full results, so a guest may read only the queries they started or joined.
+        if is_enforced_guest(request) and not guest_may_read_query(self.team.pk, query_status, request.user.pk):
             raise QueryNotFoundError()
         managed_connection_id = next(
             (

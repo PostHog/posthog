@@ -10,11 +10,13 @@ from typing import Any
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 
-from posthog.schema import QueryRequest
+from posthog.schema import QueryRequest, QueryStatus
 
 from posthog.authz import check_object_access
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.redis import get_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -99,3 +101,23 @@ def resolve_guest_query(request_data: QueryRequest, team: Team, user: User) -> G
     if request_data.session_recording_id is not None:
         return GuestQuery(query=_session_events_query(team, user, request_data.session_recording_id), insight_id=None)
     raise PermissionDenied("Guests can only run the queries of the items shared with them.")
+
+
+def _joined_query_key(team_id: int, query_id: str, user_id: int) -> str:
+    return f"guest_joined_query:{team_id}:{query_id}:{user_id}"
+
+
+def remember_joined_query(team_id: int, query_status: QueryStatus | dict[str, Any], user_id: int) -> None:
+    """Let a guest poll a running query that another user started with the same cache key.
+
+    The guest's own request passed the guest checks for that query, so its results are the guest's results too.
+    """
+    status = query_status if isinstance(query_status, QueryStatus) else QueryStatus.model_validate(query_status)
+    if status.user_id != user_id:
+        get_client().set(_joined_query_key(team_id, status.id, user_id), "1", ex=QueryStatusManager.STATUS_TTL_SECONDS)
+
+
+def guest_may_read_query(team_id: int, query_status: QueryStatus, user_id: int) -> bool:
+    return query_status.user_id == user_id or bool(
+        get_client().exists(_joined_query_key(team_id, query_status.id, user_id))
+    )

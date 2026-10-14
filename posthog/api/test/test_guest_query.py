@@ -124,6 +124,16 @@ class TestGuestQuery(APIBaseTest):
             cancel = self.client.delete(f"/api/environments/{self.team.id}/query/query-1/")
             assert cancel.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_guest_polls_a_running_query_they_joined(self) -> None:
+        joined = QueryStatus(id="query-2", team_id=self.team.pk, user_id=self.user.pk + 1, complete=False)
+        QueryStatusManager("query-2", self.team.pk).store_query_status(joined)
+        with patch("posthog.api.query.process_query_model", return_value={"query_status": joined.model_dump()}):
+            assert self._query(query=CLIENT_QUERY, insight_id=self.insight.id).status_code == status.HTTP_202_ACCEPTED
+        status_response = self.client.get(f"/api/environments/{self.team.id}/query/query-2/")
+        assert status_response.status_code == status.HTTP_202_ACCEPTED, status_response.json()
+        cancel = self.client.delete(f"/api/environments/{self.team.id}/query/query-2/")
+        assert cancel.status_code == status.HTTP_404_NOT_FOUND
+
     @parameterized.expand([("granted recording", "session-1"), ("other recording", "session-2")])
     @patch("posthog.api.query.process_query_model", return_value={"results": []})
     def test_guest_loads_events_only_for_a_granted_recording(self, _name: str, session_id: str, process) -> None:
