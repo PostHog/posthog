@@ -76,10 +76,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
+        if not force and self._direct_connection_validated:
+            return
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
             validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
-        if self._direct_connection_validated and not force:
-            return
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:
@@ -293,6 +293,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 ch_user=self.ch_user,
                 settings=self.settings,
                 send_raw_query=True,
+                expected_direct_engine=self._direct_engine,
             )
 
         query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
@@ -336,6 +337,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            expected_direct_engine=self._direct_engine,
             **context_kwargs,
         )
         if paginator:

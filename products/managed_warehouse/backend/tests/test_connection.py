@@ -739,6 +739,12 @@ class TestReconcileManagedWarehouseTables:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         source = _ensure(team)
+        transaction_depth = len(django_connection.savepoint_ids)
+
+        def trino_flag(*args: object, **kwargs: object) -> bool:
+            assert len(django_connection.savepoint_ids) == transaction_depth
+            return True
+
         cursor = MagicMock()
         cursor.fetchall.side_effect = [
             [("posthog", "events")],
@@ -747,7 +753,7 @@ class TestReconcileManagedWarehouseTables:
         connection = MagicMock(catalog="org_example")
         connection.cursor.return_value = cursor
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthoganalytics.feature_enabled", side_effect=trino_flag),
             patch(
                 "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
                 return_value=nullcontext(connection),

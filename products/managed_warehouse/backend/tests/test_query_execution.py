@@ -69,7 +69,18 @@ def test_hosted_target_rejects_unauthenticated_and_external_modes(
 
 
 @pytest.mark.django_db
-def test_live_query_binds_values_and_uses_hosted_service_credentials(team: Team) -> None:
+@pytest.mark.parametrize(
+    "limit_clause, limit_context, row_count, expected_limit, has_more",
+    [
+        ("", LimitContext.QUERY, 1, 100, False),
+        ("", LimitContext.QUERY, 101, 100, True),
+        (" LIMIT 1", LimitContext.SQL_ALERT, 1, 1, False),
+        (" LIMIT 1", LimitContext.SQL_ALERT, 2, 1, True),
+    ],
+)
+def test_live_query_binds_values_and_uses_hosted_service_credentials(
+    team: Team, limit_clause: str, limit_context: LimitContext, row_count: int, expected_limit: int, has_more: bool
+) -> None:
     organization = Organization.objects.create(id=team.organization_id, name="Example organization")
     team = Team.objects.create(organization=organization)
     user = User.objects.create(email="reader@example.com")
@@ -85,7 +96,7 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(team: Team)
         earliest_event_date=None,
     )
     cursor = MagicMock()
-    cursor.fetchmany.return_value = [("quoted ' value",)]
+    cursor.fetchmany.return_value = [("quoted ' value",)] * row_count
     cursor.description = [("value", "varchar")]
     connection = MagicMock()
     connection.cursor.return_value = cursor
@@ -104,19 +115,25 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(team: Team)
     ):
         response = execute_managed_trino_query(
             HogQLQuery(
-                query="SELECT {value} AS value", values={"value": "quoted ' value"}, executionTarget="managed_trino"
+                query="SELECT {value} AS value" + limit_clause,
+                values={"value": "quoted ' value"},
+                executionTarget="managed_trino",
             ),
             team=team,
             user=user,
             user_access_control=None,
             settings=HogQLGlobalSettings(),
             timings=HogQLTimings(),
-            limit_context=LimitContext.QUERY,
+            limit_context=limit_context,
         )
     connect.assert_called_once_with(
         str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
     )
-    cursor.execute.assert_called_once_with('SELECT ? AS "value" LIMIT 50000', ["quoted ' value"])
+    cursor.execute.assert_called_once_with(
+        f'SELECT ? AS "value" OFFSET 0 ROWS LIMIT {expected_limit + 1}', ["quoted ' value"]
+    )
     cursor.close.assert_called_once()
-    assert response.results == [("quoted ' value",)]
+    assert response.results == [("quoted ' value",)] * min(row_count, expected_limit)
+    assert response.hasMore is has_more
+    assert response.limit == expected_limit
     assert response.columns == ["value"]

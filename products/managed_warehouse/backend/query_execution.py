@@ -6,6 +6,8 @@ import posthoganalytics
 
 from posthog.schema import HogQLQuery, HogQLQueryResponse
 
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -16,13 +18,14 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 
 if TYPE_CHECKING:
-    from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.timings import HogQLTimings
 
     from posthog.models import Team, User
@@ -67,6 +70,16 @@ def execute_managed_trino_query(
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
+    paginator: HogQLHasMorePaginator | None = None
+
+    def paginate(parsed: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        nonlocal paginator
+        if limit_context == LimitContext.SQL_ALERT:
+            paginator = HogQLHasMorePaginator.from_alert_query(parsed, limit_context=limit_context)
+        elif isinstance(parsed, ast.SelectQuery) and not parsed.limit:
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context or LimitContext.QUERY)
+        return paginator.paginate(parsed) if paginator is not None else parsed
+
     try:
         with timings.measure("trino_compile"):
             compiled = compile_hogql_to_trino_sql(
@@ -79,6 +92,7 @@ def execute_managed_trino_query(
                 include_hogql=True,
                 limit_top_select=True,
                 limit_context=limit_context,
+                select_transform=paginate,
             )
     except TrinoTargetUnavailable as error:
         raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error
@@ -101,7 +115,7 @@ def execute_managed_trino_query(
             str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
         ),
     )
-    return HogQLQueryResponse(
+    response = HogQLQueryResponse(
         query=query.query,
         hogql=compiled.hogql,
         clickhouse=compiled.sql,
@@ -112,3 +126,7 @@ def execute_managed_trino_query(
         timings=timings.to_list(),
         modifiers=query.modifiers,
     )
+    if paginator is not None:
+        paginator.response = response
+        return response.model_copy(update={**paginator.response_params(), "results": paginator.trim_results()})
+    return response

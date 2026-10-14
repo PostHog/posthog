@@ -77,3 +77,111 @@ def test_execute_returns_rows_and_types(
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]
     assert result.types == [("id", "Nullable(Int64)"), ("active", "Nullable(Bool)")]
+
+
+@pytest.mark.parametrize("operation", ["query", "discovery"])
+def test_deadline_bounds_polling_and_cleanup_without_masking_timeout(operation: str) -> None:
+    import json
+    from contextlib import nullcontext
+
+    import requests
+    from trino.dbapi import connect
+
+    from posthog.hogql.direct_sql.trino_adapter import TrinoQueryRequest, execute_trino_query
+    from posthog.hogql.timings import HogQLTimings
+
+    from products.managed_warehouse.backend.logic.sql_editor_trino import discover_managed_trino_schemas
+
+    clock = [0.0]
+    calls: list[tuple[str, object]] = []
+    session = requests.Session()
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        calls.append((request.method or "", kwargs["timeout"]))
+        if request.method == "DELETE":
+            raise requests.ReadTimeout("cleanup timed out")
+        assert request.method == "POST"
+        clock[0] = 61
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {
+                "id": "query",
+                "infoUri": "https://trino.example.com/query",
+                "nextUri": "https://trino.example.com/next",
+                "stats": {},
+                "data": [],
+            }
+        ).encode()
+        return response
+
+    connection = connect(host="trino.example.com", user="test", catalog="example", http_session=session)
+    with (
+        patch.object(session, "send", side_effect=send),
+        patch("posthog.hogql.direct_sql.trino_adapter.time.monotonic", side_effect=lambda: clock[0]),
+        pytest.raises(ExposedHogQLError, match="Trino query timed out"),
+    ):
+        if operation == "query":
+            execute_trino_query(
+                TrinoQueryRequest(sql="SELECT 1", values=None, timeout_seconds=60, timings=HogQLTimings(), team_id=1),
+                nullcontext(connection),
+            )
+        else:
+            with patch(
+                "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
+                return_value=nullcontext(connection),
+            ):
+                discover_managed_trino_schemas("example-org", 1)
+    assert [method for method, _ in calls] == ["POST", "DELETE"]
+    assert calls[-1][1] == 0.5
+
+
+def test_cancellation_during_prepare_prevents_starting_the_main_query() -> None:
+    import json
+    import threading
+    from contextlib import nullcontext
+
+    import requests
+    from trino.dbapi import connect
+
+    from posthog.hogql.direct_sql.trino_adapter import TrinoQueryRequest, execute_trino_query
+    from posthog.hogql.timings import HogQLTimings
+
+    polled = threading.Event()
+    statements: list[str] = []
+    session = requests.Session()
+
+    def cancelled(*args: object) -> bool:
+        polled.set()
+        return True
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        body = request.body
+        statements.append(body.decode() if isinstance(body, bytes) else str(body))
+        assert polled.wait(2)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"id": "prepare", "infoUri": "https://trino.example.com/query", "stats": {}, "data": []}
+        ).encode()
+        return response
+
+    connection = connect(host="trino.example.com", user="test", http_session=session, legacy_prepared_statements=True)
+    with (
+        patch.object(session, "send", side_effect=send),
+        patch("posthog.hogql.direct_sql.trino_adapter.is_direct_query_cancellation_requested", side_effect=cancelled),
+        pytest.raises(ExposedHogQLError, match="Trino query was canceled"),
+    ):
+        execute_trino_query(
+            TrinoQueryRequest(
+                sql="SELECT %(value)s",
+                values={"value": 1},
+                timeout_seconds=10,
+                timings=HogQLTimings(),
+                team_id=1,
+                cancellation_token="token",
+            ),
+            nullcontext(connection),
+        )
+    assert len(statements) == 1
+    assert statements[0].startswith("PREPARE ")

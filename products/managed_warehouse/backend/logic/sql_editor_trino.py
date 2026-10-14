@@ -7,6 +7,7 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
+    bounded_trino_cursor,
     ensure_read_only_raw_trino_statement,
     execute_trino_query,
 )
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+
+MANAGED_TRINO_SCHEMA_DISCOVERY_TIMEOUT_SECONDS = 60
 
 
 class ManagedTrinoAdapter:
@@ -61,7 +65,11 @@ class ManagedTrinoAdapter:
                 ),
                 connect_managed_warehouse_trino(str(request.team.organization_id), principal=request.principal.value),
             )
-        except ManagedWarehouseTrinoConnectionUnavailable as error:
+        except (ExposedHogQLError, ManagedWarehouseTrinoConnectionUnavailable) as error:
+            if not isinstance(error, ManagedWarehouseTrinoConnectionUnavailable) and not isinstance(
+                error.__cause__, ManagedWarehouseTrinoConnectionUnavailable
+            ):
+                raise
             raise ExposedHogQLError("Trino is not ready for this warehouse. Try again later.") from error
 
 
@@ -69,13 +77,14 @@ def discover_managed_trino_schemas(organization_id: str, team_id: int) -> list[S
     with connect_managed_warehouse_trino(
         organization_id, principal=f"posthog:sql-editor-schema-discovery:team:{team_id}"
     ) as connection:
-        cursor = connection.cursor()
-        try:
+        with bounded_trino_cursor(connection, MANAGED_TRINO_SCHEMA_DISCOVERY_TIMEOUT_SECONDS, team_id=team_id) as (
+            cursor,
+            watchdog,
+        ):
             if not connection.catalog:
                 raise ManagedWarehouseTrinoConnectionUnavailable("Trino did not return a warehouse catalog")
             tables = discover_trino_catalog(cursor, catalog=connection.catalog)
-        finally:
-            cursor.close()
+            watchdog.check()
     return [
         SourceSchema(
             name=f"{table.schema}.{table.name}",

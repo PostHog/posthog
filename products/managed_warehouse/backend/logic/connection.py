@@ -370,6 +370,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     lifecycle_snapshot = _lifecycle_snapshot(organization_id)
     if not lifecycle_snapshot.desired_active:
         return
+    trino_enabled = managed_warehouse_sql_editor_uses_trino(organization_id)
     with transaction.atomic():
         # Plain read on purpose — see ensure_managed_warehouse_direct_source for why the
         # team row must never be locked from these periodic sweeps.
@@ -383,7 +384,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
         source_id = source.id
         source_api_version = source.api_version
         credential_kind = _credential_kind(source)
-        use_trino = source.is_dynamic_managed_warehouse and managed_warehouse_sql_editor_uses_trino(organization_id)
+        use_trino = source.is_dynamic_managed_warehouse and trino_enabled
 
     excluded_schemas = internal_schemas()
 
@@ -400,6 +401,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
         logger.warning("Managed warehouse introspection failed; will retry", team_id=team_id, exc_info=True)
         return
     source_schemas = [schema for schema in discovered if (schema.source_schema or "") not in excluded_schemas]
+    trino_still_enabled = managed_warehouse_sql_editor_uses_trino(organization_id)
     with transaction.atomic():
         if _lifecycle_snapshot(organization_id, lock=True) != lifecycle_snapshot:
             return
@@ -420,9 +422,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
         )
         if source is None or _credential_kind(source) != credential_kind:
             return
-        if use_trino != (
-            source.is_dynamic_managed_warehouse and managed_warehouse_sql_editor_uses_trino(organization_id)
-        ):
+        if use_trino != (source.is_dynamic_managed_warehouse and trino_still_enabled):
             return
 
         for schema in source_schemas:

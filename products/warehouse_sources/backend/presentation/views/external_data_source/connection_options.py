@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import Q
@@ -115,16 +116,18 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES, allow_null=True))
     def get_engine(self, source: ExternalDataSource) -> str | None:
-        from posthog.hogql.direct_sql import (
-            get_adapter_for_source,  # noqa: PLC0415 -- keeps optional drivers off Django startup
-        )
-
-        if source.is_dynamic_managed_warehouse or source.is_managed_warehouse_ready:
-            adapter = get_adapter_for_source(source, team=self.context.get("team"))
-            if adapter is not None and adapter.engine == "trino":
-                return "trino"
+        if source.is_dynamic_managed_warehouse and self._managed_trino_enabled:
+            return "trino"
         metadata = source.connection_metadata
         return metadata.get("engine") if isinstance(metadata, dict) else None
+
+    @cached_property
+    def _managed_trino_enabled(self) -> bool:
+        from products.managed_warehouse.backend.facade.sql_editor import (
+            managed_warehouse_sql_editor_uses_trino,  # noqa: PLC0415 -- flag evaluation is optional during startup
+        )
+
+        return managed_warehouse_sql_editor_uses_trino(self.context["team"].organization_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:

@@ -132,6 +132,7 @@ class HogQLQueryExecutor:
     direct_values: dict[str, object] | None = None
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
+    expected_direct_engine: str | None = None
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
@@ -173,6 +174,7 @@ class HogQLQueryExecutor:
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
+        self._compilation_adapter: DirectSQLAdapter | None = None
         self._prompt_jev_tables: list[PromptJevTable] = []
         self._prompt_jev_warehouse_sources: list[WarehouseSourceUsage] = []
         self._executing = False
@@ -444,8 +446,7 @@ class HogQLQueryExecutor:
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        source = self._direct_source
-        adapter = get_adapter_for_source(source, team=self.team) if source is not None else None
+        adapter = self._compilation_adapter
         if adapter is not None and adapter.dialect is None:
             # A raw-only engine (BigQuery) has no HogQL printer; falling back to another
             # dialect would send SQL the engine cannot parse.
@@ -630,6 +631,10 @@ class HogQLQueryExecutor:
         adapter = adapter or get_adapter_for_source(source, team=self.team)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
+        if self.expected_direct_engine is not None and (
+            (self.expected_direct_engine == "trino") != (adapter.engine == "trino")
+        ):
+            raise ExposedHogQLError("The warehouse engine changed. Run the query again.")
         if source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN and (
             (self.direct_dialect == "trino") != (adapter.engine == "trino")
         ):
@@ -831,6 +836,7 @@ class HogQLQueryExecutor:
 
         source = self._resolve_direct_source()
         adapter = get_adapter_for_source(source, team=self.team) if source is not None else None
+        self._compilation_adapter = adapter
         if adapter is not None and adapter.engine == "trino":
             trino_execution = self._prepare_pure_trino_query()
             if trino_execution is not None:

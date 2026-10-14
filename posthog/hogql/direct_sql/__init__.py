@@ -18,6 +18,7 @@ from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 from posthog.hogql.direct_sql.snowflake_adapter import SnowflakeAdapter
 from posthog.hogql.direct_sql.trino_adapter import TrinoAdapter
+from posthog.hogql.errors import ExposedHogQLError
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
@@ -42,7 +43,10 @@ def get_adapter_for_source(source: ExternalDataSource, *, team: "Team | None" = 
             managed_warehouse_sql_editor_uses_trino,
         )
 
-        if managed_warehouse_sql_editor_uses_trino((team or source.team).organization_id):
+        resolved_team = team or source._state.fields_cache.get("team")
+        if resolved_team is None:
+            raise ExposedHogQLError("The project context is missing. Refresh the SQL editor and try again.")
+        if managed_warehouse_sql_editor_uses_trino(resolved_team.organization_id):
             return managed_trino_adapter()
     return get_adapter(source.direct_engine)
 

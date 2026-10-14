@@ -1,7 +1,7 @@
 import socket
 import threading
 from collections.abc import Generator
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -253,6 +253,15 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 connection_id=str(source.id),
                 send_raw_query=raw,
             ).execute()
+            with self.assertRaisesMessage(ExposedHogQLError, "warehouse engine changed"):
+                HogQLQueryExecutor(
+                    query=query,
+                    team=self.team,
+                    user=self.user,
+                    connection_id=str(source.id),
+                    send_raw_query=raw,
+                    expected_direct_engine="postgres",
+                ).execute()
         self.assertEqual(response.results, [("row-uuid",)])
         connect.assert_called_once_with(
             str(self.team.organization_id), principal=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}"
@@ -266,17 +275,26 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertEqual(options[0]["engine"], "trino")
         self.assertTrue(options[0]["is_builtin_managed_warehouse"])
 
+    @parameterized.expand([("open",), ("enter",)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_managed_trino_unavailable_does_not_fall_back_to_duckgres(self, _flag: MagicMock) -> None:
+    def test_managed_trino_unavailable_does_not_fall_back_to_duckgres(self, stage: str, _flag: MagicMock) -> None:
         from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 
         source = self._dynamic_managed_source()
         source.job_inputs = {}
         source.save(update_fields=["job_inputs"])
+
+        @contextmanager
+        def unavailable() -> Generator[None]:
+            if stage == "enter":
+                raise ManagedWarehouseTrinoConnectionUnavailable("not ready")
+            yield None
+
         with (
             patch(
                 "products.managed_warehouse.backend.logic.sql_editor_trino.connect_managed_warehouse_trino",
-                side_effect=ManagedWarehouseTrinoConnectionUnavailable("not ready"),
+                side_effect=ManagedWarehouseTrinoConnectionUnavailable("not ready") if stage == "open" else None,
+                return_value=unavailable(),
             ),
             patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect") as duckgres,
             self.assertRaisesMessage(ExposedHogQLError, "Trino is not ready"),

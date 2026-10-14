@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import time
 import threading
-from contextlib import AbstractContextManager
-from typing import TYPE_CHECKING, cast
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlparse
+import structlog
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 
@@ -21,7 +24,7 @@ from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
 
 if TYPE_CHECKING:
-    from trino.dbapi import Connection
+    from trino.dbapi import Connection, Cursor
 
     from posthog.models.team import Team
 
@@ -31,6 +34,8 @@ if TYPE_CHECKING:
     )
     from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
+
+log = structlog.get_logger(__name__)
 
 DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_TRINO_MAX_ROWS = 1_000_000
@@ -54,46 +59,60 @@ def ensure_read_only_raw_trino_statement(sql: str) -> str:
 
 class _CancelWatchdog:
     def __init__(
-        self, cursor: object, timeout_seconds: float, *, team_id: int = 0, cancellation_token: str | None = None
+        self, cursor: Cursor, timeout_seconds: float, *, team_id: int = 0, cancellation_token: str | None = None
     ) -> None:
         self._fired = threading.Event()
         self._finished = threading.Event()
         self._cancelled = threading.Event()
+        self._cancel_lock = threading.Lock()
         self._team_id = team_id
         self._cancellation_token = cancellation_token
         self._cursor = cursor
-
-        def _cancel() -> None:
-            self._fired.set()
-            try:
-                cursor.cancel()  # type: ignore[attr-defined]
-            except Exception:
-                pass
-
-        self._timer = threading.Timer(max(timeout_seconds, 1), _cancel)
+        self.deadline = time.monotonic() + max(timeout_seconds, 1)
+        self._timer = threading.Timer(max(timeout_seconds, 1), self._fired.set)
         self._timer.daemon = True
+        self._thread = threading.Thread(target=self._watch_cancellation, daemon=True, name="trino-query-cancel")
 
     def __enter__(self) -> _CancelWatchdog:
         self._timer.start()
-        if self._cancellation_token:
-            threading.Thread(target=self._watch_cancellation, daemon=True, name="trino-query-cancel").start()
+        self._thread.start()
         return self
 
     def __exit__(self, *args: object) -> None:
-        self._finished.set()
+        with self._cancel_lock:
+            self._finished.set()
         self._timer.cancel()
+        # A Redis poll may outlive the query. The lock and finished check prevent it from touching a closed cursor.
+        self._thread.join(timeout=1)
 
     def _watch_cancellation(self) -> None:
-        while not self._finished.wait(0.5):
+        delay = 0.5
+        while not self._finished.wait(delay):
             try:
-                if self._cancellation_token and is_direct_query_cancellation_requested(
-                    self._team_id, self._cancellation_token
+                if (
+                    not self.cancelled
+                    and self._cancellation_token
+                    and is_direct_query_cancellation_requested(self._team_id, self._cancellation_token)
                 ):
                     self._cancelled.set()
-                    self._cursor.cancel()  # type: ignore[attr-defined]
-                    return
+                if self.cancelled or self.fired:
+                    with self._cancel_lock:
+                        if self._finished.is_set():
+                            return
+                        self._cursor.cancel()
+                delay = 0.5
             except Exception:
-                continue
+                if delay == 0.5:
+                    log.warning("trino.cancellation_poll_failed", team_id=self._team_id, exc_info=True)
+                delay = min(delay * 2, 5)
+
+    def check(self) -> None:
+        if time.monotonic() >= self.deadline:
+            self._fired.set()
+        if self.cancelled:
+            raise ExposedHogQLError("Trino query was canceled.")
+        if self.fired:
+            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
 
     @property
     def cancelled(self) -> bool:
@@ -102,6 +121,46 @@ class _CancelWatchdog:
     @property
     def fired(self) -> bool:
         return self._fired.is_set()
+
+
+@contextmanager
+def bounded_trino_cursor(
+    connection: Connection, timeout_seconds: float, *, team_id: int = 0, cancellation_token: str | None = None
+) -> Iterator[tuple[Cursor, _CancelWatchdog]]:
+    cursor = connection.cursor()
+    watchdog = _CancelWatchdog(cursor, timeout_seconds, team_id=team_id, cancellation_token=cancellation_token)
+    # The driver shares this session with capability probes and PREPARE, which cursor.cancel() cannot reach.
+    session = connection._http_session
+    original_request = session.request
+    original_delete = cursor._request._delete
+
+    def bounded_request(method: str, url: str, **kwargs: Any) -> Any:
+        if method.upper() == "DELETE":
+            remaining = 1.0
+        else:
+            watchdog.check()
+            remaining = max(watchdog.deadline - time.monotonic(), 0.001)
+        timeout = kwargs.get("timeout")
+        if isinstance(timeout, tuple):
+            kwargs["timeout"] = tuple(min(value or remaining / 2, remaining / 2) for value in timeout)
+        else:
+            kwargs["timeout"] = min(timeout or remaining / 2, remaining / 2)
+        return original_request(method, url, **kwargs)
+
+    session.request = bounded_request  # type: ignore[method-assign, assignment]  # ty: ignore[invalid-assignment]
+    # Cancellation gets one bounded HTTP attempt; driver retries would extend the statement deadline during cleanup.
+    cursor._request._delete = session.delete
+    try:
+        with watchdog:
+            yield cursor, watchdog
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            log.warning("trino.cursor_cleanup_failed", team_id=team_id, exc_info=True)
+        finally:
+            session.request = original_request  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            cursor._request._delete = original_delete
 
 
 @frozen
@@ -133,40 +192,27 @@ def execute_trino_query(
     try:
         with request.timings.measure("trino_execute"), observe_direct_query("trino"):
             with connection_context as connection:
-                cursor = connection.cursor()
-                try:
-                    with _CancelWatchdog(
-                        cursor,
-                        request.timeout_seconds,
-                        team_id=request.team_id,
-                        cancellation_token=request.cancellation_token,
-                    ) as watchdog:
-                        try:
-                            if values:
-                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
-                                    sql, values
-                                )
-                            else:
-                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
-                                    sql
-                                )
-                            results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
-                        except Exception as error:
-                            if watchdog.cancelled:
-                                raise ExposedHogQLError("Trino query was canceled.") from error
-                            if watchdog.fired:
-                                raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR) from error
-                            raise
-                        # The parameterized path runs a capability probe and a PREPARE before the
-                        # main query exists, where cancel() is a no-op. Refuse results that arrive
-                        # past the deadline so the timeout holds through that window.
-                        if watchdog.cancelled:
-                            raise ExposedHogQLError("Trino query was canceled.")
-                        if watchdog.fired:
-                            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
+                with bounded_trino_cursor(
+                    connection,
+                    request.timeout_seconds,
+                    team_id=request.team_id,
+                    cancellation_token=request.cancellation_token,
+                ) as (cursor, watchdog):
+                    try:
+                        if values:
+                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
+                                sql, values
+                            )
+                        else:
+                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
+                                sql
+                            )
+                        results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
+                    except Exception:
+                        watchdog.check()
+                        raise
+                    watchdog.check()
                     description = cursor.description or []
-                finally:
-                    cursor.close()
     except Exception as error:
         span.set_attribute("error_type", error.__class__.__name__)
         message = str(error) if isinstance(error, ExposedHogQLError) else trino_error_to_message(error)
