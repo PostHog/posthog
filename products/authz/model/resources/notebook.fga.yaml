@@ -25,3 +25,15 @@ tests:
             object: notebook:notebook
             assertions:
                 { can_view: false, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+
+    - name: A member rule lets a guest view a notebook, and only view it
+      tuples:
+          - { user: 'organization_member:guest#user', relation: member_editor, object: 'access_policy:object' }
+      check:
+          - user: user:guest
+            object: notebook:notebook
+            assertions:
+                { can_view: true, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+          - user: user:guest
+            object: notebook:other
+            assertions: { can_view: false }

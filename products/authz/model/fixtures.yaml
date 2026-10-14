@@ -33,3 +33,9 @@
 - { user: 'project:project', relation: project, object: 'resource:insights' }
 - { user: 'access_policy:resource', relation: policy, object: 'resource:dashboards' }
 - { user: 'access_policy:resource', relation: policy, object: 'resource:insights' }
+- { user: 'user:guest', relation: user, object: 'organization_member:guest' }
+- { user: 'organization:org', relation: organization, object: 'organization_member:guest' }
+- { user: 'organization_member:guest#user', relation: guest, object: 'organization:org' }
+- { user: 'organization_member:guest#user', relation: member_member, object: 'project:project' }
+- { user: 'organization:org', relation: organization, object: 'access_policy:guest_board' }
+- { user: 'organization:org', relation: organization, object: 'access_policy:guest_notebook' }

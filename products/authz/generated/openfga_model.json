@@ -96,6 +96,14 @@
                     "can_manage_billing": {},
                     "can_manage_owners": {},
                     "can_view": {},
+                    "guest": {
+                        "directly_related_user_types": [
+                            {
+                                "relation": "user",
+                                "type": "organization_member"
+                            }
+                        ]
+                    },
                     "member": {
                         "directly_related_user_types": [
                             {
@@ -264,9 +272,23 @@
                     }
                 },
                 "can_view": {
-                    "computedUserset": {
-                        "relation": "member"
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest"
+                                }
+                            }
+                        ]
                     }
+                },
+                "guest": {
+                    "this": {}
                 },
                 "member": {
                     "union": {
@@ -700,6 +722,7 @@
                             }
                         ]
                     },
+                    "guest": {},
                     "has_member_or_role_rule": {},
                     "has_member_rule": {},
                     "has_role_rule": {},
@@ -925,6 +948,11 @@
                                 "computedUserset": {
                                     "relation": "shared_viewer"
                                 }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest"
+                                }
                             }
                         ]
                     }
@@ -969,6 +997,43 @@
                 },
                 "default_owner": {
                     "this": {}
+                },
+                "guest": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "organization"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_member"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_admin"
+                                            }
+                                        },
+                                        {
+                                            "computedUserset": {
+                                                "relation": "member_owner"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
                 },
                 "has_member_or_role_rule": {
                     "union": {
@@ -1439,6 +1504,7 @@
                         ]
                     },
                     "editor": {},
+                    "guest_viewer": {},
                     "has_member_or_role_rule": {},
                     "has_member_rule": {},
                     "has_role_rule": {},
@@ -1613,6 +1679,27 @@
                                             }
                                         }
                                     ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "guest_viewer": {
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "member_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_editor"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "member_manager"
                                 }
                             }
                         ]
@@ -1931,6 +2018,7 @@
                     "can_manage_access": {},
                     "can_view": {},
                     "editor": {},
+                    "guest_viewer": {},
                     "has_rule": {},
                     "manager": {},
                     "policy": {
@@ -1957,8 +2045,19 @@
                     }
                 },
                 "can_list": {
-                    "computedUserset": {
-                        "relation": "viewer"
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
+                            }
+                        ]
                     }
                 },
                 "can_manage_access": {
@@ -1983,8 +2082,19 @@
                     }
                 },
                 "can_view": {
-                    "computedUserset": {
-                        "relation": "viewer"
+                    "union": {
+                        "child": [
+                            {
+                                "computedUserset": {
+                                    "relation": "viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
+                            }
+                        ]
                     }
                 },
                 "editor": {
@@ -2043,6 +2153,32 @@
                                             }
                                         }
                                     ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "guest_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest_viewer"
+                                    },
+                                    "tupleset": {
+                                        "relation": "policy"
+                                    }
                                 }
                             }
                         ]
@@ -2195,6 +2331,8 @@
                         ]
                     },
                     "editor": {},
+                    "guest_viewer": {},
+                    "has_member_rule": {},
                     "has_rule": {},
                     "legacy_editor": {},
                     "manager": {},
@@ -2205,6 +2343,7 @@
                             }
                         ]
                     },
+                    "policy_guest_viewer": {},
                     "project": {
                         "directly_related_user_types": [
                             {
@@ -2297,6 +2436,11 @@
                                 "computedUserset": {
                                     "relation": "shared_viewer"
                                 }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
                             }
                         ]
                     }
@@ -2371,6 +2515,62 @@
                                 }
                             }
                         ]
+                    }
+                },
+                "guest_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "policy_guest_viewer"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_member_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_member_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_member_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
                     }
                 },
                 "has_rule": {
@@ -2497,6 +2697,16 @@
                 "policy": {
                     "this": {}
                 },
+                "policy_guest_viewer": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "guest_viewer"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
+                },
                 "project": {
                     "this": {}
                 },
@@ -2619,6 +2829,8 @@
                     },
                     "dashboard_editor": {},
                     "editor": {},
+                    "guest_embed_viewer": {},
+                    "guest_viewer": {},
                     "has_dashboard": {
                         "directly_related_user_types": [
                             {
@@ -2627,8 +2839,16 @@
                             }
                         ]
                     },
+                    "has_member_rule": {},
                     "has_rule": {},
                     "manager": {},
+                    "notebook": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "notebook"
+                            }
+                        ]
+                    },
                     "policy": {
                         "directly_related_user_types": [
                             {
@@ -2636,6 +2856,7 @@
                             }
                         ]
                     },
+                    "policy_guest_viewer": {},
                     "project": {
                         "directly_related_user_types": [
                             {
@@ -2719,6 +2940,16 @@
                             {
                                 "computedUserset": {
                                     "relation": "shared_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_embed_viewer"
                                 }
                             }
                         ]
@@ -2831,8 +3062,115 @@
                         ]
                     }
                 },
+                "guest_embed_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "union": {
+                                            "child": [
+                                                {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "dashboard"
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "notebook"
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "guest_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "policy_guest_viewer"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_member_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
                 "has_dashboard": {
                     "this": {}
+                },
+                "has_member_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_member_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
                 },
                 "has_rule": {
                     "tupleToUserset": {
@@ -2910,8 +3248,21 @@
                         ]
                     }
                 },
+                "notebook": {
+                    "this": {}
+                },
                 "policy": {
                     "this": {}
+                },
+                "policy_guest_viewer": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "guest_viewer"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
                 },
                 "project": {
                     "this": {}
@@ -3008,6 +3359,8 @@
                         ]
                     },
                     "editor": {},
+                    "guest_viewer": {},
+                    "has_member_rule": {},
                     "has_rule": {},
                     "manager": {},
                     "policy": {
@@ -3017,6 +3370,7 @@
                             }
                         ]
                     },
+                    "policy_guest_viewer": {},
                     "project": {
                         "directly_related_user_types": [
                             {
@@ -3090,6 +3444,11 @@
                                 "computedUserset": {
                                     "relation": "shared_viewer"
                                 }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
                             }
                         ]
                     }
@@ -3161,6 +3520,62 @@
                                 }
                             }
                         ]
+                    }
+                },
+                "guest_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "policy_guest_viewer"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_member_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_member_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_member_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
                     }
                 },
                 "has_rule": {
@@ -3241,6 +3656,16 @@
                 },
                 "policy": {
                     "this": {}
+                },
+                "policy_guest_viewer": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "guest_viewer"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
                 },
                 "project": {
                     "this": {}
@@ -3337,8 +3762,18 @@
                         ]
                     },
                     "editor": {},
+                    "guest_embed_viewer": {},
+                    "guest_viewer": {},
+                    "has_member_rule": {},
                     "has_rule": {},
                     "manager": {},
+                    "notebook": {
+                        "directly_related_user_types": [
+                            {
+                                "type": "notebook"
+                            }
+                        ]
+                    },
                     "policy": {
                         "directly_related_user_types": [
                             {
@@ -3346,6 +3781,7 @@
                             }
                         ]
                     },
+                    "policy_guest_viewer": {},
                     "project": {
                         "directly_related_user_types": [
                             {
@@ -3419,6 +3855,16 @@
                                 "computedUserset": {
                                     "relation": "shared_viewer"
                                 }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_viewer"
+                                }
+                            },
+                            {
+                                "computedUserset": {
+                                    "relation": "guest_embed_viewer"
+                                }
                             }
                         ]
                     }
@@ -3490,6 +3936,97 @@
                                 }
                             }
                         ]
+                    }
+                },
+                "guest_embed_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "difference": {
+                                    "base": {
+                                        "tupleToUserset": {
+                                            "computedUserset": {
+                                                "relation": "guest_viewer"
+                                            },
+                                            "tupleset": {
+                                                "relation": "notebook"
+                                            }
+                                        }
+                                    },
+                                    "subtract": {
+                                        "computedUserset": {
+                                            "relation": "has_member_rule"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "guest_viewer": {
+                    "intersection": {
+                        "child": [
+                            {
+                                "tupleToUserset": {
+                                    "computedUserset": {
+                                        "relation": "guest"
+                                    },
+                                    "tupleset": {
+                                        "relation": "project"
+                                    }
+                                }
+                            },
+                            {
+                                "union": {
+                                    "child": [
+                                        {
+                                            "computedUserset": {
+                                                "relation": "policy_guest_viewer"
+                                            }
+                                        },
+                                        {
+                                            "difference": {
+                                                "base": {
+                                                    "tupleToUserset": {
+                                                        "computedUserset": {
+                                                            "relation": "guest_viewer"
+                                                        },
+                                                        "tupleset": {
+                                                            "relation": "resource"
+                                                        }
+                                                    }
+                                                },
+                                                "subtract": {
+                                                    "computedUserset": {
+                                                        "relation": "has_member_rule"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "has_member_rule": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "has_member_rule"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
                     }
                 },
                 "has_rule": {
@@ -3568,8 +4105,21 @@
                         ]
                     }
                 },
+                "notebook": {
+                    "this": {}
+                },
                 "policy": {
                     "this": {}
+                },
+                "policy_guest_viewer": {
+                    "tupleToUserset": {
+                        "computedUserset": {
+                            "relation": "guest_viewer"
+                        },
+                        "tupleset": {
+                            "relation": "policy"
+                        }
+                    }
                 },
                 "project": {
                     "this": {}
