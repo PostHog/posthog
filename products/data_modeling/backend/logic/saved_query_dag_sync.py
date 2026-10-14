@@ -756,12 +756,15 @@ def _delete_unread_copies(team_id: int, dag: DAG, copies: QuerySet[Node]) -> Non
         team_id=team_id, status=DataModelingJobStatus.RUNNING, saved_query_id__isnull=False
     ).values("saved_query_id")
     unread = copies.filter(dag=dag, outgoing_edges__isnull=True).exclude(saved_query_id__in=materializing)
+    deleted_any = False
     with transaction.atomic():
         lock_dag(team_id, dag.id)
         lock_dag_placements(team_id, dag.id)
         while unread.exists():
             delete_nodes(team_id, unread)
-    maybe_reconcile_dag(dag)
+            deleted_any = True
+    if deleted_any:
+        maybe_reconcile_dag(dag)
 
 
 def retire_stale_managed_view_copies(team_id: int, copy_ids: Iterable[UUID]) -> None:

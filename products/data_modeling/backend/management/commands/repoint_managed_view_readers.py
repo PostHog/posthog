@@ -3,11 +3,17 @@ from typing import Any
 from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandParser
+from django.db.models import QuerySet
+
+import structlog
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     retire_stale_managed_view_copies,
     stale_managed_view_copies,
 )
+from products.data_modeling.backend.models.node import Node
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -27,16 +33,25 @@ class Command(BaseCommand):
         if not options["apply"]:
             return
 
+        failed_team_ids: list[int] = []
         for team_id, copy_ids in copy_ids_by_team.items():
-            retire_stale_managed_view_copies(team_id, copy_ids)
-        remaining = self._find_copies(options["team_id"])
-        self.stdout.write(f"Done. {sum(len(ids) for ids in remaining.values())} copies remain")
+            try:
+                retire_stale_managed_view_copies(team_id, copy_ids)
+            except Exception:
+                logger.exception("Could not retire stale managed view copies", team_id=team_id)
+                failed_team_ids.append(team_id)
+        self.stdout.write(f"Done. {self._copies(options['team_id']).count()} copies remain")
+        if failed_team_ids:
+            self.stderr.write(f"Failed for team(s): {', '.join(str(team_id) for team_id in failed_team_ids)}")
 
-    def _find_copies(self, team_id: int | None) -> dict[int, list[UUID]]:
+    def _copies(self, team_id: int | None) -> QuerySet[Node]:
         copies = stale_managed_view_copies()
         if team_id is not None:
             copies = copies.filter(team_id=team_id)
+        return copies
 
+    def _find_copies(self, team_id: int | None) -> dict[int, list[UUID]]:
+        copies = self._copies(team_id)
         copy_ids_by_team: dict[int, list[UUID]] = defaultdict(list)
         for node_id, node_team_id, dag_id, name in copies.values_list("id", "team_id", "dag_id", "name").iterator():
             self.stdout.write(f"team={node_team_id} dag={dag_id} node={node_id} name={name}")

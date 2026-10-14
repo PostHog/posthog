@@ -39,9 +39,15 @@ class TestRepointManagedViewReaders(BaseTest):
         sync_saved_query_to_dag(view, dag=DAG.get_or_create_revenue_analytics(self.team), allow_managed=True)
         return view
 
-    @parameterized.expand([("idle", False), ("charges_materializing", True)])
+    @parameterized.expand(
+        [
+            ("idle", False, False),
+            ("charges_materializing", True, False),
+            ("reader_fails_to_sync", False, True),
+        ]
+    )
     def test_only_apply_moves_readers_to_the_reference_and_deletes_the_copies(
-        self, _name: str, charges_materializing: bool
+        self, _name: str, charges_materializing: bool, reader_fails: bool
     ):
         viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
@@ -56,7 +62,9 @@ class TestRepointManagedViewReaders(BaseTest):
         mrr_copy = Node.objects.create(team=self.team, dag=default_dag, saved_query=mrr, type=NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=default_dag, source=charges_copy, target=mrr_copy)
         user_view = DataWarehouseSavedQuery.objects.create(
-            name="user_view", team=self.team, query={"query": "SELECT * FROM revenue_charges", "kind": "HogQLQuery"}
+            name="user_view",
+            team=self.team,
+            query={"query": "" if reader_fails else "SELECT * FROM revenue_charges", "kind": "HogQLQuery"},
         )
         user_node = Node.objects.create(team=self.team, dag=default_dag, saved_query=user_view, type=NodeType.VIEW)
         Edge.objects.create(team=self.team, dag=default_dag, source=charges_copy, target=user_node)
@@ -70,8 +78,11 @@ class TestRepointManagedViewReaders(BaseTest):
         call_command("repoint_managed_view_readers", team_id=self.team.pk, apply=True, stdout=StringIO())
 
         remaining = set(Node.objects.filter(id__in=[charges_copy.id, mrr_copy.id]).values_list("id", flat=True))
-        self.assertEqual(remaining, {charges_copy.id} if charges_materializing else set())
-        reference = Edge.objects.get(target=user_node).source
-        self.assertEqual(reference.type, NodeType.TABLE)
-        self.assertEqual(reference.properties["origin"], "cross_dag_view")
+        self.assertEqual(remaining, {charges_copy.id} if charges_materializing or reader_fails else set())
+        user_source = Edge.objects.get(target=user_node).source
+        if reader_fails:
+            self.assertEqual(user_source.id, charges_copy.id)
+        else:
+            self.assertEqual(user_source.type, NodeType.TABLE)
+            self.assertEqual(user_source.properties["origin"], "cross_dag_view")
         self.assertEqual(set(Node.objects.filter(dag=managed_dag).values_list("id", flat=True)), managed_node_ids)
