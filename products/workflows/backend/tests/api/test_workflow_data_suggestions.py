@@ -512,16 +512,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("planner returns nothing", True, 200, "failed", 2),
-            ("ai consent withdrawn after the cards were cached", False, 404, None, 0),
+            ("planner returns nothing", True, None, 200, "failed", 2),
+            ("planner raises", True, RuntimeError("database gone"), 200, "failed", 2),
+            ("ai consent withdrawn after the cards were cached", False, None, 404, None, 0),
         ]
     )
     @patch(f"{SERVICE}.plan_steps", return_value=None)
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_build_fails_without_a_server_error_and_can_be_retried(
+    def test_a_failed_build_stays_failed_for_polls_until_a_retry(
         self,
         _name: str,
         approved: bool,
+        planner_error: Exception | None,
         status: int,
         build_status: str | None,
         planner_calls: int,
@@ -530,17 +532,20 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         _flag,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.side_effect = planner_error
         suggestion_id = self._list()["suggestions"][0]["id"]
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
 
-        response = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
-        retry = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json")
+        responses = [
+            self.client.post(build_url, {"suggestion_id": suggestion_id, "retry": retry}, format="json")
+            for retry in (True, False, True)
+        ]
 
-        assert response.status_code == status
+        assert [response.status_code for response in responses] == [status] * 3
         if build_status is not None:
-            assert response.json()["status"] == retry.json()["status"] == build_status
+            assert [response.json()["status"] for response in responses] == [build_status] * 3
         assert plan_steps.call_count == planner_calls
 
     @patch(f"{SERVICE}.plan_steps")

@@ -29,10 +29,13 @@ def start_data_suggestions(*, team: Team, user: User, refresh: bool) -> DataSugg
     )
 
 
-def start_build(*, team: Team, user: User, suggestion_id: str, event_source: EventSource) -> BuiltSuggestion:
+def start_build(
+    *, team: Team, user: User, suggestion_id: str, retry: bool, event_source: EventSource
+) -> BuiltSuggestion:
     return service.start_build(
         team=team,
         suggestion_id=suggestion_id,
+        retry=retry,
         enqueue=lambda lock_token: build_data_suggestion.delay(
             team.id, user.id, suggestion_id, lock_token, event_source.value
         ),

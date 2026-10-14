@@ -3173,8 +3173,16 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
+export const workflowDataSuggestionsBuildBodyRetryDefault = false
+
 export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
     suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+    retry: zod
+        .boolean()
+        .default(workflowDataSuggestionsBuildBodyRetryDefault)
+        .describe(
+            "Start a new build when the last one failed. Leave it false when asking for a running build's status."
+        ),
 })
 
 /**

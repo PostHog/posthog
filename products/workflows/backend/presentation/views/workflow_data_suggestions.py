@@ -97,6 +97,10 @@ class DataSuggestionGenerateRequestSerializer(serializers.Serializer):
 
 class DataSuggestionBuildRequestSerializer(serializers.Serializer):
     suggestion_id = serializers.CharField(help_text="The id of a suggestion from the list endpoint.")
+    retry = serializers.BooleanField(
+        default=False,
+        help_text="Start a new build when the last one failed. Leave it false when asking for a running build's status.",
+    )
 
 
 class DataSuggestionBuildStatus(models.TextChoices):
@@ -144,7 +148,9 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Asking again while a build runs, or for a finished build, costs no model time, so only a new build counts.
         payload = DataSuggestionBuildRequestSerializer(data=self.request.data)
         return not payload.is_valid() or needs_new_build(
-            team=self.team, suggestion_id=payload.validated_data["suggestion_id"]
+            team=self.team,
+            suggestion_id=payload.validated_data["suggestion_id"],
+            retry=payload.validated_data["retry"],
         )
 
     def _wants_refresh(self) -> bool:
@@ -187,6 +193,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 user=user,
                 suggestion_id=payload.validated_data["suggestion_id"],
+                retry=payload.validated_data["retry"],
                 event_source=get_event_source(request),
             )
         except DataSuggestionNotFound:

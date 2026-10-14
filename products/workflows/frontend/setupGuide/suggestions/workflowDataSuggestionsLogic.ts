@@ -237,17 +237,25 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 actions.setBuildingKey(card.key)
                 const projectId = String(values.currentProjectId)
                 const deadline = Date.now() + POLL_DEADLINE_MS
+                // The timeout ends a stalled request at the deadline, so the buttons do not stay disabled.
+                // Only the click retries a failed build. Polls read the failure, like every other tab does.
+                const requestBuild = (retry: boolean): ReturnType<typeof workflowDataSuggestionsBuild> =>
+                    workflowDataSuggestionsBuild(
+                        projectId,
+                        { suggestion_id: card.suggestionId, retry },
+                        { signal: AbortSignal.timeout(Math.max(deadline - Date.now(), 0)) }
+                    )
                 try {
                     // The build runs in the background. Asking again is free while it runs, and breakpoint stops
                     // the loop, the save and the redirect once the person leaves the page.
-                    let built = await workflowDataSuggestionsBuild(projectId, { suggestion_id: card.suggestionId })
+                    let built = await requestBuild(true)
                     breakpoint()
                     while (built.status === 'building') {
                         if (Date.now() > deadline) {
                             throw new Error(BUILD_FAILED_MESSAGE)
                         }
                         await breakpoint(POLL_INTERVAL_MS)
-                        built = await workflowDataSuggestionsBuild(projectId, { suggestion_id: card.suggestionId })
+                        built = await requestBuild(false)
                         breakpoint()
                     }
                     if (built.status !== 'ready') {
@@ -270,7 +278,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     if (isBreakpoint(error)) {
                         throw error
                     }
-                    lemonToast.error(error?.detail || error?.message || BUILD_FAILED_MESSAGE)
+                    lemonToast.error(
+                        error?.name === 'TimeoutError'
+                            ? BUILD_FAILED_MESSAGE
+                            : error?.detail || error?.message || BUILD_FAILED_MESSAGE
+                    )
                 } finally {
                     if (!cache.disposables.isDisposed) {
                         actions.setBuildingKey(null)
