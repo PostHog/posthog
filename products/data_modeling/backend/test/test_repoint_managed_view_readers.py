@@ -60,6 +60,7 @@ class TestRepointManagedViewReaders(BaseTest):
         )
         user_node = Node.objects.create(team=self.team, dag=default_dag, saved_query=user_view, type=NodeType.VIEW)
         Edge.objects.create(team=self.team, dag=default_dag, source=charges_copy, target=user_node)
+        DataModelingJob.objects.create(team=self.team, saved_query=None, status=DataModelingJobStatus.RUNNING)
         if charges_materializing:
             DataModelingJob.objects.create(team=self.team, saved_query=charges, status=DataModelingJobStatus.RUNNING)
 
