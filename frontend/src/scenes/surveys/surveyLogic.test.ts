@@ -276,6 +276,32 @@ describe('translation validation', () => {
     )
 
     it.each([
+        [
+            'on',
+            true,
+            [
+                {
+                    language: 'fr',
+                    questionIndex: -1,
+                    field: 'backButtonText',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ],
+        ],
+        ['off', false, []],
+    ] as const)('validates the back button translation with going back %s', async (_name, allowGoBack, expected) => {
+        const survey = {
+            ...createPersistedSurvey(),
+            appearance: { allowGoBack },
+            translations: { fr: { backButtonText: '[Translation needed]' } },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({ translationValidationErrors: expected })
+    })
+
+    it.each([
         ['an empty button text', 'introScreenButtonText', '', []],
         ['an unset button text', 'introScreenButtonText', undefined, []],
         [

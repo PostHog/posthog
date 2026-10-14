@@ -255,6 +255,7 @@ function formatFieldName(field: string): string {
         introScreenHeader: 'Intro screen header',
         introScreenDescription: 'Intro screen description',
         introScreenButtonText: 'Intro screen button text',
+        backButtonText: 'Back button text',
         question: 'Question text',
         buttonText: 'Button text',
         lowerBoundLabel: 'Lower bound label',
