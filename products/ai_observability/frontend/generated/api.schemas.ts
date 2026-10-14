@@ -2061,7 +2061,7 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
  */
 export type EvaluationApiTargetConfig = {
     /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
@@ -2137,7 +2137,7 @@ export interface EvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -2388,7 +2388,7 @@ export const PatchedEvaluationApiTargetConfigStrategy = {
 } as const
 
 /**
- * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
+ * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
  */
 export type PatchedEvaluationApiTargetConfig = {
     /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
@@ -2464,7 +2464,7 @@ export interface PatchedEvaluationApi {
      * * `trace` - Trace
      * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
+    /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null

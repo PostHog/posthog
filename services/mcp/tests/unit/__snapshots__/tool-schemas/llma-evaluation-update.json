@@ -292,7 +292,7 @@
             "type": "string"
         },
         "target_config": {
-            "description": "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.",
+            "description": "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.",
             "properties": {
                 "max_age_seconds": {
                     "description": "inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.",
