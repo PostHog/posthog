@@ -313,7 +313,18 @@ export interface trendsDataLogicMeta {
         indexedResults: (
             results: TrendResult[],
             display: ChartDisplayType | null | undefined,
-            lifecycleFilter: LifecycleFilter | null | undefined
+            lifecycleFilter: LifecycleFilter | null | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => IndexedTrendResult[]
         currentPeriodResult: (indexedResults: IndexedTrendResult[]) => IndexedTrendResult | undefined
         labelGroupType: (
@@ -414,7 +425,18 @@ export interface trendsDataLogicMeta {
             resultCustomizations:
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
-                | undefined
+                | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => (dataset: IndexedTrendResult) => boolean
         areAllSeriesVisible: (
             indexedResults: IndexedTrendResult[],
@@ -424,7 +446,18 @@ export interface trendsDataLogicMeta {
         getIsOnlyVisibleSeriesInLegend: (
             indexedResults: IndexedTrendResult[],
             resultCustomizationBy: ResultCustomizationBy,
-            getTrendsHidden: (dataset: IndexedTrendResult) => boolean
+            getTrendsHidden: (dataset: IndexedTrendResult) => boolean,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => (dataset: IndexedTrendResult) => boolean
     }
 }
