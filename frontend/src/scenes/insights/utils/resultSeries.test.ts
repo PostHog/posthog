@@ -1,5 +1,5 @@
 import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType } from '~/types'
+import { BaseMathType, FilterLogicalOperator } from '~/types'
 
 import { ResultSeries, ResultSeriesRow, getResultSeries } from './resultSeries'
 
@@ -53,6 +53,30 @@ describe('getResultSeries()', () => {
             query: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] },
             row: { order: 0, action: { order: 0, name: 'Signed up' } },
             expected: { order: 0, node: { kind: NodeKind.ActionsNode, id: 7, name: 'Signed up' }, math: {} },
+        },
+        {
+            case: 'a group series saved without a name to its members, as the runner labels it',
+            query: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.GroupNode,
+                        operator: FilterLogicalOperator.Or,
+                        nodes: [pageviews, { kind: NodeKind.EventsNode, event: '$screen' }],
+                    },
+                ],
+            },
+            row: { order: 0 },
+            expected: {
+                order: 0,
+                node: {
+                    kind: NodeKind.GroupNode,
+                    operator: FilterLogicalOperator.Or,
+                    nodes: [pageviews, { kind: NodeKind.EventsNode, event: '$screen' }],
+                    name: '$pageview, $screen',
+                },
+                math: {},
+            },
         },
     ])('resolves $case', ({ query, row, expected }) => {
         expect(getResultSeries(query, row)).toEqual(expected)
