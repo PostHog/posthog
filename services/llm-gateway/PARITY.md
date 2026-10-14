@@ -48,6 +48,9 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 
 For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
 
+OAuth traffic for `posthog_code` needs account-age trust checks in Python while it depends on the authorization contracts above.
+Go enforcement for the same traffic is pending in [ai-gateway#523](https://github.com/PostHog/ai-gateway/pull/523); it requires the per-team trust projection and backfill first.
+
 PostHog Code's per-user spend caps remain in Python while its callers depend on the product authorization and billing policy above.
 The Code-only switch enables the existing burst and sustained caps only for configured authenticated user IDs, whether billed or unbilled; it defaults to disabled with an empty list.
 A Go-only change would not limit these callers before migration.

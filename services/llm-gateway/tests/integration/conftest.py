@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -131,6 +132,8 @@ def create_mock_db_pool():
             "scopes": ["llm_gateway:read"],
             "distinct_id": "test-distinct-id",
             "is_staff": False,
+            "created_at": datetime.now(UTC) - timedelta(days=31),
+            "customer_trust_scores": {},
         }
     )
     pool.acquire = AsyncMock(return_value=conn)

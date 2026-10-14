@@ -17,6 +17,7 @@ from celery import shared_task
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.storage.team_llm_gateway_account_trust_cache import refresh_account_trust_caches, update_team_account_trust
 from posthog.storage.team_llm_gateway_policy_cache import (
     get_cache_stats,
     refresh_expiring_caches,
@@ -40,6 +41,8 @@ def update_team_llm_gateway_policy_cache_task(team_id: int) -> None:
         return
 
     success = update_team_llm_gateway_policy_cache(team)
+    if settings.AI_GATEWAY_REDIS_URL:
+        success = update_team_account_trust(team) and success
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="team_metadata",
         cache_name="llm_gateway_policy",
@@ -62,6 +65,7 @@ def refresh_expiring_llm_gateway_policy_cache_entries() -> None:
     start_time = time.time()
     try:
         counts = refresh_expiring_caches(ttl_threshold_hours=24)
+        refresh_account_trust_caches()
         # get_cache_stats also pushes coverage/TTL gauges to Prometheus, matching
         # the team_metadata refresh task so the policy cache is observable too.
         stats_after = get_cache_stats()
