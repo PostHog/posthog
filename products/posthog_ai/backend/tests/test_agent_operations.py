@@ -110,6 +110,7 @@ class TestAgentOperationsAPI(APIBaseTest):
         task = Task.objects.get(id=response.json()["task_id"])
         assert task.json_schema == AGENT_RESULT_SCHEMA
         assert task.client_provenance == "agent_mcp"
+        assert TaskRun.objects.get(id=response.json()["run_id"]).state["initial_permission_mode"] == "bypassPermissions"
         assert response.json()["project"] == {"id": self.team.id, "name": self.team.name}
 
     def test_retry_with_same_request_id_returns_the_same_operation(self):

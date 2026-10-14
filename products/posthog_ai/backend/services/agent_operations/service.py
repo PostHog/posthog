@@ -56,6 +56,9 @@ RETRY_AFTER_IDLE_SECONDS = 30
 # One operation stays in one project, so the agent must not switch projects or reach other projects
 # through connections.
 EXCLUDED_MCP_TOOLS = ["posthog-connection-call", "posthog-connection-forward", "switch-project", "switch-organization"]
+# No person watches a delegated run, and `auto` relays every MCP approval to the client, so each PostHog
+# tool call would stall on a question. The key's scopes, not per-call approvals, limit what the run can do.
+DELEGATED_PERMISSION_MODE = "bypassPermissions"
 ALLOW_REPLIES = frozenset({"allow", "approve", "approved", "yes", "y", "ok", "go ahead"})
 
 
@@ -229,7 +232,12 @@ class AgentOperationService:
         attached_context = [{"type": "text", "value": request.context}] if request.context else []
         try:
             routed = SandboxSession(conversation, self.user, options=self._dispatch_options(operation)).open(
-                {"content": request.goal, "attached_context": attached_context}, repository=repository
+                {
+                    "content": request.goal,
+                    "attached_context": attached_context,
+                    "initial_permission_mode": DELEGATED_PERMISSION_MODE,
+                },
+                repository=repository,
             )
         except Exception:
             logger.exception("agent_operation_dispatch_failed", operation_id=str(operation.id))
@@ -570,7 +578,7 @@ class AgentOperationService:
     def _send_message(self, operation: AgentOperation, message: str) -> None:
         conversation = Conversation.objects.get(id=operation.conversation_id, team=self.team)
         routed = SandboxSession(conversation, self.user, options=self._dispatch_options(operation)).open(
-            {"content": message}
+            {"content": message, "initial_permission_mode": DELEGATED_PERMISSION_MODE}
         )
         if routed is None:
             raise AgentOperationError(
