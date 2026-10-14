@@ -1265,9 +1265,11 @@ class Team(UUIDTClassicModel):
         # rule we would silently drop and the two resolvers would disagree.
         role_ids_by_user: dict[int, list[str]] = defaultdict(list)
         if role_based_access_supported:
-            member_user_ids = [m.user_id for m in memberships]
+            role_lookup_user_ids: list[int] = [m.user_id for m in memberships]
             for user_id, role_id in (
-                RoleMembership.objects.filter(user_id__in=member_user_ids, role__organization_id=self.organization_id)
+                RoleMembership.objects.filter(
+                    user_id__in=role_lookup_user_ids, role__organization_id=self.organization_id
+                )
                 .valid_for_authorization()
                 .values_list("user_id", "role_id")
             ):
