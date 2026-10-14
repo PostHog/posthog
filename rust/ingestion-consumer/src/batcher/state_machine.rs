@@ -840,7 +840,7 @@ mod tests {
     #[test]
     fn a_pack_budget_over_half_the_stall_timeout_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(1),
             bytes: None,
@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn a_packer_without_a_target_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let created = BatcherStateMachine::new(
             Packer::new(PackTargets::default()),
             assigner,
@@ -889,7 +889,7 @@ mod tests {
     #[test]
     fn a_zero_stall_timeout_is_rejected() {
         let assigner =
-            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+            WorkerAssigner::new(Router::new(RoutingStrategy::P2c), 1).expect("valid cap");
         let created = BatcherStateMachine::new(
             Packer::new(PackTargets {
                 events: NonZeroUsize::new(1),

@@ -480,11 +480,9 @@ mod tests {
 
     impl Harness {
         fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
-            let assigner = WorkerAssigner::new(
-                Router::new(RoutingStrategy::BinPack),
-                max_requests_per_worker,
-            )
-            .expect("valid request cap");
+            let assigner =
+                WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
+                    .expect("valid request cap");
             let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
                 .expect("valid retry policy");
             let packer = Packer::new(PackTargets {
