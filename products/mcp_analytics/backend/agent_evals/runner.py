@@ -254,7 +254,13 @@ def redact_urls(text: str) -> str:
 
 class _RedactUrls(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg, record.args = redact_urls(record.getMessage()), None
+        if isinstance(record.msg, dict):
+            # structlog hands its formatter the event dict, which has to stay a dict.
+            record.msg = {
+                key: redact_urls(value) if isinstance(value, str) else value for key, value in record.msg.items()
+            }
+        else:
+            record.msg, record.args = redact_urls(record.getMessage()), None
         if record.exc_info:
             record.exc_text = redact_urls("".join(traceback.format_exception(*record.exc_info)))
             record.exc_info = None

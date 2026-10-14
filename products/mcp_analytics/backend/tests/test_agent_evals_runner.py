@@ -74,8 +74,11 @@ class TestRunnerBoundaries(SimpleTestCase):
             except ConnectionError:
                 logging.getLogger("mcp.client.streamable_http").exception("POST %s failed", url)
 
+            logging.getLogger("mcp.client.streamable_http").error({"event": "request failed", "url": url})
+
         assert "token=abc" not in stream.getvalue()
         assert "POST https://mcp.example.com/mcp failed" in stream.getvalue()
+        assert "{'event': 'request failed', 'url': 'https://mcp.example.com/mcp'}" in stream.getvalue()
 
     @parameterized.expand(
         [

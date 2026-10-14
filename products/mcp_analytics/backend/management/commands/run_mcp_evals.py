@@ -86,7 +86,7 @@ class Command(BaseCommand):
             # Only the catalog session raises here; every trial failure stays inside its trial.
             raise CommandError(
                 f"could not list the server's tools: {describe_failure(unreachable, config.headers)}"
-            ) from unreachable
+            ) from None
 
         out = cast(Path, options["out"])
         out.parent.mkdir(parents=True, exist_ok=True)
