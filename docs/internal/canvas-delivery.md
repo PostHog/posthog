@@ -43,9 +43,13 @@ The header permits the fixed compiler and module CDNs, but blocks external image
 Use a built canvas with declared network origins for external images.
 Changes to this server policy and its tests require security review.
 
-Task HTML previews use the same artifact origin. The task API checks read access before issuing a short-lived URL for one artifact version. The artifact host reads that version and responds with an HTML-specific CSP that allows inline JavaScript in an opaque-origin sandbox. It blocks network APIs and external resources. Task preview responses use `Cache-Control: no-store`, including when the CDN handles `/canvas-artifacts/`.
+Task HTML previews use the same artifact origin. The task API checks read access before issuing a short-lived URL for one artifact version. For a living artifact version, the API also checks analytics access for every run of the task, because any run of the task can write a version. The artifact host reads that version and responds with an HTML-specific CSP in an opaque-origin sandbox. It blocks network APIs and external resources. Task preview responses use `Cache-Control: no-store`, including when the CDN handles `/canvas-artifacts/`.
 
-The browser cannot keep artifact content offline. A script can navigate its frame to an external site. This can send artifact content or input outside PostHog. The preview tooltip states this limit. The task preview has no PostHog credentials or API bridge. Do not put secrets in an HTML artifact that runs code. Self-hosted deployments need `CANVAS_ARTIFACT_ORIGIN` for the web preview in production; the app origin is used only in development and tests.
+A preview opens with scripts off. The CSP sandbox has no `allow-scripts` flag, so the page cannot run code or use a meta refresh. The user must select "Run scripts" to get a URL with a CSP that allows inline JavaScript.
+
+The browser cannot keep a running artifact offline. A script can navigate its frame to an external site, and CSP cannot block this. This sends artifact content or input outside PostHog. For this reason, the API gives a script URL only when every run that can write the artifact had full network access. A run with no sandbox environment counts as full access. A run whose environment is deleted, is not accessible, or changed after the run started does not count. This keeps the network limit that a team sets on its sandbox environment.
+
+When the frame loads a second document, the app removes the frame and shows a notice. This keeps an external page out of the PostHog UI. The first request to the external site still leaves the browser. The task preview has no PostHog credentials or API bridge. Do not put secrets in an HTML artifact that runs code. Self-hosted deployments need `CANVAS_ARTIFACT_ORIGIN` for the web preview in production; the app origin is used only in development and tests.
 
 ## Cache policy
 
