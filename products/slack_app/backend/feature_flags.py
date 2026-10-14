@@ -164,7 +164,6 @@ def is_slack_app_insight_unfurl_charts_enabled(integration: Integration, distinc
 
 
 def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
-    """Gate for the one-click reply buttons under an answer that waits for the reader."""
     return _workspace_flag_enabled(
         SLACK_APP_REPLY_SUGGESTIONS_FLAG,
         integration,

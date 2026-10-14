@@ -184,7 +184,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 )
             )
 
-        handler.stop_status_stream(
+        answer_delivered = handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
@@ -201,6 +201,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         if handler.stream_ended and task_run is not None:
             # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
             deliver_pending_slack_file_artifacts(task_run)
-        handler.offer_reply_suggestions(input.answer_markdown)
+        if answer_delivered:
+            handler.offer_reply_suggestions(input.answer_markdown)
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

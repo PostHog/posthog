@@ -14,7 +14,11 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.services.reply_suggestions import reply_suggestions_block, suggest_replies
+from products.slack_app.backend.logic.reply_suggestions import (
+    ReplySuggestionAttribution,
+    reply_suggestions_block,
+    suggest_replies,
+)
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -44,14 +48,35 @@ class TestSuggestReplies(SimpleTestCase):
         ]
     )
     def test_suggestions_from_model_reply(self, _name: str, content: str, expected: list[str]) -> None:
-        with patch("products.slack_app.backend.services.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(content)
-            assert suggest_replies("Should I open a PR?") == expected
+            assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == expected
+
+    def test_generation_carries_what_online_evaluations_scope_and_join_on(self) -> None:
+        attribution = ReplySuggestionAttribution(
+            trace_id="trace-1", session_id="T1:C1:1.0", distinct_id="user-1", task_id="task-1", run_id="run-1"
+        )
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+            build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(
+                json.dumps({"suggestions": []})
+            )
+            suggest_replies("Should I open a PR?", attribution)
+
+        assert build.call_args.kwargs == {
+            "product": "slack_app_routing",
+            "ai_product": "slack_app_routing",
+            "trace_id": "trace-1",
+            "session_id": "T1:C1:1.0",
+            "distinct_id": "user-1",
+            "properties": {"slack_app_classifier": "reply_suggestions", "task_id": "task-1", "run_id": "run-1"},
+        }
+        create = build.return_value.with_options.return_value.chat.completions.create
+        assert create.call_args.kwargs["user"] == "user-1"
 
     def test_model_failure_offers_nothing(self) -> None:
-        with patch("products.slack_app.backend.services.reply_suggestions.build_openai_client") as build:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
-            assert suggest_replies("Should I open a PR?") == []
+            assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == []
 
 
 @override_settings(DEBUG=True)
@@ -78,7 +103,7 @@ class TestReplySuggestionClick(TestCase):
         )
 
     def _click(self, slack_user_id: str, index: int = 0) -> Any:
-        block = reply_suggestions_block(self.integration.id, ["Yes, open the PR", "No, keep it local"])
+        block = reply_suggestions_block(self.integration.id, ["Yes, open the PR", "No, keep it local"], "trace-1")
         action = block["elements"][index]
         payload = {
             "type": "block_actions",
@@ -114,6 +139,7 @@ class TestReplySuggestionClick(TestCase):
         with (
             self._as_slack_user(self.member_user.email),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api.capture_slack_event") as mock_capture,
         ):
             first = self._click("U_BOB", index=1)
             second = self._click("U_CAROL", index=0)
@@ -131,6 +157,9 @@ class TestReplySuggestionClick(TestCase):
         # Without both, the click would face the classifier or start a new task in a thread with none.
         assert mock_start.call_args.kwargs["untagged_followup"] is True
         assert mock_start.call_args.kwargs["untagged_followup_confirmed"] is True
+        # The trace id joins the click to the generation that suggested it.
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["ai_trace_id"] == "trace-1"
         update = mock_slack_cls.return_value.client.chat_update.call_args.kwargs
         assert update["ts"] == self.message_ts
         assert "actions" not in {block["type"] for block in update["blocks"]}

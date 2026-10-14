@@ -1,10 +1,4 @@
-"""One-click replies under an agent answer that waits for the reader.
-
-After a turn ends, one fast model call reads the answer and decides whether it asks the reader
-something: a permission, a choice, or an offer of a next step. If it does, the thread gets a row
-of buttons with the likely replies. A click sends that reply to the agent as if the reader typed
-it, so nobody has to type "yes, do it". An answer that asks nothing gets no buttons.
-"""
+"""One-click replies under an agent answer that asks the reader for a permission, a choice, or a next step."""
 
 import json
 from typing import Any
@@ -12,6 +6,7 @@ from typing import Any
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 
@@ -19,6 +14,8 @@ logger = structlog.get_logger(__name__)
 
 REPLY_SUGGESTION_ACTION_ID_PREFIX = "slack_app_reply_suggestion:"
 REPLY_SUGGESTIONS_BLOCK_ID = "slack_app_reply_suggestions"
+# Online evaluations scope to this call with `slack_app_classifier = reply_suggestions`.
+REPLY_SUGGESTIONS_CLASSIFIER = "reply_suggestions"
 
 MAX_SUGGESTIONS = 3
 # Slack rejects a button label over 75 characters, and the whole message goes down with it.
@@ -27,12 +24,10 @@ MAX_SUGGESTION_CHARS = 75
 SUGGESTIONS_MODEL = "gpt-5.6-luna"
 # A reasoning model spends its thinking and the JSON reply from one token budget.
 SUGGESTIONS_MAX_COMPLETION_TOKENS = 2048
-# The answer is already in the thread, so a slow call only delays the buttons. It must still end
-# well inside the activity that delivers the answer, because that activity is sync and runs once.
+# The activity that delivers the answer is sync and runs once, so the call must end well inside it.
 SUGGESTIONS_TIMEOUT_SECONDS = 15.0
 SUGGESTIONS_MAX_RETRIES = 0
-# The question that asks for a reply is nearly always at the end of an answer, so a long answer
-# keeps more of its tail than of its head.
+# The question that asks for a reply is nearly always at the end of an answer.
 ANSWER_HEAD_CHARS = 1500
 ANSWER_TAIL_CHARS = 4500
 
@@ -62,20 +57,36 @@ If the answer waits for the person, write up to 3 replies that the person will m
 Answer only with JSON, for example {"suggestions": ["Yes, open the pull request", "No, keep it local"]}."""
 
 
-def _response_format() -> ResponseFormatJSONSchema:
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "slack_app_reply_suggestions",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}},
-                "required": ["suggestions"],
-                "additionalProperties": False,
-            },
+@frozen
+class ReplySuggestionAttribution:
+    trace_id: str | None = None
+    session_id: str | None = None
+    distinct_id: str | None = None
+    task_id: str | None = None
+    run_id: str | None = None
+
+
+@frozen
+class ClickedSuggestion:
+    integration_id: int
+    text: str
+    index: int
+    trace_id: str | None
+
+
+_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "slack_app_reply_suggestions",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"suggestions": {"type": "array", "items": {"type": "string"}}},
+            "required": ["suggestions"],
+            "additionalProperties": False,
         },
-    }
+    },
+}
 
 
 def _clip_answer(answer: str) -> str:
@@ -85,8 +96,7 @@ def _clip_answer(answer: str) -> str:
 
 
 def _clean_suggestions(raw: object) -> list[str]:
-    """The usable replies, in the model's order. A label Slack would reject is dropped, not cut,
-    because the label is also the text the agent receives."""
+    """A label Slack would reject is dropped, not cut, because the label is also the text the agent receives."""
     if not isinstance(raw, list):
         return []
     suggestions: list[str] = []
@@ -100,23 +110,26 @@ def _clean_suggestions(raw: object) -> list[str]:
     return suggestions[:MAX_SUGGESTIONS]
 
 
-def suggest_replies(answer_markdown: str, *, trace_id: str | None = None) -> list[str]:
-    """The replies to offer under ``answer_markdown``, or an empty list when it asks nothing.
-
-    Any failure returns an empty list: a missing button costs the reader one typed reply, and a
-    wrong one sends the agent an instruction nobody gave.
-    """
+def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[str]:
+    """Any failure returns no replies: a missing button costs the reader one typed reply, and a
+    wrong one sends the agent an instruction nobody gave."""
     if not answer_markdown.strip():
         return []
+    properties = {"slack_app_classifier": REPLY_SUGGESTIONS_CLASSIFIER}
+    if attribution.task_id:
+        properties["task_id"] = attribution.task_id
+    if attribution.run_id:
+        properties["run_id"] = attribution.run_id
     try:
-        # The same product and model as the routing classifiers, whose gateway route allows this
-        # model. The classifier property lets an online evaluation scope to this call alone.
         client = build_openai_client(
             product="slack_app_routing",
             ai_product="slack_app_routing",
-            trace_id=trace_id,
-            properties={"slack_app_classifier": "reply_suggestions"},
+            trace_id=attribution.trace_id,
+            session_id=attribution.session_id,
+            distinct_id=attribution.distinct_id,
+            properties=properties,
         ).with_options(timeout=SUGGESTIONS_TIMEOUT_SECONDS, max_retries=SUGGESTIONS_MAX_RETRIES)
+        extra: dict[str, Any] = {"user": attribution.distinct_id} if attribution.distinct_id else {}
         response = client.chat.completions.create(
             model=SUGGESTIONS_MODEL,
             messages=[
@@ -124,7 +137,8 @@ def suggest_replies(answer_markdown: str, *, trace_id: str | None = None) -> lis
                 {"role": "user", "content": _clip_answer(answer_markdown)},
             ],
             max_completion_tokens=SUGGESTIONS_MAX_COMPLETION_TOKENS,
-            response_format=_response_format(),
+            response_format=_RESPONSE_FORMAT,
+            **extra,
         )
         # Tolerant parse on top of the schema, because the gateway does not apply a response
         # format the same way on every provider route.
@@ -135,12 +149,11 @@ def suggest_replies(answer_markdown: str, *, trace_id: str | None = None) -> lis
         return []
 
 
-def reply_suggestions_block(integration_id: int, suggestions: list[str]) -> dict[str, Any]:
-    """One button per reply.
+def reply_suggestions_block(integration_id: int, suggestions: list[str], trace_id: str | None) -> dict[str, Any]:
+    """Slack needs a unique action id for each element in a block, so the index is part of the id.
 
-    Slack needs a unique action id for each element in a block, so the index is part of the id.
-    The value carries the integration so the cross-region interactivity router can tell whose
-    click this is, the same way the fork menu and the thumbs do.
+    The integration lets the cross-region interactivity router claim the click, and the trace id
+    joins the click event to the generation that suggested the reply.
     """
     return {
         "type": "actions",
@@ -150,7 +163,7 @@ def reply_suggestions_block(integration_id: int, suggestions: list[str]) -> dict
                 "type": "button",
                 "action_id": f"{REPLY_SUGGESTION_ACTION_ID_PREFIX}{index}",
                 "text": {"type": "plain_text", "text": text, "emoji": True},
-                "value": json.dumps({"integration_id": integration_id, "text": text}),
+                "value": json.dumps({"integration_id": integration_id, "trace_id": trace_id, "text": text}),
             }
             for index, text in enumerate(suggestions)
         ],
@@ -161,17 +174,15 @@ def reply_suggestions_fallback_text(suggestions: list[str]) -> str:
     return "Suggested replies: " + ", ".join(suggestions)
 
 
-def chosen_reply_blocks(slack_user_id: str, text: str) -> list[dict[str, Any]]:
-    """What the suggestions message shows after a click: who replied and with what."""
-    return [{"type": "context", "elements": [{"type": "mrkdwn", "text": f"<@{slack_user_id}> replied: *{text}*"}]}]
+def chosen_reply_text(slack_user_id: str, text: str) -> str:
+    return f"<@{slack_user_id}> replied: *{text}*"
 
 
 def is_reply_suggestion_action(action_id: object) -> bool:
     return isinstance(action_id, str) and action_id.startswith(REPLY_SUGGESTION_ACTION_ID_PREFIX)
 
 
-def clicked_suggestion(payload: dict) -> tuple[int, str, int] | None:
-    """``(integration_id, text, index)`` of the clicked reply button, or ``None``."""
+def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
     action = next((a for a in payload.get("actions", []) if is_reply_suggestion_action(a.get("action_id"))), None)
     if action is None:
         return None
@@ -184,6 +195,12 @@ def clicked_suggestion(payload: dict) -> tuple[int, str, int] | None:
         return None
     integration_id = value.get("integration_id")
     text = value.get("text")
+    trace_id = value.get("trace_id")
     if not isinstance(integration_id, int) or not isinstance(text, str) or not text.strip():
         return None
-    return integration_id, text.strip(), index
+    return ClickedSuggestion(
+        integration_id=integration_id,
+        text=text.strip(),
+        index=index,
+        trace_id=trace_id if isinstance(trace_id, str) else None,
+    )

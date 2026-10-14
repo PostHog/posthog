@@ -2,6 +2,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -17,7 +18,8 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_forking_enabled,
     is_slack_app_reply_suggestions_enabled,
 )
-from products.slack_app.backend.services.reply_suggestions import (
+from products.slack_app.backend.logic.reply_suggestions import (
+    ReplySuggestionAttribution,
     reply_suggestions_block,
     reply_suggestions_fallback_text,
     suggest_replies,
@@ -41,6 +43,8 @@ from products.slack_app.backend.services.slack_messages import (
 )
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -487,7 +491,7 @@ class SlackThreadHandler:
         plan_title: str | None = None,
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
-    ) -> None:
+    ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
         The answer starts with the @-mention, so the one notification lands with it. With no
@@ -497,7 +501,7 @@ class SlackThreadHandler:
         chunk because a `context` block is the only way to get muted text.
 
         When Slack already closed the stream, the answer goes out as a plain thread reply,
-        and nothing else is sent to the closed stream."""
+        and nothing else is sent to the closed stream. Returns whether the answer reached the thread."""
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))
@@ -517,6 +521,7 @@ class SlackThreadHandler:
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
             self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+        return answer_delivered
 
     def _close_stream(
         self,
@@ -930,41 +935,61 @@ class SlackThreadHandler:
             logger.exception("slack_completion_post_failed", error=str(e))
             return False
 
-    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
-        """Post one-click replies under an answer that waits for the reader, or nothing.
+    def _session_id(self) -> str:
+        return slack_session_id(self._get_integration().integration_id, self.context.channel, self.context.thread_ts)
 
-        A message of its own and not blocks on the answer: a click replaces the buttons with
-        the chosen reply, and Slack can only rewrite a whole message. A streamed answer is also
-        closed by the time the replies are known, so it can take no more blocks.
-        """
-        if not answer_markdown or not answer_markdown.strip():
+    @cached_property
+    def _actor_posthog_user(self) -> "User | None":
+        # Deferred: api.py imports the temporal.ai workflows, which this module's importers do not otherwise load.
+        from products.slack_app.backend.api import resolve_posthog_user_from_event  # noqa: PLC0415
+
+        if not self.actor_slack_user_id:
+            return None
+        integration = self._get_integration()
+        return resolve_posthog_user_from_event(
+            slack_user_id=self.actor_slack_user_id, probe_integration=integration, candidate_integrations=[integration]
+        )
+
+    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
+        """The buttons are a message of their own because a click replaces them with the chosen reply,
+        Slack can only rewrite a whole message, and a streamed answer is closed by the time they exist."""
+        if not answer_markdown:
             return
         integration = self._get_integration()
         if not is_slack_app_reply_suggestions_enabled(integration):
             return
-        suggestions = suggest_replies(answer_markdown, trace_id=self.turn_trace_id)
+        try:
+            posthog_user = self._actor_posthog_user
+        except Exception:
+            logger.warning("slack_app_reply_suggestions_actor_lookup_failed", exc_info=True)
+            posthog_user = None
+        attribution = ReplySuggestionAttribution(
+            trace_id=self.turn_trace_id,
+            session_id=self._session_id(),
+            distinct_id=posthog_user.distinct_id if posthog_user else None,
+            task_id=self.run_footer.task_id,
+            run_id=self.run_footer.run_id,
+        )
+        suggestions = suggest_replies(answer_markdown, attribution)
         if not suggestions:
             return
         try:
-            posted = (
-                self._post_in_thread(
-                    text=reply_suggestions_fallback_text(suggestions),
-                    blocks=[reply_suggestions_block(integration.id, suggestions)],
-                )
-                is not None
+            posted = self._post_in_thread(
+                text=reply_suggestions_fallback_text(suggestions),
+                blocks=[reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)],
             )
         except Exception as e:
             logger.warning("slack_app_reply_suggestions_post_failed", error=str(e))
             return
-        if posted:
+        if posted is not None:
             capture_slack_event(
                 integration,
                 "slack app reply suggestions posted",
                 slack_user_id=self.actor_slack_user_id,
+                posthog_user=posthog_user,
                 suggestion_count=len(suggestions),
-                slack_session_id=slack_session_id(
-                    integration.integration_id, self.context.channel, self.context.thread_ts
-                ),
+                slack_session_id=attribution.session_id,
+                ai_trace_id=self.turn_trace_id,
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
             )
@@ -976,26 +1001,15 @@ class SlackThreadHandler:
         is the join between the two events. The reader is resolved the way the mention event resolves
         it, so both events land on the same person.
         """
-        # Deferred: api.py imports the temporal.ai workflows, which this module's importers do not otherwise load.
-        from products.slack_app.backend.api import resolve_posthog_user_from_event  # noqa: PLC0415
-
         try:
-            integration = self._get_integration()
-            actor = self.actor_slack_user_id
             capture_slack_event(
-                integration,
+                self._get_integration(),
                 "slack app reply posted",
-                slack_user_id=actor,
-                posthog_user=resolve_posthog_user_from_event(
-                    slack_user_id=actor, probe_integration=integration, candidate_integrations=[integration]
-                )
-                if actor
-                else None,
+                slack_user_id=self.actor_slack_user_id,
+                posthog_user=self._actor_posthog_user,
                 reply_kind=str(reply_kind),
                 delivered=delivered,
-                slack_session_id=slack_session_id(
-                    integration.integration_id, self.context.channel, self.context.thread_ts
-                ),
+                slack_session_id=self._session_id(),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
             )
