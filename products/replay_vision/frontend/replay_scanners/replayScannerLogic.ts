@@ -606,6 +606,7 @@ export interface replayScannerLogicActions {
     ) => {
         freeOnly: boolean
         goal: string
+        goalFlow: boolean
         monthlyCreditBudget: number | undefined
         templateKey: string | undefined
     }
@@ -621,6 +622,7 @@ export interface replayScannerLogicActions {
         payload?: {
             freeOnly: boolean
             goal: string
+            goalFlow: boolean
             monthlyCreditBudget: number | undefined
             templateKey: string | undefined
         }
@@ -629,6 +631,7 @@ export interface replayScannerLogicActions {
         payload?: {
             freeOnly: boolean
             goal: string
+            goalFlow: boolean
             monthlyCreditBudget: number | undefined
             templateKey: string | undefined
         }
@@ -1042,6 +1045,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             monthlyCreditBudget,
             templateKey,
             freeOnly: freeOnly ?? false,
+            // Read when the request starts, so a flag refresh while it runs cannot change what the result saves.
+            goalFlow: monthlyCreditBudget != null && goalFlowEnabled(),
         }),
         setGoalDraftInput: (goal: string) => ({ goal }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
@@ -2247,12 +2252,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
-            draftScannerFromGoal: ({ goal, monthlyCreditBudget, templateKey, freeOnly }) => {
+            draftScannerFromGoal: ({ goal, monthlyCreditBudget, templateKey, freeOnly, goalFlow }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
                     template_key: templateKey ?? null,
-                    spend_mode: monthlyCreditBudget == null || !goalFlowEnabled() ? null : freeOnly ? 'free' : 'budget',
+                    spend_mode: !goalFlow ? null : freeOnly ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
@@ -2296,7 +2301,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // Solved dials mark a goal-flow draft. Free-only follows the request, because a draft whose costing failed has no dials.
                 const isGoalFlowDraft = goalDraft.sampling_mode != null || goalDraft.sampling_rate != null
-                const freeOnlyDraft = !!payload?.freeOnly && payload.monthlyCreditBudget != null && goalFlowEnabled()
+                const freeOnlyDraft = !!payload?.freeOnly && !!payload.goalFlow
                 const base = newScanner(null, teamLogic.values.currentTeam?.name)
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context, asExperimentScanner) : base)
                 const draftQuery = goalDraft.query as RecordingsQuery | undefined

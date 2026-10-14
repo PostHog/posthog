@@ -292,6 +292,34 @@ describe('replayScannerLogic', () => {
             }
         )
 
+        it('keeps a free draft free when the goal-flow flag changes while the request runs', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' })
+            draftSpy.mockImplementation(() => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'control' })
+                return [
+                    200,
+                    {
+                        name: 'Overview',
+                        description: 'Summarizes sessions.',
+                        scanner_type: 'summarizer',
+                        scanner_config: { prompt: 'Summarize the session.' },
+                        rationale: '',
+                        query: null,
+                        credit_limit: 4000,
+                        sampling_mode: 'balanced',
+                        sampling_rate: 0.5,
+                    },
+                ]
+            })
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?', 2500, undefined, true)
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ free_only: true, credit_limit: null })
+        })
+
         it.each([
             { case: 'free credits left', mode: 'free' as const, left: 800, expected: { mode: 'free', budget: 2500 } },
             {
