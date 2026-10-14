@@ -54617,6 +54617,7 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `api_sends` - API sends
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -54624,6 +54625,7 @@ export namespace Schemas {
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
+      ApiSends: 'api_sends',
     } as const;
 
     export interface HogFlowMasking {
@@ -54941,7 +54943,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `api_sends` - API sends */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -55482,7 +55485,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `api_sends` - API sends */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -80964,7 +80968,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `api_sends` - API sends */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -124461,6 +124466,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      ApiSends: 'api_sends',
       Broadcasts: 'broadcasts',
       Loops: 'loops',
     } as const;

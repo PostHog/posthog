@@ -288,12 +288,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `api_sends` - API sends
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    ApiSends: 'api_sends',
 } as const
 
 /**
@@ -664,7 +666,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `api_sends` - API sends */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -765,7 +768,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `api_sends` - API sends */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -866,7 +870,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `api_sends` - API sends */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2280,6 +2285,7 @@ export type HogFlowsListParams = {
 export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
 
 export const HogFlowsListOriginProduct = {
+    ApiSends: 'api_sends',
     Broadcasts: 'broadcasts',
     Loops: 'loops',
 } as const

@@ -1,9 +1,13 @@
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
@@ -47,6 +51,32 @@ class TestHogFlow(TestCase):
         hog_flow.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
 
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_a_team_holds_one_api_sends_flow(self, _mock_reload):
+        HogFlow.objects.create(team=self.team, origin_product=HogFlow.OriginProduct.API_SENDS)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            HogFlow.objects.create(team=self.team, origin_product=HogFlow.OriginProduct.API_SENDS)
+
+    @parameterized.expand(
+        [
+            ("an api sends flow on another team", True, HogFlow.OriginProduct.API_SENDS, 1),
+            ("two broadcasts on the same team", False, HogFlow.OriginProduct.BROADCASTS, 2),
+            ("two workflows built in the UI on the same team", False, None, 2),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_the_api_sends_flow_leaves_other_flows_free(
+        self, _name, on_another_team, origin_product, flow_count, _mock_reload
+    ):
+        HogFlow.objects.create(team=self.team, origin_product=HogFlow.OriginProduct.API_SENDS)
+        team = Team.objects.create(organization=self.org) if on_another_team else self.team
+
+        for _ in range(flow_count):
+            HogFlow.objects.create(team=team, origin_product=origin_product)
+
+        assert HogFlow.objects.filter(team=team, origin_product=origin_product).count() == flow_count
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
     def test_action_saved_receiver(self, mock_refresh):

@@ -488,12 +488,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'api_sends'])
+                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
             ),
         trigger_masking: zod
             .union([
@@ -1896,12 +1898,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ),
             origin_product: zod
                 .union([
-                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                    zod
+                        .enum(['loops', 'broadcasts', 'api_sends'])
+                        .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2778,12 +2782,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod
+                    .enum(['loops', 'broadcasts', 'api_sends'])
+                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `api_sends` - API sends'
             ),
         trigger_masking: zod
             .union([

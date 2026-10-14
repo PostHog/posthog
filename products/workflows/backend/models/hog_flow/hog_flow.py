@@ -127,6 +127,11 @@ class HogFlow(UUIDTModel):
 
         constraints = [
             models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
+            models.UniqueConstraint(
+                fields=["team"],
+                condition=models.Q(origin_product=HogFlowOriginProduct.API_SENDS),
+                name="unique_api_sends_flow_per_team",
+            ),
         ]
 
     State = HogFlowState
