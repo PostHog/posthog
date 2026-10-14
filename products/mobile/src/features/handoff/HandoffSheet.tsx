@@ -39,7 +39,7 @@ import { useModelCatalogue, useRunDefaults, useRunOptionActions } from './useRun
 const COPIED_MS = 1600
 const EXTERNAL_AGENTS: { target: ExternalHandoffTarget; name: string; detail: string }[] = [
     { target: 'claude', name: 'Claude Code', detail: 'Open a prepared prompt in Claude Code' },
-    { target: 'codex', name: 'Codex / ChatGPT', detail: 'Open a prepared prompt in ChatGPT' },
+    { target: 'codex', name: 'Codex', detail: 'Open a prepared prompt in ChatGPT' },
 ]
 
 type Page = 'main' | 'model' | 'mode' | 'branch'

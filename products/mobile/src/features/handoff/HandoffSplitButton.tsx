@@ -25,8 +25,7 @@ export function HandoffSplitButton({
     pending,
 }: HandoffSplitButtonProps): ReactElement {
     const target = useHandoffPreferenceStore((state) => state.target)
-    const agentName =
-        target === 'posthog' ? POSTHOG_AGENT.name : target === 'claude' ? 'Claude Code' : 'Codex / ChatGPT'
+    const agentName = target === 'posthog' ? POSTHOG_AGENT.name : target === 'claude' ? 'Claude Code' : 'Codex'
     const [error, setError] = useState<string | null>(null)
     const handOff = useAsyncAction(async () => {
         if (pending) {

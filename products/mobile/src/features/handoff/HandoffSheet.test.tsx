@@ -121,7 +121,7 @@ test.each(['claude', 'codex'] as const)(
         const button = render(
             <HandoffSplitButton report={otherReport} pending={false} onOpenPicker={jest.fn()} onHandOff={onHandOff} />
         )
-        const name = target === 'claude' ? 'Claude Code' : 'Codex / ChatGPT'
+        const name = target === 'claude' ? 'Claude Code' : 'Codex'
         expect(screen.getByTestId('handoff-button')).toHaveTextContent(`Hand off to ${name}`)
         await act(async () => fireEvent.press(screen.getByTestId('handoff-button')))
         expect(open).toHaveBeenLastCalledWith(externalHandoffUrl(target, otherReport))
