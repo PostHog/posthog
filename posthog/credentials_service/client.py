@@ -294,10 +294,7 @@ class CredentialsServiceClient:
             resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
-                # `previous` is the wire name for the staged value. It is wrong, and renaming a
-                # field both sides read needs a release where each accepts either — so the
-                # correction stops at this boundary rather than propagating the wrong idea.
-                incoming=payload.get("previous"),
+                incoming=payload.get("incoming"),
             )
             CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="ok").inc()
 

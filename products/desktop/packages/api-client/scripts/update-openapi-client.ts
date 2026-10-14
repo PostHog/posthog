@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Anchor to apps/code so the relative paths below (and the pnpm binary lookup)
+// Anchor to the package root so the relative paths below (and the pnpm binary lookup)
 // resolve the same way no matter which directory the script is invoked from.
 process.chdir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 
@@ -15,12 +15,12 @@ const REPO_ROOT = path.resolve(process.cwd(), "../../../..");
 // the checkout, so a stale regeneration is a diff rather than a silent mismatch.
 const OPENAPI_PATH = path.resolve(REPO_ROOT, "frontend/tmp/openapi.json");
 const TEMP_SCHEMA_PATH = "temp-openapi.json";
-const OUTPUT_PATH = "../../packages/api-client/src/generated.ts";
+const OUTPUT_PATH = "src/generated.ts";
 
 // Only the endpoints the desktop calls through the typed client are generated. The full
 // schema documents thousands of routes, and every backend change to any of them would
 // otherwise churn generated.ts; an allowlist keeps a regen to the routes we actually use.
-const ALLOWLIST_PATH = "../../packages/api-client/endpoint-allowlist.json";
+const ALLOWLIST_PATH = "endpoint-allowlist.json";
 
 function readSchema() {
   console.log(`Reading OpenAPI schema from ${OPENAPI_PATH}...`);
