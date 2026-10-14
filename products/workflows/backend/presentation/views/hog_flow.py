@@ -1515,6 +1515,11 @@ class HogFlowActionSerializer(serializers.Serializer):
         get_team = self.context.get("get_team")
         if get_team is None:
             return
+        # The scan refuses a child environment on every run, so a step saved for one fails at save instead.
+        if strict and get_team().parent_team_id:
+            raise serializers.ValidationError(
+                {"template_id": "Replay Vision is only available in the project's main environment."}
+            )
         error = _replay_vision_step_error(self.context.get("request"), get_team(), inputs)
         if error is not None:
             raise serializers.ValidationError({"template_id": error})

@@ -7381,7 +7381,7 @@ class TestReplayVisionActionValidation(APIBaseTest):
         ]
         self.organization.save()
 
-    def _save_step(self, analysis: dict, **extra: Any):
+    def _save_step(self, analysis: dict, team: Team | None = None, **extra: Any):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -7404,7 +7404,7 @@ class TestReplayVisionActionValidation(APIBaseTest):
             },
         }
         return self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
+            f"/api/projects/{(team or self.team).id}/hog_flows",
             {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
             format="json",
             HTTP_X_POSTHOG_CLIENT="mcp",
@@ -7513,6 +7513,14 @@ class TestReplayVisionActionValidation(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_the_step_is_refused_in_a_child_environment(self) -> None:
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+
+        response = self._save_step({"type": "monitor", "prompt": "did they rage click?"}, team=child)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "main environment" in str(response.json()), response.json()
 
     def test_a_web_draft_can_hold_the_step_before_it_has_inputs(self) -> None:
         response = self.client.post(
