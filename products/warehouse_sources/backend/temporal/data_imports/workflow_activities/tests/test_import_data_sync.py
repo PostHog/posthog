@@ -1706,7 +1706,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
     [
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _QUEUED_UP_TO,
             _QUEUED_UP_TO,
@@ -1715,7 +1719,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         # The lookback of one hour applies to a run that starts from the stored watermark.
         pytest.param(
             False,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1723,7 +1731,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-0-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-0-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1739,7 +1751,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             True,
             None,
             None,

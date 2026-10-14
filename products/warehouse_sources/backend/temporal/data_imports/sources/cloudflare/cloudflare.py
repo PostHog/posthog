@@ -472,5 +472,4 @@ def cloudflare_source(
         primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
-        sort_mode="asc",
     )

@@ -70,7 +70,7 @@ class TestSmartsheetSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_format == "week"

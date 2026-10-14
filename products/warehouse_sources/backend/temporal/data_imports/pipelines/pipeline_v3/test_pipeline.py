@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
+    SortMode,
     SourceInputs,
     SourceResponse,
 )
@@ -1221,7 +1222,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             },
         )
 
-    def _attempt(self, schema: ExternalDataSchema, attempt: int) -> PipelineV3:
+    def _attempt(self, schema: ExternalDataSchema, attempt: int, sort_mode: str | None = "desc") -> PipelineV3:
         resource = MagicMock(
             name="events",
             primary_keys=["id"],
@@ -1233,7 +1234,7 @@ class TestDescWatermarkAcrossResumedAttempts:
             cdc_write_mode=None,
             lanes=None,
             webhook_only=False,
-            sort_mode="desc",
+            sort_mode=sort_mode,
         )
         manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1))
         with (
@@ -1260,8 +1261,10 @@ class TestDescWatermarkAcrossResumedAttempts:
                 ),
             )
 
-    async def _extract(self, schema: ExternalDataSchema, attempt: int, *, final: bool) -> str:
-        pipeline = self._attempt(schema, attempt)
+    async def _extract(
+        self, schema: ExternalDataSchema, attempt: int, *, final: bool, sort_mode: str | None = "desc"
+    ) -> str:
+        pipeline = self._attempt(schema, attempt, sort_mode)
         run_uuid = cast(str, pipeline._run_uuid)
         # Each attempt resumes on an older page than the attempt before it read.
         newest_row = self._NEWEST - timedelta(hours=10 * (attempt - 1))
@@ -1311,6 +1314,22 @@ class TestDescWatermarkAcrossResumedAttempts:
         oldest_row = self._NEWEST - timedelta(hours=10 * (attempts - 1) + 5)
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
         assert schema.sync_type_config["incremental_field_earliest_value"] == oldest_row.isoformat()
+
+    @pytest.mark.asyncio
+    async def test_an_unordered_resumed_attempt_keeps_the_largest_value_of_the_run(self) -> None:
+        # Attempt 2 resumes past the part of the source that held the largest value. It must start from the
+        # value attempt 1 staged, or the run promotes the smaller maximum and the next run reads old rows again.
+        schema = self._schema()
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            await self._extract(schema, 1, final=False, sort_mode=None)
+            run_uuid = await self._extract(schema, 2, final=True, sort_mode=None)
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
 
 
 class TestZeroBatchRunStampsTheFullRunMarker:
@@ -2282,6 +2301,36 @@ class TestIncrementalHandoffCheckpoint:
     def test_an_attempt_that_continues_keeps_the_queue_rows_of_earlier_attempts(
         self, resumed_incremental_value: int | None, expected_is_resume: bool
     ) -> None:
+        pipeline, producer_cls = self._built_pipeline(
+            SourceResponse(
+                name="orders",
+                items=lambda: iter(()),
+                primary_keys=["id"],
+                sort_mode="asc",
+            ),
+            resumed_incremental_value,
+        )
+
+        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
+        # reads after their rows must not, or the rows it skipped are never loaded.
+        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
+        assert pipeline._handoff_checkpoint is not None
+        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+
+    @pytest.mark.parametrize("sort_mode", [pytest.param(None, id="unordered"), pytest.param("desc", id="descending")])
+    def test_a_source_that_does_not_promise_ascending_order_gets_no_checkpoint(
+        self, sort_mode: SortMode | None
+    ) -> None:
+        pipeline, _ = self._built_pipeline(
+            SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"], sort_mode=sort_mode), None
+        )
+
+        assert pipeline._handoff_checkpoint is None
+
+    @staticmethod
+    def _built_pipeline(
+        resource: SourceResponse, resumed_incremental_value: int | None
+    ) -> tuple[PipelineV3, MagicMock]:
         schema = MagicMock(
             id="schema-1",
             source_id="source-1",
@@ -2294,8 +2343,6 @@ class TestIncrementalHandoffCheckpoint:
             incremental_field_type=IncrementalFieldType.Integer,
             incremental_field_earliest_value=None,
         )
-        resource = SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"])
-
         with (
             patch(f"{_PIPELINE}.current_import_attempt", return_value=2),
             patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
@@ -2321,12 +2368,7 @@ class TestIncrementalHandoffCheckpoint:
                 incremental_checkpoints_allowed=True,
                 resumed_incremental_value=resumed_incremental_value,
             )
-
-        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
-        # reads after their rows must not, or the rows it skipped are never loaded.
-        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
-        assert pipeline._handoff_checkpoint is not None
-        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+        return pipeline, producer_cls
 
 
 class _ShutdownSwitch:
