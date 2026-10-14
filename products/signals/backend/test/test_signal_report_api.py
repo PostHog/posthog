@@ -1616,7 +1616,7 @@ class TestSignalReportListAPI(APIBaseTest):
             )
             return report
 
-        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        waiting = report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
         reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
         self._create_report(title="Someone else's report")
 
@@ -1626,6 +1626,14 @@ class TestSignalReportListAPI(APIBaseTest):
         body = response.json()
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
+        assert body["next"] is not None
+
+        last_page = self.client.get(body["next"])
+
+        assert last_page.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in last_page.json()["results"]] == [str(waiting.id)]
+        assert last_page.json()["count"] == 2
+        assert last_page.json()["next"] is None
 
     def test_for_you_excludes_unowned_p0_reports_when_asked(self):
         mine = self._create_report(title="Names me as reviewer")

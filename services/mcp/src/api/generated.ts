@@ -102042,6 +102042,11 @@ export namespace Schemas {
       results: SignalReportList[];
       /** How many open, actionable reports are for the current user, on every page together, without the `exclude` ids. Counted over the same set as `results`, so it follows `include_unowned` too. */
       count: number;
+      /**
+         * The URL of the next page, or null when this page holds the last matching report. The URL preserves the current query parameters and advances the offset.
+         * @nullable
+         */
+      next: string | null;
     }
 
     /**
