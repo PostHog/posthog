@@ -96,14 +96,6 @@
                     "sla_amount": {
                         "value": "clear",
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
-                        "templating": "hog"
                     }
                 }
             },

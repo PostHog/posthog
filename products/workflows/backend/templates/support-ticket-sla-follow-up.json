@@ -230,7 +230,7 @@
         {
             "id": "sla_tier_1",
             "name": "Set SLA: 1 working day",
-            "description": "Enterprise: next update due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
+            "description": "Enterprise: next update due within 8 working hours (1 working day at 9:00-17:00). Set your working hours and timezone here.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -256,14 +256,6 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "add",
-                        "templating": "hog"
                     }
                 }
             },
@@ -272,7 +264,7 @@
         {
             "id": "sla_tier_2",
             "name": "Set SLA: 2 working days",
-            "description": "Pro: next update due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
+            "description": "Pro: next update due within 16 working hours (2 working days at 9:00-17:00). Set your working hours and timezone here.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -298,14 +290,6 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "add",
-                        "templating": "hog"
                     }
                 }
             },
@@ -314,7 +298,7 @@
         {
             "id": "sla_default",
             "name": "Set SLA: 3 working days",
-            "description": "Everyone else: next update due within 24 working hours (3 working days at 9:00-17:00). Set your working hours and timezone here. Tagged sla_follow_up, so a reply from the customer replaces this deadline.",
+            "description": "Everyone else: next update due within 24 working hours (3 working days at 9:00-17:00). Set your working hours and timezone here.",
             "type": "function",
             "on_error": null,
             "filters": null,
@@ -339,14 +323,6 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
-                        "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "add",
                         "templating": "hog"
                     }
                 }

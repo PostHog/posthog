@@ -1,7 +1,7 @@
 {
     "id": "01a1352a-0c41-0000-c7a0-1d5e93b8f4e2",
     "name": "Ticket SLA: set next response time when the customer replies",
-    "description": "When a customer replies on a ticket, set how soon your team should reply next. If the customer is already waiting on a reply, their earlier deadline is kept. The deadline depends on the customer's plan.",
+    "description": "When a customer replies on a ticket, set how soon your team should reply next. The deadline depends on the customer's plan. If the ticket already has a sooner deadline, or one that has passed, that one is kept, so more messages from the customer never push a deadline back.",
     "scope": "global",
     "tags": ["support", "support SLAs"],
     "version": 1,
@@ -45,17 +45,17 @@
         },
         {
             "from": "is_new",
-            "to": "already_waiting",
+            "to": "is_breached",
             "type": "continue"
         },
         {
-            "from": "already_waiting",
+            "from": "is_breached",
             "to": "exit_node",
             "type": "branch",
             "index": 0
         },
         {
-            "from": "already_waiting",
+            "from": "is_breached",
             "to": "tier",
             "type": "continue"
         },
@@ -78,16 +78,37 @@
         },
         {
             "from": "sla_tier_1",
-            "to": "exit_node",
+            "to": "check_new_deadline",
             "type": "continue"
         },
         {
             "from": "sla_tier_2",
-            "to": "exit_node",
+            "to": "check_new_deadline",
             "type": "continue"
         },
         {
             "from": "sla_default",
+            "to": "check_new_deadline",
+            "type": "continue"
+        },
+        {
+            "from": "check_new_deadline",
+            "to": "was_sooner",
+            "type": "continue"
+        },
+        {
+            "from": "was_sooner",
+            "to": "restore_deadline",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "was_sooner",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "restore_deadline",
             "to": "exit_node",
             "type": "continue"
         }
@@ -120,7 +141,7 @@
         {
             "id": "get_ticket",
             "name": "Get ticket",
-            "description": "Load the ticket's current status and SLA.",
+            "description": "Load the ticket's current status and deadline.",
             "type": "function",
             "on_error": "abort",
             "filters": null,
@@ -164,21 +185,21 @@
             "output_variable": null
         },
         {
-            "id": "already_waiting",
-            "name": "Already waiting on a reply?",
-            "description": "If the ticket already has a deadline for your team's reply, keep it, even if it has passed, so more messages from the customer don't push it back or hide a breach. A follow-up deadline (tagged sla_follow_up) is replaced, since the customer is now waiting on you.",
+            "id": "is_breached",
+            "name": "Deadline already passed?",
+            "description": "If the current deadline has already passed, keep it, so the breach stays visible.",
             "type": "conditional_branch",
             "on_error": null,
             "filters": null,
             "config": {
                 "conditions": [
                     {
-                        "name": "Earlier reply deadline set",
+                        "name": "Deadline passed",
                         "filters": {
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.ticket.sla is not null and not has(variables.ticket.tags, 'sla_follow_up')",
+                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) <= now()",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -259,14 +280,6 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
-                        "templating": "hog"
                     }
                 }
             },
@@ -300,14 +313,6 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
-                        "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
                         "templating": "hog"
                     }
                 }
@@ -343,13 +348,80 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
+                    }
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "check_new_deadline",
+            "name": "Check the new deadline",
+            "description": "Loads the deadline that was just set, to compare it with the one the ticket had before.",
+            "type": "function",
+            "on_error": "abort",
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-get-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
+                        "templating": "hog"
+                    }
+                }
+            },
+            "output_variable": [
+                {
+                    "key": "new_deadline",
+                    "result_path": "sla"
+                }
+            ]
+        },
+        {
+            "id": "was_sooner",
+            "name": "Was the earlier deadline sooner?",
+            "description": "Comparing the real deadlines works in and out of working hours. A follow-up deadline is always replaced, because a reply deadline is shorter.",
+            "type": "conditional_branch",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Earlier deadline was sooner",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "variables.ticket.sla is not null and toDateTime(variables.ticket.sla) < toDateTime(variables.new_deadline)",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "restore_deadline",
+            "name": "Put the earlier deadline back",
+            "description": "Sets the deadline back to the earlier one, as minutes from now, so the customer's first unanswered message still counts.",
+            "type": "function",
+            "on_error": null,
+            "filters": null,
+            "config": {
+                "template_id": "template-posthog-update-ticket",
+                "inputs": {
+                    "ticket_id": {
+                        "value": "{event.properties.ticket_id}",
                         "templating": "hog"
                     },
-                    "tags_mode": {
-                        "value": "remove",
+                    "sla_amount": {
+                        "value": "{dateDiff('minute', now(), toDateTime(variables.ticket.sla))}",
+                        "templating": "hog"
+                    },
+                    "sla_unit": {
+                        "value": "minute",
                         "templating": "hog"
                     }
                 }

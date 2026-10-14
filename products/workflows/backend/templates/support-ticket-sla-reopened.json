@@ -211,14 +211,6 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
-                        "templating": "hog"
                     }
                 }
             },
@@ -253,14 +245,6 @@
                             "timezone": "UTC"
                         },
                         "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
-                        "templating": "hog"
                     }
                 }
             },
@@ -294,14 +278,6 @@
                             "time": ["09:00", "17:00"],
                             "timezone": "UTC"
                         },
-                        "templating": "hog"
-                    },
-                    "tags": {
-                        "value": ["sla_follow_up"],
-                        "templating": "hog"
-                    },
-                    "tags_mode": {
-                        "value": "remove",
                         "templating": "hog"
                     }
                 }
