@@ -387,7 +387,6 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
-    # Callers scan raw client filters before DRF validation, so a malformed shape yields [] and the serializer 400s.
     if not isinstance(filters, dict):
         return []
     try:
@@ -432,8 +431,6 @@ def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
         return []
 
     ids = collect_property_cohort_ids(filters.get("properties") or [])
-    # Each event/action entry has its own `properties`, which hog_function_filters_to_expr compiles too, so a
-    # cohort leaf there needs the same eligibility validation and cohort compilation as a top-level one.
     for key in ("events", "actions"):
         entries = filters.get(key)
         if isinstance(entries, list):
@@ -531,8 +528,6 @@ _UNKNOWN_GLOBAL = "Unknown global variable: "
 def _declared_globals(cohort_membership_supported: bool) -> dict[str, None]:
     declared = dict.fromkeys(FILTER_GLOBALS)
     if cohort_membership_supported:
-        # The runtime prefetches the person's memberships under this name for the generated
-        # inCohort/notInCohort calls; it is not part of the shared filter globals.
         declared["cohort_ids"] = None
     return declared
 

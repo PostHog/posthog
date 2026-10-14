@@ -1803,7 +1803,6 @@ class TestHogFlowAPI(APIBaseTest):
             ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
             ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
             ("missing_cohort", "missing", "doesn't exist in this environment"),
-            # The runtime reads memberships with the workflow's team_id, where a sibling team's cohort has no rows
             ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]
     )
@@ -1833,7 +1832,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
-        # A static cohort nested in an action entry must fail the gate even when a top-level cohort enables support
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
         action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
@@ -1866,7 +1864,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_conditions_after_flag_dial_down(self):
-        # A stored cohort condition of an active flow keeps saving after a flag dial-down; a new one needs the flag
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
@@ -1908,7 +1905,6 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_hand_authored_incohort_calls(self, _name, include_structured_leaf, _mock_flag):
-        # A hand-authored inCohort() skips eligibility validation, even beside a structured cohort leaf
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [{"key": "inCohort(999999)", "type": "hogql"}]
         if include_structured_leaf:
@@ -1928,7 +1924,6 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _name, expression, _mock_flag):
-        # An authored read of `cohort_ids` would test a cohort the validation never cleared, also inside a lambda
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [
             {"key": "id", "type": "cohort", "value": cohort.id},
@@ -1950,7 +1945,6 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_conditional_branch_malformed_filters_get_a_400(self, _name, filters, _mock_flag):
-        # The cohort-support scan reads raw client filters, so a malformed shape gets the serializer's 400, not a 500
         hog_flow = self._hog_flow_with_condition_filters("conditional_branch", filters)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -1959,7 +1953,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
-        # action_to_expr inlines a referenced Action's step properties, so a cohort there needs the same validation
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
         action = Action.objects.create(
@@ -1984,7 +1977,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
-        # The gate cannot see into a referenced Action's steps, so the reference alone must enable cohort support
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         action = Action.objects.create(
             team=self.team,
@@ -2011,7 +2003,6 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_in_cohort_operator_smuggled_through_hogql(
         self, _name, hogql_key, expected_detail, _mock_flag
     ):
-        # An IN COHORT operator in a hogql leaf must not ride along on the structured leaf that enabled support
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
             "conditional_branch",
@@ -2030,7 +2021,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false")
     def test_hog_flow_cohort_flag_evaluates_the_target_teams_organization(self, mock_flag):
-        # The rollout decision comes from the organization that owns the target project, not the user's active one
         other_org = Organization.objects.create(name="Other Org")
         OrganizationMembership.objects.create(user=self.user, organization=other_org)
         other_team = Team.objects.create(organization=other_org, name="Other Team")
@@ -3015,9 +3005,6 @@ class TestHogFlowAPI(APIBaseTest):
     def test_test_invocation_requires_person_read_where_cohort_conditions_can_run(
         self, _name, scopes, with_cohort_condition, flag_on_at_test_time, expected_status, mock_flag
     ):
-        # A cohort condition makes the runtime load the supplied person's memberships, so the test
-        # endpoint would be a membership oracle for a token that cannot read persons. Where the flag is
-        # on, a write token can add such a condition between the scope check and the run.
         mock_flag.return_value = True
         if with_cohort_condition:
             cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
