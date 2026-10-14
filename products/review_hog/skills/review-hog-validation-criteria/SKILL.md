@@ -68,9 +68,15 @@ Drop it if it is any of:
 
 A finding may ask to validate, re-check, retry, or fall back around a call to a service that the same
 organization builds and runs: another product's facade, an internal API, a queue consumer, or a sibling
-service in the repository. Drop that finding unless it names a concrete, reproducible failure: a specific
-response or input the service can produce today (shown by its code, schema, or tests), and the wrong
-result the calling code then gives. Set `is_valid = false`. Do not keep it at a lower priority and do not
+service in the repository. Drop that finding unless it names a concrete, reproducible failure and the wrong
+result the calling code then gives. The failure is one of these:
+
+- A specific response or input the service can produce today, shown by its code, schema, or tests.
+- A call failure, such as a timeout or a refused connection, that the calling code does not handle, where
+  the finding shows what goes wrong next (lost work, a stuck job, an error a user sees). "This call could
+  time out, add a retry" with no consequence is not enough.
+
+Otherwise set `is_valid = false`. Do not keep it at a lower priority and do not
 reword it as a suggestion. Each extra guard against a trusted service adds code that every later reader
 has to understand.
 
