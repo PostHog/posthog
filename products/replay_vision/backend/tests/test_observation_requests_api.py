@@ -332,6 +332,20 @@ class TestCompleteSettledRequests(APIBaseTest):
         )
 
     @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_the_sweep_still_completes_requests_when_the_cache_is_down(self, _produce: MagicMock) -> None:
+        request = self._request({"s1": "skipped_quota"})
+
+        with (
+            patch("products.replay_vision.backend.observation_requests.cache.get", side_effect=ConnectionError),
+            patch("products.replay_vision.backend.observation_requests.cache.delete", side_effect=ConnectionError),
+            patch("products.replay_vision.backend.observation_requests.cache.set", side_effect=ConnectionError),
+        ):
+            complete_settled_requests()
+
+        request.refresh_from_db()
+        assert request.completed_at is not None
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
     def test_a_tick_resumes_where_the_last_one_ran_out_of_time_and_wraps_around(self, _produce: MagicMock) -> None:
         first = self._request({"s1": "skipped_quota"})
         second = self._request({"s2": "skipped_quota"})

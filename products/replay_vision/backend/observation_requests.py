@@ -40,7 +40,7 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
-from products.replay_vision.backend.scanner_access import accessible_observations, can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import can_read_observation, can_read_targeted_experiment
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
@@ -71,6 +71,7 @@ WORKFLOW_STEP_MAX_WAIT = timedelta(hours=8)
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 _SWEEP_CURSOR_KEY = "replay_vision:completion_sweep_cursor"
+_WRITER = "default"
 _SWEEP_CURSOR_TTL_SECONDS = 60 * 60
 
 # Start outcomes that put a workflow behind the session, so an observation row is expected for it.
@@ -180,7 +181,10 @@ def create_observation_request(
                 _lock_workflow_scans(team.id)
                 # A same-key call that held the lock first has committed its row, which is visible now.
                 replayed = (
-                    ReplayObservationRequest.objects.for_team(team.id).filter(idempotency_key=idempotency_key).first()
+                    ReplayObservationRequest.objects.for_team(team.id)
+                    .using(_WRITER)
+                    .filter(idempotency_key=idempotency_key)
+                    .first()
                     if idempotency_key
                     else None
                 )
@@ -223,8 +227,11 @@ def _lock_workflow_scans(team_id: int) -> None:
 
 
 def _check_workflow_caps(team_id: int, hog_flow_id: str, caps: WorkflowScanCaps) -> None:
-    recent = ReplayObservationRequest.objects.for_team(team_id).filter(
-        source=ObservationRequestSource.WORKFLOW, created_at__gte=timezone.now() - timedelta(days=1)
+    # Counted on the writer, which the lock and the insert use: a lagging replica could miss the last scan taken.
+    recent = (
+        ReplayObservationRequest.objects.for_team(team_id)
+        .using(_WRITER)
+        .filter(source=ObservationRequestSource.WORKFLOW, created_at__gte=timezone.now() - timedelta(days=1))
     )
     if recent.filter(reference=hog_flow_id).count() >= caps.per_workflow:
         raise WorkflowScanCapReached("workflow", caps.per_workflow)
@@ -483,7 +490,7 @@ def complete_settled_requests(
         page = list(page_qs[:_SWEEP_PAGE_SIZE])
         if not page:
             if wrapped:
-                cache.delete(_SWEEP_CURSOR_KEY)
+                _store_sweep_cursor(None)
                 return completed
             wrapped, cursor = True, None
             continue
@@ -494,10 +501,7 @@ def complete_settled_requests(
                 cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
             break
         cursor = (page[-1].created_at, page[-1].id)
-    if cursor is None:
-        cache.delete(_SWEEP_CURSOR_KEY)
-    else:
-        cache.set(_SWEEP_CURSOR_KEY, (cursor[0].isoformat(), str(cursor[1])), timeout=_SWEEP_CURSOR_TTL_SECONDS)
+    _store_sweep_cursor(cursor)
     return completed
 
 
@@ -505,8 +509,23 @@ def _after(cursor: tuple[datetime, Any]) -> Q:
     return Q(created_at__gt=cursor[0]) | Q(created_at=cursor[0], id__gt=cursor[1])
 
 
+def _store_sweep_cursor(cursor: tuple[datetime, Any] | None) -> None:
+    # Best effort: without the cache, a tick starts from the oldest open request, as before.
+    try:
+        if cursor is None:
+            cache.delete(_SWEEP_CURSOR_KEY)
+        else:
+            cache.set(_SWEEP_CURSOR_KEY, (cursor[0].isoformat(), str(cursor[1])), timeout=_SWEEP_CURSOR_TTL_SECONDS)
+    except Exception:
+        logger.warning("replay_vision.observation_request.sweep_cursor_unavailable", exc_info=True)
+
+
 def _load_sweep_cursor() -> tuple[datetime, Any] | None:
-    stored = cache.get(_SWEEP_CURSOR_KEY)
+    try:
+        stored = cache.get(_SWEEP_CURSOR_KEY)
+    except Exception:
+        logger.warning("replay_vision.observation_request.sweep_cursor_unavailable", exc_info=True)
+        return None
     if not stored:
         return None
     try:
@@ -586,11 +605,7 @@ def step_result(request: ReplayObservationRequest, progress: RequestProgress) ->
     if not can_read_scanner:
         return _step_answer("failed", None, ["The workflow's owner can no longer read this scanner's answers."])
     observation = session.observation
-    if observation is not None and not (
-        accessible_observations(
-            access, team.id, ReplayObservation.objects.filter(team_id=team.id, id=observation.id)
-        ).exists()
-    ):
+    if observation is not None and not can_read_observation(access, team.id, observation):
         return _step_answer("failed", None, ["The workflow's owner can't read this scanner's answers."])
     output = (
         (observation.scanner_result or {}).get("model_output")
