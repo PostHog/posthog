@@ -51,7 +51,7 @@ export function TraceDialog(): JSX.Element | null {
         traceIdentity,
         traceSessionId,
     } = useValues(traceDialogLogic)
-    const { closeTraceDialog, loadTraceSpans, setInspectorTab } = useActions(traceDialogLogic)
+    const { closeTraceDialog, loadTraceSpans, setInspectorTab, openInTracing } = useActions(traceDialogLogic)
     // The dialog sits above popovers, so the inspector's menus and drawers, and the person popover,
     // portal inside it instead.
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
@@ -64,7 +64,8 @@ export function TraceDialog(): JSX.Element | null {
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={closeTraceDialog}
+            // The close button hands onClose its click event, which must not land in the reason argument.
+            onClose={() => closeTraceDialog('dismissed')}
             title={<span translate="no">{summary.rootSpan?.name ?? 'Trace'}</span>}
             description={
                 <div className="flex flex-wrap items-center gap-2">
@@ -95,7 +96,7 @@ export function TraceDialog(): JSX.Element | null {
                         type="secondary"
                         icon={<IconExternal />}
                         to={traceUrl(trace)}
-                        onClick={closeTraceDialog}
+                        onClick={openInTracing}
                         data-attr="trace-dialog-open-in-tracing"
                     >
                         Open in Tracing

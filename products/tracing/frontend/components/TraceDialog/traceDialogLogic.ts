@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
@@ -68,6 +69,43 @@ export interface TraceDialogTree {
 export interface TraceDialogSource {
     body: string
     severity: LogSeverityLevel
+}
+
+/** Where a trace dialog was opened from. Sent with every dialog event, so keep the values stable. */
+export type TraceDialogEntryPoint =
+    | 'log_details'
+    | 'log_expanded_row'
+    | 'log_row_action'
+    | 'log_trace_id_cell'
+    | 'metric_sample'
+    | 'metric_exemplar'
+
+export type TraceDialogCloseReason = 'dismissed' | 'back_to_log' | 'open_in_tracing' | 'navigated' | 'replaced'
+
+export interface OpenTraceDialogOptions {
+    entryPoint: TraceDialogEntryPoint
+    openedFrom?: TraceDialogSource | null
+}
+
+interface TraceDialogSession {
+    entryPoint: TraceDialogEntryPoint
+    openedAtMs: number
+    loadStartedAtMs: number
+    spansSelected: number
+    keyboardSteps: number
+    tabsViewed: Set<SpanInspectorTab>
+    nextCloseReason: TraceDialogCloseReason | null
+}
+
+function captureClosed(session: TraceDialogSession, reason: TraceDialogCloseReason): void {
+    posthog.capture('tracing trace dialog closed', {
+        entry_point: session.entryPoint,
+        reason: session.nextCloseReason ?? reason,
+        seconds_open: Math.round((Date.now() - session.openedAtMs) / 1000),
+        spans_selected: session.spansSelected,
+        keyboard_steps: session.keyboardSteps,
+        tabs_viewed: [...session.tabsViewed],
+    })
 }
 
 export interface TraceDialogTimeline {
@@ -155,8 +193,8 @@ export interface traceDialogLogicActions {
         modalContext: SessionPlayerModalContext
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
-    closeTraceDialog: () => {
-        value: true
+    closeTraceDialog: (reason?: TraceDialogCloseReason) => {
+        reason: TraceDialogCloseReason
     }
     loadTraceSpans: (trace: TraceLinkParams) => TraceLinkParams
     loadTraceSpansFailure: (
@@ -173,10 +211,14 @@ export interface traceDialogLogicActions {
         traceSpans: TraceDialogSpans | null
         payload?: TraceLinkParams
     }
+    openInTracing: () => {
+        value: true
+    }
     openTraceDialog: (
         trace: TraceLinkParams,
-        openedFrom?: TraceDialogSource | null
+        options: OpenTraceDialogOptions
     ) => {
+        entryPoint: TraceDialogEntryPoint
         openedFrom: TraceDialogSource | null
         trace: {
             spanId: string | null
@@ -277,13 +319,15 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         ],
     })),
     actions({
-        openTraceDialog: (trace: TraceLinkParams, openedFrom?: TraceDialogSource | null) => ({
+        openTraceDialog: (trace: TraceLinkParams, options: OpenTraceDialogOptions) => ({
             trace: { ...trace, spanId: inApiCase(trace.spanId) },
-            openedFrom: openedFrom ?? null,
+            openedFrom: options.openedFrom ?? null,
+            entryPoint: options.entryPoint,
         }),
+        openInTracing: true,
         selectNextSpan: true,
         selectPreviousSpan: true,
-        closeTraceDialog: true,
+        closeTraceDialog: (reason: TraceDialogCloseReason = 'dismissed') => ({ reason }),
         selectSpan: (spanId: string) => ({ spanId }),
         toggleSpanCollapsed: (spanId: string) => ({ spanId }),
         showAllChildren: (spanId: string) => ({ spanId }),
@@ -535,8 +579,28 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 openedFrom && trace?.ts && dayjs(trace.ts).isValid() ? parseTimestampUs(trace.ts) : null,
         ],
     }),
+    // pinned: analytics event names and properties. Renaming one breaks the dashboards built on it.
     listeners(({ values, actions, cache }) => ({
-        openTraceDialog: ({ trace }) => {
+        openTraceDialog: ({ trace, openedFrom, entryPoint }) => {
+            // Opening another trace over an open dialog ends the first session.
+            if (cache.session) {
+                captureClosed(cache.session, 'replaced')
+            }
+            const session: TraceDialogSession = {
+                entryPoint,
+                openedAtMs: Date.now(),
+                loadStartedAtMs: Date.now(),
+                spansSelected: 0,
+                keyboardSteps: 0,
+                tabsViewed: new Set(),
+                nextCloseReason: null,
+            }
+            cache.session = session
+            posthog.capture('tracing trace dialog opened', {
+                entry_point: entryPoint,
+                has_span: !!trace.spanId,
+                has_log: !!openedFrom,
+            })
             actions.loadTraceSpans(trace)
             // Capture phase, and stopped there, so the page under the dialog does not also act on
             // the key: with log details open, the logs list binds J and K to its own cursor.
@@ -563,10 +627,54 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
             }, 'spanKeys')
         },
-        closeTraceDialog: () => {
+        closeTraceDialog: ({ reason }) => {
             cache.disposables.dispose('spanKeys')
+            const session: TraceDialogSession | undefined = cache.session
+            if (!session) {
+                return
+            }
+            cache.session = undefined
+            captureClosed(session, reason)
+        },
+        openInTracing: () => {
+            // The link navigates next, and the navigation closes the dialog.
+            if (cache.session) {
+                cache.session.nextCloseReason = 'open_in_tracing'
+            }
+        },
+        loadTraceSpans: () => {
+            if (cache.session) {
+                cache.session.loadStartedAtMs = Date.now()
+            }
+        },
+        loadTraceSpansSuccess: ({ traceSpans }) => {
+            if (!cache.session || !traceSpans) {
+                return
+            }
+            posthog.capture('tracing trace dialog loaded', {
+                entry_point: cache.session.entryPoint,
+                span_count: traceSpans.spans.length,
+                truncated: traceSpans.truncated,
+                load_ms: Date.now() - cache.session.loadStartedAtMs,
+            })
+        },
+        loadTraceSpansFailure: () => {
+            if (cache.session) {
+                posthog.capture('tracing trace dialog load failed', { entry_point: cache.session.entryPoint })
+            }
+        },
+        selectSpan: () => {
+            if (cache.session) {
+                cache.session.spansSelected += 1
+            }
+        },
+        setInspectorTab: ({ tab }) => {
+            cache.session?.tabsViewed.add(tab)
         },
         selectNextSpan: () => {
+            if (cache.session) {
+                cache.session.keyboardSteps += 1
+            }
             // A missing-parent row is selectable too, so step from it rather than from the root fallback.
             const currentId = values.missingParentSpanId ?? values.selectedSpan?.span_id
             const index = values.flatSpans.findIndex((node) => node.span.span_id === currentId)
@@ -576,6 +684,9 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             }
         },
         selectPreviousSpan: () => {
+            if (cache.session) {
+                cache.session.keyboardSteps += 1
+            }
             const currentId = values.missingParentSpanId ?? values.selectedSpan?.span_id
             const index = values.flatSpans.findIndex((node) => node.span.span_id === currentId)
             const previous = values.flatSpans[Math.max(index - 1, 0)]
@@ -615,7 +726,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             }
             cache.lastPathname = pathname
             if (values.isOpen) {
-                actions.closeTraceDialog()
+                actions.closeTraceDialog('navigated')
             }
         },
     })),

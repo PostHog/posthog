@@ -22,10 +22,10 @@ describe('ViewTraceButton', () => {
 
     afterEach(() => cleanup())
 
-    const renderButton = (props: Parameters<typeof ViewTraceButton>[0]): void => {
+    const renderButton = (props: Omit<Parameters<typeof ViewTraceButton>[0], 'entryPoint'>): void => {
         render(
             <Provider>
-                <ViewTraceButton {...props} />
+                <ViewTraceButton entryPoint="log_details" {...props} />
             </Provider>
         )
     }

@@ -3,17 +3,12 @@ import { type MouseEvent, useCallback } from 'react'
 
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
 
-import { type TraceDialogSource, traceDialogLogic } from './traceDialogLogic'
-
-export interface OpenTraceDialogOptions {
-    /** The log the link sits on, shown in the dialog as the reason the trace was opened. */
-    openedFrom?: TraceDialogSource | null
-}
+import { type OpenTraceDialogOptions, traceDialogLogic } from './traceDialogLogic'
 
 export type OpenTraceDialogHandler = (
     event: MouseEvent | null,
     trace: TraceLinkParams,
-    options?: OpenTraceDialogOptions
+    options: OpenTraceDialogOptions
 ) => boolean
 
 /**
@@ -35,7 +30,7 @@ export function useOpenTraceDialog(): OpenTraceDialogHandler {
                 return false
             }
             event?.preventDefault()
-            openTraceDialog(trace, options?.openedFrom)
+            openTraceDialog(trace, options)
             return true
         },
         [dialogEnabled, openTraceDialog]
