@@ -979,6 +979,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
+        // Insight logics can mount this node before the component supplies its query.
+        const retainedResponse =
+            (hasQueryChanged || props.retainResponseOnUnmount !== oldProps.retainResponseOnUnmount) &&
+            getRetainedResponse(responseCacheKey(props, values.user?.id, values.currentTeamId))
+        if (retainedResponse) {
+            actions.setResponse(retainedResponse)
+            return
+        }
+
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
@@ -1016,6 +1025,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             )
         ) {
             // Use cached results if available, otherwise this logic will load the data again
+            if (props.cachedResults !== oldProps.cachedResults) {
+                retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
+            }
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -2129,9 +2141,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.resetLoadingTimer()
         },
         loadData: ({ overrideQuery }) => {
-            cache.responseCacheKey = overrideQuery
-                ? null
-                : responseCacheKey(props, values.user?.id, values.currentTeamId)
+            cache.responseCacheKey = responseCacheKey(
+                overrideQuery ? { ...props, query: overrideQuery } : props,
+                values.user?.id,
+                values.currentTeamId
+            )
             forgetRetainedResponse(cache.responseCacheKey)
             actions.collectionNodeLoadData(props.key, (overrideQuery ?? props.query)?.kind)
             actions.resetLoadingTimer()
@@ -2249,6 +2263,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
+            retainResponse(responseCacheKey(props, values.user?.id, values.currentTeamId), props.cachedResults)
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             // Initial load should use non-force variant

@@ -71,6 +71,30 @@ describe('dataNodeLogic', () => {
     })
     afterEach(() => logic?.unmount())
 
+    it.each(['query', 'insight response'] as const)(
+        'restores notebook results when the query arrives after mount: %s',
+        async (source) => {
+            const query = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' })
+            const response = { results: [[1]], columns: ['value'] }
+            const props: DataNodeLogicProps = { key: testUniqueKey, query, retainResponseOnUnmount: true }
+            mockedQuery.mockReset()
+            mockedQuery.mockResolvedValue(response)
+            logic = dataNodeLogic(source === 'query' ? props : { ...props, cachedResults: response })
+            logic.mount()
+            if (source === 'query') {
+                await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+            }
+            logic.unmount()
+            mockedQuery.mockClear()
+
+            logic = dataNodeLogic({ key: props.key } as DataNodeLogicProps)
+            logic.mount()
+            dataNodeLogic(props)
+            expect(logic.values.response).toEqual(response)
+            expect(mockedQuery).not.toHaveBeenCalled()
+        }
+    )
+
     it.each(['same', 'query', 'filters', 'expired', 'disabled'] as const)(
         'reuses a completed notebook response on remount: %s',
         async (change) => {
