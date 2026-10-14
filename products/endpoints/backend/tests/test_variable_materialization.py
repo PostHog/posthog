@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import DataWarehouseNode, TrendsQuery
@@ -26,8 +28,6 @@ from products.endpoints.backend.materialization_transforms import (
 )
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-
-pytestmark = [pytest.mark.django_db]
 
 
 class TestVariableAnalysis(APIBaseTest):
@@ -1443,7 +1443,7 @@ class TestQueryTransformation(APIBaseTest):
         assert "event_name" in group_by_part
 
 
-class TestMaterializedQueryExecution(APIBaseTest):
+class TestMaterializedQueryExecution(SimpleTestCase):
     """Test that materialized queries handle pre-aggregated data correctly."""
 
     def test_materialized_query_selects_precomputed_columns(self):
