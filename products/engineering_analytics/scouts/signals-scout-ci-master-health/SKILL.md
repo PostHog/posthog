@@ -59,19 +59,25 @@ Otherwise, if `engineering-analytics-broken-tests` returns no `breaking_master` 
 - `scout-runs-list` (`skill_name=signals-scout-ci-master-health`, last 7d).
 - `inbox-reports-list` (`search: "master"`, `include_all_statuses: true`, `ordering: "-updated_at"`): your reports and any `broken_default_branch` or `flaky_check` report.
 
+Query results show timestamps in the project's timezone, not UTC.
+Never compute an age by reading a timestamp: take ages from `dateDiff` against `now()` in the query, and convert with `toTimeZone(<column>, 'UTC')` before you quote a time.
+
 Check freshness before you trust a boundary or a silence.
 The two engines load separately, so read each one's newest row:
 
 ```sql
-SELECT ci_engine, max(created_at) AS newest
+SELECT
+    ci_engine,
+    toTimeZone(max(created_at), 'UTC') AS newest_utc,
+    dateDiff('minute', max(created_at), now()) AS lag_minutes
 FROM engineering_analytics_ci_job_history
 WHERE created_at >= now() - INTERVAL 1 DAY AND created_at_raw >= '<2 days ago, YYYY-MM-DD>'
 GROUP BY ci_engine
 ```
 
-When an engine's newest row trails now by more than an hour, its tail is lag, not silence and not a settled verdict.
+When an engine's `lag_minutes` is above 60, its tail is lag, not silence and not a settled verdict.
 Lag has a limit, though.
-Several Depot workflows run every hour, not only the backend matrix, so a `depot_ci` newest row more than three hours behind now means either Depot stopped running or its data stopped loading.
+Several Depot workflows run every hour, not only the backend matrix, so a `depot_ci` `lag_minutes` above 180 means either Depot stopped running or its data stopped loading.
 Both leave master's test coverage unobserved, and neither shows up as a missing backend run, because the comparison point stopped moving too.
 Record it in `pattern:ci_master_health:depot-freshness` with the time, and file it when the next run finds it still stale.
 
@@ -90,7 +96,8 @@ A shard that failed and then passed on a retry counts as green here, and `max_at
 ```sql
 SELECT
     run_id,
-    min(started) AS started,
+    toTimeZone(min(started), 'UTC') AS started_utc,
+    dateDiff('minute', min(started), now()) AS minutes_ago,
     max(attempts) AS max_attempts,
     countIf(final_conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failed_jobs,
     countIf(final_conclusion = 'success') AS ok_jobs,
@@ -110,12 +117,12 @@ FROM (
     GROUP BY run_id, job_name
 )
 GROUP BY run_id
-ORDER BY started DESC
+ORDER BY minutes_ago
 ```
 
 Read three things from it:
 
-- **Silence.** The newest run started more than two hours before the newest `depot_ci` row in the freshness check. A schedule that stops firing removes master's test coverage without paging anyone. This is the one finding you file on first sight.
+- **Silence.** The newest run's `minutes_ago` exceeds the `depot_ci` `lag_minutes` from the freshness check by more than 120. A schedule that stops firing removes master's test coverage without paging anyone. This is the one finding you file on first sight.
   The query looks back one day, so an empty result while `depot_ci` is fresh is also silence. Take the start of the silence from the newest run in `pattern:ci_master_health:hourly-lane`, and update that entry every run that sees a run.
 - **A single red tick.** One run with a few failed shards, followed by a green one. Name the shards and their failing tests (`engineering_analytics_ci_failures` for the run, or `engineering-analytics-run-failure-logs` with `latest_ci_engine` and `latest_run_id`) and remember it. It becomes a story only when the same test recurs on later ticks, which makes it a flake on unchanged code.
 - **A red streak.** The alerter pages this one. Add the timeline and the failing tests to the alerter's story through your report on it, and run lens 2 to find where it started.
