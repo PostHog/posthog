@@ -26,6 +26,8 @@ import type {
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
+    LogsNaturalLanguageQueryRequestApi,
+    LogsNaturalLanguageQueryResponseApi,
     LogsRetentionRuleApi,
     LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
@@ -662,6 +664,26 @@ export const logsMetricRulesDestroy = async (projectId: string, id: string, opti
     return apiMutator<void>(getLogsMetricRulesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLogsNaturalLanguageQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/natural_language_query/`
+}
+
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreate = async (
+    projectId: string,
+    logsNaturalLanguageQueryRequestApi: LogsNaturalLanguageQueryRequestApi,
+    options?: RequestInit
+): Promise<LogsNaturalLanguageQueryResponseApi> => {
+    return apiMutator<LogsNaturalLanguageQueryResponseApi>(getLogsNaturalLanguageQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsNaturalLanguageQueryRequestApi),
     })
 }
 
