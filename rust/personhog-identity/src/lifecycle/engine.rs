@@ -14,7 +14,12 @@
 //! always means "everything up to and including this step really happened,
 //! exactly once". A claim's bumped `attempt` doubles as a fencing token:
 //! renew/release match only while `attempt` is unchanged, so a displaced
-//! driver cannot extend or clear a stealer's lease.
+//! driver cannot extend or clear a stealer's lease. The step CAS matches
+//! the step alone, so a step that outlives its lease still lands when it
+//! finishes first. The price is that a claim landing between a step's
+//! commit and the next step's start is noticed one step late, by that
+//! step's CAS or by the renew; the extra step is one more concurrent
+//! driver, which the model already tolerates.
 
 use std::time::{Duration, Instant};
 
@@ -451,9 +456,10 @@ impl Engine {
     }
 
     /// `current` is the row as the caller (or the previous step) last saw
-    /// it; `None` means load it. A row a step hands back is as fresh as a
-    /// load: it comes from the advance's RETURNING, so a stolen lease
-    /// still shows as a bumped `attempt`.
+    /// it; `None` means load it. A row a step hands back comes from the
+    /// advance's RETURNING, so a claim that landed before the advance shows
+    /// as a bumped `attempt`; one landing after it is caught by the next
+    /// step's CAS or by the renew.
     async fn drive(
         &self,
         driver: &dyn OpDriver,
@@ -917,14 +923,14 @@ struct AbandonedOp {
 }
 
 /// Compare-and-swap the op's step inside the step's own transaction, so the
-/// work and the advance commit together. Returns the advanced row, or None
-/// when the row is no longer on `from` — another driver already advanced
-/// it; the caller must roll back its transaction and let the engine reload.
+/// work and the advance commit together. The swap matches the step `op` is
+/// on: another driver that advanced the op since fails it. Returns the
+/// advanced row, or None when the swap failed; the caller must roll back
+/// its transaction and let the engine reload.
 pub async fn advance_step_in_tx(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
-    op_id: Uuid,
-    from: &str,
+    op: &OpRow,
     to: &str,
 ) -> Result<Option<OpRow>, sqlx::Error> {
     mirrored_query_as!(
@@ -939,8 +945,8 @@ pub async fn advance_step_in_tx(
                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
                       as "lease_live!"
         "#,
-        op_id,
-        from,
+        op.op_id,
+        op.step,
         to
         => fetch_optional(&mut **tx)
     )
@@ -951,8 +957,7 @@ pub async fn advance_step_in_tx(
 pub async fn complete_op_in_tx(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
-    op_id: Uuid,
-    from: &str,
+    op: &OpRow,
     final_step: &str,
     outcome: &Value,
 ) -> Result<Option<OpRow>, sqlx::Error> {
@@ -970,8 +975,8 @@ pub async fn complete_op_in_tx(
                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
                       as "lease_live!"
         "#,
-        op_id,
-        from,
+        op.op_id,
+        op.step,
         final_step,
         outcome
         => fetch_optional(&mut **tx)

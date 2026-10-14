@@ -363,26 +363,11 @@ async fn mark(
         // Every requested person was conflicted or missing: nothing was (or
         // will be) mutated, so the op ends here as aborted.
         let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
-        let advanced = complete_op_in_tx(
-            &mut tx,
-            tables,
-            op.op_id,
-            DeleteStep::Started.as_str(),
-            STEP_ABORTED,
-            &outcome,
-        )
-        .await?;
+        let advanced = complete_op_in_tx(&mut tx, tables, op, STEP_ABORTED, &outcome).await?;
         abort_outcome = Some(outcome);
         advanced
     } else {
-        advance_step_in_tx(
-            &mut tx,
-            tables,
-            op.op_id,
-            DeleteStep::Started.as_str(),
-            DeleteStep::Marked.as_str(),
-        )
-        .await?
+        advance_step_in_tx(&mut tx, tables, op, DeleteStep::Marked.as_str()).await?
     };
     let Some(next) = advanced else {
         tx.rollback().await?;
@@ -491,14 +476,7 @@ async fn seal(
         )?;
     }
 
-    let Some(next) = advance_step_in_tx(
-        &mut tx,
-        tables,
-        op.op_id,
-        DeleteStep::Marked.as_str(),
-        DeleteStep::Sealed.as_str(),
-    )
-    .await?
+    let Some(next) = advance_step_in_tx(&mut tx, tables, op, DeleteStep::Sealed.as_str()).await?
     else {
         tx.rollback().await?;
         return Ok(None);
@@ -661,14 +639,7 @@ async fn unmap(
         .execute(&mut *tx)
         .await?;
 
-    let Some(next) = advance_step_in_tx(
-        &mut tx,
-        tables,
-        op.op_id,
-        DeleteStep::Sealed.as_str(),
-        DeleteStep::Unmapped.as_str(),
-    )
-    .await?
+    let Some(next) = advance_step_in_tx(&mut tx, tables, op, DeleteStep::Unmapped.as_str()).await?
     else {
         tx.rollback().await?;
         return Ok(None);
@@ -727,16 +698,7 @@ async fn complete(
     )?;
 
     let outcome = build_outcome(&mut tx, tables, op.op_id, &request.person_ids).await?;
-    let Some(next) = complete_op_in_tx(
-        &mut tx,
-        tables,
-        op.op_id,
-        DeleteStep::Unmapped.as_str(),
-        STEP_COMPLETED,
-        &outcome,
-    )
-    .await?
-    else {
+    let Some(next) = complete_op_in_tx(&mut tx, tables, op, STEP_COMPLETED, &outcome).await? else {
         tx.rollback().await?;
         return Ok(None);
     };

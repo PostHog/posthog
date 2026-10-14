@@ -1050,14 +1050,8 @@ impl MergeDriver {
         })?;
         write_claim_record(&mut tx, &self.tables, op, &claim_record).await?;
 
-        let Some(next) = advance_step_in_tx(
-            &mut tx,
-            &self.tables,
-            op.op_id,
-            MergeStep::Started.as_str(),
-            MergeStep::Claimed.as_str(),
-        )
-        .await?
+        let Some(next) =
+            advance_step_in_tx(&mut tx, &self.tables, op, MergeStep::Claimed.as_str()).await?
         else {
             tx.rollback().await?;
             return Ok(None);
@@ -1119,16 +1113,7 @@ async fn abort_in_claim_tx(
     // The entrance discards flagged rows on the next presentation of the
     // op id, so a plain retry re-runs where a recorded conflict replays.
     outcome["claim_abort"] = Value::Bool(true);
-    let Some(next) = complete_op_in_tx(
-        &mut tx,
-        tables,
-        op.op_id,
-        MergeStep::Started.as_str(),
-        STEP_ABORTED,
-        &outcome,
-    )
-    .await?
-    else {
+    let Some(next) = complete_op_in_tx(&mut tx, tables, op, STEP_ABORTED, &outcome).await? else {
         tx.rollback().await?;
         return Ok(None);
     };
@@ -1249,15 +1234,8 @@ impl MergeDriver {
             abort_marks(&mut tx, &self.tables, op).await?;
             let outcome =
                 build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Conflict)).await?;
-            let Some(next) = complete_op_in_tx(
-                &mut tx,
-                &self.tables,
-                op.op_id,
-                MergeStep::Claimed.as_str(),
-                STEP_ABORTED,
-                &outcome,
-            )
-            .await?
+            let Some(next) =
+                complete_op_in_tx(&mut tx, &self.tables, op, STEP_ABORTED, &outcome).await?
             else {
                 tx.rollback().await?;
                 return Ok(None);
@@ -1293,14 +1271,9 @@ impl MergeDriver {
             => execute(&mut *tx)
         )?;
 
-        let Some(next) = advance_step_in_tx(
-            &mut tx,
-            &self.tables,
-            op.op_id,
-            MergeStep::Claimed.as_str(),
-            MergeStep::SourcesSealed.as_str(),
-        )
-        .await?
+        let Some(next) =
+            advance_step_in_tx(&mut tx, &self.tables, op, MergeStep::SourcesSealed.as_str())
+                .await?
         else {
             tx.rollback().await?;
             return Ok(None);
@@ -1329,15 +1302,8 @@ impl MergeDriver {
         abort_marks(&mut tx, &self.tables, op).await?;
         // Fence contention never reaches this abort; it retries at the step.
         let outcome = build_outcome(&mut tx, &self.tables, op, Some(AbortOutcome::Refused)).await?;
-        let Some(next) = complete_op_in_tx(
-            &mut tx,
-            &self.tables,
-            op.op_id,
-            from_step.as_str(),
-            STEP_ABORTED,
-            &outcome,
-        )
-        .await?
+        let Some(next) =
+            complete_op_in_tx(&mut tx, &self.tables, op, STEP_ABORTED, &outcome).await?
         else {
             tx.rollback().await?;
             return Ok(None);
@@ -1634,8 +1600,7 @@ impl MergeDriver {
         let Some(next) = advance_step_in_tx(
             &mut tx,
             &self.tables,
-            op.op_id,
-            MergeStep::SourcesSealed.as_str(),
+            op,
             MergeStep::DocumentFolded.as_str(),
         )
         .await?
@@ -1721,14 +1686,7 @@ async fn flip(
     tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
     clear_target_mark(&mut tx, tables, op).await?;
 
-    let Some(next) = advance_step_in_tx(
-        &mut tx,
-        tables,
-        op.op_id,
-        MergeStep::DocumentFolded.as_str(),
-        MergeStep::Flipped.as_str(),
-    )
-    .await?
+    let Some(next) = advance_step_in_tx(&mut tx, tables, op, MergeStep::Flipped.as_str()).await?
     else {
         tx.rollback().await?;
         return Ok(None);
@@ -2031,15 +1989,8 @@ impl MergeDriver {
             => execute(&mut *tx)
         )?;
         let outcome = build_outcome(&mut tx, &self.tables, op, None).await?;
-        let Some(next) = complete_op_in_tx(
-            &mut tx,
-            &self.tables,
-            op.op_id,
-            MergeStep::Flipped.as_str(),
-            STEP_COMPLETED,
-            &outcome,
-        )
-        .await?
+        let Some(next) =
+            complete_op_in_tx(&mut tx, &self.tables, op, STEP_COMPLETED, &outcome).await?
         else {
             tx.rollback().await?;
             return Ok(None);

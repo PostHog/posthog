@@ -59,22 +59,12 @@ impl OpDriver for DummyDriver {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
-            "started" => {
-                advance_step_in_tx(
-                    &mut tx,
-                    &common::default_tables(),
-                    op.op_id,
-                    "started",
-                    "half",
-                )
-                .await?
-            }
+            "started" => advance_step_in_tx(&mut tx, &common::default_tables(), op, "half").await?,
             "half" => {
                 complete_op_in_tx(
                     &mut tx,
                     &common::default_tables(),
-                    op.op_id,
-                    "half",
+                    op,
                     STEP_COMPLETED,
                     &json!({"ok": true}),
                 )
@@ -216,6 +206,82 @@ async fn a_first_call_is_not_compared_against_its_own_normalized_insert() {
         .await
         .expect("the inserting call is never a request mismatch");
     assert_eq!(row.step, STEP_COMPLETED);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// Waits until a backend sits in a lock wait on the create-or-attach
+/// statement, so the rival below commits while our insert is blocked on
+/// its uncommitted row.
+async fn wait_for_create_or_attach_to_block(pool: &PgPool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let blocked: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock' \
+               AND query LIKE '%op_create_or_attach%'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("pg_stat_activity");
+        if blocked > 0 {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "create-or-attach never blocked on the rival's uncommitted row"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_create_that_conflicts_with_an_uncommitted_rival_attaches_once_it_commits() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let rival_request = json!({"work": "rival"});
+
+    for same_request in [true, false] {
+        let op_id = Uuid::now_v7();
+        let mut rival = ctx.pool.begin().await.expect("begin rival");
+        sqlx::query(
+            "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+             VALUES ($1, 'merge', $2, 'started', $3)",
+        )
+        .bind(op_id)
+        .bind(ctx.team_id as i32)
+        .bind(&rival_request)
+        .execute(&mut *rival)
+        .await
+        .expect("rival insert");
+
+        // Our insert blocks on the rival's uncommitted row. When the rival
+        // commits, the conflict is decided inside a statement whose
+        // snapshot predates that commit, so the one-statement
+        // create-or-attach sees neither an insert nor a row to attach to
+        // and has to reload.
+        let ours = if same_request {
+            rival_request.clone()
+        } else {
+            json!({"work": "ours"})
+        };
+        let (answer, ()) = tokio::join!(
+            engine.create_or_attach(&driver, op_id, ctx.team_id, &ours),
+            async {
+                wait_for_create_or_attach_to_block(&ctx.pool).await;
+                rival.commit().await.expect("rival commits");
+            }
+        );
+        if same_request {
+            let row = answer.expect("the same request attaches to the rival's row");
+            assert_eq!(row.request, rival_request);
+            assert_eq!(row.step, "started");
+        } else {
+            let err = answer.expect_err("a different request must not attach");
+            assert!(matches!(err, SagaError::RequestMismatch(_)));
+        }
+    }
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -457,23 +523,37 @@ async fn lease_is_live(pool: &PgPool, op_id: Uuid) -> bool {
         .unwrap_or(false)
 }
 
-/// What [`StolenLeaseDriver`] does once its lease is gone.
+/// What [`StolenLeaseDriver`] does around the steal of its lease.
 #[derive(Debug, Clone, Copy)]
-enum AfterSteal {
-    /// Err exercises the engine's release path.
+enum StolenLease {
+    /// Steal, then Err: exercises the engine's release path.
     Fail,
-    /// Ok without advancing (a lost CAS) exercises the attempt check on
-    /// the reloaded row.
+    /// Steal, then Ok without advancing (a lost CAS): exercises the
+    /// attempt check on the reloaded row.
     NoAdvance,
-    /// Advance and hand the row back (a won CAS) exercises the attempt
-    /// check on the row the step returns.
+    /// Steal, then advance: the advance lands (the first finisher wins the
+    /// step CAS), and the row it hands back carries the stealer's attempt,
+    /// which must stop this driver without a reload.
     Advance,
 }
 
-/// Driver whose first step gets its lease stolen mid-run.
+/// Driver whose first step gets its lease stolen mid-run. Advances go
+/// through [`DummyDriver`], so a second step would complete the op if the
+/// engine ever ran it.
 struct StolenLeaseDriver {
     steps_run: AtomicUsize,
-    after_steal: AfterSteal,
+    mode: StolenLease,
+    inner: DummyDriver,
+}
+
+impl StolenLeaseDriver {
+    fn new(mode: StolenLease) -> Self {
+        Self {
+            steps_run: AtomicUsize::new(0),
+            mode,
+            inner: DummyDriver::new(),
+        }
+    }
 }
 
 #[async_trait]
@@ -492,22 +572,18 @@ impl OpDriver for StolenLeaseDriver {
         op: &OpRow,
     ) -> Result<Option<OpRow>, SagaError> {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
-        steal_lease(pools.fast(), op.op_id).await;
-        match self.after_steal {
-            AfterSteal::Fail => Err(SagaError::CorruptState("simulated step failure".into())),
-            AfterSteal::NoAdvance => Ok(None),
-            AfterSteal::Advance => {
-                let mut tx = pools.heavy().begin().await.map_err(SagaError::Db)?;
-                let next = advance_step_in_tx(
-                    &mut tx,
-                    &common::default_tables(),
-                    op.op_id,
-                    "started",
-                    "half",
-                )
-                .await?;
-                tx.commit().await.map_err(SagaError::Db)?;
-                Ok(next)
+        match self.mode {
+            StolenLease::Fail => {
+                steal_lease(pools.fast(), op.op_id).await;
+                Err(SagaError::CorruptState("simulated step failure".into()))
+            }
+            StolenLease::NoAdvance => {
+                steal_lease(pools.fast(), op.op_id).await;
+                Ok(None)
+            }
+            StolenLease::Advance => {
+                steal_lease(pools.fast(), op.op_id).await;
+                self.inner.run_step(pools, op).await
             }
         }
     }
@@ -516,20 +592,22 @@ impl OpDriver for StolenLeaseDriver {
 #[tokio::test]
 async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing() {
     let ctx = TestContext::new().await;
-    // Whether the step hands back nothing or the advanced row, the engine
-    // must see the stealer's attempt and not run another step on it.
-    for after_steal in [AfterSteal::NoAdvance, AfterSteal::Advance] {
-        let driver = StolenLeaseDriver {
-            steps_run: AtomicUsize::new(0),
-            after_steal,
-        };
+    // (mode, step the op row is left on)
+    let cases = [
+        (StolenLease::NoAdvance, "started"),
+        (StolenLease::Advance, "half"),
+    ];
+    for (mode, step) in cases {
+        let driver = StolenLeaseDriver::new(mode);
         let op_id = Uuid::now_v7();
 
+        // The deadline ends the wait on the stealer's lease; it is sized so
+        // the lease-loss check always comes first, even on a slow database.
         let short_engine = personhog_identity::lifecycle::engine::Engine::new(
             ctx.pools.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(5),
-                execute_timeout: std::time::Duration::from_millis(200),
+                execute_timeout: std::time::Duration::from_secs(1),
                 poll_interval: std::time::Duration::from_millis(25),
                 attempt_alert_threshold: 5,
                 gc_batch_limit: 10_000,
@@ -541,15 +619,18 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
             .await
             .expect_err("waits on the stealer's lease until the deadline");
 
-        assert!(matches!(err, SagaError::Busy), "{after_steal:?}");
+        assert!(matches!(err, SagaError::Busy), "{mode:?}");
         assert_eq!(
             driver.steps_run.load(Ordering::SeqCst),
             1,
-            "{after_steal:?}: no step ran after the lease was stolen"
+            "{mode:?}: a step ran after the stolen lease was visible"
         );
+        let (row_step, _, _, completed) = op_row(&ctx, op_id).await;
+        assert_eq!(row_step, step, "{mode:?}: unexpected op step");
+        assert!(!completed, "{mode:?}: a displaced driver completed the op");
         assert!(
             lease_is_live(&ctx.pool, op_id).await,
-            "{after_steal:?}: the displaced driver must not have renewed or cleared the stealer's lease"
+            "{mode:?}: the displaced driver must not have renewed or cleared the stealer's lease"
         );
     }
 
@@ -665,10 +746,7 @@ async fn a_step_that_starts_after_a_third_of_the_lease_renews_it_first() {
 async fn a_failing_driver_whose_lease_was_stolen_does_not_release_the_stealers_lease() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
-    let driver = StolenLeaseDriver {
-        steps_run: AtomicUsize::new(0),
-        after_steal: AfterSteal::Fail,
-    };
+    let driver = StolenLeaseDriver::new(StolenLease::Fail);
     let op_id = Uuid::now_v7();
 
     let err = engine
@@ -732,8 +810,7 @@ impl OpDriver for RefusingDriver {
         let Some(next) = complete_op_in_tx(
             &mut tx,
             &common::default_tables(),
-            op.op_id,
-            "started",
+            op,
             STEP_COMPLETED,
             &json!({}),
         )
