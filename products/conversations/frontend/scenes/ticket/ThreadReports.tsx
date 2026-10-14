@@ -6,7 +6,7 @@ import { SignalReportFixOrStatus } from 'lib/signals/SignalReportFixOrStatus'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -23,7 +23,7 @@ import { TeamOnlyBadge } from '../../components/Chat/TeamOnlyBadge'
  * instead of an avatar, names the agent rather than a human, keeps the thread's own private-note
  * lock, and deliberately avoids the message bubble so it doesn't scan as something anybody said.
  */
-export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.Element {
+export function ThreadReportEntry({ report }: { report: SignalReportListApi }): JSX.Element {
     const headline = deriveHeadline(report.summary)
     // Full width, unlike a message: messages are inset because they belong to one side of the
     // conversation, and this belongs to neither.
@@ -50,7 +50,7 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
                 <div className="flex items-center gap-1.5 shrink-0">
                     <TeamOnlyBadge label="Internal" tone="agent" />
                     <span className="text-xs text-muted-alt">
-                        <TZLabel time={report.updated_at} />
+                        <TZLabel time={reportLinkedAt(report)} />
                     </span>
                 </div>
             </div>
@@ -80,10 +80,15 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
     )
 }
 
-/** Reports as thread entries, ordered by when each was last updated. */
-export function reportTimelineExtras(linkedReports: SignalReportApi[]): TimelineExtra[] {
+/** When this ticket first linked to the report. Later work on the report must not move the entry down the thread. */
+function reportLinkedAt(report: SignalReportListApi): string {
+    return report.source_linked_at ?? report.created_at
+}
+
+/** Reports as thread entries, placed at the time this ticket first linked to each one. */
+export function reportTimelineExtras(linkedReports: SignalReportListApi[]): TimelineExtra[] {
     return linkedReports.map((report) => ({
-        at: report.updated_at,
+        at: reportLinkedAt(report),
         element: <ThreadReportEntry key={report.id} report={report} />,
     }))
 }

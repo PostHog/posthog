@@ -3,7 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, cast
 
@@ -1482,8 +1482,19 @@ class SignalReportViewSet(
                 }
             )
         by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
-        report_ids = {report_id for ids in by_source.values() for report_id in ids}
-        return queryset.filter(id__in=report_ids)
+        linked_at_by_report: dict[str, datetime] = {}
+        for links in by_source.values():
+            for report_id, linked_at in links.items():
+                if report_id not in linked_at_by_report or linked_at < linked_at_by_report[report_id]:
+                    linked_at_by_report[report_id] = linked_at
+        if not linked_at_by_report:
+            return queryset.none()
+        return queryset.filter(id__in=list(linked_at_by_report)).annotate(
+            source_linked_at=Case(
+                *(When(id=report_id, then=Value(linked_at)) for report_id, linked_at in linked_at_by_report.items()),
+                output_field=models.DateTimeField(),
+            )
+        )
 
     def _apply_signal_report_scout_filter(self, queryset):
         scout_filter = self.request.query_params.get("scout")

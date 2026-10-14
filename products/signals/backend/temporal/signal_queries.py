@@ -862,8 +862,12 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
 
 def fetch_live_report_ids_for_source_ids(
     team: Team, source_ids: list[str], source_product: str | None = None
-) -> dict[str, list[str]]:
+) -> dict[str, dict[str, datetime]]:
     """Map each `source_id` to every live report its signals grouped into, newest report first.
+
+    Each report maps to the time the source record first linked to it: the earliest `timestamp` of
+    the record's signals in that report. Grouping stamps a signal when it joins a report and later
+    rewrites keep that stamp, so signals from other sources cannot move this time.
 
     Sibling of `fetch_report_ids_for_source_ids`, which answers a different question: that one
     collapses to the single latest report because a scout finding's re-emit is non-idempotent and
@@ -881,14 +885,15 @@ def fetch_live_report_ids_for_source_ids(
     source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
     product_filter = "AND source_product = {source_product}" if source_product is not None else ""
     ch_query = f"""
-        SELECT source_id, groupArray(report_id) as report_ids
+        SELECT source_id, groupArray(tuple(report_id, linked_at)) as report_links
         FROM (
             SELECT
                 JSONExtractString(metadata, 'source_id') as source_id,
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product,
-                max(timestamp) as latest_timestamp
+                max(timestamp) as latest_timestamp,
+                min(timestamp) as linked_at
             FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
             GROUP BY source_id, report_id, is_deleted, source_product
             ORDER BY latest_timestamp DESC
@@ -915,4 +920,8 @@ def fetch_live_report_ids_for_source_ids(
         placeholders=placeholders,
     )
 
-    return {row[0]: list(row[1]) for row in (result.results or []) if row[0] and row[1]}
+    return {
+        row[0]: {report_id: _ensure_tz_aware(linked_at) for report_id, linked_at in row[1]}
+        for row in (result.results or [])
+        if row[0] and row[1]
+    }
