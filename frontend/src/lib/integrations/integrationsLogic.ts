@@ -1344,7 +1344,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     replaceUrl = url.pathname + url.search + url.hash
 
                     actions.loadIntegrations()
-                    const missingScopes = getMissingScopes(integration, requestedScopesForKind(integration.kind))
+                    const missingScopes = getMissingScopes(
+                        integration,
+                        requestedScopesForKind(integration.kind, values.preflight)
+                    )
                     if (missingScopes.length > 0) {
                         actions.reportIntegrationScopeShortfallShown(integration.kind, missingScopes)
                         lemonToast.warning(describeScopeShortfall(integration.kind, missingScopes), {

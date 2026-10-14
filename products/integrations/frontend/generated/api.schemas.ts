@@ -326,6 +326,29 @@ export interface SlackChannelsResponseApi {
     has_more?: boolean
 }
 
+export interface SlackChannelJoinApi {
+    /**
+     * ID of the selected public Slack channel to add PostHog to (e.g. C0123ABC456).
+     * @maxLength 64
+     * @pattern ^[CG][A-Z0-9]{8,}$
+     */
+    channel_id: string
+}
+
+export interface SlackChannelJoinErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** What failed and how to recover. */
+    detail: string
+    /**
+     * Input field that caused the error, or null.
+     * @nullable
+     */
+    attr: string | null
+}
+
 /**
  * Standard Integration serializer.
  */

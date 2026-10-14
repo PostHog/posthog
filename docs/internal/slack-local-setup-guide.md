@@ -102,6 +102,7 @@ oauth_config:
     bot:
       - app_mentions:read
       - channels:read
+      - channels:join
       - groups:read
       - channels:history
       - groups:history
@@ -324,6 +325,12 @@ It does not load other missing channels or create a channel list from a single l
 ## Troubleshooting
 
 ### Channel selection
+
+Development installations request `channels:join` so the picker can add PostHog to a newly selected public channel.
+Reauthorize older installations to grant this permission.
+Selection adds the bot even if setup is canceled, and Slack may run the existing channel welcome behavior.
+Private channels and installations without the permission keep the manual invitation and **Check again** flow.
+Production OAuth requests keep the approved scope list until Slack approves the additional permission.
 
 Paste a Slack channel ID into the channel picker to select that channel.
 The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
