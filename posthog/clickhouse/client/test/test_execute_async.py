@@ -143,7 +143,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.manager.store_query_status(self.query_status)
         error = ClickHouseAtCapacity()
         error.wait = 5
-        args = (self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False)
+        args: tuple[Any, ...] = (self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False)
         task_id = str(uuid.uuid4())
 
         def execute(**kwargs):
@@ -163,7 +163,7 @@ class TestQueryStatusManager(SimpleTestCase):
                 if remaining is None
                 else datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=remaining)
             )
-            if expiry is not None:
+            if isinstance(expiry, datetime.datetime):
                 if expiry_format == "iso":
                     expiry = expiry.isoformat()
                 elif expiry_format == "naive":
