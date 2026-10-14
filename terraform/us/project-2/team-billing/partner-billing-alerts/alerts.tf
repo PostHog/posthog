@@ -8,7 +8,8 @@
 #
 # Billing reports these problems with capture_message or capture_exception.
 # It sets partner_billing_alert and alert_kind on each event, and payer_id,
-# organization_id, reason or mismatch when it knows them.
+# organization_id, organization_ids, customer_count, reason or mismatch when
+# it knows them.
 #
 # For more information, see:
 #   https://registry.terraform.io/providers/PostHog/posthog/latest/docs/resources/hog_function
@@ -27,7 +28,7 @@ resource "posthog_hog_function" "partner_billing_alert" {
 
   inputs_json = jsonencode({
     "text" = {
-      "value"      = "${local.mentions} {substring(event.properties.$exception_values[1], 1, 2700)} | Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
+      "value"      = "${local.mentions} {substring(event.properties.$exception_values[1], 1, 2700)} | Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''} | Issue: {project.url}/error_tracking/{event.properties.$exception_issue_id}"
       "templating" = "hog"
     }
     "blocks" = {
@@ -43,7 +44,7 @@ resource "posthog_hog_function" "partner_billing_alert" {
         {
           "type" = "context"
           "elements" = [{
-            "text" = "Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}"
+            "text" = "Kind: {event.properties.alert_kind}{notEmpty(event.properties.reason) ? f' | Reason: {event.properties.reason}' : ''}{notEmpty(event.properties.mismatch) ? f' | Mismatch: {event.properties.mismatch}' : ''}{event.properties.payer_id != null ? f' | Payer: {event.properties.payer_id}' : ''}{notEmpty(event.properties.organization_id) ? f' | Organization: {event.properties.organization_id}' : ''}{event.properties.customer_count != null ? f' | Customers: {event.properties.customer_count}' : ''}{notEmpty(event.properties.organization_ids) ? concat(' | Organizations: ', substring(arrayStringConcat(event.properties.organization_ids, ', '), 1, 2500)) : ''}"
             "type" = "mrkdwn"
           }]
         },
