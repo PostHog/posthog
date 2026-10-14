@@ -268,19 +268,6 @@ class SharingConfiguration(models.Model):
             audience=PosthogJwtAudience.SHARING_PASSWORD_PROTECTED,
         )
 
-    def can_access_object(self, obj: models.Model):
-        if obj.team_id != self.team_id:  # type: ignore
-            return False
-
-        if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
-            return cast(Insight, obj).id in self.get_connected_insight_ids()
-
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
-            if comparison and comparison == obj:
-                return True
-
-        return False
-
     def get_connected_insight_ids(self) -> list[int]:
         if self.insight:
             if self.insight.deleted:

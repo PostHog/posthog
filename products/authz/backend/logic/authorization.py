@@ -80,22 +80,39 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         if resource.id is None:
             raise ValueError("Provide a role id")
         return f"role:{org_id}/{UUID(resource.id)}"
-    if resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+    if resource.type not in (
+        ResourceType.DASHBOARD,
+        ResourceType.INSIGHT,
+        ResourceType.NOTEBOOK,
+        ResourceType.SESSION_RECORDING,
+    ):
         raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
     if resource.project_id is None:
         raise ValueError(f"Provide a project id for {resource.type} authorization")
     if resource.id is None:
         return f"resource:{org_id}/{resource.project_id}/{resource.type}"
-    if not resource.id.isdecimal() or int(resource.id) <= 0:
-        raise ValueError(f"Provide the {resource.type}'s numeric id")
-    return f"{resource.type}:{org_id}/{resource.project_id}/{int(resource.id)}"
+    if resource.type == ResourceType.NOTEBOOK:
+        id = str(UUID(resource.id))
+    elif resource.type == ResourceType.SESSION_RECORDING:
+        if not resource.id or len(resource.id) > 200 or any(c.isspace() or c in "#:" for c in resource.id):
+            raise ValueError("Provide a valid session recording id")
+        id = resource.id
+    else:
+        if not resource.id.isdecimal() or int(resource.id) <= 0:
+            raise ValueError(f"Provide the {resource.type}'s numeric id")
+        id = str(int(resource.id))
+    return f"{resource.type}:{org_id}/{resource.project_id}/{id}"
 
 
 def actor_key(subject: Subject | None) -> str:
     if subject is None:
         raise ValueError("Pass an explicit subject until request-context authorization is wired")
+    if subject.share_link_id is not None:
+        if subject.share_link_id <= 0:
+            raise ValueError("Provide a positive share link id")
+        return f"share_link:{subject.share_link_id}"
     if subject.user_id is None:
-        raise NotImplementedError("OpenFGA checks currently support user subjects only")
+        raise NotImplementedError("OpenFGA checks currently support user and share link subjects only")
     return f"user:{subject.user_id}"
 
 

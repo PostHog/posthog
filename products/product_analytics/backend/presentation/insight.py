@@ -53,7 +53,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.authz import check_object_access
+from posthog.authz import check_object_access, filter_resource_queryset
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -136,7 +136,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.alerts.backend.facade.api import delete_insight_alerts
 from products.alerts.backend.presentation.views.insight_alerts import insight_alerts_prefetch, serialize_insight_alerts
-from products.authz.backend.facade.enums import Action
+from products.authz.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -1199,6 +1199,11 @@ class InsightSerializer(InsightBasicSerializer):
         return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
+        shared_link_user = self.context.get("shared_link_user")
+        if isinstance(shared_link_user, SharedLinkUser) and not check_object_access(
+            shared_link_user, instance, Action.VIEW
+        ):
+            raise PermissionDenied("You don't have access to this insight.")
         representation = super().to_representation(instance)
 
         # Check if user has access to this insight when viewed in dashboard context
@@ -1914,9 +1919,7 @@ class InsightViewSet(
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         ):
-            queryset = queryset.filter(
-                id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
-            )
+            queryset = filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be restored by patching {"deleted": False}
             include_deleted = True

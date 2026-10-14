@@ -3,9 +3,11 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 """
 
 import json
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any, cast
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 
@@ -15,9 +17,16 @@ from django.utils import timezone
 from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 
+from products.authz.backend.facade.testing import mock_share_link_authorization
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.user_interviews.backend.models import IntervieweeContext, UserInterviewTopic
+
+
+@pytest.fixture(autouse=True)
+def share_link_authorization() -> Iterator[None]:
+    with mock_share_link_authorization():
+        yield
 
 
 class SharingAccessTokenSecurityTest(APIBaseTest):

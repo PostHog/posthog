@@ -37,6 +37,9 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
 
+from products.authz.backend.facade.testing import mock_share_link_authorization
+from products.product_analytics.backend.facade.models import Insight
+
 
 def build_query(sql):
     return {
@@ -269,6 +272,7 @@ class TestExecuteProcessQuery(TestCase):
     @parameterized.expand(
         [
             ("live", {}, True, True),
+            ("denied_by_openfga", {}, True, False),
             ("disabled", {"enabled": False}, True, False),
             ("expired", {"expires_at": datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)}, True, False),
             ("org_disallows_public_sharing", {}, False, False),
@@ -285,7 +289,9 @@ class TestExecuteProcessQuery(TestCase):
         ).encode()
         mock_redis_client.return_value = mock_redis
         mock_process_query_dict.return_value = []
-        sharing_configuration = SharingConfiguration.objects.create(team=self.team, **{"enabled": True, **overrides})
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team, insight=Insight.objects.create(team=self.team), **{"enabled": True, **overrides}
+        )
         if not org_allows_sharing:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "Organization security settings"}
@@ -293,14 +299,19 @@ class TestExecuteProcessQuery(TestCase):
             self.organization.allow_publicly_shared_resources = False
             self.organization.save()
 
-        execute_process_query(
-            self.team.id,
-            None,
-            self.query_id,
-            self.query_json,
-            self.limit_context,
-            sharing_configuration_id=sharing_configuration.id,
-        )
+        with mock_share_link_authorization() as fga:
+            if _name == "denied_by_openfga":
+                fga.client_batch_check.side_effect = lambda checks, options: [
+                    MagicMock(allowed=False, error=None) for check in checks
+                ]
+            execute_process_query(
+                self.team.id,
+                None,
+                self.query_id,
+                self.query_json,
+                self.limit_context,
+                sharing_configuration_id=sharing_configuration.id,
+            )
 
         user = mock_process_query_dict.call_args.kwargs["user"]
         if expect_viewer:
@@ -331,16 +342,23 @@ class TestExecuteProcessQuery(TestCase):
         error.cache_key = "cache_key_1"
         error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
         mock_process_query_dict.side_effect = error
-        sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
-
-        execute_process_query(
-            self.team.id,
-            self.user.id if real_user else None,
-            self.query_id,
-            self.query_json,
-            self.limit_context,
-            sharing_configuration_id=sharing_configuration.id if sharing_configuration else None,
+        sharing_configuration = (
+            None
+            if real_user
+            else SharingConfiguration.objects.create(
+                team=self.team, insight=Insight.objects.create(team=self.team), enabled=True
+            )
         )
+
+        with mock_share_link_authorization():
+            execute_process_query(
+                self.team.id,
+                self.user.id if real_user else None,
+                self.query_id,
+                self.query_json,
+                self.limit_context,
+                sharing_configuration_id=sharing_configuration.id if sharing_configuration else None,
+            )
 
         stored = json.loads(mock_redis.set.call_args.args[1])
         assert (stored.get("cache_key") == "cache_key_1") is expect_scan

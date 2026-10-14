@@ -1,0 +1,2 @@
+type session_recording extends shareable_object
+  relations

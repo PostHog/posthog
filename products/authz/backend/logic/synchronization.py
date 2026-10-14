@@ -8,7 +8,7 @@ from openfga_sdk.sync import OpenFgaClient
 from posthog import redis
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, SharingConfiguration, Team
 
 from products.access_control.backend.facade.authorization import authorization_roles, authorization_rules
 from products.dashboards.backend.facade.authorization import authorization_dashboards
@@ -38,6 +38,34 @@ class OrganizationProjection:
 
     def add(self, user: str, relation: str, object: str) -> None:
         self.relationships.add(Relationship(user=user, relation=relation, object=object))
+
+    def add_shares(self, team: Team, active_insight_ids: set[str]) -> None:
+        shares = SharingConfiguration.objects.filter(
+            SharingConfiguration.tokens_active_q(),
+            SharingConfiguration.without_retired_resources_q(),
+            team_id=team.id,
+        ).select_related("dashboard", "insight", "notebook", "recording")
+        for share in shares:
+            principal = f"share_link:{share.pk}"
+            self.add(principal, "shared_viewer", self.key("project", team.id))
+            has_target = False
+            for field, resource_type in (
+                ("dashboard", "dashboard"),
+                ("insight", "insight"),
+                ("notebook", "notebook"),
+                ("recording", "session_recording"),
+            ):
+                target = getattr(share, field)
+                if target is None or target.team_id != team.id or target.deleted:
+                    continue
+                id = target.session_id if field == "recording" else target.pk
+                self.add(principal, "shared_viewer", self.key(resource_type, f"{team.id}/{id}"))
+                has_target = True
+            if not has_target:
+                continue
+            for id in share.get_connected_insight_ids():
+                if str(id) in active_insight_ids:
+                    self.add(principal, "shared_viewer", self.key("insight", f"{team.id}/{id}"))
 
     def build(self) -> set[Relationship]:
         organization = Organization.objects.filter(id=self.organization_id).first()
@@ -170,6 +198,11 @@ class OrganizationProjection:
                     user = "user:*"
                     subject = "default"
                 self.add(user, f"{subject}_{rule.access_level}", policy_key)
+            if not (
+                organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+                and not organization.allow_publicly_shared_resources
+            ):
+                self.add_shares(team, {str(insight.id) for insight in insights if not insight.deleted})
         return self.relationships
 
     def owns(self, relationship: Relationship) -> bool:

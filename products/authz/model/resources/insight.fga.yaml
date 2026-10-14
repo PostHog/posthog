@@ -13,6 +13,18 @@ tuples:
     - { user: 'organization_member:creator#user', relation: creator, object: 'insight:insight' }
 
 tests:
+    - name: Share links only read their explicitly shared insight
+      tuples:
+          - { user: 'share_link:shared', relation: shared_viewer, object: 'insight:insight' }
+      check:
+          - user: share_link:shared
+            object: insight:insight
+            assertions:
+                { can_view: true, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+          - user: share_link:other
+            object: insight:insight
+            assertions: { can_view: false }
+
     - name: Baselines and organization boundaries
       check:
           - user: user:member

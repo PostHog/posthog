@@ -119,6 +119,8 @@ class TestModelRules(SimpleTestCase):
         with tempfile.TemporaryDirectory() as directory:
             source_dir = Path(directory)
             shutil.copytree(SOURCE_DIR, source_dir, dirs_exist_ok=True)
+            (source_dir / "resources/notebook.fga").unlink(missing_ok=True)
+            (source_dir / "resources/notebook.fga.yaml").unlink(missing_ok=True)
             original_model = ModelBuilder(source_dir).build()
             for relative_path, (old, new) in edits.items():
                 path = source_dir / relative_path

@@ -22,7 +22,6 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
-    SharingAccessTokenAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.constants import AvailableFeature
@@ -38,7 +37,6 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     PostHogFeatureFlagPermission,
-    SharingTokenPermission,
     extract_organization,
     get_authenticator_client,
 )
@@ -1477,15 +1475,6 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         self.assertFalse(result)
         mock_ff.assert_called_once()
-
-
-class TestSharingTokenPermission(SimpleTestCase):
-    def test_denies_an_object_access_ref(self):
-        request = Mock()
-        request.successful_authenticator = Mock(spec=SharingAccessTokenAuthentication)
-        ref = ObjectAccessRef(resource="notebook", id="1", team_id=1, created_by_id=None)
-
-        assert SharingTokenPermission().has_object_permission(request, Mock(), ref) is False
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):

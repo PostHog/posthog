@@ -4,6 +4,25 @@ tuple_files:
     - fixtures.yaml
 
 tests:
+    - name: Share links read project metadata without gaining membership
+      tuples:
+          - { user: 'share_link:shared', relation: shared_viewer, object: 'project:project' }
+      check:
+          - user: share_link:shared
+            object: project:project
+            assertions:
+                {
+                    can_view: true,
+                    member: false,
+                    admin: false,
+                    can_edit: false,
+                    can_delete: false,
+                    can_manage_access: false,
+                }
+          - user: share_link:other
+            object: project:project
+            assertions: { can_view: false }
+
     - name: Baselines and organization boundaries
       check:
           - user: user:member
