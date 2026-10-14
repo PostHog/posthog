@@ -65,8 +65,8 @@ tools:
             ```json
 
             { "name": "Recent pageviews", "query": { "kind": "DataTableNode", "source": { "kind": "EventsQuery",
-            "select": ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "orderBy": ["timestamp DESC"],
-            "limit": 100 } } }
+            "select": ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "orderBy": ["timestamp
+            DESC"], "limit": 100 } } }
 
             ```
 
@@ -100,10 +100,10 @@ tools:
 
             Choose SQL displays from the returned columns: `BoldNumber` for one numeric value, `Metric` for a headline
             number with change over time, `ActionsLineGraph` / `ActionsAreaGraph` for time series, `ActionsPie` /
-            `ActionsDonut` / `ActionsProportionBar` for parts of a whole, `ActionsBar` / `ActionsStackedBar` for category comparisons,
-            `ActionsBarValue` for horizontal rankings, `TwoDimensionalHeatmap` for a two-dimensional aggregation,
-            `ScatterPlot` for two numeric measures, and `BoxPlot` with `chartSettings.boxPlot` for pre-aggregated
-            distribution summaries. Otherwise use `ActionsTable`.
+            `ActionsDonut` / `ActionsProportionBar` for parts of a whole, `ActionsBar` / `ActionsStackedBar` for
+            category comparisons, `ActionsBarValue` for horizontal rankings, `TwoDimensionalHeatmap` for a
+            two-dimensional aggregation, `ScatterPlot` for two numeric measures, and `BoxPlot` with
+            `chartSettings.boxPlot` for pre-aggregated distribution summaries. Otherwise use `ActionsTable`.
         agent_note: >
             When you tell the user about this insight, name the display you chose and one or two other displays that
             also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
@@ -242,13 +242,13 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results.
-            For an events table, use `DataTableNode` with an `EventsQuery` source:
+            tool with the same identifier if you want to see the recomputed results. For an events table, use
+            `DataTableNode` with an `EventsQuery` source:
 
             ```json
 
-            { "id": "AaVQ8Ijw", "query": { "kind": "DataTableNode", "source": { "kind": "EventsQuery",
-            "select": ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "limit": 100 } } }
+            { "id": "AaVQ8Ijw", "query": { "kind": "DataTableNode", "source": { "kind": "EventsQuery", "select":
+            ["event", "timestamp", "properties.$current_url"], "event": "$pageview", "limit": 100 } } }
 
             ```
 
