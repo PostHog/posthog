@@ -351,7 +351,8 @@ class TestCsv:
         previous_limit = csv.field_size_limit(1024)
         try:
             with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
-                list(iter_csv_tables(io.BytesIO(b"a," + b"x" * 2048 + b"\n"), CsvOptions(has_header=False), "big.csv"))
+                content = io.BytesIO(b"a," + b"x" * 2048 + b"\n")
+                list(iter_csv_tables(content, CsvOptions(has_header=False), file_path="big.csv"))
         finally:
             csv.field_size_limit(previous_limit)
 
