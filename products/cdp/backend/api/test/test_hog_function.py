@@ -1640,16 +1640,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         }
 
-    @parameterized.expand([("actions",), ("events",)])
+    @parameterized.expand([("actions", str), ("events", str), ("actions", float)])
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
-    def test_filter_action_needs_viewer_access_unless_already_used(self, filter_list: str):
+    def test_filter_action_needs_viewer_access_unless_already_used(self, filter_list: str, id_type: type):
         action = Action.objects.create(
             team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
         )
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
-        filters = {filter_list: [{"id": str(action.id), "name": "restricted", "type": "actions", "order": 0}]}
+        filters = {filter_list: [{"id": id_type(action.id), "name": "restricted", "type": "actions", "order": 0}]}
         stored = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL, "filters": filters}
         )

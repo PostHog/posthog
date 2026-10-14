@@ -1105,12 +1105,9 @@ def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
     for key in ("events", "actions"):
         entries = filters.get(key)
         for entry in entries if isinstance(entries, list) else []:
-            if not isinstance(entry, dict) or entry.get("type") != "actions":
-                continue
-            action_id = entry.get("id")
-            if isinstance(action_id, int | str):
-                with contextlib.suppress(ValueError):
-                    action_ids.add(int(action_id))
+            if isinstance(entry, dict) and entry.get("type") == "actions":
+                with contextlib.suppress(KeyError, TypeError, ValueError):
+                    action_ids.add(int(entry["id"]))
     return action_ids
 
 
