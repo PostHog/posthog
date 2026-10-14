@@ -10,7 +10,6 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
-from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -52,7 +51,7 @@ from products.tasks.backend.temporal.run_trace import run_trace_context
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
-    pass
+    from temporalio.client import Client
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +247,7 @@ def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
 
 
 async def start_process_task_workflow(
-    client: Client,
+    client: "Client",
     workflow_input: ProcessTaskInput,
     *,
     workflow_id: str,
