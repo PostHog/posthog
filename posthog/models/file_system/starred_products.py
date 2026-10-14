@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -22,28 +22,6 @@ DEFAULT_PRODUCT_PATHS = [
     "Error tracking",
     "Session replay",
 ]
-
-
-def starred_products_setup_completed(user: User) -> bool:
-    configuration = user.ui_configuration
-    sidebar = configuration.get("sidebar") if isinstance(configuration, dict) else None
-    return isinstance(sidebar, dict) and bool(sidebar.get("starred_products_setup_completed"))
-
-
-def mark_starred_products_setup_completed(user: User) -> None:
-    # Merge into the stored value under a short row lock, so a concurrent settings change is kept.
-    # NO KEY UPDATE is the lock the UPDATE takes anyway, and it does not block inserts of child rows.
-    with transaction.atomic():
-        # Not type(user): request.user is a SimpleLazyObject, which has no objects manager.
-        stored = User.objects.select_for_update(no_key=True).only("ui_configuration").get(pk=user.pk).ui_configuration
-        configuration: dict[str, Any] = stored if isinstance(stored, dict) else {}
-        sidebar = configuration.get("sidebar")
-        user.ui_configuration = {
-            "version": 1,
-            **configuration,
-            "sidebar": {**(sidebar if isinstance(sidebar, dict) else {}), "starred_products_setup_completed": True},
-        }
-        user.save(update_fields=["ui_configuration"])
 
 
 def _project_shortcuts(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:

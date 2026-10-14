@@ -1653,7 +1653,6 @@ rules:
                               |SessionRecordingViewed
                               |UserFacetSettings
                               |UserHomeSettings
-                              |UserProductList
                               |UserScenePersonalisation
                               |WebAnalyticsUserConfig
                           )$
@@ -1727,7 +1726,6 @@ rules:
                         |SessionRecordingViewed
                         |UserFacetSettings
                         |UserHomeSettings
-                        |UserProductList
                         |UserScenePersonalisation
                         |WebAnalyticsUserConfig
                     )$

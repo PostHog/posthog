@@ -9200,55 +9200,6 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
-/** Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown. */
-export interface UIVisibilityConfig {
-    visible?: boolean
-}
-
-/** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
-export interface SidebarSectionsConfiguration {
-    /** The "Project" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden. */
-    project?: UIVisibilityConfig
-    /** The "Recents" section, listing recently viewed items. */
-    recents?: UIVisibilityConfig
-    /** The "My products" section, listing the user's selected products. */
-    my_tools?: UIVisibilityConfig
-}
-
-/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible. */
-export interface SidebarItemsConfiguration {
-    /** "Home" link in the Project section. */
-    home?: UIVisibilityConfig
-    /** "Inbox" link in the Project section. Only rendered when the inbox feature is available. */
-    inbox?: UIVisibilityConfig
-    /** "Data" panel trigger in the Project section. */
-    data?: UIVisibilityConfig
-    /** "Files" panel trigger in the Project section. */
-    files?: UIVisibilityConfig
-    /** "Products" panel trigger in the Project section. */
-    tools?: UIVisibilityConfig
-    /** "Starred" panel trigger in the Project section. */
-    starred?: UIVisibilityConfig
-    /** "Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available. */
-    notifications?: UIVisibilityConfig
-    /** "Help" entry in the sidebar footer. */
-    help?: UIVisibilityConfig
-}
-
-/** How densely the sidebar renders its rows. An absent value means "comfortable". */
-export type SidebarDensity = 'comfortable' | 'compact'
-
-/** Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients. */
-export interface SidebarConfiguration {
-    sections?: SidebarSectionsConfiguration
-    items?: SidebarItemsConfiguration
-    /** Row density of the sidebar. */
-    density?: SidebarDensity
-    /** True once the user saved or dismissed the setup that moves their custom products to starred products in the simple sidebar. */
-    starred_products_setup_completed?: boolean
-    [key: string]: unknown
-}
-
 /** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
 export interface SQLEditorConfiguration {
     /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
@@ -9263,8 +9214,7 @@ export interface SQLEditorConfiguration {
 
 /**
  * Per-user UI customization, persisted on the User model as a single JSONB blob.
- * A null configuration and any absent key mean "default", which for visibility is "shown",
- * so newly added UI surfaces appear for everyone until explicitly hidden.
+ * A null configuration and any absent key mean "default".
  * Writers must send the complete object; the server validates and replaces it wholesale.
  */
 export interface UserUIConfiguration {
@@ -9273,7 +9223,6 @@ export interface UserUIConfiguration {
      * @asType integer
      */
     version: number
-    sidebar?: SidebarConfiguration
     sql_editor?: SQLEditorConfiguration
     [key: string]: unknown
 }

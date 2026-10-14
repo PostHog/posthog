@@ -286,7 +286,6 @@ from posthog.schema_enums import (
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
-    SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
@@ -3507,13 +3506,6 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UIVisibilityConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    visible: bool | None = None
-
-
 class UserBasicType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3527,6 +3519,14 @@ class UserBasicType(BaseModel):
     last_name: str | None = None
     role_at_organization: str | None = None
     uuid: str
+
+
+class UserUIConfiguration(BaseModel):
+    sql_editor: SQLEditorConfiguration | None = None
+    version: int = Field(
+        ...,
+        description=("Schema version of this configuration blob, for future format migrations."),
+    )
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -8181,53 +8181,6 @@ class SessionsTimelineQueryResponse(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
-    )
-
-
-class SidebarItemsConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data: UIVisibilityConfig | None = Field(default=None, description='"Data" panel trigger in the Project section.')
-    files: UIVisibilityConfig | None = Field(default=None, description='"Files" panel trigger in the Project section.')
-    help: UIVisibilityConfig | None = Field(default=None, description='"Help" entry in the sidebar footer.')
-    home: UIVisibilityConfig | None = Field(default=None, description='"Home" link in the Project section.')
-    inbox: UIVisibilityConfig | None = Field(
-        default=None,
-        description=('"Inbox" link in the Project section. Only rendered when the inbox feature is available.'),
-    )
-    notifications: UIVisibilityConfig | None = Field(
-        default=None,
-        description=(
-            '"Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available.'
-        ),
-    )
-    starred: UIVisibilityConfig | None = Field(
-        default=None, description='"Starred" panel trigger in the Project section.'
-    )
-    tools: UIVisibilityConfig | None = Field(
-        default=None, description='"Products" panel trigger in the Project section.'
-    )
-
-
-class SidebarSectionsConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    my_tools: UIVisibilityConfig | None = Field(
-        default=None,
-        description='The "My products" section, listing the user\'s selected products.',
-    )
-    project: UIVisibilityConfig | None = Field(
-        default=None,
-        description=(
-            'The "Project" section (Home and the Data/Files/Products/Starred panel'
-            " triggers). Activity stays visible even when this section is hidden."
-        ),
-    )
-    recents: UIVisibilityConfig | None = Field(
-        default=None,
-        description='The "Recents" section, listing recently viewed items.',
     )
 
 
@@ -25997,19 +25950,6 @@ class SessionsTimelineQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SidebarConfiguration(BaseModel):
-    density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
-    items: SidebarItemsConfiguration | None = None
-    sections: SidebarSectionsConfiguration | None = None
-    starred_products_setup_completed: bool | None = Field(
-        default=None,
-        description=(
-            "True once the user saved or dismissed the setup that moves their custom"
-            " products to starred products in the simple sidebar."
-        ),
-    )
-
-
 class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26134,15 +26074,6 @@ class UsageMetricsQuery(BaseModel):
     response: UsageMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class UserUIConfiguration(BaseModel):
-    sidebar: SidebarConfiguration | None = None
-    sql_editor: SQLEditorConfiguration | None = None
-    version: int = Field(
-        ...,
-        description=("Schema version of this configuration blob, for future format migrations."),
-    )
 
 
 class VectorSearchQueryResponse(BaseModel):
