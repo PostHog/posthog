@@ -142,9 +142,9 @@ class OrganizationInviteManager:
         ).delete()
 
 
-def is_invite_email_suppressed(email: str) -> bool:
+def is_invite_email_suppressed(email: str | None) -> bool:
     # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
-    if not is_http_email_service_available():
+    if not email or not is_http_email_service_available():
         return False
     return check_esp_suppression(email).reason == ESPSuppressionReason.SUPPRESSED
 
