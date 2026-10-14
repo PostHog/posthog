@@ -249,7 +249,8 @@ It reconciles the whole organization and scans the store to compute its tuple di
 Use incremental projections before enabling it broadly.
 Dashboard and insight API permissions, list filtering, and access-rule editing use the authorization facade.
 Dashboard checks in insight placement, subscriptions, and AI tools use it too.
-Other resource types keep their existing authorization paths.
+Other resource types keep their existing member-authorization paths.
+Public share-link reads use OpenFGA for dashboards, insights, notebooks, and session recordings.
 Post-commit task publishing is not a transactional outbox.
 Add durable change capture before using the facade as the sole authorization check.
 
@@ -265,7 +266,8 @@ Missing, disabled, boolean, or unknown flag values use `v1`.
 The flag evaluates locally with the organization ID as its distinct ID and organization group key.
 Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
 Only resource types in `V2_RESOURCES` in `products/authz/backend/logic/rollout.py` can use OpenFGA, including shadow comparisons.
-The allowlist contains dashboards and insights; project, organization, and role checks always use `v1`.
+The allowlist contains dashboards and insights; project, organization, and role checks for users always use `v1`.
+Share-link subjects always use OpenFGA, without a legacy fallback or shadow comparison.
 Each organization and resource type in a batch gets its own routing decision; results retain the input order.
 Create the flag with these variant keys before testing a rollout.
 
@@ -285,14 +287,26 @@ A failed comparison logs an error type and a comparison with `matches=null`; it 
 An authoritative error propagates without falling back to the other engine.
 Optimize the legacy dashboard and insight scans and shadow-check latency before using this path broadly.
 
-These methods require an explicit `Subject(user_id=...)`.
+These methods require an explicit `Subject(user_id=...)` or `Subject(share_link_id=...)`.
 `posthog/authz.py` adapts Django users, objects, and querysets to these contracts.
 Django viewsets bind an `authorization_session` to reuse legacy lookups within each request.
 Authorization-related model writes invalidate this lookup state; the session never caches OpenFGA decisions.
 Authenticated dashboard and insight requests still enforce API scopes, project membership, and reauthentication through Django permissions.
-Public sharing and export authentication retain their existing read-only paths.
+Share token and password validation authenticate a `SharedLinkUser` to a `share_link:<sharing_configuration_id>` principal.
+The shared-page renderer, API object checks, insight list filtering, and asynchronous shared-query refreshes use OpenFGA decisions.
+The projection writes `shared_viewer` relationships for enabled, unexpired shares and their embedded insights.
+Each relationship names a specific share-link principal, never an anonymous wildcard.
+The validated parent token selects that principal for every API object check and list.
+An unrelated parent's token cannot read an insight just because another parent shares it.
+These relationships grant `can_view` only, not membership or editing permissions.
+Sharing, notebook content, dashboard tile, and recording changes reconcile the graph through the existing post-commit synchronization path.
+Organization public-sharing restrictions revoke these relationships too.
+Token rotation keeps the old principal's reads during the grace period; credential validation rejects it after expiry.
+Bootstrap the updated model, enable `OPENFGA_SYNC_ENABLED`, and run `sync_openfga <organization_uuid>` before serving public links.
+Public reads fail closed while their organization's projection is missing or pending; there is no SQL grant fallback.
+Export-purpose tokens retain their existing authentication and surface restrictions.
 Service credentials retain project-wide access within their API scopes because the facade does not support their principals yet.
-Request-context overrides and non-user principals are not wired yet and raise rather than being ignored.
+Request-context overrides and principals other than users and share links are not wired yet and raise rather than being ignored.
 The relationship-write, subject-listing, and explanation methods remain unimplemented.
 Use the existing AccessControl write APIs as the database source of truth.
 

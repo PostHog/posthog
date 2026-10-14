@@ -1,0 +1,2 @@
+type notebook extends shareable_object
+  relations

@@ -1,6 +1,9 @@
 model
   schema 1.1
 
+# Authentication resolves a validated share credential to this principal, never to an organization member.
+type share_link
+
 type user
   relations
     # FGA requires an explicit self-link; matching user IDs do not imply identity.
@@ -95,7 +98,9 @@ type project
     define owner: org_admin or (org_member and access_control_enabled and policy_owner)
     # The implicit project-admin default must not grant access-management rights.
     define can_manage_access: org_admin or (member and (creator or (policy_admin and access_control_enabled)))
-    define can_view: member
+    # A share may read project-scoped rendering metadata without gaining project membership.
+    define shared_viewer: [share_link]
+    define can_view: member or shared_viewer
     define can_edit: admin
     define can_delete: admin
 # A rule's presence blocks inheritance even if it grants none or a lower level.

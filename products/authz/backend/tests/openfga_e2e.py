@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -7,13 +8,14 @@ from unittest.mock import patch
 
 from django.db import transaction
 from django.test import override_settings
+from django.utils.timezone import now
 
 from openfga_sdk import CreateStoreRequest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.access_control.backend.facade.api import set_object_access_control
@@ -26,6 +28,7 @@ from products.authz.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 
 DASHBOARD_PERMISSIONS = {
@@ -240,6 +243,154 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 level=PrivilegeLevel.CAN_EDIT,
             )
         assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+
+    def test_share_links_only_read_their_objects_and_current_embedded_insights(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            insight = Insight.objects.create(team=self.team, name="Shared insight", short_id="shared01")
+            unrelated = Insight.objects.create(team=self.team, name="Other insight")
+            tile = DashboardTile.objects.create(team=self.team, dashboard_id=self.dashboard_id, insight=insight)
+            notebook = Notebook.objects.create(
+                team=self.team,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                        }
+                    ],
+                },
+            )
+            recording = SessionRecording.objects.create(team=self.team, session_id="shared-recording")
+            shares = [
+                SharingConfiguration.objects.create(team=self.team, enabled=True, **{field: target})
+                for field, target in (
+                    ("dashboard_id", self.dashboard_id),
+                    ("insight", insight),
+                    ("notebook", notebook),
+                    ("recording", recording),
+                )
+            ]
+        resources = [
+            self._resource(self.dashboard_id),
+            Resource(type=ResourceType.INSIGHT, id=str(insight.pk), project_id=self.team.id),
+            Resource(type=ResourceType.NOTEBOOK, id=str(notebook.pk), project_id=self.team.id),
+            Resource(type=ResourceType.SESSION_RECORDING, id=recording.session_id, project_id=self.team.id),
+        ]
+        with patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"):
+            for index, share in enumerate(shares):
+                subject = Subject(share_link_id=share.pk)
+                assert api.permissions(resource=resources[index], subject=subject) == frozenset({Action.VIEW})
+                assert api.check(
+                    resource=Resource(type=ResourceType.PROJECT, id=str(self.team.pk)),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                for other in range(len(resources)):
+                    expected = other == index or (other == 1 and index in (0, 2))
+                    assert api.check(resource=resources[other], action=Action.VIEW, subject=subject) is expected
+                assert not api.check(
+                    resource=Resource(type=ResourceType.INSIGHT, id=str(unrelated.pk), project_id=self.team.id),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                listed = api.list_resources(
+                    resource=Resource(type=ResourceType.INSIGHT, project_id=self.team.id),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                assert listed.complete
+                assert listed.ids == (frozenset({str(insight.pk)}) if index != 3 else frozenset())
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/", {"sharing_access_token": str(shares[2].access_token)}
+            )
+            assert response.status_code == 200, response.content
+            assert [item["id"] for item in response.json()["results"]] == [insight.pk]
+            response = self.client.get(f"/shared/{shares[2].access_token}.json")
+            assert response.status_code == 200, response.content
+            assert set(response.json()["insights"]) == {insight.short_id}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notebook.content = {"type": "doc", "content": []}
+            notebook.save()
+            tile.delete()
+        for share in (shares[0], shares[2]):
+            assert not api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        assert api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=shares[1].pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            shares[1].enabled = False
+            shares[1].save()
+        assert not api.check(resource=resources[1], action=Action.VIEW, subject=Subject(share_link_id=shares[1].pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            rotated = shares[3].rotate_access_token()
+        for share in (shares[3], rotated):
+            assert api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            shares[3].expires_at = now() - timedelta(seconds=1)
+            shares[3].save()
+        assert not api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=shares[3].pk))
+        assert api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=rotated.pk))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.available_product_features = [
+                *(self.organization.available_product_features or []),
+                {
+                    "key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                    "name": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
+                },
+            ]
+            self.organization.allow_publicly_shared_resources = False
+            self.organization.save()
+        for share, resource in zip(shares, resources, strict=True):
+            assert not api.check(resource=resource, action=Action.VIEW, subject=Subject(share_link_id=share.pk))
+        assert not api.check(resource=resources[3], action=Action.VIEW, subject=Subject(share_link_id=rotated.pk))
+
+    @parameterized.expand(["dashboard", "notebook"])
+    def test_implicit_insight_reads_require_the_matching_parent_token(self, parent_type: str) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            insights = [Insight.objects.create(team=self.team, name=f"Embedded {index}") for index in range(2)]
+            shares = []
+            for index, insight in enumerate(insights):
+                if parent_type == "dashboard":
+                    dashboard_id = self.dashboard_id if index == 0 else self.second_dashboard_id
+                    DashboardTile.objects.create(team=self.team, dashboard_id=dashboard_id, insight=insight)
+                    share = SharingConfiguration.objects.create(team=self.team, enabled=True, dashboard_id=dashboard_id)
+                else:
+                    notebook = Notebook.objects.create(
+                        team=self.team,
+                        content={
+                            "type": "doc",
+                            "content": [
+                                {
+                                    "type": "ph-query",
+                                    "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                                }
+                            ],
+                        },
+                    )
+                    share = SharingConfiguration.objects.create(team=self.team, enabled=True, notebook=notebook)
+                shares.append(share)
+        self.client.logout()
+        with patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"):
+            for index, insight in enumerate(insights):
+                url = f"/api/projects/{self.team.pk}/insights/{insight.pk}/"
+                response = self.client.get(url)
+                assert response.status_code == 403, response.content
+                for invalid_token in ("invalid-token", str(shares[index].pk)):
+                    response = self.client.get(url, {"sharing_access_token": invalid_token})
+                    assert response.status_code == 403, response.content
+                response = self.client.get(url, {"sharing_access_token": str(shares[1 - index].access_token)})
+                assert response.status_code == 404, response.content
+                response = self.client.get(
+                    url, {"sharing_access_token": str(shares[index].access_token), "basic": "true"}
+                )
+                assert response.status_code == 200, response.content
+                assert response.json()["id"] == insight.pk
+                response = self.client.get(
+                    f"/api/projects/{self.team.pk}/insights/",
+                    {"sharing_access_token": str(shares[index].access_token), "basic": "true"},
+                )
+                assert response.status_code == 200, response.content
+                assert [item["id"] for item in response.json()["results"]] == [insight.pk]
 
     def test_rule_crud_dashboard_lifecycle_and_scoped_listing(self) -> None:
         assert not self._check(Action.VIEW)

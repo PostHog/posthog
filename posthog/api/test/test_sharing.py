@@ -1,8 +1,10 @@
 import json
+from collections.abc import Iterator
 from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
@@ -35,6 +37,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.authz.backend.facade.testing import mock_share_link_authorization
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -43,6 +46,12 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+
+
+@pytest.fixture(autouse=True)
+def share_link_authorization() -> Iterator[None]:
+    with mock_share_link_authorization():
+        yield
 
 
 def mock_exporter_template(test_func):

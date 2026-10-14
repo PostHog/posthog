@@ -22,4 +22,7 @@ type object
 # An object that share links can expose. Anyone who can edit it can share it.
 type shareable_object extends object
   relations
+    # Share credentials grant reads independently of organization membership and never grant an access level.
+    define shared_viewer: [share_link]
+    override can_view: viewer or shared_viewer
     define can_share: can_edit

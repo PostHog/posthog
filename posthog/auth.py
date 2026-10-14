@@ -872,7 +872,7 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
 
 class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
-    Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
+    AccessControlPermission checks the share-link principal's OpenFGA grants.
     """
 
     activity_credential_type = "sharing_access_token"

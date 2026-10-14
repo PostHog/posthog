@@ -1,8 +1,10 @@
 import json
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -69,6 +71,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query, defaul
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.authz.backend.facade.testing import mock_share_link_authorization
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
@@ -90,6 +93,12 @@ PAGEVIEW_QUERY_ANALYTICS_PROPERTIES = {
     # when present. `test_insight_model.py` covers what they report for a query that does set them.
     "has_formula": False,
 }
+
+
+@pytest.fixture(autouse=True)
+def share_link_authorization() -> Iterator[None]:
+    with mock_share_link_authorization():
+        yield
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

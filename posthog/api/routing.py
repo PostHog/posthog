@@ -40,7 +40,6 @@ from posthog.permissions import (
     APIScopePermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
-    SharingTokenPermission,
     TeamMemberAccessPermission,
     VerifiedDomainEnforcementPermission,
     is_service_auth,
@@ -279,7 +278,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         ):
-            return [SharingTokenPermission()]
+            return [AccessControlPermission()]
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
@@ -403,11 +402,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         # Projects, dashboards, feature flags: org admins have implicit access; list must match retrieve (see issue #44364).
         if self.scope_object in ("project", "dashboard", "feature_flag"):
-            include_all_if_admin = True
-
-        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
-        # individual insights are retrieved
-        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(
