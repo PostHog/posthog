@@ -241,7 +241,7 @@ USER_AD_REVENUE_PRIMARY_KEYS = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class AppLovinManagementEndpointConfig:
     name: str
     # Path under `APPLOVIN_MANAGEMENT_API_BASE_URL`.
@@ -300,5 +300,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "campaign_operation_logs": [OPERATION_TIME_INCREMENTAL_FIELD],
 }
 
-# Report rows restate as metrics settle, so append would duplicate them.
-MERGE_ONLY_ENDPOINTS = (*APPLOVIN_ENDPOINTS.keys(), USER_AD_REVENUE_ENDPOINT)
+# Report rows restate as metrics settle, and operation log syncs re-read the watermark day, so
+# append would duplicate rows in both.
+MERGE_ONLY_ENDPOINTS = (*APPLOVIN_ENDPOINTS.keys(), USER_AD_REVENUE_ENDPOINT, "campaign_operation_logs")

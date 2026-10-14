@@ -3,11 +3,14 @@ import codecs
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
     APPLOVIN_API_BASE_URL,
@@ -31,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
     AppLovinManagementEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -183,7 +187,7 @@ def _fetch_page(
     return [row for row in results if isinstance(row, dict)]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AppLovinResumeConfig:
     # First day (YYYY-MM-DD) of the report window still being fetched.
     next_window_start: Optional[str] = None
@@ -256,21 +260,41 @@ def get_rows(
     resumable_source_manager.clear_state()
 
 
+@frozen(order=True)
+class AppLovinApp:
+    package_name: str
+    platform: str
+
+
 def _user_ad_revenue_apps(
     session: requests.Session, api_key: str, day: date, logger: FilteringBoundLogger
-) -> list[tuple[str, str]]:
-    """List the (package name, platform) pairs with MAX impressions on one day, in a stable order."""
-    apps: set[tuple[str, str]] = set()
+) -> list[AppLovinApp]:
+    """List the apps with MAX impressions on one day, in a stable order."""
+    apps: set[AppLovinApp] = set()
     offset = 0
     while True:
         rows = _fetch_page(session, USER_AD_REVENUE_APPS, api_key, day, day, offset, logger)
         for row in rows:
             package_name, platform = row.get("package_name"), row.get("platform")
             if package_name and platform:
-                apps.add((str(package_name), str(platform).lower()))
+                apps.add(AppLovinApp(package_name=str(package_name), platform=str(platform).lower()))
         if len(rows) < REPORT_PAGE_SIZE:
             return sorted(apps)
         offset += REPORT_PAGE_SIZE
+
+
+def _to_int(value: str) -> Optional[int]:
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _to_decimal(value: str) -> Optional[Decimal]:
+    try:
+        return Decimal(value) if value.strip() else None
+    except InvalidOperation:
+        return None
 
 
 def _normalize_csv_column(header: str) -> str:
@@ -282,10 +306,10 @@ def _user_ad_revenue_report(
     session: requests.Session,
     api_key: str,
     day: date,
-    package_name: str,
-    platform: str,
+    app: AppLovinApp,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
+    package_name, platform = app.package_name, app.platform
     params = {
         "api_key": api_key,
         "date": day.isoformat(),
@@ -310,7 +334,16 @@ def _user_ad_revenue_report(
     if not isinstance(report_url, str) or not report_url:
         return
 
-    with _get(session, report_url, api_key, stream=True) as download:
+    # The pre-signed link is a bearer credential for the report, so keep it out of request logs and errors.
+    try:
+        with redact_request_urls():
+            download = session.get(report_url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+    except requests.RequestException as e:
+        raise AppLovinAPIError(
+            f"{TRANSIENT_ERROR_PREFIX}: report download failed ({type(e).__name__}), endpoint={USER_AD_REVENUE_PATH}"
+        ) from None
+
+    with download:
         if not download.ok:
             # The download link is pre-signed and expires after an hour, so a failed download is
             # retried with a fresh link instead of disabling the source.
@@ -333,6 +366,10 @@ def _user_ad_revenue_report(
             row: dict[str, Any] = dict.fromkeys(USER_AD_REVENUE_PRIMARY_KEYS, "")
             row.update(zip(columns, record))
             row.update(day=day.isoformat(), package_name=package_name, platform=platform)
+            if "impressions" in row:
+                row["impressions"] = _to_int(row["impressions"])
+            if "revenue" in row:
+                row["revenue"] = _to_decimal(row["revenue"])
             batch.append(row)
             if len(batch) >= USER_AD_REVENUE_BATCH_SIZE:
                 yield batch
@@ -349,6 +386,8 @@ def get_user_ad_revenue_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     session = make_tracked_session(redact_values=(api_key,))
+    # The report response body carries the pre-signed download link, so it must never be sampled.
+    report_session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     today = _utc_today()
     earliest = today - timedelta(days=MAX_REQUEST_WINDOW_DAYS - 1)
@@ -374,9 +413,9 @@ def get_user_ad_revenue_rows(
         resumable_source_manager.save_state(AppLovinResumeConfig(next_window_start=day.isoformat()))
         resumable_source_manager.safe_point()
 
-        for package_name, platform in _user_ad_revenue_apps(session, api_key, day, logger):
+        for app in _user_ad_revenue_apps(session, api_key, day, logger):
             yielded = False
-            for rows in _user_ad_revenue_report(session, api_key, day, package_name, platform, logger):
+            for rows in _user_ad_revenue_report(report_session, api_key, day, app, logger):
                 yielded = True
                 yield rows
             if not yielded:

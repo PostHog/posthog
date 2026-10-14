@@ -148,6 +148,9 @@ AppLovin only serves the last 45 days of report data and the last 30 days of cam
         if not validate_applovin_credentials(config.api_key):
             return False, "Invalid AppLovin Report Key"
 
+        if schema_name is not None and schema_name not in MANAGEMENT_ENDPOINTS:
+            return True, None
+
         if bool(config.campaign_api_key) != bool(config.account_id):
             return False, "Enter both the Campaign Management API key and the account ID, or leave both empty."
 

@@ -71,6 +71,8 @@ class TestAppLovinSource:
                 (False, "Add a Campaign Management API key and account ID to sync this table."),
             ),
             (None, None, "max_ad_revenue", None, (True, None)),
+            # A Campaign Management outage must not block settings for a report table.
+            ("campaign-key", "42", "max_ad_revenue", None, (True, None)),
             (
                 "campaign-key",
                 "42",

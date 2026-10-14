@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Optional
 from urllib.parse import quote, quote_plus
 
@@ -387,8 +388,8 @@ class TestUserAdRevenue:
                 "idfa": "idfa-1",
                 "idfv": "idfv-1",
                 "user_id": "user-1",
-                "impressions": "27",
-                "revenue": "5.000025",
+                "impressions": 27,
+                "revenue": Decimal("5.000025"),
             },
             {
                 **common,
@@ -397,8 +398,8 @@ class TestUserAdRevenue:
                 "idfa": "idfa-2",
                 "idfv": "idfv-2",
                 "user_id": "",
-                "impressions": "11",
-                "revenue": "0.006100",
+                "impressions": 11,
+                "revenue": Decimal("0.006100"),
             },
         ]
         report_requests = [request for request in result.requests if request.path == "/max/userAdRevenueReport"]
