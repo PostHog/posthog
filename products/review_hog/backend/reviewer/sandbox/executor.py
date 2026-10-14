@@ -1,3 +1,4 @@
+import uuid
 import logging
 from collections.abc import Sequence
 from typing import TypeVar
@@ -12,6 +13,17 @@ from products.tasks.backend.facade.contracts import SessionFile
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+TASK_ORIGIN_KEY_MAX_LENGTH = 128
+
+
+def _origin_key(workflow_id_prefix: str | None) -> str | None:
+    # Task.origin_key reaches $ai_generation as task_origin_key, and the workflow id holds the PR.
+    # Task allows one origin_key per team, so the unique part leads and survives truncation.
+    if not workflow_id_prefix:
+        return None
+    return f"{uuid.uuid4().hex[:12]}:{workflow_id_prefix}"[:TASK_ORIGIN_KEY_MAX_LENGTH]
+
 
 # Sent once when the agent ends its first turn with prose instead of the JSON the step needs.
 JSON_RETRY_PROMPT = (
@@ -49,6 +61,7 @@ async def _run_prompt(
             branch=branch or None,
             step_name=step_name,
             workflow_id_prefix=workflow_id_prefix,
+            origin_key=_origin_key(workflow_id_prefix),
             # ReviewHog-attributed and internal (pipeline plumbing, not a user-facing task); the step
             # lands on $ai_generation as ai_stage for per-stage cost attribution.
             origin_product=TaskOriginProduct.REVIEW_HOG,
@@ -176,6 +189,7 @@ async def start_sandbox_session(
             branch=branch or None,
             step_name=step_name,
             workflow_id_prefix=workflow_id_prefix,
+            origin_key=_origin_key(workflow_id_prefix),
             # Same attribution trio as _run_prompt: ReviewHog-origin, internal, step as ai_stage.
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
