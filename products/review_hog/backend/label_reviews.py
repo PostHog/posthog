@@ -1,5 +1,6 @@
 """The label trigger: the `posthog-review` label (or the legacy `reviewhog` label) on a pull request starts a
-Standard review, or a Deep one once the pull request has a published Deep review.
+Standard review, or a Deep one once the pull request has a published Deep review. The `posthog-review-deep`
+label always starts a Deep review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -27,7 +28,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL, REVIEW_LABELS
+from products.review_hog.backend.pull_request_events import FULL_REVIEW_LABEL, REVIEW_LABEL, REVIEW_LABELS
 from products.review_hog.backend.review_request_rules import trigger_review_mode
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
@@ -68,10 +69,10 @@ def label_commands_hint(review_mode: str) -> str:
     """The note a label-started review ends with: which review the label ran, and the commands for more."""
     if review_mode == REVIEW_MODE_FLASH:
         return (
-            f"This Standard review started from the `{REVIEW_LABEL}` label. Comment `@posthog review --deep` "
-            "for a Deep review, or `@posthog help` to see all commands."
+            f"This Standard review started from the `{REVIEW_LABEL}` label. For a Deep review, add the "
+            f"`{FULL_REVIEW_LABEL}` label or comment `@posthog review --deep`. Comment `@posthog help` to see all commands."
         )
-    return f"This Deep review started from the `{REVIEW_LABEL}` label. Comment `@posthog help` to see all commands."
+    return "This Deep review started from a review label. Comment `@posthog help` to see all commands."
 
 
 def draft_review_notice(comment_commands_on: bool) -> str:
@@ -118,6 +119,7 @@ class LabelReview:
     head_branch: str
     labeler_login: str
     labeled_by_bot: bool
+    full: bool = False
 
     @property
     def ref(self) -> RepositoryRef:
@@ -220,7 +222,7 @@ class LabelReview:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
-        review_mode = trigger_review_mode(team_id, self.repository, self.pr_number)
+        review_mode = REVIEW_MODE_FULL if self.full else trigger_review_mode(team_id, self.repository, self.pr_number)
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,

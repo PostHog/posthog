@@ -6,11 +6,12 @@
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
 The `posthog-review` label starts a review. The legacy `reviewhog` label still works as an alias.
+The `posthog-review-deep` label starts a Deep review.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
 - **Standard** (internal name **Flash**, `flash`): the automatic review every push gets. A fixed set of reviewers on a lower-cost model. It never pushes to the branch.
-- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `posthog-review` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
+- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `posthog-review-deep` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
 - **Resolve**: the stage after a Deep review that fixes review comments on the PR branch, only when the PR owner opted in (`resolve_comments`).
 - **Inbox review**: a Deep review of a PR the PostHog agent opened for an Inbox report. The report's assigned reviewer counts as the PR owner.
 - **Perspective**: one angle a Deep review reads the code from, such as logic and correctness. Each one is a review skill.
@@ -920,7 +921,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`posthog-review` **label** (or the legacy `reviewhog` label) on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
+`posthog-review` **label** (or the legacy `reviewhog` label, or `posthog-review-deep` for a Deep review) on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without

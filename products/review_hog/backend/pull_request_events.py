@@ -1,7 +1,8 @@
 """GitHub `pull_request` deliveries of the PostHog GitHub App, routed by action.
 
 - `opened` / `synchronize` / `ready_for_review`: an automatic review (`automatic_reviews.py`).
-- `labeled` with the `posthog-review` label (or the legacy `reviewhog` label): a label review (`label_reviews.py`).
+- `labeled` with the `posthog-review` label (or the legacy `reviewhog` label) or the `posthog-review-deep` label:
+  a label review (`label_reviews.py`).
 
 The webhook handler runs inside the request, so this module only parses the payload, reads the
 cached ownership summary, and queues a Celery task. The task checks ownership and the rules again.
@@ -14,8 +15,9 @@ from posthog.dataclasses import frozen
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter, RepositoryRef
 
 REVIEW_LABEL = "posthog-review"
+FULL_REVIEW_LABEL = "posthog-review-deep"
 LEGACY_REVIEW_LABEL = "reviewhog"
-REVIEW_LABELS = frozenset({REVIEW_LABEL, LEGACY_REVIEW_LABEL})
+REVIEW_LABELS = frozenset({REVIEW_LABEL, FULL_REVIEW_LABEL, LEGACY_REVIEW_LABEL})
 # Authors and automation apply this label to opt a pull request out of automatic reviews.
 SKIP_AGENT_REVIEW_LABEL = "skip-agent-review"
 AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review"})
@@ -119,6 +121,10 @@ class PullRequestEvent:
     def is_label_request(self) -> bool:
         return self.action == "labeled" and (self.label_name or "").lower() in REVIEW_LABELS
 
+    @property
+    def is_full_label_request(self) -> bool:
+        return (self.label_name or "").lower() == FULL_REVIEW_LABEL
+
 
 def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     event = PullRequestEvent.from_payload(payload)
@@ -153,4 +159,5 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
         head_branch=event.head_branch,
         labeler_login=event.sender_login or "",
         labeled_by_bot=event.sender_is_bot,
+        full=event.is_full_label_request,
     )

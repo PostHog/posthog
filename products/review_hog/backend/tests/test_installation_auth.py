@@ -61,6 +61,7 @@ class TestRemoveTriggerLabel:
 
         assert [call.args for call in request.call_args_list] == [
             ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review"),
+            ("DELETE", "/repos/PostHog/posthog/issues/7/labels/posthog-review-deep"),
             ("DELETE", "/repos/PostHog/posthog/issues/7/labels/reviewhog"),
         ]
 

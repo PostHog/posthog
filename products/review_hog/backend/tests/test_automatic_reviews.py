@@ -220,12 +220,13 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
-            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
+            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True, False),
+            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True, False),
+            ("person_adds_the_full_label", "posthog-review-deep", "OctoCat", "User", True, True),
+            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True, False),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
-            ("another_label", "bug", "OctoCat", "User", False),
+            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True, False),
+            ("another_label", "bug", "OctoCat", "User", False, False),
         ]
     )
     @patch(_QUEUE)
@@ -237,6 +238,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         sender: str,
         sender_type: str,
         expected_enqueue: bool,
+        expected_full: bool,
         label_enqueue: MagicMock,
         enqueue: MagicMock,
     ) -> None:
@@ -255,6 +257,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 head_branch="feature",
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
+                full=expected_full,
             )
         else:
             label_enqueue.assert_not_called()
@@ -511,18 +514,26 @@ class TestLabelReviewTask(BaseTest):
             review_mode="flash",
         )
 
-    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
-        # A Standard request after a published Deep review is dropped, so the label would do nothing.
-        ReviewReport.objects.for_team(self.team.id).create(
-            team=self.team,
-            repository="posthog/posthog",
-            pr_number=42,
-            head_branch="feature",
-            base_branch="master",
-            published_heads_by_mode={"full": _HEAD_SHA},
-        )
+    @parameterized.expand(
+        [
+            # A Standard request after a published Deep review is dropped, so the label would do nothing.
+            ("standard_label_after_a_published_full_review", "posthog-review", True),
+            ("full_label", "posthog-review-deep", False),
+            ("full_label_after_a_published_full_review", "posthog-review-deep", True),
+        ]
+    )
+    def test_a_label_runs_full(self, _name: str, label: str, full_review_published: bool) -> None:
+        if full_review_published:
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="posthog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                published_heads_by_mode={"full": _HEAD_SHA},
+            )
 
-        self._run(_label_payload())
+        self._run(_label_payload(label=label))
 
         assert self.start.call_args.kwargs["review_mode"] == "full"
 
@@ -543,6 +554,7 @@ class TestLabelReviewTask(BaseTest):
         else:
             assert calls == [
                 ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review-deep"),
                 ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
@@ -555,7 +567,9 @@ class TestLabelReviewTask(BaseTest):
             GitHubAPIError("boom", status=502),
             gone,
             gone,
+            gone,
             GitHubAPIError("boom", status=502),
+            gone,
             gone,
             gone,
         ]
@@ -568,7 +582,7 @@ class TestLabelReviewTask(BaseTest):
         process_label_event.run(**queued)
 
         calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "DELETE", "POST", "DELETE", "DELETE"]
+        assert calls == ["DELETE", "DELETE", "DELETE", "DELETE", "POST", "DELETE", "DELETE", "DELETE"]
         self.start.assert_not_called()
 
     @parameterized.expand(

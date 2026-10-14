@@ -62,6 +62,7 @@ def process_label_event(
     head_branch: str,
     labeler_login: str,
     labeled_by_bot: bool,
+    full: bool = False,
 ) -> None:
     LabelReview(
         installation_id=installation_id,
@@ -72,4 +73,5 @@ def process_label_event(
         head_branch=head_branch,
         labeler_login=labeler_login,
         labeled_by_bot=labeled_by_bot,
+        full=full,
     ).start()
