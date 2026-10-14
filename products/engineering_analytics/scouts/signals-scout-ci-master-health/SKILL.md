@@ -45,8 +45,13 @@ The hard kill switch is the config: `enabled: false` stops every run, and `emit:
 
 ## Quick close-out
 
-Read `pattern:ci_master_health:last-check` (`key=`), then call `engineering-analytics-broken-tests`.
-If it returns no `breaking_master` rows and no `breaking_master_jobs`, the hourly lane (lens 1) is green and on time, and no `open:` entry in memory is waiting on a fix, refresh `last-check` and close out without a report.
+Read `pattern:ci_master_health:last-check`, `pattern:ci_master_health:flaky-top`, and `dedupe:ci_master_health:week-<current ISO week>` (`key=`), then call `engineering-analytics-broken-tests`.
+Two lenses run on their own clock, whatever master looks like:
+
+- When the weekly marker is missing, the weekly narrative is due: run the lenses and write it (see Decide), even on a quiet week.
+- When `flaky-top` is more than a day old, run lens 3 before you close out. Flakes tax PRs while master stays green, so a green master says nothing about them.
+
+Otherwise, if `engineering-analytics-broken-tests` returns no `breaking_master` rows and no `breaking_master_jobs`, the hourly lane (lens 1) is green and on time, and no `open:` entry in memory is waiting on a fix, refresh `last-check` and close out without a report.
 
 ## Get oriented
 
@@ -65,6 +70,10 @@ GROUP BY ci_engine
 ```
 
 When an engine's newest row trails now by more than an hour, its tail is lag, not silence and not a settled verdict.
+Lag has a limit, though.
+Several Depot workflows run every hour, not only the backend matrix, so a `depot_ci` newest row more than three hours behind now means either Depot stopped running or its data stopped loading.
+Both leave master's test coverage unobserved, and neither shows up as a missing backend run, because the comparison point stopped moving too.
+Record it in `pattern:ci_master_health:depot-freshness` with the time, and file it when the next run finds it still stale.
 
 ## Lenses
 
@@ -75,19 +84,31 @@ It runs once an hour on Depot CI (`.depot/workflows/ci-backend.yml`, workflow na
 Its runs carry no PR association and no merge-queue flag, and their `head_branch` can read null.
 Confirm that shape on the first run and record it in `pattern:ci_master_health:hourly-lane`, so later runs go straight to it.
 
+Each job keeps one row per attempt, so the inner query takes each job's latest attempt.
+A shard that failed and then passed on a retry counts as green here, and `max_attempts` above 1 says a retry happened.
+
 ```sql
 SELECT
     run_id,
-    min(created_at) AS started,
-    max(completed_at) AS finished,
-    countIf(conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failed_jobs,
-    countIf(conclusion = 'success') AS ok_jobs,
-    groupUniqArrayIf(5)(job_name, conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failed_job_names
-FROM engineering_analytics_ci_job_history
-WHERE ci_engine = 'depot_ci' AND workflow_name = 'Backend CI on Depot'
-  AND ifNull(head_branch, 'master') = 'master' AND ifNull(pr_number, 0) = 0
-  AND NOT ifNull(is_merge_queue, false) AND NOT is_rerun_copy
-  AND created_at >= now() - INTERVAL 1 DAY AND created_at_raw >= '<2 days ago, YYYY-MM-DD>'
+    min(started) AS started,
+    max(attempts) AS max_attempts,
+    countIf(final_conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failed_jobs,
+    countIf(final_conclusion = 'success') AS ok_jobs,
+    groupUniqArrayIf(5)(job_name, final_conclusion IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failed_job_names
+FROM (
+    SELECT
+        run_id,
+        job_name,
+        min(created_at) AS started,
+        max(run_attempt) AS attempts,
+        argMax(conclusion, run_attempt) AS final_conclusion
+    FROM engineering_analytics_ci_job_history
+    WHERE ci_engine = 'depot_ci' AND workflow_name = 'Backend CI on Depot'
+      AND ifNull(head_branch, 'master') = 'master' AND ifNull(pr_number, 0) = 0
+      AND NOT ifNull(is_merge_queue, false) AND NOT is_rerun_copy
+      AND created_at >= now() - INTERVAL 1 DAY AND created_at_raw >= '<2 days ago, YYYY-MM-DD>'
+    GROUP BY run_id, job_name
+)
 GROUP BY run_id
 ORDER BY started DESC
 ```
@@ -95,6 +116,7 @@ ORDER BY started DESC
 Read three things from it:
 
 - **Silence.** The newest run started more than two hours before the newest `depot_ci` row in the freshness check. A schedule that stops firing removes master's test coverage without paging anyone. This is the one finding you file on first sight.
+  The query looks back one day, so an empty result while `depot_ci` is fresh is also silence. Take the start of the silence from the newest run in `pattern:ci_master_health:hourly-lane`, and update that entry every run that sees a run.
 - **A single red tick.** One run with a few failed shards, followed by a green one. Name the shards and their failing tests (`engineering_analytics_ci_failures` for the run, or `engineering-analytics-run-failure-logs` with `latest_ci_engine` and `latest_run_id`) and remember it. It becomes a story only when the same test recurs on later ticks, which makes it a flake on unchanged code.
 - **A red streak.** The alerter pages this one. Add the timeline and the failing tests to the alerter's story through your report on it, and run lens 2 to find where it started.
 
@@ -120,7 +142,8 @@ A test is your story when it is new to the top ten, when it now fails on master,
 
 - `pattern:ci_master_health:last-check`: time of the last run and the one-line state.
 - `pattern:ci_master_health:hourly-lane`: how the hourly runs appear in the data (workflow, branch, start minute) and the newest run seen.
-- `pattern:ci_master_health:flaky-top`: last week's top ten flaky tests with their counts and classification.
+- `pattern:ci_master_health:depot-freshness`: when the `depot_ci` data last read more than three hours stale, so the next run can tell a persistent gap from a one-off.
+- `pattern:ci_master_health:flaky-top`: the top ten flaky tests with their counts and classification, the date read, and last week's list to compare against.
 - `open:ci_master_health:<job or fingerprint>`: a break in progress, its culprit, and when it started.
 - `noise:ci_master_health:<test or job>`: a known flake already quarantined or owned, with the date to re-check.
 - `report:ci_master_health:<topic>`: the `report_id` of a report you authored or are appending to.
@@ -129,7 +152,7 @@ A test is your story when it is new to the top ten, when it now fails on master,
 
 ## Decide
 
-- **Author** a report for a silent hourly lane, for a master break whose culprit you pinned and that no existing report or open alert thread carries, for a flaky test that started failing on master, or for a test stuck at the top of the flaky queue for three weeks.
+- **Author** a report for a silent hourly lane, for `depot_ci` data that stayed stale across two runs, for a master break whose culprit you pinned and that no existing report or open alert thread carries, for a flaky test that started failing on master, or for a test stuck at the top of the flaky queue for three weeks.
   Title it with the component and the fact ("Master health: hourly backend matrix has not run since 06:23 UTC").
   Lead with the verdict, then the timeline (first red, culprit PR, first green, fix PR), then the failing tests, then one next step.
   Use `immediately_actionable` for a silent lane or an unfixed break with a named culprit, `requires_human_input` otherwise. P2 for a silent lane or an unfixed break, P3 otherwise. Route `suggested_reviewers` to the culprit PR's author when they are on the roster, and to the owner from memory otherwise.

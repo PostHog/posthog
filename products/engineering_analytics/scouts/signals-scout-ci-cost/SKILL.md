@@ -37,7 +37,9 @@ Spend that moves with run count is traffic, not cost, and a run count that steps
 Every run spends a sandbox and model time, and a Slack-routed scout is exempt from the ignored-reports auto-pause, so nothing else stops a chatty run.
 Hold yourself to this budget:
 
-- At most 6 `execute-sql` calls and 4 other read tools per run. `engineering_analytics_job_costs` has no scan floor of its own, so every query bounds `created_at` and keeps a `created_at_raw` string floor a day below its window.
+- At most 3 queries over the job views (`engineering_analytics_job_costs`, `engineering_analytics_ci_job_history`) per run: lens 1, lens 2, and the re-run drill-down in lens 3 only when it is needed. At most 4 other read tools.
+  The views have no scan floor of their own, and their re-run copy check always reads the whole job history, so every extra query costs a full history scan whatever its window.
+  Every query bounds `created_at` and keeps a `created_at_raw` string floor a day below its window, which prunes the main scan.
 - At most 1 new report and 2 report edits per run.
 - Close out once you have spent about 12 minutes, with what you have.
 
@@ -46,8 +48,9 @@ The hard kill switch is the config: `enabled: false` stops every run, and `emit:
 
 ## Quick close-out
 
-Read `pattern:ci_cost:baseline` and `pattern:ci_cost:last-check` (`key=` lookups), then run lens 1.
-If total spend and every top-10 workflow sit within 15% of the previous window, no job passes the drift filter in lens 2, and re-run spend is flat, refresh `last-check` and close out without a report.
+Read `pattern:ci_cost:baseline`, `pattern:ci_cost:last-check`, and `dedupe:ci_cost:week-<current ISO week>` (`key=` lookups), then run lens 1.
+When the weekly marker is missing, the weekly narrative is due: write it (see Decide) before you close out, even on a quiet week.
+Otherwise, if total spend and every top-10 workflow sit within 15% of the previous window, no job passes the drift filter in lens 2, and re-run spend is flat, refresh `last-check` and close out without a report.
 
 ## Get oriented
 
@@ -57,19 +60,27 @@ If total spend and every top-10 workflow sit within 15% of the previous window, 
 
 ## Lenses
 
-### 1. Spend by workflow, this week against last week
+Every window is whole days and ends at the start of today.
+Today's jobs are still running, and an unsettled job has a null cost, so a window that ends at `now()` reads low against a settled previous week.
+
+### 1. Spend and re-run spend by workflow, this week against last week
+
+One query covers both, so the view is scanned once:
 
 ```sql
 SELECT
     workflow_name,
-    countIf(created_at >= now() - INTERVAL 7 DAY) AS jobs_this,
-    countIf(created_at < now() - INTERVAL 7 DAY) AS jobs_prev,
-    round(sumIf(estimated_cost_usd, created_at >= now() - INTERVAL 7 DAY), 0) AS cost_this,
-    round(sumIf(estimated_cost_usd, created_at < now() - INTERVAL 7 DAY), 0) AS cost_prev,
-    round(sumIf(estimated_cost_usd, ifNull(is_merge_queue, false) AND created_at >= now() - INTERVAL 7 DAY), 0) AS queue_cost_this
+    countIf(NOT is_rerun_copy AND created_at >= toStartOfDay(now()) - INTERVAL 7 DAY) AS jobs_this,
+    countIf(NOT is_rerun_copy AND created_at < toStartOfDay(now()) - INTERVAL 7 DAY) AS jobs_prev,
+    round(sumIf(estimated_cost_usd, created_at >= toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS cost_this,
+    round(sumIf(estimated_cost_usd, created_at < toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS cost_prev,
+    round(sumIf(estimated_cost_usd, ifNull(is_merge_queue, false) AND created_at >= toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS queue_cost_this,
+    round(sumIf(estimated_cost_usd, run_attempt > 1 AND NOT is_rerun_copy AND created_at >= toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS rerun_cost_this,
+    round(sumIf(estimated_cost_usd, run_attempt > 1 AND NOT is_rerun_copy AND created_at < toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS rerun_cost_prev
 FROM engineering_analytics_job_costs
 WHERE repo_owner = 'PostHog' AND repo_name = 'posthog'
-  AND created_at >= now() - INTERVAL 14 DAY AND created_at_raw >= '<15 days ago, YYYY-MM-DD>'
+  AND created_at >= toStartOfDay(now()) - INTERVAL 14 DAY AND created_at < toStartOfDay(now())
+  AND created_at_raw >= '<15 days ago, YYYY-MM-DD>'
 GROUP BY workflow_name
 ORDER BY cost_this DESC
 LIMIT 15
@@ -88,15 +99,16 @@ Go one level down, to the jobs that carry cost:
 SELECT
     workflow_name,
     job_name,
-    countIf(created_at >= now() - INTERVAL 7 DAY) AS runs_this,
-    countIf(created_at < now() - INTERVAL 7 DAY) AS runs_prev,
-    round(quantileIf(0.95)(duration_seconds, created_at >= now() - INTERVAL 7 DAY) / 60, 1) AS p95_this_min,
-    round(quantileIf(0.95)(duration_seconds, created_at < now() - INTERVAL 7 DAY) / 60, 1) AS p95_prev_min,
-    round(sumIf(estimated_cost_usd, created_at >= now() - INTERVAL 7 DAY), 0) AS cost_this
+    countIf(created_at >= toStartOfDay(now()) - INTERVAL 7 DAY) AS runs_this,
+    countIf(created_at < toStartOfDay(now()) - INTERVAL 7 DAY) AS runs_prev,
+    round(quantileIf(0.95)(duration_seconds, created_at >= toStartOfDay(now()) - INTERVAL 7 DAY) / 60, 1) AS p95_this_min,
+    round(quantileIf(0.95)(duration_seconds, created_at < toStartOfDay(now()) - INTERVAL 7 DAY) / 60, 1) AS p95_prev_min,
+    round(sumIf(estimated_cost_usd, created_at >= toStartOfDay(now()) - INTERVAL 7 DAY), 0) AS cost_this
 FROM engineering_analytics_job_costs
 WHERE repo_owner = 'PostHog' AND repo_name = 'posthog'
   AND conclusion = 'success' AND NOT is_rerun_copy
-  AND created_at >= now() - INTERVAL 14 DAY AND created_at_raw >= '<15 days ago, YYYY-MM-DD>'
+  AND created_at >= toStartOfDay(now()) - INTERVAL 14 DAY AND created_at < toStartOfDay(now())
+  AND created_at_raw >= '<15 days ago, YYYY-MM-DD>'
 GROUP BY workflow_name, job_name
 HAVING runs_this >= 20 AND runs_prev >= 20
    AND runs_this BETWEEN runs_prev * 0.67 AND runs_prev * 1.5
@@ -111,30 +123,15 @@ Many shards of one matrix drifting together is one finding (a shared setup step,
 To find the step that took the time, open one slow run with `engineering-analytics-workflow-jobs` (steps are empty for Depot CI jobs, so on Depot compare whole jobs instead).
 To date the change, read the workflow file's history with `gh api 'repos/PostHog/posthog/commits?path=<workflow file>&since=<window start>'`.
 
-### 3. Re-run spend
+### 3. Reading re-run spend
 
-Two different things look like re-runs:
+Lens 1 already returns it. Two different things look like re-runs:
 
-- `is_rerun_copy` rows are jobs GitHub re-lists on a new attempt but never executed. They cost nothing and only count as noise in a job count.
+- `is_rerun_copy` rows are jobs GitHub re-lists on a new attempt but never executed. They cost nothing, and lens 1 leaves them out of its job counts, because a partial re-run of a big matrix would otherwise read as a population change.
 - Rows with `run_attempt > 1` that are not copies are jobs that ran again, almost always because someone pressed "Re-run failed jobs". That is real spend, and a rise means a flaky job is taxing everyone.
 
-```sql
-SELECT
-    workflow_name,
-    countIf(run_attempt > 1 AND NOT is_rerun_copy) AS rerun_jobs,
-    round(sumIf(estimated_cost_usd, run_attempt > 1 AND NOT is_rerun_copy), 0) AS rerun_cost,
-    round(sum(estimated_cost_usd), 0) AS total_cost,
-    countIf(is_rerun_copy) AS relisted_copies
-FROM engineering_analytics_job_costs
-WHERE repo_owner = 'PostHog' AND repo_name = 'posthog'
-  AND created_at >= now() - INTERVAL 7 DAY AND created_at_raw >= '<8 days ago, YYYY-MM-DD>'
-GROUP BY workflow_name
-ORDER BY rerun_cost DESC
-LIMIT 10
-```
-
-Compare against the same query one week earlier from memory.
-When one workflow's re-run spend rises, name the jobs behind it; the flaky-test queue (`engineering-analytics-flaky-tests`) says whether a known flake drives them, and that flake is the master-health scout's story, so link to it rather than diagnose it.
+When one workflow's re-run spend rises, name the jobs behind it with one query over `engineering_analytics_ci_job_history` (`run_attempt > 1 AND NOT is_rerun_copy`, the same whole-day window).
+The flaky-test queue (`engineering-analytics-flaky-tests`) says whether a known flake drives them, and that flake is the master-health scout's story, so link to it rather than diagnose it.
 
 ## Save memory as you go
 

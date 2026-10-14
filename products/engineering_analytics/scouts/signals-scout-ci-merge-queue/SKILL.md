@@ -47,10 +47,25 @@ The hard kill switch is the config: `enabled: false` stops every run, and `emit:
 
 ## Quick close-out
 
-Read `pattern:ci_merge_queue:baseline` and `pattern:ci_merge_queue:last-check` from the scratchpad (`key=` lookups).
-Then run the throughput read (query 1).
-If no PR merged through the queue since the last check, write `pattern:ci_merge_queue:last-check` with the time and close out empty.
-If every number sits inside the baseline band and no lens below has an open thread in memory, refresh `last-check`, and close out without a report.
+Read `pattern:ci_merge_queue:baseline`, `pattern:ci_merge_queue:last-check`, and `dedupe:ci_merge_queue:week-<current ISO week>` from the scratchpad (`key=` lookups).
+When the weekly marker is missing, the weekly narrative is due: run the lenses and write it (see Decide) before you close out, even on a quiet week.
+
+Then read every queue outcome since the last check from the Trunk snapshot, not only merges:
+
+```sql
+SELECT
+    countIf(state = 'merged') AS merged,
+    countIf(state = 'failed') AS failed,
+    countIf(state = 'cancelled') AS cancelled,
+    countIf(state NOT IN ('merged', 'failed', 'cancelled')) AS in_flight
+FROM trunkio_mergequeuepullrequests
+WHERE parseDateTimeBestEffort(state_changed_at) >= toDateTime('<last check, UTC>', 'UTC')
+   OR state NOT IN ('merged', 'failed', 'cancelled')
+```
+
+Failures with no merges are a stuck queue, not a quiet one, so they always go on to lens 2.
+Close out empty only when all four counts are zero: write `pattern:ci_merge_queue:last-check` with the time.
+Otherwise run the throughput read (lens 1). If every number sits inside the baseline band, nothing failed, and no lens below has an open thread in memory, refresh `last-check` and close out without a report.
 A quiet queue is a good outcome; say it in one sentence.
 
 ## Get oriented
