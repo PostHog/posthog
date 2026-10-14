@@ -2538,6 +2538,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery", "FunnelCorrelationQuery")
         ]
         + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
+        + [(kind, None, None) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [("EventsQuery", choice, None) for choice in (None, False, True)]
     )
     def test_actor_queries_inherit_the_source_route_unless_explicitly_overridden(
@@ -2548,9 +2549,9 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         actors = FunnelsActorsQuery(source=source, funnelStep=1)
         query: BaseModel
         if kind == "InsightActorsQuery":
-            query = InsightActorsQuery(source=source)
+            query = InsightActorsQuery(source=source, modifiers=HogQLQueryModifiers())
         elif kind == "ActorsQuery":
-            query = ActorsQuery(source=actors)
+            query = ActorsQuery(source=actors, modifiers=HogQLQueryModifiers())
         elif kind == "InsightActorsQueryOptions":
             query = InsightActorsQueryOptions(source=actors)
         elif kind == "EventsQuery":
@@ -2575,6 +2576,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         original = query.model_dump()
         runner = get_query_runner(query, self.team, user=self.user)
         native = source_choice if wrapper_choice is None else wrapper_choice
+        self.assertEqual(runner.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
         self.assertIs(runner.modifiers.useNewEventsSchema, bool(native))
         self.assertIs(runner.modifiers.useNewEventsCluster, native)
         if kind == "EventsQuery":

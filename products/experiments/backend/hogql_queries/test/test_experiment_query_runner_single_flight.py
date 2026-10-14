@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -21,8 +21,11 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
+from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -173,21 +176,36 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             assert runner.clickhouse_sql is not None
             self.assertEqual("events_json" in runner.clickhouse_sql, native)
 
-    @parameterized.expand([(kind, native) for kind in ("trends", "funnels") for native in (False, True)])
+    @parameterized.expand(
+        [
+            (kind, native, child_opt_in)
+            for kind in ("trends", "funnels")
+            for native, child_opt_in in ((False, False), (True, False), (True, True), (False, True))
+        ]
+    )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_legacy_experiment_children_use_the_parent_cluster(self, kind: str, native: bool) -> None:
+    def test_legacy_experiment_children_use_the_parent_cluster(
+        self, kind: str, native: bool, child_opt_in: bool
+    ) -> None:
         self.experiment.start_date = datetime(2024, 1, 1, tzinfo=UTC)
         self.experiment.end_date = datetime(2024, 1, 8, tzinfo=UTC)
         self.experiment.save()
-        child_modifiers = HogQLQueryModifiers(optimizeJoinedFilters=True)
-        parent_modifiers = HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native)
+        child_modifiers = HogQLQueryModifiers(
+            optimizeJoinedFilters=True, useNewEventsCluster=True if child_opt_in else None
+        )
+        parent_modifiers = (
+            None
+            if native and child_opt_in
+            else HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native)
+        )
         query: ExperimentTrendsQuery | ExperimentFunnelsQuery
         if kind == "trends":
             query = ExperimentTrendsQuery(
                 experiment_id=self.experiment.pk,
                 count_query=TrendsQuery(series=[EventsNode(event="$pageview")], modifiers=child_modifiers),
                 exposure_query=TrendsQuery(
-                    series=[EventsNode(event="$feature_flag_called")], modifiers=child_modifiers
+                    series=[EventsNode(event="$feature_flag_called")],
+                    modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
                 ),
                 modifiers=parent_modifiers,
             )
@@ -204,15 +222,51 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
         ):
             children: list[QueryRunner]
+            runner: QueryRunner
             if isinstance(query, ExperimentTrendsQuery):
                 runner = ExperimentTrendsQueryRunner(query=query, team=self.team)
                 children = [runner.count_query_runner, runner.exposure_query_runner]
             else:
-                funnels_runner = ExperimentFunnelsQueryRunner(query=query, team=self.team)
-                children = [funnels_runner.funnels_query_runner]
+                runner = ExperimentFunnelsQueryRunner(query=query, team=self.team)
+                children = [runner.funnels_query_runner]
+            with override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "replacement.example.com"):
+                replacement_key = runner.get_cache_key()
+            self.assertEqual(runner.get_cache_key() != replacement_key, native)
+            if native:
+                with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
+                    with self.assertRaisesRegex(ExposedHogQLError, "force_blocking"):
+                        runner.run(ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+                    enqueue.assert_not_called()
             for child in children:
                 assert child.modifiers.optimizeJoinedFilters is True
                 assert bool(child.modifiers.useNewEventsCluster) is native
                 assert child.modifiers.useNewEventsSchema is native
-        assert child_modifiers.useNewEventsCluster is None
+        assert child_modifiers.useNewEventsCluster is (True if child_opt_in else None)
         assert child_modifiers.useNewEventsSchema is None
+
+
+class TestExperimentThreadRouting(SimpleTestCase):
+    @override_settings(IN_UNIT_TESTING=False)
+    def test_experiment_threads_preserve_the_parent_host_snapshot(self) -> None:
+        host = ["native.example.com"]
+        observed = []
+
+        def calculate():
+            observed.append(get_new_events_cluster_host())
+            raise RuntimeError("query stopped after resolving its host")
+
+        runner = MagicMock()
+        runner.experiment.id = 1
+        runner.experiment.name = "example"
+        runner.feature_flag_key = "example"
+        runner.count_query_runner.calculate.side_effect = calculate
+        runner.exposure_query_runner.calculate.side_effect = calculate
+        with (
+            patch("posthog.models.event.new_events_schema.get_instance_setting", side_effect=lambda key: host[0]),
+            new_events_cluster_host_scope(),
+        ):
+            self.assertEqual(get_new_events_cluster_host(), "native.example.com")
+            host[0] = "replacement.example.com"
+            with self.assertRaisesRegex(RuntimeError, "query stopped"):
+                ExperimentTrendsQueryRunner._calculate(runner)
+        self.assertEqual(observed, ["native.example.com", "native.example.com"])

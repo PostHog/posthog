@@ -54,10 +54,15 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
         self.prepared_funnels_query = self._prepare_funnel_query()
-        if self.modifiers.useNewEventsCluster:
+        if self.modifiers.useNewEventsCluster is not None:
             self.prepared_funnels_query.modifiers = (
                 self.prepared_funnels_query.modifiers or HogQLQueryModifiers()
-            ).model_copy(update={"useNewEventsCluster": True, "useNewEventsSchema": True})
+            ).model_copy(
+                update={
+                    "useNewEventsCluster": self.modifiers.useNewEventsCluster,
+                    **({"useNewEventsSchema": True} if self.modifiers.useNewEventsCluster else {}),
+                }
+            )
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
         )

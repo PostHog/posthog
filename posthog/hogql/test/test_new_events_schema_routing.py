@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -189,7 +191,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 True,
                 True,
                 True,
-                {"kind": "PropertyValuesQuery", "property_key": "$browser", "property_type": "event"},
+                {"kind": "GroupsQuery", "select": ["group_key"], "group_type_index": 0},
             ),
         ]
     )
@@ -199,7 +201,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         eligible: bool,
         native_table: bool,
         native_cluster: bool,
-        sql: str | dict[str, str] = "SELECT count() AS n FROM events",
+        sql: str | dict[str, Any] = "SELECT count() AS n FROM events",
         refresh: str = "force_blocking",
         async_: bool = False,
     ) -> None:
@@ -238,6 +240,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
+
     @parameterized.expand([(False,), (True,)])
     def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:
         with (

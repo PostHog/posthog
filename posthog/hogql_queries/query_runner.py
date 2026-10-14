@@ -56,6 +56,9 @@ from posthog.schema import (
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
+    ExperimentFunnelsQuery,
+    ExperimentQuery,
+    ExperimentTrendsQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -97,6 +100,7 @@ from posthog.schema import (
     PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyValuesQuery,
     QueryStatus,
     QueryStatusResponse,
     QueryTiming,
@@ -1825,24 +1829,21 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    choices: dict[str, bool] = {}
-    base_modifiers: Optional[HogQLQueryModifiers] = None
-    while True:
-        modifiers = getattr(query, "modifiers", None)
-        if modifiers is not None:
-            if base_modifiers is None:
-                base_modifiers = modifiers
-            for key in ("useNewEventsSchema", "useNewEventsCluster"):
-                value = getattr(modifiers, key)
-                if key not in choices and value is not None:
-                    choices[key] = value
-        source = getattr(query, "source", None)
-        if not isinstance(source, BaseModel):
-            break
-        query = source
-    if choices:
-        return (base_modifiers or HogQLQueryModifiers()).model_copy(update=choices)
-    return base_modifiers
+    source = getattr(query, "source", None)
+    inherited = query_node_modifiers(source) if isinstance(source, BaseModel) else None
+    modifiers = getattr(query, "modifiers", None)
+    if inherited is not None and modifiers is not None:
+        modifiers = inherited.model_copy(update={key: value for key, value in modifiers if value is not None})
+    elif modifiers is None:
+        modifiers = inherited
+    if isinstance(query, (ExperimentTrendsQuery, ExperimentFunnelsQuery)):
+        if modifiers is None or modifiers.useNewEventsCluster is None:
+            for field in ("count_query", "exposure_query", "funnels_query"):
+                child = getattr(query, field, None)
+                child_modifiers = getattr(child, "modifiers", None)
+                if child_modifiers and child_modifiers.useNewEventsCluster:
+                    return (modifiers or HogQLQueryModifiers()).model_copy(update={"useNewEventsCluster": True})
+    return modifiers
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -2360,8 +2361,34 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
+            if not isinstance(
+                self.query,
+                (
+                    HogQLQuery,
+                    TrendsQuery,
+                    FunnelsQuery,
+                    RetentionQuery,
+                    PathsQuery,
+                    PathsV2Query,
+                    StickinessQuery,
+                    LifecycleQuery,
+                    EventsQuery,
+                    ActorsQuery,
+                    InsightActorsQuery,
+                    InsightActorsQueryOptions,
+                    FunnelCorrelationQuery,
+                    PropertyValuesQuery,
+                    ExperimentQuery,
+                    ExperimentTrendsQuery,
+                    ExperimentFunnelsQuery,
+                    ExperimentExposureQuery,
+                    WebOverviewQuery,
+                    WebStatsTableQuery,
+                    WebGoalsQuery,
+                    WebVitalsQuery,
+                ),
+            ):
+                raise ExposedHogQLError("Native cluster comparisons do not support this query type. Use HogQLQuery.")
             if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
                 raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
 
