@@ -5,9 +5,9 @@ type RedirectFn = (params: Record<string, string>, searchParams: Record<string, 
 describe('error tracking routes', () => {
     it('registers alert routes before the generic issue route', () => {
         const routes = Object.keys(manifest.routes)
-        const alertsIdRoute = '/error_tracking/alerts/:id'
-        const alertsNewRoute = '/error_tracking/alerts/new/:templateId'
-        const genericIdRoute = '/error_tracking/:id'
+        const alertsIdRoute = '/error-tracking/alerts/:id'
+        const alertsNewRoute = '/error-tracking/alerts/new/:templateId'
+        const genericIdRoute = '/error-tracking/:id'
 
         expect(routes).toEqual(expect.arrayContaining([alertsIdRoute, alertsNewRoute, genericIdRoute]))
         expect(routes.indexOf(alertsIdRoute)).toBeLessThan(routes.indexOf(genericIdRoute))
@@ -17,7 +17,21 @@ describe('error tracking routes', () => {
     it('opens fingerprint management from the legacy fingerprints route', () => {
         const redirect = manifest.redirects!['/error_tracking/:id/fingerprints'] as RedirectFn
 
-        expect(redirect({ id: 'issue-id' }, {}, {})).toBe('/error_tracking/issue-id?manageFingerprints=true')
+        expect(redirect({ id: 'issue-id' }, {}, {})).toBe('/error-tracking/issue-id?manageFingerprints=true')
+    })
+
+    // Old underscore and /errors links must land on the canonical page and keep their query and hash.
+    it.each([
+        ['/errors', {}, '/error-tracking'],
+        ['/error_tracking', {}, '/error-tracking'],
+        ['/error_tracking/:id', { id: 'issue-id' }, '/error-tracking/issue-id'],
+        ['/error_tracking/alerts/:id', { id: 'alert-id' }, '/error-tracking/alerts/alert-id'],
+        ['/error_tracking/alerts/new/:templateId', { templateId: 'tpl' }, '/error-tracking/alerts/new/tpl'],
+        ['/error_tracking/fingerprint/*', { _: 'Error%3A%20x' }, '/error-tracking/fingerprint/Error%3A%20x'],
+    ])('redirects %s to the canonical error-tracking path', (path, params, expectedPath) => {
+        const redirect = manifest.redirects![path] as RedirectFn
+
+        expect(redirect(params, { dateRange: '7d' }, { foo: 'bar' })).toBe(`${expectedPath}?dateRange=7d#foo=bar`)
     })
 
     // Legacy settings links (from docs, bookmarks, and old onboarding) used to dead-end on a blank
