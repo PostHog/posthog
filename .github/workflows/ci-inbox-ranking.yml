@@ -1,4 +1,4 @@
-# Runs the inbox ranking multi-head network tests with the inbox-ranking dependency group.
+# Runs the inbox ranking multi-head network and `nn` family tests with the inbox-ranking dependency group.
 # torch is not a main dependency, so the other test jobs skip these tests.
 name: Inbox ranking network CI
 
@@ -6,6 +6,7 @@ on:
     pull_request:
         paths:
             - '.github/workflows/ci-inbox-ranking.yml'
+            - 'posthog/dags/locations/signals_ml.py'
             - 'products/signals/dags/inbox_ranking/**'
             - 'pyproject.toml'
             - 'uv.lock'
@@ -63,8 +64,9 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --group inbox-ranking
 
             # The tests need no database, ClickHouse or Redis, so the job starts no services.
-            - name: Run the network tests
+            - name: Run the network and nn family tests
               run: |
                   python -c "import torch, onnxruntime"
                   pytest products/signals/dags/inbox_ranking/tests/test_multihead_network.py \
-                      products/signals/dags/inbox_ranking/tests/test_multihead.py -v --tb=short
+                      products/signals/dags/inbox_ranking/tests/test_multihead.py \
+                      products/signals/dags/inbox_ranking/tests/test_nn.py -v --tb=short

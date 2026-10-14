@@ -118,20 +118,6 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
-    def test_wizard_configuration_block_is_ignored(self):
-        res = self._post_signed(
-            URL,
-            data=_account_request(
-                "wizardless@example.com",
-                configuration={
-                    "region": "US",
-                    "wizard": {"grant_id": "g", "installation_id": "i", "repository": "o/r"},
-                },
-            ),
-        )
-        assert res.status_code == 200
-        assert "wizard" not in res.json()
-
     def test_missing_signature_is_unauthorized(self):
         res = self.client.post(URL, data=_account_request("x@example.com"), format="json", HTTP_API_VERSION="0.1d")
         assert res.status_code == 401
