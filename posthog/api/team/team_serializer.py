@@ -243,6 +243,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(
+        # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:

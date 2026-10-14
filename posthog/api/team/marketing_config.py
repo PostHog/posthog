@@ -160,6 +160,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         max_value=90,
         help_text="How many days back a touchpoint can be credited for a conversion. Between 1 and 90.",
     )
+    # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
     attribution_mode = serializers.ChoiceField(
         choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode],
         required=False,
