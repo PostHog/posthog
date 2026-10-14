@@ -43,7 +43,13 @@ describe('usage-records-steps', () => {
 
     async function queueEventUsage(
         ingested: Promise<IngestedEventInfo | null>[],
-        event: Partial<{ event: string; eventUuid: string; distinctId: string; properties: Properties }> = {},
+        event: Partial<{
+            event: string
+            eventUuid: string
+            distinctId: string
+            timestamp: string
+            properties: Properties
+        }> = {},
         personProcessing: { processPerson?: boolean; person?: Person } = {},
         headers: { now?: Date } = {}
     ): Promise<void> {
@@ -169,20 +175,28 @@ describe('usage-records-steps', () => {
         ])
     })
 
-    it('uses trusted capture time when an event flushes six hours later', async () => {
-        const capturedAtMs = FLUSH_TIMESTAMP_MS
+    it.each([
+        ['same day', '2026-07-01T00:01:00.000Z'],
+        ['closed month', '2026-05-15T12:00:00.000Z'],
+        ['future source date', '2026-08-01T00:00:00.000Z'],
+    ])('bills receipt time and preserves the source date for %s', async (_name, timestamp) => {
+        const capturedAtMs = Date.parse('2026-07-01T23:59:00.000Z')
         jest.setSystemTime(capturedAtMs)
         await queueEventUsage(
             [Promise.resolve({ topic: 'events', partition: 0 })],
-            {},
-            {},
+            { timestamp },
+            { processPerson: true },
             { now: new Date(capturedAtMs) }
         )
 
         jest.advanceTimersByTime(6 * 60 * 60 * 1000)
         await eventUsageBatch.flush()
 
-        expect(ingestedUsage[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(['events', 'enhanced_person_events'])
+        for (const record of ingestedUsage) {
+            expect(record.timestampMs).toBe(capturedAtMs)
+            expect(record.recordId).toMatch(new RegExp(`^${timestamp.slice(0, 10)}:[0-9a-f]{32}$`))
+        }
     })
 
     // The meters have to match `person_mode` in the nightly report's two billable-event queries,

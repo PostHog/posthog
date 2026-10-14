@@ -11,7 +11,7 @@ configuration.
 import io
 import gzip
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from django.conf import settings
@@ -82,12 +82,22 @@ def read_json(key: str) -> Any:
     return json.loads(raw)
 
 
-def run_legacy_counter_query(ctx: WorkflowContext, query_name: str, query: LegacyCounterQuery) -> UsageCounterCounts:
+def run_legacy_counter_query(
+    ctx: WorkflowContext,
+    query_name: str,
+    query: LegacyCounterQuery,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> UsageCounterCounts:
+    check_cancelled = check_cancelled or (lambda: None)
+    check_cancelled()
     key = queries_key(ctx, f"legacy_{query_name}")
     raw = object_storage.read_bytes(key, bucket=bucket(), missing_ok=True)
+    check_cancelled()
     if raw is not None:
         return _COUNTER_COUNTS_ADAPTER.validate_json(raw)
     result = query()
+    check_cancelled()
     write_json(key, result)
     return result
 

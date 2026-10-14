@@ -9,7 +9,9 @@ so we can assert it was *never* called.
 import json
 import asyncio
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from functools import partial
 from threading import Event
 
 import pytest
@@ -18,6 +20,7 @@ from unittest.mock import patch
 from asgiref.sync import sync_to_async
 
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.tests.usage_report.test_parity import _install_in_memory_object_storage
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import fetch_usage_counter_report, plan_usage_counters, run_query_to_s3
@@ -230,6 +233,85 @@ async def test_counter_report_records_query_metrics(
     histograms = meter.return_value.create_histogram_timedelta
     assert [call.kwargs["name"] for call in histograms.call_args_list] == [USAGE_REPORTS_QUERY_LATENCY] * len(expected)
     assert histograms.return_value.record.call_count == len(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_during", ["cache_read", "legacy", "checkpoint", "last_checkpoint", "scan"])
+@pytest.mark.parametrize("cancel_source", ["temporal", "task"])
+async def test_cancelled_counter_activity_stops_background_work(
+    activity_environment, cancel_during: str, cancel_source: str
+) -> None:
+    period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+    modes = {UsageCounter.CDP_INVOCATIONS: UsageCounterMode.BOTH}
+    if cancel_during != "last_checkpoint":
+        modes[UsageCounter.EVENTS] = UsageCounterMode.LEGACY
+    ctx = WorkflowContext(
+        run_id="counter-cancellation-test",
+        workflow_started_at=period.end,
+        period_start=period.start,
+        period_end=period.end,
+        date_str="2026-05-04",
+        usage_counter_plan=UsageCounterPlan(period=period, caller="usage_reports_v2", modes=modes, complete=True),
+    )
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def block(stage: str) -> None:
+        if cancel_during == stage:
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(timeout=10)
+
+    def read_checkpoint(*args, **kwargs):
+        block("cache_read")
+        return None
+
+    def legacy_query(*args, **kwargs):
+        block("legacy")
+        return [(1, 7)]
+
+    def write_checkpoint(key, *args, **kwargs):
+        if key == queries_key(ctx, f"legacy_{UsageCounter.CDP_INVOCATIONS.value}"):
+            block("checkpoint")
+            block("last_checkpoint")
+
+    def scan_records(*args, **kwargs):
+        block("scan")
+        return UsageRecordTotals(totals=[])
+
+    with (
+        patch(
+            "posthog.tasks.usage_report.get_teams_with_cdp_billable_invocations_in_period",
+            side_effect=legacy_query,
+        ) as legacy,
+        patch("posthog.tasks.usage_report.get_teams_with_billable_event_count_in_period", return_value=[]) as events,
+        patch("posthog.tasks.usage_report.get_usage_records_in_period", side_effect=scan_records) as records,
+        patch("posthog.temporal.usage_report.storage.object_storage.read_bytes", side_effect=read_checkpoint) as read,
+        patch("posthog.temporal.usage_report.storage.object_storage.write", side_effect=write_checkpoint) as write,
+    ):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with patch(
+                "posthog.temporal.usage_report.activities.database_sync_to_async_pool",
+                partial(database_sync_to_async_pool, executor=executor),
+            ):
+                task = asyncio.create_task(activity_environment.run(fetch_usage_counter_report, ctx))
+                try:
+                    await asyncio.wait_for(started.wait(), timeout=10)
+                    calls_at_cancellation = [mock.call_count for mock in (read, legacy, events, records, write)]
+                    if cancel_source == "temporal":
+                        activity_environment.cancel()
+                    else:
+                        task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                finally:
+                    release.set()
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+
+        assert [mock.call_count for mock in (read, legacy, events, records, write)] == calls_at_cancellation
+        assert all(call.args[0] != queries_key(ctx, "usage_counters") for call in write.call_args_list)
 
 
 @pytest.mark.asyncio

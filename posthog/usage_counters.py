@@ -153,8 +153,8 @@ _WORKFLOW_PUSH_UNDERCOUNT = (
     "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
 )
 _EVENT_DATE_ATTRIBUTION = (
-    "Event usage records use capture time, including historical migrations. "
-    "Legacy queries use event time, so switching would bill historical imports in the current period."
+    "Event usage records use capture time; legacy queries use source event time. "
+    "A cutover must prevent counting the same event under both dates or omitting it from both."
 )
 _LOCAL_EVALUATION_UNDERCOUNT = (
     "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
@@ -302,12 +302,14 @@ class UsageCounterService:
         *,
         record_query: Callable[[str], AbstractContextManager[object]] | None = None,
         run_legacy_query: LegacyCounterRunner | None = None,
+        check_cancelled: Callable[[], None] | None = None,
     ) -> None:
         # The legacy query module imports this service for report assembly.
         from posthog.tasks import usage_report
 
         self._record_query = record_query or (lambda _: nullcontext())
         self._run_legacy_query = run_legacy_query or (lambda _name, query: query())
+        self._check_cancelled = check_cancelled or (lambda: None)
         self._queries: dict[UsageCounter, UsageCounterQuery] = {
             UsageCounter.EVENTS: lambda begin, end: usage_report.get_teams_with_billable_event_count_in_period(
                 begin, end, count_distinct=True
@@ -423,6 +425,7 @@ class UsageCounterService:
             if mode == UsageCounterMode.REALTIME and not plan.complete and not requires_breakdown:
                 # A realtime counter reads legacy only to compare a complete day, so partial-day runs skip it.
                 continue
+            self._check_cancelled()
             try:
                 with self._record_query(LEGACY_QUERY_NAMES.get(counter, counter.value)):
                     counts.update(
@@ -439,6 +442,7 @@ class UsageCounterService:
         return counts
 
     def _fetch_records(self, plan: UsageCounterPlan, record_counters: list[UsageCounter]) -> UsageRecordTotals | None:
+        self._check_cancelled()
         try:
             with self._record_query("usage_records"):
                 records = self._records_query(
@@ -446,6 +450,7 @@ class UsageCounterService:
                     tuple(dict.fromkeys(RECORD_USAGE_KEYS[counter] for counter in record_counters)),
                     plan.caller,
                 )
+                self._check_cancelled()
         except Exception:
             if UsageCounterMode.REALTIME in plan.modes.values():
                 raise

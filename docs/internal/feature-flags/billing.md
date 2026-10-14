@@ -244,6 +244,7 @@ The mode selects the authoritative count for every caller and time window.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
 Usage reports v2 saves each completed legacy query in S3 under its workflow run.
 Activity retries reuse those checkpoints and rerun only unfinished legacy queries.
+Cancellation stops the counter worker between queries and before checkpoint or report writes; an in-flight query or write can still finish.
 Usage reports v2 records query latency and failures under the existing query names, plus `usage_records` for the shared scan and `usage_counters` for the combined activity.
 A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
 Quota runs log resolved sources as `usage_counter_sources` and successful comparisons as `usage_counter_comparison`.

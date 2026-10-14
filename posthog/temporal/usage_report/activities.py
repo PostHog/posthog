@@ -12,6 +12,7 @@ import asyncio
 import dataclasses
 from functools import partial
 from itertools import batched
+from threading import Event
 from typing import Any
 
 from django.conf import settings
@@ -103,24 +104,38 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
             if ctx.usage_counter_plan is None:
                 raise ValueError("Fetching usage counters requires a resolved plan")
             started = time.monotonic()
-            report = await database_sync_to_async_pool(
-                UsageCounterService(
-                    record_query=record_query_latency,
-                    run_legacy_query=partial(run_legacy_counter_query, ctx),
-                ).fetch_report
-            )(DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan)
-            key = queries_key(ctx, "usage_counters")
+            stopped = Event()
 
-            @sync_to_async(thread_sensitive=False)
-            def persist_report() -> None:
-                write_json(key, dataclasses.asdict(report))
+            def check_cancelled() -> None:
+                if stopped.is_set() or activity.is_cancelled():
+                    raise asyncio.CancelledError()
 
-            await persist_report()
-            return RunQueryToS3Result(
-                query_name="usage_counters",
-                s3_key=key,
-                duration_ms=int((time.monotonic() - started) * 1000),
-            )
+            try:
+                report = await database_sync_to_async_pool(
+                    UsageCounterService(
+                        record_query=record_query_latency,
+                        run_legacy_query=partial(run_legacy_counter_query, ctx, check_cancelled=check_cancelled),
+                        check_cancelled=check_cancelled,
+                    ).fetch_report
+                )(DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan)
+                key = queries_key(ctx, "usage_counters")
+
+                @sync_to_async(thread_sensitive=False)
+                def persist_report() -> None:
+                    check_cancelled()
+                    payload = dataclasses.asdict(report)
+                    check_cancelled()
+                    write_json(key, payload)
+
+                await persist_report()
+                return RunQueryToS3Result(
+                    query_name="usage_counters",
+                    s3_key=key,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
+            finally:
+                # Cancelling the await leaves its sync worker running. Stop it between IO operations.
+                stopped.set()
 
 
 @activity.defn(name="run-usage-report-query")
