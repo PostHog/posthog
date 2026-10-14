@@ -135,6 +135,11 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Both calls can run ClickHouse and the models, so a read-only key cannot cause that spend.
     scope_object_write_actions = ["generate", "build"]
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # The cards carry the project's event names and weekly counts, so a key also needs the scope that reads them.
+        access = "read" if self.action in self.scope_object_read_actions else "write"
+        return [f"hog_flow:{access}", "query:read"]
+
     def get_throttles(self):
         # The AI budget is per user and shared with other AI features, so only a call that can run the LLM counts
         # against it. A generate call answered from the cache does not.

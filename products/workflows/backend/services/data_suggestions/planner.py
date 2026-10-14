@@ -197,6 +197,8 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
             channel_rule=_channel_rule(context.channels), slack_rule=slack_rule, priority_rule=priority_rule
         ),
         excluded_values=_missing_channels(context.channels),
+        # The prompt escapes `<` and `>` in event names, so the schema carries the exact names the model must return.
+        allowed_values={"trigger_event": [name for name, _ in context.events]},
         human=as_untrusted_data("project_events", lines, source="event names sent by this project's app"),
         analytics_client=analytics_client,
     )
