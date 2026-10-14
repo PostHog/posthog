@@ -5,6 +5,15 @@ export interface FormatHogQLOptions {
     useTabs?: boolean
 }
 
+export type FormatHogQLFailure = 'too_large' | 'unparsable' | 'unsupported'
+
+export type FormatHogQLResult = { formatted: string; failure: null } | { formatted: null; failure: FormatHogQLFailure }
+
+// The formatter's parser slows down more than linearly with nesting depth: 1,000 nested parentheses
+// take seconds on the UI thread, while 200 take well under 100 ms. Real queries stay far below both caps.
+export const MAX_QUERY_LENGTH = 200_000
+export const MAX_NESTING_DEPTH = 200
+
 type Token = Parameters<NonNullable<DialectOptions['tokenizerOptions']['postProcess']>>[0][number]
 
 const KEYWORD_TOKEN_TYPES = new Set<string>(['RESERVED_KEYWORD', 'RESERVED_DATA_TYPE'])
@@ -46,9 +55,9 @@ function keywordCallsAsFunctions(tokens: Token[]): Token[] {
 }
 
 // HogQL is ClickHouse SQL with extra syntax that the ClickHouse dialect rejects or splits: `$` in
-// identifiers, `{placeholder}` expressions, `??`, the regex operators, `//` comments and HogQL's
-// own join modifier order (`ASOF LEFT JOIN`). The clause list is limited to SELECT statements, so a
-// column named `sample`, `format` or `values` does not start a clause of its own.
+// identifiers, `{placeholder}` expressions, `f'template {strings}'`, `??`, the regex operators,
+// `//` comments and HogQL's own join modifier order (`ASOF LEFT JOIN`). The clause list is limited
+// to SELECT statements, so a column named `sample`, `format` or `values` does not start a clause.
 const hogQLDialect: DialectOptions = {
     name: 'hogql',
     tokenizerOptions: {
@@ -74,7 +83,7 @@ const hogQLDialect: DialectOptions = {
         // Without these, `WITH` opens a new clause in the middle of `GROUP BY a WITH TOTALS`.
         reservedKeywordPhrases: expandPhrases(['WITH {TOTALS | TIES | CUBE | ROLLUP | FILL}']),
         identChars: { first: '$', rest: '$' },
-        stringTypes: ["''-qq-bs"],
+        stringTypes: [{ quote: "''-qq-bs", prefixes: ['f', 'F'] }],
         lineCommentTypes: ['--', '//', '#'],
         paramTypes: { custom: [{ regex: String.raw`\{[^{}]*\}` }] },
         operators: [...(clickhouse.tokenizerOptions.operators ?? []), '??', '~', '=~', '!~', '~*', '=~*', '!~*'],
@@ -83,13 +92,53 @@ const hogQLDialect: DialectOptions = {
     formatOptions: { onelineClauses: [], tabularOnelineClauses: [] },
 }
 
-const withoutWhitespace = (query: string): string => query.replace(/\s+/g, '')
+function nestingDepth(query: string): number {
+    let depth = 0
+    let deepest = 0
+    for (const char of query) {
+        if (char === '(') {
+            depth += 1
+            deepest = Math.max(deepest, depth)
+        } else if (char === ')') {
+            depth = Math.max(0, depth - 1)
+        }
+    }
+    return deepest
+}
+
+// Whitespace between two of these characters separates tokens (`select event`, `f'x'` against
+// `f 'x'`), so it stays as one space. Whitespace next to anything else is layout and is dropped.
+const TOKEN_CHARACTER = /[\w$'"`]/
+
+function significantText(query: string): string {
+    let text = ''
+    let pendingSpace = false
+    for (const char of query) {
+        if (/\s/.test(char)) {
+            pendingSpace = true
+            continue
+        }
+        const previous = text[text.length - 1]
+        if (pendingSpace && previous !== undefined && TOKEN_CHARACTER.test(previous) && TOKEN_CHARACTER.test(char)) {
+            text += ' '
+        }
+        pendingSpace = false
+        text += char
+    }
+    return text
+}
 
 /**
- * Reflows the whitespace of a HogQL query. Returns null when the query does not parse, so the
- * caller can leave the text as it is.
+ * Reflows the whitespace of a HogQL query. A query that is too large, does not parse, or would come
+ * back with different tokens is refused with a failure reason, so the caller can leave the text as it is.
  */
-export function formatHogQL(query: string, { tabWidth = 4, useTabs = false }: FormatHogQLOptions = {}): string | null {
+export function formatHogQL(
+    query: string,
+    { tabWidth = 4, useTabs = false }: FormatHogQLOptions = {}
+): FormatHogQLResult {
+    if (query.length > MAX_QUERY_LENGTH || nestingDepth(query) > MAX_NESTING_DEPTH) {
+        return { formatted: null, failure: 'too_large' }
+    }
     let formatted: string
     try {
         formatted = formatDialect(query, {
@@ -102,8 +151,12 @@ export function formatHogQL(query: string, { tabWidth = 4, useTabs = false }: Fo
             identifierCase: 'preserve',
         })
     } catch {
-        return null
+        return { formatted: null, failure: 'unparsable' }
     }
-    // HogQL identifiers and function names are case-sensitive, so a format must only move whitespace.
-    return withoutWhitespace(formatted) === withoutWhitespace(query) ? formatted : null
+    // HogQL identifiers and function names are case-sensitive and a string prefix must touch its
+    // quote, so a format may only move whitespace between tokens.
+    if (significantText(formatted) !== significantText(query)) {
+        return { formatted: null, failure: 'unsupported' }
+    }
+    return { formatted, failure: null }
 }

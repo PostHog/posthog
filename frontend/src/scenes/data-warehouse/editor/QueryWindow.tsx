@@ -331,7 +331,11 @@ export function QueryWindow({
                             icon={<IconBrackets />}
                             onClick={() => formatQuery()}
                             disabledReason={
-                                originalQueryInput ? 'Accept or reject the suggested query first.' : undefined
+                                sendRawQueryEnabled
+                                    ? 'Formatting is only available for HogQL queries.'
+                                    : originalQueryInput
+                                      ? 'Accept or reject the suggested query first.'
+                                      : undefined
                             }
                             tooltip={
                                 <>
