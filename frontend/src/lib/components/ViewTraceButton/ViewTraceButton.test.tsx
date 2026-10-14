@@ -57,7 +57,7 @@ describe('ViewTraceButton', () => {
 
         expect(screen.getByText('View trace').closest('a')).toHaveAttribute(
             'href',
-            expect.stringContaining('trace=abc123')
+            expect.stringContaining('trace=ABC123')
         )
         // The timestamp bounds the cold-load query; without it the lookup scans the whole
         // retention window, because OTel trace ids embed no time.
