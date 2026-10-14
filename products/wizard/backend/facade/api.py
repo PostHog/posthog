@@ -20,6 +20,7 @@ from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
+    RecordWizardScanInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
     WizardProgram,
@@ -30,6 +31,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunPage,
     WizardRunPullRequestArtifactDTO,
     WizardRunTaskDTO,
+    WizardScanResult,
     WizardSessionDTO,
 )
 from products.wizard.backend.facade.enums import WizardRunStage, WizardRunStatus
@@ -37,6 +39,7 @@ from products.wizard.backend.facade.validation import validate_wizard_version as
 from products.wizard.backend.logic import (
     registry as registry_service,
     runs as run_service,
+    scans,
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
@@ -47,6 +50,10 @@ from products.wizard.backend.logic.sessions import pubsub
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
     """Returns `(dto, created)` so callers can pick 201 vs 200."""
     return sessions.upsert_session(params)
+
+
+def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
+    return scans.record_scan(params)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
