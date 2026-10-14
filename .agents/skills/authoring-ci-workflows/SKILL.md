@@ -240,6 +240,13 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 - **Default:** plain `actions/checkout` (depth 1). Add nothing.
 
+- **Asking for changed files or a merge base:** ask the GitHub API, not local history.
+  On `pull_request` the checkout's HEAD is the merge commit, so `repos/{repo}/compare/{default_branch}...{merge_sha}?per_page=1` returns the merge base and the change set in one call.
+  It lists at most 300 files, and `repos/{repo}/pulls/{n}/files` lists at most 3,000, so a list at either cap is truncated and must widen rather than narrow.
+  List a rename's `previous_filename` too, since the old path counts as deleted.
+  To read one file at the merge base, `git fetch --no-tags --depth=1 --filter=blob:none origin <sha>` and `git show <sha>:<path>` it, or use the contents API.
+  `trunk-impacted-targets.yml` is the reference.
+
 - **Diffing against the PR base:** you need real history, so bound the depth, filter blobs, **and** sparse-checkout the files the job reads:
 
   ```yaml

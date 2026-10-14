@@ -27,6 +27,18 @@ inputs:
         description: 'Force a full rebuild (skip diff analysis)'
         required: false
         default: 'false'
+    changed-files:
+        description: |
+            Path to a newline-separated list of changed files. When set, the
+            binary reads the change set from it instead of running git diff,
+            so the caller's checkout needs no history. The base commit is then
+            fetched on its own, at depth 1, for the old package graph.
+        required: false
+        default: ''
+    token:
+        description: Token for the compare API call that resolves the merge base.
+        required: false
+        default: ${{ github.token }}
 
 outputs:
     crates:
@@ -74,6 +86,9 @@ runs:
               PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
               BASE_BRANCH: ${{ inputs.base-branch }}
               FORCE_REBUILD: ${{ inputs.rebuild-all }}
+              CHANGED_FILES: ${{ inputs.changed-files }}
+              REPOSITORY: ${{ github.repository }}
+              GH_TOKEN: ${{ inputs.token }}
           working-directory: rust
           run: |
               if [ "$FORCE_REBUILD" = "true" ]; then
@@ -92,12 +107,12 @@ runs:
                       fi
 
                       if [ -n "$base_branch" ]; then
-                          git fetch --no-tags origin "$base_branch"
-                          base_ref=$(git merge-base FETCH_HEAD HEAD || true)
+                          head_sha=$(git rev-parse HEAD)
+                          base_ref=$(gh api "repos/$REPOSITORY/compare/$base_branch...$head_sha?per_page=1" --jq '.merge_base_commit.sha' || true)
                           if [ -n "$base_ref" ]; then
-                              echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                              echo "Using the merge base of $base_branch and HEAD from the compare API: $base_ref"
                           else
-                              echo "merge-base empty; falling back to PR base SHA"
+                              echo "The compare API gave no merge base; falling back to PR base SHA"
                               base_ref="$PR_BASE_SHA"
                           fi
                       else
@@ -109,7 +124,14 @@ runs:
                       echo "No valid base ref — rebuilding all"
                       result=$(./target/release/affected-services --files rust/Cargo.lock)
                   else
-                      result=$(./target/release/affected-services --base-ref "$base_ref")
+                      if ! git cat-file -e "$base_ref^{commit}" 2>/dev/null; then
+                          git fetch --no-tags --depth=1 --filter=blob:none origin "$base_ref" || true
+                      fi
+                      if [ -n "$CHANGED_FILES" ]; then
+                          result=$(./target/release/affected-services --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
+                      else
+                          result=$(./target/release/affected-services --base-ref "$base_ref")
+                      fi
                   fi
               fi
 
