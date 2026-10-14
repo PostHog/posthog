@@ -342,7 +342,7 @@ export const stepPickerLogic: LogicWrapper<stepPickerLogicType> = kea<stepPicker
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(SEARCH_TRACKING_DEBOUNCE_MS)
             const query = search.trim()
-            if (query) {
+            if (query && query === values.search.trim()) {
                 // pinned: analytics event name and properties, renaming breaks dashboards
                 posthog.capture('workflow step picker searched', {
                     surface: props.surface,

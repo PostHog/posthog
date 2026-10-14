@@ -109,21 +109,24 @@ describe('buildStepCatalog', () => {
                 ],
             },
         ],
-    ])('keeps the special config of %s over a destination template with the same ID', (id, flag, expectedAction) => {
-        const offeredTemplate = destination(id, 'Offered as a destination', ['Custom'])
+    ])(
+        'keeps the special config of %s and takes the tags of a destination template with the same ID',
+        (id, flag, expectedAction) => {
+            const offeredTemplate = destination(id, 'Offered as a destination', ['Custom'])
 
-        const flagOn = buildStepCatalog({ ...FULL_INPUT, destinationTemplates: [offeredTemplate] })
-        expect(flagOn.filter((entry) => entry.id === id)).toEqual([
-            expect.objectContaining({ action: expect.objectContaining(expectedAction) }),
-        ])
+            const flagOn = buildStepCatalog({ ...FULL_INPUT, destinationTemplates: [offeredTemplate] })
+            expect(flagOn.filter((entry) => entry.id === id)).toEqual([
+                expect.objectContaining({ action: expect.objectContaining(expectedAction), tags: ['Custom'] }),
+            ])
 
-        const flagOff = buildStepCatalog({
-            ...FULL_INPUT,
-            featureFlags: { ...ALL_FLAGS_ON, [flag]: false },
-            destinationTemplates: [offeredTemplate],
-        })
-        expect(entryById(flagOff, id)).toBeUndefined()
-    })
+            const flagOff = buildStepCatalog({
+                ...FULL_INPUT,
+                featureFlags: { ...ALL_FLAGS_ON, [flag]: false },
+                destinationTemplates: [offeredTemplate],
+            })
+            expect(entryById(flagOff, id)).toBeUndefined()
+        }
+    )
 
     it.each<[string, string[], StepCatalogEntry['category'], StepCatalogEntry['status']]>([
         ['a mapped tag', ['Customer Success', 'CRM'], 'crm', null],
@@ -150,7 +153,6 @@ describe('buildStepCatalog', () => {
             vendor: 'Acme',
             category,
             tags,
-            highlight: false,
             status,
         })
     })
