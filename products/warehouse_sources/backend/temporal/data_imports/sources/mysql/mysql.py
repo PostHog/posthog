@@ -625,6 +625,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# Vitess/PlanetScale vtgate surfaces this 1105 error (gRPC `Unavailable`, the same status as
+# `_is_transient_tablet_unavailable`'s `code = Unavailable` wrapping) when its tablet discovery
+# has zero serving tablets for the target keyspace/shard/tablet-type at the moment the connection
+# is opened — a failover, a restart, or a rollout that briefly leaves no tablet registered as
+# healthy. A fresh attempt after a short backoff usually lands once a tablet comes back online.
+# Match the stable `vtgate connection error: no endpoints` phrase, excluding the volatile attempt
+# count and reqid that follow it.
+_VITESS_NO_ENDPOINTS_TOKEN = "vtgate connection error: no endpoints"
+
+
+def _is_transient_vitess_no_endpoints(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate found no serving tablet endpoints — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_NO_ENDPOINTS_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
 # `max_connections` is already reached. A transient capacity condition on the customer's database,
 # not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
@@ -954,6 +971,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
@@ -1076,7 +1094,8 @@ def _retry_on_transient_tablet_unavailable(
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
     `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
-    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
+    a vtgate with no serving tablet endpoints, a TiProxy failover, or a plain peer-reset
+    connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -1088,6 +1107,7 @@ def _retry_on_transient_tablet_unavailable(
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
