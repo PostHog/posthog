@@ -73644,6 +73644,11 @@ export namespace Schemas {
       readonly summary_lead: string;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /**
+         * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+         * @nullable
+         */
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -95329,6 +95334,11 @@ export namespace Schemas {
       readonly summary_lead: string;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
+      /**
+         * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+         * @nullable
+         */
+      readonly monitoring_started_at?: string | null;
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
@@ -114272,8 +114282,8 @@ export namespace Schemas {
        * * `in-cli` - In the terminal
        * * `deep-link` - In the app */
       wizard_setup_mode: WizardSetupModeEnum | null;
-      /** PostHog products this tool competes with. */
-      competes_with: string[];
+      /** PostHog products this tool is an alternative to. */
+      alternative_to: string[];
       /** Kinds that reach the same data through a more specific source. When one of them also matches, the wizard drops this tool. */
       superseded_by: string[];
       /** How the wizard detects the tool in a codebase. */

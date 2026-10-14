@@ -211,6 +211,22 @@ class TestGroupAlertDestinationRows:
             },
         }
 
+    def test_one_webhook_url_with_and_without_added_headers_is_two_groups(self) -> None:
+        plain, authed = uuid4(), uuid4()
+        with_header = {
+            **webhook_inputs("https://example.com/hook"),
+            "headers": {"value": {"Authorization": "Bearer not-a-real-token"}},
+        }
+
+        groups = group_alert_destination_rows(
+            [
+                AlertDestinationRow(plain, "template-webhook", webhook_inputs("https://example.com/hook")),
+                AlertDestinationRow(authed, "template-webhook", with_header),
+            ]
+        )
+
+        assert list(groups.values()) == [{plain}, {authed}]
+
     def test_an_unreadable_row_collapses_its_whole_template_into_one_group(self) -> None:
         unreadable, readable, webhook = uuid4(), uuid4(), uuid4()
 

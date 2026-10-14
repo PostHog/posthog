@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 UPPROMOTE_BASE_URL = "https://aff-api.uppromote.com/api/v2"
@@ -28,7 +31,7 @@ UPPROMOTE_OBJECT_TYPE_TO_EVENTS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class UpPromoteEndpointConfig:
     name: str
     path: str
@@ -42,12 +45,28 @@ class UpPromoteEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field used for datetime partitioning; never a mutable timestamp.
     partition_key: Optional[str] = None
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
+
+    @property
+    def page_size(self) -> int:
+        return UPPROMOTE_PAGE_SIZE
 
 
 _CREATED_AT_FIELD: IncrementalField = {
     "label": "created_at",
     "type": IncrementalFieldType.DateTime,
     "field": "created_at",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+_CONNECTION_DATE_FIELD: IncrementalField = {
+    "label": "connection_date",
+    "type": IncrementalFieldType.DateTime,
+    "field": "connection_date",
     "field_type": IncrementalFieldType.DateTime,
 }
 
@@ -104,6 +123,35 @@ UPPROMOTE_ENDPOINTS: dict[str, UpPromoteEndpointConfig] = {
         path="/payments/unpaid",
         primary_keys=["affiliate_id"],
         partition_key=None,
+    ),
+    "connected_customers": UpPromoteEndpointConfig(
+        # Rows carry no id. `customer_id` is null for customers without a Shopify id, so the
+        # always-present email identifies the customer within an affiliate.
+        name="connected_customers",
+        path="/connected-customers",
+        primary_keys=["affiliate_id", "customer_email"],
+        supports_date_window=True,
+        requires_to_date=True,
+        incremental_fields=[_CONNECTION_DATE_FIELD],
+        partition_key="connection_date",
+    ),
+    "program_excluded": UpPromoteEndpointConfig(
+        # One object per program ({apply_to, apply_to_ids}) with no id or timestamp, so it's a
+        # full-refresh fan-out keyed on the parent program.
+        name="program_excluded",
+        path="/programs/{id}/excluded",
+        primary_keys=["program_id"],
+        partition_key=None,
+        fanout=DependentEndpointConfig(
+            parent_name="programs",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "program_id"},
+            parent_params={"per_page": UPPROMOTE_PAGE_SIZE},
+            # A program deleted between the parent page and its child request must not fail the sync.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

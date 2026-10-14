@@ -599,6 +599,93 @@ describe('CDP Consumer loop', () => {
             }
         })
 
+        // E2E coverage for the webhook template's `secret_headers` input. In production the dictionary
+        // exists only in Fernet-encrypted `encrypted_inputs`, the fetch queue carries an input-key
+        // reference, and the executor resolves it again on every attempt. The unit tests seed
+        // `encrypted_inputs` in memory and never cross the queue, so a reference dropped during
+        // serialization, or a merge moved back into the Hog code, is only visible here.
+        it('should send webhook template secret headers from encrypted_inputs on the first attempt and the retry', async () => {
+            const TOKEN = 'sk_e2e_secret_headers_token_0000'
+            const API_KEY = 'e2e-secret-headers-api-key-0000'
+            const SECRET_HEADERS_URL = 'https://secret-headers.example.com/hooks'
+
+            let secretHeaderAttempts = 0
+            mockFetch.mockImplementation((url: string) => {
+                const status = url === SECRET_HEADERS_URL && ++secretHeaderAttempts === 1 ? 500 : 200
+                return Promise.resolve({
+                    status,
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    headers: { 'Content-Type': 'application/json' },
+                    dump: () => Promise.resolve(),
+                })
+            })
+
+            const fn = await insertHogFunction({
+                type: 'destination',
+                hog: webhookTemplate.code,
+                bytecode: await compileHog(webhookTemplate.code),
+                inputs_schema: webhookTemplate.inputs_schema,
+                inputs: {
+                    url: { value: SECRET_HEADERS_URL },
+                    method: { value: 'POST' },
+                    body: { value: { event: '{event.event}' } },
+                    // Same name as a secret header in another case, so the merge has to replace it
+                    // instead of sending both.
+                    headers: {
+                        value: { 'Content-Type': 'application/json', authorization: 'plaintext-authorization' },
+                    },
+                    debug: { value: true },
+                },
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({
+                        secret_headers: { value: { Authorization: `Bearer ${TOKEN}`, 'X-Api-Key': API_KEY } },
+                    })
+                ),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            } as any)
+
+            // The default `fnFetchNoFilters` from beforeEach also matches this event, so select by URL.
+            const secretHeaderCalls = (): any[][] =>
+                mockFetch.mock.calls.filter((c: any[]) => c[0] === SECRET_HEADERS_URL)
+
+            await eventsConsumer.processBatch([globals])
+
+            await waitForExpect(() => {
+                expect(secretHeaderCalls()).toHaveLength(2)
+            }, 5000)
+
+            for (const [, opts] of secretHeaderCalls() as [string, any][]) {
+                const headers = opts.headers as Record<string, string>
+                expect(headers).toMatchObject({
+                    Authorization: `Bearer ${TOKEN}`,
+                    'X-Api-Key': API_KEY,
+                    'Content-Type': 'application/json',
+                })
+                expect(Object.keys(headers).filter((name) => name.toLowerCase() === 'authorization')).toEqual([
+                    'Authorization',
+                ])
+            }
+
+            await waitForExpect(() => {
+                const messages = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .filter((m: any) => m.value.log_source_id === fn.id)
+                    .map((m: any) => m.value.message as string)
+                expect(messages).toContainEqual(
+                    expect.stringContaining('HTTP fetch failed on attempt 1 with status code 500. Retrying.')
+                )
+                expect(messages).toContainEqual(expect.stringContaining('Response, 200'))
+                const requestLogs = messages.filter((message) => message.startsWith('Request, '))
+                expect(requestLogs).toHaveLength(1)
+                expect(requestLogs[0]).toContain('"secret_headers_input":"secret_headers"')
+                // Log redaction masks values but not header names. The name is what appears if the
+                // template merges the secret headers into `payload.headers` instead of passing the reference.
+                expect(requestLogs[0]).not.toContain('X-Api-Key')
+                expect(JSON.stringify(messages)).not.toContain(TOKEN)
+            }, 5000)
+        })
+
         it('should handle fetch failures with retries', async () => {
             mockFetch.mockImplementation(() => {
                 return Promise.resolve({

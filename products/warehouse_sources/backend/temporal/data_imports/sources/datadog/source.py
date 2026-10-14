@@ -463,7 +463,7 @@ class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
             "github.com/datadog/dd-sdk-ios-apollo-interceptor",
             "github.com/datadog/swift-dogstatsd",
         ),
-        competes_with=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
+        alternative_to=(ProductKey.LOGS, ProductKey.TRACING, ProductKey.ERROR_TRACKING),
     )
 
     api_docs_url = "https://docs.datadoghq.com/api/latest/"

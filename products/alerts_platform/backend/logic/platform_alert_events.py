@@ -202,6 +202,7 @@ def announcement(
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
             occurred_at=occurred_at,
+            evaluation_key=evaluation_key,
         )
         for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )

@@ -140,7 +140,7 @@ class ZendeskSource(ResumableSource[ZendeskSourceConfig, ZendeskResumeConfig]):
             "github.com/zendesk/sdk_ui_components_ios",
             "github.com/zendesk/sunshine-conversations-ios",
         ),
-        competes_with=(ProductKey.CONVERSATIONS,),
+        alternative_to=(ProductKey.CONVERSATIONS,),
     )
     setup_requires_ui = True
 

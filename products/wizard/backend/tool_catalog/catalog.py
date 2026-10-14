@@ -13,7 +13,7 @@ from typing import Any
 
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, fields_require_ui
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, load_all_sources_or_raise
-from products.wizard.backend.tool_catalog.competitors import COMPETITORS_WITHOUT_SOURCE
+from products.wizard.backend.tool_catalog.posthog_alternatives import POSTHOG_ALTERNATIVES_WITHOUT_SOURCE
 from products.wizard.backend.tool_catalog.types import Tool, ToolClassification
 
 # Bump when the JSON shape changes in a way an older wizard cannot read.
@@ -36,7 +36,7 @@ def get_tool_catalog() -> tuple[Tool, ...]:
     ]
     tools += [
         Tool(kind=kind, label=kind, warehouse_source_type=None, detection=detection, setup_requires_ui=None)
-        for kind, detection in COMPETITORS_WITHOUT_SOURCE.items()
+        for kind, detection in POSTHOG_ALTERNATIVES_WITHOUT_SOURCE.items()
     ]
     return tuple(sorted(tools, key=lambda tool: tool.kind))
 
@@ -50,7 +50,7 @@ def build_catalog_document() -> dict[str, Any]:
             "wizard_setup_mode": None
             if tool.setup_requires_ui is None
             else ("deep-link" if tool.setup_requires_ui else "in-cli"),
-            "competes_with": [product.value for product in tool.detection.competes_with],
+            "alternative_to": [product.value for product in tool.detection.alternative_to],
             "superseded_by": list(tool.detection.superseded_by),
             "signals": {
                 "env_key_patterns": list(tool.detection.env_key_patterns),
@@ -90,7 +90,7 @@ def _classifications() -> dict[str, ToolClassification]:
     tools = _catalog_document()["tools"]
     return {
         tool["kind"]: ToolClassification(
-            warehouse_source_type=tool["warehouse_source_type"], competes_with=tuple(tool["competes_with"])
+            warehouse_source_type=tool["warehouse_source_type"], alternative_to=tuple(tool["alternative_to"])
         )
         for tool in tools
     }
