@@ -16,8 +16,10 @@ from posthog.usage_counters import (
     UsageCounterCaller,
     UsageCounterComparisonRows,
     UsageCounterMode,
+    UsageCounterPlan,
     UsageCounterService,
     UsageRecordTotal,
+    UsageRecordTotals,
     _mode_cache,
     resolve_modes,
     validate_usage_record_window,
@@ -42,6 +44,57 @@ REALTIME_GUARDED_COUNTERS = {
 class TestUsageRecordQuery(SimpleTestCase):
     @parameterized.expand(
         [
+            ("shadow", UsageCounterMode.REALTIME, "cdp_billable_invocations", 3),
+            ("authoritative", UsageCounterMode.REALTIME, "workflow_emails_sent", 3),
+            ("shadow_with_zero_total", UsageCounterMode.REALTIME, "cdp_billable_invocations", 0),
+            ("all_shadow", UsageCounterMode.BOTH, "cdp_billable_invocations", 3),
+        ]
+    )
+    def test_invalid_units_only_fail_authoritative_counters(
+        self, _name: str, email_mode: UsageCounterMode, invalid_key: str, emails: int
+    ) -> None:
+        period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
+        plan = UsageCounterPlan(
+            period=period,
+            caller="daily_report",
+            modes={UsageCounter.CDP_INVOCATIONS: UsageCounterMode.BOTH, UsageCounter.WORKFLOW_EMAILS: email_mode},
+            complete=True,
+        )
+        rows = [(1, "org-a", "cdp_billable_invocations", "invocations", 9)]
+        if emails:
+            rows.append((1, "org-a", "workflow_emails_sent", "invocations", emails))
+        rows.append((1, "org-a", invalid_key, "bytes", 25))
+        failures_before = SHADOW_FAILURES.labels(caller="daily_report", stage="validation")._value.get()
+        with (
+            patch("posthog.tasks.usage_report.sync_execute", return_value=rows) as scan,
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_cdp_billable_invocations_in_period", return_value=[(1, 12)]
+            ),
+            patch("posthog.tasks.usage_report.get_teams_with_workflow_emails_sent_in_period", return_value=[(1, 5)]),
+        ):
+            service = UsageCounterService()
+            if invalid_key == "workflow_emails_sent":
+                with self.assertRaisesRegex(ValueError, "Unexpected unit 'bytes'.*workflow_emails_sent"):
+                    service.fetch_report(period, plan=plan)
+            else:
+                report = service.fetch_report(period, plan=plan)
+                assert report.counts[UsageCounter.CDP_INVOCATIONS] == [(1, 12)]
+                assert report.counts[UsageCounter.WORKFLOW_EMAILS] == (
+                    [(1, 5)] if email_mode == UsageCounterMode.BOTH else [(1, emails)] if emails else []
+                )
+                assert report.counter_comparisons == {
+                    "workflow_emails_sent_in_period": UsageCounterComparisonRows(
+                        legacy_by_team={1: 5}, realtime_by_team={1: {"org-a": emails}} if emails else {}
+                    )
+                }
+                assert (
+                    SHADOW_FAILURES.labels(caller="daily_report", stage="validation")._value.get()
+                    == failures_before + 1
+                )
+        scan.assert_called_once()
+
+    @parameterized.expand(
+        [
             ("events", "events"),
             ("session_replay_recordings", "recordings"),
             ("cdp_billable_invocations", "invocations"),
@@ -51,21 +104,22 @@ class TestUsageRecordQuery(SimpleTestCase):
     def test_reads_quantities_in_the_producer_unit(self, usage_key: str, unit: str) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         with patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, "org-a", usage_key, unit, 25)]):
-            assert usage_report.get_usage_records_in_period(period, (usage_key,), "daily_report") == [
-                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=usage_key, quantity=25)
-            ]
+            assert usage_report.get_usage_records_in_period(period, (usage_key,), "daily_report") == UsageRecordTotals(
+                totals=[UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=usage_key, quantity=25)]
+            )
 
     @parameterized.expand([("incorrect_unit", False), ("mixed_units", True)])
-    def test_rejects_incompatible_units_before_returning_totals(self, _name: str, mixed: bool) -> None:
+    def test_omits_all_totals_for_a_key_with_incompatible_units(self, _name: str, mixed: bool) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         rows = [(1, "org-a", "cdp_billable_invocations", "bytes", 25)]
         if mixed:
             rows.insert(0, (1, "org-a", "cdp_billable_invocations", "invocations", 10))
-        with (
-            patch("posthog.tasks.usage_report.sync_execute", return_value=rows) as scan,
-            self.assertRaisesRegex(ValueError, "Unexpected unit 'bytes' for usage key 'cdp_billable_invocations'"),
-        ):
-            usage_report.get_usage_records_in_period(period, ("cdp_billable_invocations",), "daily_report")
+        with patch("posthog.tasks.usage_report.sync_execute", return_value=rows) as scan:
+            result = usage_report.get_usage_records_in_period(period, ("cdp_billable_invocations",), "daily_report")
+        assert result.totals == []
+        assert result.errors == {
+            "cdp_billable_invocations": "Unexpected unit 'bytes' for usage key 'cdp_billable_invocations'; expected 'invocations'"
+        }
         scan.assert_called_once()
 
 
@@ -75,7 +129,7 @@ class TestUsageCounterReport(SimpleTestCase):
         _mode_cache.clear()
         self.addCleanup(_mode_cache.clear)
         self.legacy = {counter: Mock(return_value=[]) for counter in UsageCounter}
-        self.records = Mock(return_value=[])
+        self.records = Mock(return_value=UsageRecordTotals(totals=[]))
         self.exceptions = Mock(side_effect=lambda begin, end: ({}, self.legacy[UsageCounter.EXCEPTIONS](begin, end)))
         self.events = Mock(side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.EVENTS](begin, end))
         self.logs_retention = Mock(
@@ -150,7 +204,7 @@ class TestUsageCounterReport(SimpleTestCase):
             ]
         )
         records_query = self.records
-        records_query.return_value = rows
+        records_query.return_value = UsageRecordTotals(totals=rows)
         records_query.side_effect = RuntimeError("unavailable") if fails else None
         legacy_query = self.legacy[UsageCounter.CDP_INVOCATIONS]
         legacy_query.return_value = [(1, 12)]
@@ -241,9 +295,9 @@ class TestUsageCounterReport(SimpleTestCase):
     def test_flag_selects_query_mode_or_defaults_to_legacy(self, flag_value: str | bool | None | Exception) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         records_query = self.records
-        records_query.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)
-        ]
+        records_query.return_value = UsageRecordTotals(
+            totals=[UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)]
+        )
         self.legacy[UsageCounter.WORKFLOW_EMAILS].return_value = [(1, 12)]
         service = UsageCounterService()
         with patch(
@@ -283,9 +337,9 @@ class TestUsageCounterReport(SimpleTestCase):
         legacy = self.legacy[UsageCounter.WORKFLOW_EMAILS]
         legacy.return_value = [(1, 12)]
         records = self.records
-        records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)
-        ]
+        records.return_value = UsageRecordTotals(
+            totals=[UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=9)]
+        )
         service = UsageCounterService()
         with (
             self.settings(USAGE_COUNTER_REALTIME_MODES=f"workflow-emails:{mode}"),
@@ -364,10 +418,12 @@ class TestUsageCounterReport(SimpleTestCase):
         email_legacy.return_value = [(1, 5)]
         email_legacy.side_effect = RuntimeError("legacy unavailable") if failure == "legacy_comparison" else None
         records = self.records
-        records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9),
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=3),
-        ]
+        records.return_value = UsageRecordTotals(
+            totals=[
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="cdp_billable_invocations", quantity=9),
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="workflow_emails_sent", quantity=3),
+            ]
+        )
         records.side_effect = RuntimeError("records unavailable") if failure == "records" else None
         service = UsageCounterService()
         with (
@@ -418,10 +474,12 @@ class TestUsageCounterReport(SimpleTestCase):
             self.legacy[counter].return_value = [("1" if counter in flag_counters else 1, index + 1)]
         self.exceptions.side_effect = None
         self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 8]])
-        self.records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=key, quantity=quantity)
-            for key, quantity in dict(counter_keys.values()).items()
-        ]
+        self.records.return_value = UsageRecordTotals(
+            totals=[
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key=key, quantity=quantity)
+                for key, quantity in dict(counter_keys.values()).items()
+            ]
+        )
         with patch("posthoganalytics.get_feature_flag", return_value=mode):
             service = UsageCounterService()
             plan = service.resolve_plan(period, caller="daily_report", complete=True, counters=tuple(counter_keys))
@@ -452,9 +510,11 @@ class TestUsageCounterReport(SimpleTestCase):
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
         self.legacy[UsageCounter.MOBILE_RECORDINGS].return_value = [(1, 5)]
         self.legacy[UsageCounter.MOBILE_BILLABLE_RECORDINGS].return_value = [(1, 3)]
-        self.records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="mobile_replay_recordings", quantity=7)
-        ]
+        self.records.return_value = UsageRecordTotals(
+            totals=[
+                UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="mobile_replay_recordings", quantity=7)
+            ]
+        )
         with patch("posthoganalytics.get_feature_flag", return_value="legacy"):
             service = UsageCounterService()
             plan = service.resolve_plan(
@@ -499,9 +559,9 @@ class TestUsageCounterReport(SimpleTestCase):
         self, caller: UsageCounterCaller, fails: bool
     ) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
-        self.records.return_value = [
-            UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="exceptions", quantity=7)
-        ]
+        self.records.return_value = UsageRecordTotals(
+            totals=[UsageRecordTotal(team_id=1, organization_id="org-a", usage_key="exceptions", quantity=7)]
+        )
         with patch("posthoganalytics.get_feature_flag", return_value="realtime"):
             service = UsageCounterService()
             plan = service.resolve_plan(

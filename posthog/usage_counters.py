@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable, Collection
+from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from threading import RLock
@@ -75,6 +76,12 @@ class UsageRecordTotal:
     organization_id: str
     usage_key: str
     quantity: int
+
+
+@frozen
+class UsageRecordTotals:
+    totals: list[UsageRecordTotal]
+    errors: dict[str, str] = field(default_factory=dict)
 
 
 RECORD_USAGE_KEYS = {
@@ -374,6 +381,28 @@ class UsageCounterService:
                     record_shadow_failure(plan.caller, "legacy_comparison")
         return counts
 
+    def _fetch_records(self, plan: UsageCounterPlan, record_counters: list[UsageCounter]) -> UsageRecordTotals | None:
+        try:
+            records = self._records_query(
+                plan.period,
+                tuple(dict.fromkeys(RECORD_USAGE_KEYS[counter] for counter in record_counters)),
+                plan.caller,
+            )
+        except Exception:
+            if UsageCounterMode.REALTIME in plan.modes.values():
+                raise
+            logger.exception("usage_counter_shadow_scan_failed", caller=plan.caller)
+            record_shadow_failure(plan.caller, "scan")
+            return None
+        for counter in record_counters:
+            error = records.errors.get(RECORD_USAGE_KEYS[counter])
+            if error is not None and plan.modes[counter] == UsageCounterMode.REALTIME:
+                raise ValueError(error)
+        for usage_key, error in records.errors.items():
+            logger.error("usage_counter_shadow_validation_failed", caller=plan.caller, usage_key=usage_key, error=error)
+            record_shadow_failure(plan.caller, "validation")
+        return records
+
     def fetch_report(self, period: DayRange, *, plan: UsageCounterPlan | None = None) -> UsageCounterReport:
         if plan is None:
             plan = UsageCounterPlan(
@@ -389,22 +418,17 @@ class UsageCounterService:
         if not record_counters:
             return UsageCounterReport(counts=counts)
         sources = {counter.value.removeprefix("teams_with_"): mode for counter, mode in plan.modes.items()}
-        try:
-            rows = self._records_query(
-                period, tuple(dict.fromkeys(RECORD_USAGE_KEYS[counter] for counter in record_counters)), plan.caller
-            )
-        except Exception:
-            if UsageCounterMode.REALTIME in plan.modes.values():
-                raise
-            logger.exception("usage_counter_shadow_scan_failed", caller=plan.caller)
-            record_shadow_failure(plan.caller, "scan")
+        records = self._fetch_records(plan, record_counters)
+        if records is None:
             return UsageCounterReport(counts=counts, usage_sources=sources)
         by_team: dict[str, dict[int, dict[str, int]]] = {RECORD_USAGE_KEYS[counter]: {} for counter in record_counters}
-        for row in rows:
+        for row in records.totals:
             orgs = by_team[row.usage_key].setdefault(row.team_id, {})
             orgs[row.organization_id] = orgs.get(row.organization_id, 0) + row.quantity
         comparisons: dict[str, UsageCounterComparisonRows] = {}
         for counter in record_counters:
+            if RECORD_USAGE_KEYS[counter] in records.errors:
+                continue
             teams = by_team[RECORD_USAGE_KEYS[counter]]
             if counter.value in counts:
                 comparisons[counter.value.removeprefix("teams_with_")] = UsageCounterComparisonRows(

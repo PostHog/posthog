@@ -96,7 +96,12 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
             DayRange(start=ctx.period_start, end=ctx.period_end), plan=ctx.usage_counter_plan
         )
         key = queries_key(ctx, "usage_counters")
-        await sync_to_async(write_json)(key, dataclasses.asdict(report))
+
+        @sync_to_async
+        def persist_report() -> None:
+            write_json(key, dataclasses.asdict(report))
+
+        await persist_report()
         return RunQueryToS3Result(
             query_name="usage_counters",
             s3_key=key,

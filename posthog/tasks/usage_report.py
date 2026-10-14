@@ -58,6 +58,7 @@ from posthog.usage_counters import (
     UsageCounterReport,
     UsageCounterService,
     UsageRecordTotal,
+    UsageRecordTotals,
     validate_usage_record_window,
 )
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
@@ -2972,20 +2973,25 @@ def _query_usage_records(
 @timed_log()
 def get_usage_records_in_period(
     period: DayRange, usage_keys: tuple[str, ...], caller: UsageCounterCaller
-) -> list[UsageRecordTotal]:
+) -> UsageRecordTotals:
     # Validation runs outside the retried query, because a bad window or unit fails the same way on every attempt.
     validate_usage_record_window(period)
-    totals = []
-    for row in _query_usage_records(period, usage_keys, caller):
-        expected = RECORD_USAGE_UNITS[row.usage_key]
-        if row.unit != expected:
-            raise ValueError(f"Unexpected unit {row.unit!r} for usage key {row.usage_key!r}; expected {expected!r}")
-        totals.append(
+    rows = _query_usage_records(period, usage_keys, caller)
+    errors = {
+        row.usage_key: f"Unexpected unit {row.unit!r} for usage key {row.usage_key!r}; expected {RECORD_USAGE_UNITS[row.usage_key]!r}"
+        for row in rows
+        if row.unit != RECORD_USAGE_UNITS[row.usage_key]
+    }
+    return UsageRecordTotals(
+        totals=[
             UsageRecordTotal(
                 team_id=row.team_id, organization_id=row.organization_id, usage_key=row.usage_key, quantity=row.quantity
             )
-        )
-    return totals
+            for row in rows
+            if row.usage_key not in errors
+        ],
+        errors=errors,
+    )
 
 
 def _get_all_usage_data(
