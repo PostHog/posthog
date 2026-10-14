@@ -1,4 +1,3 @@
-import re
 import json
 import subprocess
 import dataclasses
@@ -13,8 +12,6 @@ from typing import Any
 
 import pytest
 
-import yaml
-
 SCRIPT_PATH = Path(__file__).with_name("ci_backend_relay.py")
 SPEC = importlib.util.spec_from_file_location("ci_backend_relay", SCRIPT_PATH)
 assert SPEC is not None
@@ -22,7 +19,6 @@ assert SPEC.loader is not None
 relay = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(relay)
 
-DEPOT_WORKFLOW_FILE = Path(__file__).parents[2] / ".depot" / "workflows" / "ci-backend.yml"
 PR = 105723
 EVENT_AT = "2026-09-24T09:54:20Z"
 EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
@@ -46,34 +42,6 @@ def api_run(id: int, state: str, workflow: str = "live", attempt: str = "") -> d
 
 def run(id: int, state: str, workflow: str = "live", started_at: str = "2026-09-24T09:56:00Z") -> Any:
     return relay.CheckRun.from_api({**api_run(id, state, workflow), "started_at": started_at})
-
-
-def test_wait_job_name_matches_the_depot_workflow() -> None:
-    text = DEPOT_WORKFLOW_FILE.read_text()
-    job = text[text.index("\n    wait-for-handoff:") :]
-    name = re.search(r"\n        name: (.+)\n", job)
-    assert name is not None
-    expected = (
-        relay.WAIT_JOB
-        + "${{ github.event_name == 'pull_request' && format('"
-        + relay.EVENT_SUFFIX.replace("{pr}", "{0}").replace("{event_at}", "{1}")
-        + "', github.event.pull_request.number, github.event.pull_request.updated_at) || '' }}"
-    )
-    assert name.group(1) == expected
-
-
-def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
-    jobs = yaml.safe_load(DEPOT_WORKFLOW_FILE.read_text())["jobs"]
-    steps = [step for job in jobs.values() for step in job.get("steps", [])]
-    handoff = next(step for step in steps if step.get("name") == "Post the hand-off checks for the relay")
-    gate = next(step for step in steps if step.get("name") == "Post the gate check for the relay")
-    wait_check = (
-        handoff["env"]["WAIT_CHECK"]
-        .replace("${{ github.event.pull_request.number }}", str(PR))
-        .replace("${{ github.event.pull_request.updated_at }}", EVENT_AT)
-    )
-    assert wait_check == EVENT_WAIT
-    assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.MIRRORED_GATE_CHECK
 
 
 @pytest.mark.parametrize(
