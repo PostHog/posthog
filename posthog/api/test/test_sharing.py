@@ -2382,6 +2382,81 @@ class TestSharingPublishGate(APIBaseTest):
             else:
                 assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
 
+    @parameterized.expand(
+        [
+            ("new_member", False, False),
+            ("validated_member", True, False),
+            ("new_admin", False, True),
+            ("validated_admin", True, True),
+        ]
+    )
+    def test_shares_published_without_access_control_after_entitlement_is_enabled(
+        self, _name: str, previously_validated: bool, is_admin: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={
+                "host": "warehouse.example.com",
+                "port": "5432",
+                "database": "example",
+                "user": "reader",
+                "password": "test-only",
+                "schema": "public",
+            },
+        )
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS value", "connectionId": str(source.id)},
+        }
+        self.insight.save()
+        if previously_validated:
+            response = self._enable_sharing("dashboard")
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        if is_admin:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=str(source.id), access_level="none"
+        )
+
+        if previously_validated:
+            config = SharingConfiguration.objects.get(team=self.team, dashboard__isnull=False, enabled=True)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{config.dashboard_id}/sharing", {"enabled": True}
+            )
+        else:
+            response = self._enable_sharing("dashboard")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config = SharingConfiguration.objects.get(team=self.team, dashboard__isnull=False, enabled=True)
+
+        self.organization.available_product_features.append(
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        )
+        self.organization.save()
+        self.client.logout()
+        with patch(
+            "posthog.hogql.direct_sql.postgres_adapter.PostgresAdapter.execute",
+            return_value=DirectQueryResult(results=[[1]], types=[("value", "Int64")], print_columns=["value"]),
+        ) as execute:
+            response = self.client.get(f"/shared/{config.access_token}.json?refresh=blocking")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        tile = response.json()["dashboard"]["tiles"][0]["insight"]
+        if is_admin:
+            assert tile["result"] == [[1]], tile
+            execute.assert_called_once()
+        else:
+            assert not tile.get("result"), tile
+            execute.assert_not_called()
+
     def test_system_table_denial_blocks_publishing(self):
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {

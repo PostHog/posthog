@@ -569,14 +569,16 @@ class SharingConfigurationViewSet(
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         publishing = serializer.validated_data.get("enabled") is True
+        access_control_enabled = self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+        is_organization_admin = self.user_access_control.is_organization_admin
 
         # Publishing is the access decision for shared links, including revalidation of legacy shares.
         if (
             publishing
             and (not instance.enabled or not instance.direct_connection_access_validated)
-            and self.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            and access_control_enabled
             # org admins have full access, so skip the gate for a faster enable
-            and not self.user_access_control.is_organization_admin
+            and not is_organization_admin
         ):
             # Existing shares keep their publish decision for queries that do not use direct connections.
             blocked_names = blocked_access_for_publisher(
@@ -594,7 +596,7 @@ class SharingConfigurationViewSet(
             serializer.save(
                 settings={
                     **(share_settings or {}),
-                    DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING: True,
+                    DIRECT_CONNECTION_ACCESS_VALIDATED_SETTING: access_control_enabled or is_organization_admin,
                     PUBLIC_SETTINGS_IS_NULL_SETTING: share_settings is None
                     or (share_settings or {}).get(PUBLIC_SETTINGS_IS_NULL_SETTING) is True,
                 }
