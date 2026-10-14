@@ -291,7 +291,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "variables.ticket.sla is not null and variables.ticket.sla = variables.sla_deadline and variables.ticket.status not in ('pending', 'on_hold', 'resolved') and not has(variables.ticket.tags, concat('sla_escalated_', toString(toInt(toUnixTimestamp(toDateTime(variables.sla_deadline))))))",
+                                    "key": "variables.ticket.sla is not null and variables.ticket.sla = variables.sla_deadline and variables.ticket.status not in ('pending', 'on_hold', 'resolved') and toUnixTimestamp(now()) >= toUnixTimestamp(toDateTime(variables.sla_deadline)) + 86100 and not has(variables.ticket.tags, concat('sla_escalated_', toString(toInt(toUnixTimestamp(toDateTime(variables.sla_deadline))))))",
                                     "type": "hogql",
                                     "value": null
                                 }

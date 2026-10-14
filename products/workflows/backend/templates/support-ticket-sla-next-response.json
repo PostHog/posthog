@@ -23,7 +23,11 @@
             "filter_test_accounts": false
         }
     },
-    "trigger_masking": null,
+    "trigger_masking": {
+        "hash": "{event.properties.ticket_id}",
+        "ttl": 60,
+        "threshold": null
+    },
     "conversion": null,
     "exit_condition": "exit_only_at_end",
     "edges": [
@@ -117,7 +121,7 @@
         {
             "id": "trigger_node",
             "name": "Customer replies",
-            "description": "Runs when a customer sends a message on a ticket.",
+            "description": "Runs when a customer sends a message on a ticket. Starts at most once per ticket per minute, so quick follow-up messages don't overlap.",
             "type": "trigger",
             "on_error": null,
             "filters": null,
@@ -417,7 +421,7 @@
                         "templating": "hog"
                     },
                     "sla_amount": {
-                        "value": "{dateDiff('minute', now(), toDateTime(variables.ticket.sla))}",
+                        "value": "{dateDiff('second', now(), toDateTime(variables.ticket.sla)) / 60}",
                         "templating": "hog"
                     },
                     "sla_unit": {

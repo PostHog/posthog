@@ -133,7 +133,7 @@
                         "templating": "hog"
                     },
                     "message": {
-                        "value": "CSAT response\nScore: {event.properties['$survey_questions'][1].response}\nComment: {event.properties['$survey_questions'][2].response ?? ''}",
+                        "value": "CSAT response\nScore: {event.properties['$survey_questions'][1].response}\nComment: {substring(toString(event.properties['$survey_questions'][2].response ?? ''), 1, 4000)}",
                         "templating": "hog"
                     },
                     "is_private": {
