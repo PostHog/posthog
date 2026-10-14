@@ -2,7 +2,6 @@ import hmac
 import json
 import hashlib
 from itertools import count
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -43,9 +42,6 @@ INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
 FLAG = "products.github_commands.backend.logic.dispatch.posthog_feature_flag_enabled"
 REQUEST_STAMPHOG_REVIEW = "products.github_commands.backend.logic.handlers.stamphog_requests.request_review"
-LIST_LOOPS = "products.github_commands.backend.logic.handlers.loops_facade.list_loops"
-FIRE_LOOP = "products.github_commands.backend.logic.handlers.loops_facade.fire_loop_api_for_user"
-HAS_LOOPS_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.has_loops_access"
 DESKTOP_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.github_commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
@@ -283,24 +279,18 @@ class TestDispatchCommentCommand(BaseTest):
         assert github.reactions == [] and github.replies == []
         request_review.assert_not_called()
 
-    def test_loop_refuses_a_loop_the_commenter_does_not_own(self) -> None:
+    def test_loop_reports_retirement(self) -> None:
         context = CommandContext(
             request=self._request(verb="loop", argument="Triage PR"),
             pull_request=_pull_request(),
             user_id=self.user.id,
             team_ids=(self.team.id,),
         )
-        teammates_loop = SimpleNamespace(id="loop-1", name="triage pr", created_by_id=self.user.id + 1)
 
-        with (
-            patch(HAS_LOOPS_ACCESS, return_value=True),
-            patch(LIST_LOOPS, return_value=[teammates_loop]),
-            patch(FIRE_LOOP) as fire,
-        ):
-            outcome = handle_loop(context, LoopArgs(name="Triage PR"))
+        outcome = handle_loop(context, LoopArgs(name="Triage PR"))
 
         assert not outcome.accepted
-        fire.assert_not_called()
+        assert outcome.message == "Legacy loops have been retired. Use workflows instead."
 
     @parameterized.expand(
         [
