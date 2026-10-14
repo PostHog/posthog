@@ -188,6 +188,9 @@ export interface taskRunArtifactsLogicActions {
     ensureSelectedText: () => {
         value: true
     }
+    leaveHtmlPreview: () => {
+        value: true
+    }
     loadArtifactMedia: (artifact: RunArtifact) => RunArtifact
     loadArtifactMediaFailure: (
         error: string,
@@ -232,9 +235,6 @@ export interface taskRunArtifactsLogicActions {
     ) => {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
-    }
-    leaveHtmlPreview: () => {
-        value: true
     }
     loadHtmlPreview: (artifact: RunArtifact) => RunArtifact
     loadHtmlPreviewFailure: (
