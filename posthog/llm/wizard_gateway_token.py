@@ -154,7 +154,11 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
     return cap, mints
 
 
-# Remote-config flags in the PostHog internal project. The prompt payload is
+# Two flags in the PostHog internal project, read for their payloads. Both are
+# remote-config flags, which cannot be targeted, and `/flags` drops a
+# remote-config flag whose payload is encrypted, so the payloads must not be
+# encrypted. The person properties each read carries only matter if a flag is
+# instead a regular boolean flag with release conditions. The prompt payload is
 # {"version": 4, "text": "..."} (the version is the operator's label and nothing
 # reads it); the allowlist payload is
 # {"models": [...], "efforts": [...], "programs": [...]}. A flag that is off,
@@ -168,7 +172,12 @@ WIZARD_GATEWAY_ALLOWLIST_FLAG = "wizard-gateway-allowlist"
 # The wizard ends a run on the abort marker, so a prompt without it would give
 # every token a prompt that run cannot end on.
 _ABORT_MARKER = "[posthog:abort]"
-_MAX_PROMPT_BYTES = 4000
+# The gateway's own limits, mirrored so a payload it would refuse mints unpinned
+# here instead of failing every mint. `canonicalSystemPrompt` (principal.ValidSystemPrompt)
+# takes a non-empty string of at most 16384 bytes of valid UTF-8, and refuses U+FFFD, which
+# its JSON decoder writes for invalid UTF-8. `canonicalModels` takes at most 32 models.
+_MAX_PROMPT_BYTES = 16384
+_MAX_ALLOWED_MODELS = 32
 
 # What the allowlist falls back to: the pins the mint sent before the flag existed.
 # The models are every one the wizard CLI dispatches (its *_MODEL constants in
@@ -290,7 +299,17 @@ def _parse_system_prompt(raw: dict) -> WizardSystemPrompt | None:
     if not isinstance(text, str) or not text or _ABORT_MARKER not in text:
         _reject_system_prompt("text must be non-empty and hold the abort marker")
         return None
-    if len(text.encode("utf-8")) > _MAX_PROMPT_BYTES:
+    # A lone surrogate is a str Python cannot encode, and U+FFFD is what the gateway's
+    # decoder makes of invalid UTF-8, so the gateway refuses both.
+    try:
+        size = len(text.encode("utf-8"))
+    except UnicodeEncodeError:
+        _reject_system_prompt("text is not valid UTF-8")
+        return None
+    if "\ufffd" in text:
+        _reject_system_prompt("text holds U+FFFD")
+        return None
+    if size > _MAX_PROMPT_BYTES:
         _reject_system_prompt(f"text is over {_MAX_PROMPT_BYTES} bytes")
         return None
     return WizardSystemPrompt(text=text)
@@ -316,6 +335,9 @@ def _parse_allowlist(raw: dict) -> _Allowlist | None:
         programs = _string_list(raw, "programs")
         if not set(efforts) <= set(WIZARD_EFFORT_LEVELS):
             raise ValueError("efforts outside the gateway vocabulary")
+        # The mint sends the models in the gateway's spelling, so the count that matters is after that.
+        if len({normalize_model(model) for model in models}) > _MAX_ALLOWED_MODELS:
+            raise ValueError(f"models is over {_MAX_ALLOWED_MODELS} entries")
     except ValueError as e:
         logger.warning("wizard_gateway_token: allowlist out of contract, ignored", problem=str(e))
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="allowlist").inc()

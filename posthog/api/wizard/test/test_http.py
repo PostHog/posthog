@@ -1049,6 +1049,33 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
         mock_mint.assert_not_called()
 
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_refusal_after_authentication_never_reads_the_policy(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication)
+
+        self.mock_blocklist.return_value = True
+        blocked = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+        self.mock_blocklist.return_value = False
+        mock_flag.return_value = False
+        switched_off = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration", "reads_refusal_reason": True},
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert blocked.status_code == status.HTTP_403_FORBIDDEN, blocked.content
+        assert switched_off.json()["code"] == "not_rolled_out"
+        assert self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG) == []
+        assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
+        mock_mint.assert_not_called()
+
     def test_an_unresolvable_bearer_is_counted(self):
         before = _gateway_token_outcome("invalid_token")
 

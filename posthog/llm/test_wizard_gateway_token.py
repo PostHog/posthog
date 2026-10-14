@@ -572,6 +572,18 @@ class TestWizardGatewayPolicy:
         expected = f"wizard_gateway_token: {message} " + ("returned no payload" if missing is None else "unavailable")
         assert logged == [expected]
 
+    def test_models_that_spell_one_model_do_not_count_twice_against_the_gateways_cap(self):
+        names = [f"m{i}" for i in range(31)]
+        allowlist = {
+            "models": [*names, "gpt-x", "openai/gpt-x", "GPT-X"],
+            "efforts": ["high"],
+            "programs": ["integration"],
+        }
+        with self._flags(allowlist=allowlist):
+            policy = _policy()
+
+        assert policy.programs == ("integration",)
+
     def test_a_program_id_saved_with_stray_spaces_is_stored_stripped(self):
         allowlist = {**ALLOWLIST_PAYLOAD, "programs": ["posthog-integration ", " audit"]}
         with self._flags(allowlist=allowlist):
@@ -630,8 +642,11 @@ class TestWizardGatewayPolicy:
             ({"version": 4, "text": ""}, True),
             ({"version": 4, "text": 7}, True),
             ({"version": 4, "text": "no marker here"}, True),
-            # 4001 bytes: the cap counts bytes, not characters.
-            ({"version": 4, "text": "[posthog:abort]" + "é" * 1993}, True),
+            # 16385 bytes: the cap counts bytes, not characters.
+            ({"version": 4, "text": "[posthog:abort]" + "é" * 8185}, True),
+            # The gateway refuses these two, so they must never reach it.
+            ({"version": 4, "text": "[posthog:abort] \ud800"}, True),
+            ({"version": 4, "text": "[posthog:abort] \ufffd"}, True),
         ],
     )
     def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
@@ -643,6 +658,15 @@ class TestWizardGatewayPolicy:
         # The allowlist is read on its own and is untouched.
         assert policy.programs == ("integration", "audit")
         assert self._rejects("system_prompt") == before + (1 if counted else 0)
+
+    def test_a_prompt_of_exactly_the_gateways_byte_cap_is_carried(self):
+        text = "[posthog:abort]" + "é" * 8184  # 15 + 16368 = 16383 bytes
+        text += "a"
+        assert len(text.encode("utf-8")) == 16384
+        with self._flags(prompt={"text": text}):
+            policy = _policy()
+        assert policy.prompt is not None
+        assert policy.prompt.text == text
 
     @pytest.mark.parametrize(
         "allowlist,counted",
@@ -661,6 +685,8 @@ class TestWizardGatewayPolicy:
             ({"models": [" "], "efforts": ["high"], "programs": ["integration"]}, True),
             ({"models": ["a"], "efforts": ["extreme"], "programs": ["integration"]}, True),
             ({"models": ["a"], "efforts": ["high"], "programs": [""]}, True),
+            # The gateway refuses more than 32 models, after it reads them in its own spelling.
+            ({"models": [f"m{i}" for i in range(33)], "efforts": ["high"], "programs": ["integration"]}, True),
         ],
     )
     def test_an_unusable_allowlist_flag_falls_back_to_the_defaults(self, allowlist, counted):

@@ -32,14 +32,16 @@ Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 | `system_prompt`   | The operator prompt text, sent only when the prompt flag is usable |
 
 The pins come from two remote-config flags in the PostHog internal project,
-read once per mint request after authentication, with the `email`, `organization_id` and `team_id` person
-properties the limit-override flag gets, so either flag can be targeted:
+read once per mint request after authentication. Remote-config flags cannot be targeted, and `/flags` drops one
+whose payload is encrypted, so these payloads must not be encrypted. Each read carries the `email`,
+`organization_id` and `team_id` person properties the limit-override flag gets. They matter only if a flag is
+a regular boolean flag with release conditions instead:
 
 - `wizard-ai-gateway-system-prompt`: `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's
-  own label and that nothing reads. The text is at most 4000 bytes and contains `[posthog:abort]`.
+  own label and that nothing reads. The text is non-empty, at most 16384 bytes, valid UTF-8 without U+FFFD, and contains `[posthog:abort]`.
   It goes to the gateway as `system_prompt`, byte for byte.
 - `wizard-gateway-allowlist`: `{"models": [...], "efforts": [...], "programs": [...]}`. All three lists are
-  non-empty, and `efforts` come from the gateway's effort vocabulary.
+  non-empty, `efforts` come from the gateway's effort vocabulary, and `models` holds at most 32 entries.
 
 The mint response carries no prompt field at all, pinned or not: no text and no version.
 Nothing logs the prompt text, and no error returns it.
