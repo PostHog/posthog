@@ -3879,10 +3879,10 @@ Today (18): `addons`, `balance_ledger_entries`, `brands`, `credit_entitlements`,
 
 Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-python/main/api.md>
 
-- [ ] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
-- [ ] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
-- [ ] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
-- [ ] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
+- [x] `Payment line items (GET /payments/{payment_id}/line-items)` — attribute payment revenue to products and metered charges absent from payment listings (high)
+- [x] `Subscription usage history (GET /subscriptions/{subscription_id}/usage-history)` — reconcile billed usage, free allowances, and chargeable units across subscription billing periods (high)
+- [x] `Payout breakup details (GET /payouts/{payout_id}/breakup/details)` — reconcile settlement line items with imported payments, refunds, and disputes (high)
+- [x] `Credit entitlement balances (GET /credit-entitlements/{credit_entitlement_id}/balances)` — measure remaining customer credits and overages beyond the entitlement catalog (high)
 - [ ] `Credit entitlement ledger (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger)` — track credit consumption and balance changes by customer and entitlement (high)
 - [ ] `Credit entitlement grants (GET /credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants)` — analyze granted credits, expiry, and remaining quantities by customer (medium)
 - [ ] `Customer wallets (GET /customers/{customer_id}/wallets)` — measure customer wallet balances and prepaid funds by currency (medium)
