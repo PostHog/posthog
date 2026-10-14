@@ -10,6 +10,7 @@ import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
@@ -20,6 +21,8 @@ from products.slack_app.backend.feature_flags import (
 )
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
+    clear_open_suggestions,
+    remember_open_suggestions,
     reply_suggestions_block,
     reply_suggestions_fallback_text,
     suggest_replies,
@@ -206,6 +209,15 @@ class SlackThreadContext:
         )
 
 
+@frozen
+class _PostedAnswer:
+    """The last message of a plain answer, kept so the reply buttons can join it after it is posted."""
+
+    ts: str
+    text: str
+    blocks: list[dict[str, Any]]
+
+
 def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
     buttons: list[dict[str, Any]] = [
         {
@@ -247,6 +259,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._last_answer: _PostedAnswer | None = None
         self.stream_ended = False
 
     @classmethod
@@ -491,6 +504,7 @@ class SlackThreadHandler:
         plan_title: str | None = None,
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
+        reply_suggestions_for: str | None = None,
     ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
@@ -514,9 +528,15 @@ class SlackThreadHandler:
         if self.stream_ended:
             if final_markdown:
                 answer_delivered = self._post_answer_outside_stream(final_markdown)
+            if answer_delivered:
+                self.offer_reply_suggestions(reply_suggestions_for)
         else:
             self._close_stream(
-                ts, final_markdown=final_markdown, mention_sent=mention_sent, append_attachments=append_attachments
+                ts,
+                final_markdown=final_markdown,
+                mention_sent=mention_sent,
+                append_attachments=append_attachments,
+                reply_suggestions_for=reply_suggestions_for if answer_delivered else None,
             )
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
@@ -530,12 +550,15 @@ class SlackThreadHandler:
         final_markdown: str | None,
         mention_sent: bool,
         append_attachments: Callable[[], None] | None,
+        reply_suggestions_for: str | None = None,
     ) -> None:
         if append_attachments is not None:
             try:
                 append_attachments()
             except Exception as e:
                 logger.warning("slack_app_status_stream_attachments_failed", error=str(e))
+        if reply_suggestions_for:
+            self._append_reply_suggestions(ts, reply_suggestions_for)
 
         final_chunks: list[dict[str, Any]] = []
         recipient = self.actor_slack_user_id
@@ -812,7 +835,11 @@ class SlackThreadHandler:
         footer = self._footer_block() if with_footer and fits_in_a_block else None
         blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
-            return self._post_in_thread(text=text, blocks=blocks) is not None
+            response = self._post_in_thread(text=text, blocks=blocks)
+            ts = response.get("ts") if response is not None else None
+            if footer and blocks and isinstance(ts, str):
+                self._last_answer = _PostedAnswer(ts=ts, text=text, blocks=blocks)
+            return response is not None
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -950,19 +977,17 @@ class SlackThreadHandler:
             slack_user_id=self.actor_slack_user_id, probe_integration=integration, candidate_integrations=[integration]
         )
 
-    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
-        """The buttons are a message of their own because a click replaces them with the chosen reply,
-        Slack can only rewrite a whole message, and a streamed answer is closed by the time they exist."""
-        if not answer_markdown:
-            return
-        integration = self._get_integration()
-        if not is_slack_app_reply_suggestions_enabled(integration):
-            return
+    def _actor_posthog_user_or_none(self) -> "User | None":
         try:
-            posthog_user = self._actor_posthog_user
+            return self._actor_posthog_user
         except Exception:
             logger.warning("slack_app_reply_suggestions_actor_lookup_failed", exc_info=True)
-            posthog_user = None
+            return None
+
+    def _offered_suggestions(self, answer_markdown: str) -> list[str]:
+        if not is_slack_app_reply_suggestions_enabled(self._get_integration()):
+            return []
+        posthog_user = self._actor_posthog_user_or_none()
         attribution = ReplySuggestionAttribution(
             trace_id=self.turn_trace_id,
             session_id=self._session_id(),
@@ -970,29 +995,71 @@ class SlackThreadHandler:
             task_id=self.run_footer.task_id,
             run_id=self.run_footer.run_id,
         )
-        suggestions = suggest_replies(answer_markdown, attribution)
+        return suggest_replies(answer_markdown, attribution)
+
+    def _append_reply_suggestions(self, ts: str, answer_markdown: str) -> None:
+        """Add the buttons to an open stream, under the answer and its attachments and above the footer."""
+        suggestions = self._offered_suggestions(answer_markdown)
         if not suggestions:
             return
+        block = reply_suggestions_block(self._get_integration().id, suggestions, self.turn_trace_id)
+        # An append of its own, so a block Slack rejects costs the buttons alone, never the footer.
+        if self._append_chunks(
+            ts, [{"type": "blocks", "blocks": [block]}], "slack_app_reply_suggestions_append_failed"
+        ):
+            self._record_suggestions_placed(ts, suggestions, placement="answer")
+
+    def offer_reply_suggestions(self, answer_markdown: str | None) -> None:
+        """Add the buttons to the answer's last message, right under the answer text.
+
+        They post as a message of their own only when the answer has no message to extend:
+        a plain-text answer with no blocks, or an answer composed with chart cards.
+        """
+        if not answer_markdown:
+            return
+        suggestions = self._offered_suggestions(answer_markdown)
+        if not suggestions:
+            return
+        integration = self._get_integration()
+        block = reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)
+        answer = self._last_answer
+        if answer is not None:
+            try:
+                self._get_client().chat_update(
+                    channel=self.context.channel,
+                    ts=answer.ts,
+                    text=answer.text,
+                    blocks=[answer.blocks[0], block, *answer.blocks[1:]],
+                )
+                self._record_suggestions_placed(answer.ts, suggestions, placement="answer")
+                return
+            except Exception as e:
+                logger.warning("slack_app_reply_suggestions_update_failed", error=str(e))
         try:
-            posted = self._post_in_thread(
-                text=reply_suggestions_fallback_text(suggestions),
-                blocks=[reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)],
-            )
+            response = self._post_in_thread(text=reply_suggestions_fallback_text(suggestions), blocks=[block])
         except Exception as e:
             logger.warning("slack_app_reply_suggestions_post_failed", error=str(e))
             return
-        if posted is not None:
-            capture_slack_event(
-                integration,
-                "slack app reply suggestions posted",
-                slack_user_id=self.actor_slack_user_id,
-                posthog_user=posthog_user,
-                suggestion_count=len(suggestions),
-                slack_session_id=attribution.session_id,
-                ai_trace_id=self.turn_trace_id,
-                task_id=self.run_footer.task_id,
-                run_id=self.run_footer.run_id,
-            )
+        ts = response.get("ts") if response is not None else None
+        if isinstance(ts, str):
+            self._record_suggestions_placed(ts, suggestions, placement="separate")
+
+    def _record_suggestions_placed(self, message_ts: str, suggestions: list[str], *, placement: str) -> None:
+        integration = self._get_integration()
+        clear_open_suggestions(self._get_client(), integration.id, self.context.channel, self.context.thread_ts)
+        remember_open_suggestions(integration.id, self.context.channel, self.context.thread_ts, message_ts)
+        capture_slack_event(
+            integration,
+            "slack app reply suggestions posted",
+            slack_user_id=self.actor_slack_user_id,
+            posthog_user=self._actor_posthog_user_or_none(),
+            suggestion_count=len(suggestions),
+            placement=placement,
+            slack_session_id=self._session_id(),
+            ai_trace_id=self.turn_trace_id,
+            task_id=self.run_footer.task_id,
+            run_id=self.run_footer.run_id,
+        )
 
     def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
         """Capture a reply the run posted to this thread, so a mention can be followed to its answer.

@@ -3921,8 +3921,10 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
     if not cache.add(claim_key, clicker_slack_user_id, timeout=60 * 60 * 24):
         return HttpResponse(status=200)
 
-    # The suggestions message stands in for the reply: its ts carries the reactions that show
-    # progress, and it keys the follow-up's idempotent message id.
+    # Forgotten first, so the follow-up does not clear the buttons this click is about to replace.
+    reply_suggestions.forget_open_suggestions(integration.id, channel, thread_ts, message_ts)
+    # The message that holds the buttons stands in for the reply: its ts carries the reactions
+    # that show progress, and it keys the follow-up's idempotent message id.
     event = {
         "type": "message",
         "user": clicker_slack_user_id,
@@ -3942,10 +3944,17 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
     )
 
     chosen = reply_suggestions.chosen_reply_text(clicker_slack_user_id, clicked.text)
+    blocks = message.get("blocks") or []
+    at = next(
+        (i for i, b in enumerate(blocks) if b.get("block_id") == reply_suggestions.REPLY_SUGGESTIONS_BLOCK_ID),
+        len(blocks),
+    )
+    # The answer keeps every other block, and the chosen reply takes the buttons' place.
+    rewritten = [*blocks[:at], context_block(chosen), *blocks[at + 1 :]]
     client = slack.client
     client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     try:
-        client.chat_update(channel=channel, ts=message_ts, text=chosen, blocks=[context_block(chosen)])
+        client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or chosen, blocks=rewritten)
     except Exception:
         logger.warning("slack_app_reply_suggestion_update_failed", integration_id=integration.id, exc_info=True)
 

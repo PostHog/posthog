@@ -15,11 +15,19 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.logic.reply_suggestions import (
+    REPLY_SUGGESTIONS_BLOCK_ID,
     ReplySuggestionAttribution,
+    clear_open_suggestions,
+    remember_open_suggestions,
     reply_suggestions_block,
     suggest_replies,
 )
+from products.slack_app.backend.services.slack_messages import RunFooter
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.slack_app.backend.tests.helpers import sign_slack_request
+
+ANSWER_BLOCK = {"type": "markdown", "text": "Should I open a pull request?"}
+FOOTER_BLOCK = {"type": "context", "elements": [{"type": "mrkdwn", "text": "Claude Opus 5"}]}
 
 
 def _completion(content: str) -> MagicMock:
@@ -115,7 +123,12 @@ class TestReplySuggestionClick(TestCase):
                 "message_ts": self.message_ts,
                 "thread_ts": self.thread_ts,
             },
-            "message": {"ts": self.message_ts, "thread_ts": self.thread_ts},
+            "message": {
+                "ts": self.message_ts,
+                "thread_ts": self.thread_ts,
+                "text": "Should I open a pull request?",
+                "blocks": [ANSWER_BLOCK, block, FOOTER_BLOCK],
+            },
             "actions": [{"action_id": action["action_id"], "block_id": block["block_id"], "value": action["value"]}],
         }
         body_str = f"payload={json.dumps(payload)}"
@@ -160,9 +173,14 @@ class TestReplySuggestionClick(TestCase):
         # The trace id joins the click to the generation that suggested it.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["ai_trace_id"] == "trace-1"
+        # The buttons live in the answer, so the rewrite must keep the answer and its footer.
         update = mock_slack_cls.return_value.client.chat_update.call_args.kwargs
         assert update["ts"] == self.message_ts
-        assert "actions" not in {block["type"] for block in update["blocks"]}
+        assert update["text"] == "Should I open a pull request?"
+        assert update["blocks"][0] == ANSWER_BLOCK
+        assert "No, keep it local" in update["blocks"][1]["elements"][0]["text"]
+        assert update["blocks"][2] == FOOTER_BLOCK
+        assert len(update["blocks"]) == 3
 
     def test_click_from_someone_outside_the_project_sends_nothing(self, mock_slack_cls: MagicMock) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -176,3 +194,64 @@ class TestReplySuggestionClick(TestCase):
         assert response.status_code == 200
         mock_start.assert_not_called()
         mock_slack_cls.return_value.client.chat_update.assert_not_called()
+
+
+class TestReplySuggestionPlacement(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    @patch("products.slack_app.backend.slack_thread.capture_slack_event")
+    @patch("products.slack_app.backend.slack_thread.suggest_replies", return_value=["Yes, open the PR"])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_reply_suggestions_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_actor_posthog_user_or_none", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_plain_answer_gets_the_buttons_under_its_text(
+        self, mock_get_client, mock_get_integration, *_mocks: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.return_value = {"ts": "2.0"}
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1")
+        handler = SlackThreadHandler(
+            SlackThreadContext(integration_id=7, channel="C001", thread_ts="1.0"), RunFooter(model="claude-opus-5")
+        )
+
+        handler.post_thread_message("Should I open a pull request?", with_footer=True, markdown=True)
+        handler.offer_reply_suggestions("Should I open a pull request?")
+
+        posted = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        mock_client.chat_postMessage.assert_called_once()
+        update = mock_client.chat_update.call_args.kwargs
+        assert update["ts"] == "2.0"
+        assert update["blocks"][0] == posted[0]
+        assert update["blocks"][1]["block_id"] == REPLY_SUGGESTIONS_BLOCK_ID
+        assert update["blocks"][2:] == posted[1:]
+
+
+class TestClearOpenSuggestions(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("buttons_in_the_answer", [ANSWER_BLOCK, "buttons", FOOTER_BLOCK], [ANSWER_BLOCK, FOOTER_BLOCK]),
+            ("buttons_alone", ["buttons"], None),
+        ]
+    )
+    def test_a_newer_message_removes_only_the_buttons(self, _name: str, blocks: list, kept: list | None) -> None:
+        buttons = reply_suggestions_block(7, ["Yes, open the PR"], None)
+        message = {"ts": "2.0", "text": "answer", "blocks": [buttons if b == "buttons" else b for b in blocks]}
+        client = MagicMock()
+        client.conversations_replies.return_value = {"messages": [message]}
+        remember_open_suggestions(7, "C001", "1.0", "2.0")
+
+        clear_open_suggestions(client, 7, "C001", "1.0")
+        clear_open_suggestions(client, 7, "C001", "1.0")
+
+        client.conversations_replies.assert_called_once()
+        if kept is None:
+            client.chat_delete.assert_called_once_with(channel="C001", ts="2.0")
+            client.chat_update.assert_not_called()
+        else:
+            client.chat_update.assert_called_once_with(channel="C001", ts="2.0", text="answer", blocks=kept)

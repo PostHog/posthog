@@ -25,6 +25,7 @@ from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowI
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
+from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -959,6 +960,9 @@ def forward_posthog_code_followup_activity(
         context="followup",
     ):
         return True
+
+    # Any message to the agent answers or overtakes its last question, so the buttons under it are stale.
+    clear_open_suggestions(slack.client, integration.id, channel, thread_ts)
 
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
     # pre-rollout runs); the actor stamped at delivery normally wins.

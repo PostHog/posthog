@@ -3,8 +3,11 @@
 import json
 from typing import Any
 
+from django.core.cache import cache
+
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
+from slack_sdk import WebClient
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client
@@ -16,6 +19,9 @@ REPLY_SUGGESTION_ACTION_ID_PREFIX = "slack_app_reply_suggestion:"
 REPLY_SUGGESTIONS_BLOCK_ID = "slack_app_reply_suggestions"
 # Online evaluations scope to this call with `slack_app_classifier = reply_suggestions`.
 REPLY_SUGGESTIONS_CLASSIFIER = "reply_suggestions"
+
+# Only one message in a thread holds open buttons at a time. A newer message makes them stale.
+OPEN_SUGGESTIONS_TTL_SECONDS = 60 * 60 * 24 * 7
 
 MAX_SUGGESTIONS = 3
 # Slack rejects a button label over 75 characters, and the whole message goes down with it.
@@ -212,3 +218,53 @@ def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
         index=index,
         trace_id=trace_id if isinstance(trace_id, str) else None,
     )
+
+
+def without_reply_suggestions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [block for block in blocks if block.get("block_id") != REPLY_SUGGESTIONS_BLOCK_ID]
+
+
+def _open_suggestions_key(integration_id: int, channel: str, thread_ts: str) -> str:
+    return f"slack_app_reply_suggestions_open:{integration_id}:{channel}:{thread_ts}"
+
+
+def remember_open_suggestions(integration_id: int, channel: str, thread_ts: str, message_ts: str) -> None:
+    cache.set(_open_suggestions_key(integration_id, channel, thread_ts), message_ts, OPEN_SUGGESTIONS_TTL_SECONDS)
+
+
+def forget_open_suggestions(integration_id: int, channel: str, thread_ts: str, message_ts: str) -> None:
+    key = _open_suggestions_key(integration_id, channel, thread_ts)
+    if cache.get(key) == message_ts:
+        cache.delete(key)
+
+
+def clear_open_suggestions(client: WebClient, integration_id: int, channel: str, thread_ts: str) -> None:
+    """Remove buttons that a newer message in the thread made stale, so nobody answers an old question.
+
+    The message is read back from Slack because a streamed answer's blocks exist only there.
+    A message that held nothing but the buttons is deleted.
+    """
+    key = _open_suggestions_key(integration_id, channel, thread_ts)
+    message_ts = cache.get(key)
+    if not isinstance(message_ts, str):
+        return
+    cache.delete(key)
+    try:
+        response = client.conversations_replies(
+            channel=channel, ts=message_ts, oldest=message_ts, latest=message_ts, inclusive=True, limit=1
+        )
+        message = next((m for m in response.get("messages") or [] if m.get("ts") == message_ts), None)
+        if message is None:
+            return
+        blocks = message.get("blocks") or []
+        kept = without_reply_suggestions(blocks)
+        if len(kept) == len(blocks):
+            return
+        if kept:
+            client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or "", blocks=kept)
+        else:
+            client.chat_delete(channel=channel, ts=message_ts)
+    except Exception:
+        logger.warning(
+            "slack_app_reply_suggestions_clear_failed", channel=channel, message_ts=message_ts, exc_info=True
+        )
