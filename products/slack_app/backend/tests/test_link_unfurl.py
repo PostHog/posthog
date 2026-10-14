@@ -781,12 +781,12 @@ class TestLinkUnfurlChannelGate(TestCase):
     @parameterized.expand(
         [
             ("ext_unapproved", True, False, False),
-            ("ext_approved", True, True, True),
+            ("ext_approved", True, True, False),
             ("internal_channel", False, False, True),
         ]
     )
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
-    def test_unfurl_gated_on_external_channel_approval(
+    def test_unfurl_never_reaches_an_external_channel(
         self, _name: str, is_ext_shared: bool, approved: bool, expect_unfurled: bool, mock_unfurl: MagicMock
     ) -> None:
         if approved:
