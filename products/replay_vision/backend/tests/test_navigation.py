@@ -51,9 +51,11 @@ class TestNavigationTimeline:
 
         assert (len(entries), dropped_count) == (kept, dropped)
 
-    def test_truncates_a_long_url(self) -> None:
-        entries, _ = navigation_timeline([_change(0, "https://ex.com/" + "a" * 400)])
+    def test_truncates_a_long_url_without_merging_pages_that_share_the_prefix(self) -> None:
+        prefix = "https://ex.com/" + "a" * 400
+        entries, _ = navigation_timeline([_change(0, prefix + "/one"), _change(5, prefix + "/two")])
 
+        assert [e.vid_t for e in entries] == [0, 5]
         assert len(entries[0].url) == 201
         assert entries[0].url.endswith("…")
 

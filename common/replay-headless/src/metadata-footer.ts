@@ -59,7 +59,7 @@ export class MetadataFooter {
         const sessionMs = Math.max(0, this.controller.currentSessionMs())
         this.metaRectEl.textContent = (sessionMs / 1000).toFixed(0)
         this.metaWindowEl.textContent = `${this.labels.numberOf(active.windowId)} of ${this.windows.length}`
-        this.metaUrlEl.textContent = this.labels.urlOf(active.windowId)
+        this.metaUrlEl.textContent = this.labels.urlAt(active.windowId, sessionMs)
 
         if (this.controller.isStopped) {
             this.metaStatusEl.className = 'status-ended'

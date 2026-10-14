@@ -51,7 +51,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         scaler.fitReplayer(onScreen.replayer)
     })
 
-    const labels = new WindowLabels(windows)
+    const labels = new WindowLabels(windows, firstTimestamp)
     new NavigationTimeline(controller, labels, windowUuidById).start()
     if (config.showMetadataFooter) {
         const footer = new MetadataFooter(windows, segments, firstTimestamp, controller, labels)

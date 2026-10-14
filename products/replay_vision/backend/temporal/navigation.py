@@ -25,13 +25,15 @@ class NavigationEntry(BaseModel, frozen=True):
 def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[NavigationEntry], int]:
     entries: list[NavigationEntry] = []
     seen_tabs: set[int] = set()
+    last_change: NavigationChange | None = None
     for change in changes:
         if not _is_navigable_url(change.url):
             continue
-        url = change.url if len(change.url) <= _MAX_NAVIGATION_URL_LEN else change.url[:_MAX_NAVIGATION_URL_LEN] + "…"
         # A URL the gate drops can sit between two sightings of the same page, which would repeat it.
-        if entries and entries[-1].tab == change.window_number and entries[-1].url == url:
+        if last_change and last_change.window_number == change.window_number and last_change.url == change.url:
             continue
+        last_change = change
+        url = change.url if len(change.url) <= _MAX_NAVIGATION_URL_LEN else change.url[:_MAX_NAVIGATION_URL_LEN] + "…"
         new_window = bool(seen_tabs) and change.window_number not in seen_tabs
         seen_tabs.add(change.window_number)
         entries.append(

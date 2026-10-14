@@ -28,8 +28,13 @@ import { UNRECORDED_STYLE_RULES, UnrecordedContentPlugin } from './unrecorded-co
 export interface ReplayerWindow extends PlaybackWindow {
     /** The element the window's replayer renders into, shown only while the window is on screen. */
     root: HTMLElement
-    /** The first page URL the window recorded, before any event has played. */
-    initialURL: string
+    /** Every page URL the window recorded, in time order. */
+    hrefChanges: HrefChange[]
+}
+
+export interface HrefChange {
+    timestamp: number
+    href: string
 }
 
 /** Why no window could be replayed: nothing loaded yet, or snapshots that no window can be drawn from. */
@@ -50,14 +55,15 @@ function busiestWindowIds(segments: RecordingSegment[], candidates: Set<number>,
     return new Set(ranked.map(([windowId]) => windowId))
 }
 
-function firstHref(events: eventWithTime[]): string {
+function hrefChanges(events: eventWithTime[]): HrefChange[] {
+    const changes: HrefChange[] = []
     for (const event of events) {
         const href = getHrefFromSnapshot(event)
-        if (href) {
-            return href
+        if (href && href !== changes[changes.length - 1]?.href) {
+            changes.push({ timestamp: event.timestamp, href })
         }
     }
-    return ''
+    return changes
 }
 
 export interface ReplayerSetup {
@@ -180,7 +186,7 @@ export async function createReplayers(
             windowId: Number(windowId),
             replayer,
             root,
-            initialURL: firstHref(windowEvents),
+            hrefChanges: hrefChanges(windowEvents),
             firstTimestamp: windowEvents[0].timestamp,
             lastTimestamp: windowEvents[windowEvents.length - 1].timestamp,
         })

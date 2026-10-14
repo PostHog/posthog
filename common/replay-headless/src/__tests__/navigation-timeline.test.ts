@@ -22,7 +22,7 @@ describe('NavigationTimeline', () => {
             [2, 'https://ex.com/flags'],
         ])
         const labels = {
-            urlOf: (windowId: number) => urls.get(windowId) ?? '',
+            urlAt: (windowId: number) => urls.get(windowId) ?? '',
             numberOf: (windowId: number) => windowId,
         }
         new NavigationTimeline(

@@ -3,7 +3,7 @@ import { PLAYER_NAVIGATION_KEY, type NavigationSample } from './protocol'
 import type { WindowLabels } from './window-labels'
 
 /** Bounds what one render writes into its asset. */
-export const MAX_NAVIGATION_SAMPLES = 2000
+export const MAX_NAVIGATION_SAMPLES = 500
 const MAX_URL_LENGTH = 500
 
 /** Reads the state the footer draws, so it lists what the video shows rather than what analytics events claim. */
@@ -28,8 +28,9 @@ export class NavigationTimeline {
         }
         const tab = this.controller.activeWindow
         const windowUuid = this.windowUuidById.get(tab.windowId)
+        const sessionMs = Math.round(this.controller.currentSessionMs())
         const windowNumber = this.labels.numberOf(tab.windowId)
-        const url = this.labels.urlOf(tab.windowId).slice(0, MAX_URL_LENGTH)
+        const url = this.labels.urlAt(tab.windowId, sessionMs).slice(0, MAX_URL_LENGTH)
         if (!windowUuid || windowNumber === undefined || !url) {
             return
         }
@@ -39,7 +40,7 @@ export class NavigationTimeline {
         }
         this.samples.push({
             sample,
-            session_ms: Math.round(this.controller.currentSessionMs()),
+            session_ms: sessionMs,
             window_id: windowUuid,
             window_number: windowNumber,
             url,

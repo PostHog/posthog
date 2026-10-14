@@ -184,7 +184,7 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
                    min(id) AS asset_id,
                    argMin(toTimeZone(created_at, 'UTC'), id) AS asset_created_at,
                    argMin(JSONExtractString(toString(export_context), 'inactivity_periods'), id) AS inactivity_periods,
-                   argMin(JSONExtractString(toString(export_context), 'navigation'), id) AS navigation
+                   argMin(JSONExtractRaw(toString(export_context), 'navigation'), id) AS navigation
             FROM postgres.posthog_exportedasset
             WHERE team_id = {team_id}
               AND export_format = {export_format}
