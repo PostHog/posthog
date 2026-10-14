@@ -141,7 +141,8 @@ pub const CHECKPOINT_RESTORE_CANDIDATES_TOTAL: &str = "checkpoint_restore_candid
 /// (`not_in_checkpoint`) (counter). Each one begins again behind the coverage fence.
 pub const CHECKPOINT_RESTORE_SLICES_RESET_TOTAL: &str = "checkpoint_restore_slices_reset_total";
 /// 1 while the boot retries a restore that cannot finish, else 0 (gauge). **Alert on it**: the pod
-/// never reads ready until S3 access is fixed or `CHECKPOINT_ENABLED` is turned off.
+/// never reads ready until the logged cause is fixed. Before a restore publishes, turning
+/// `CHECKPOINT_ENABLED` off also ends it.
 pub const CHECKPOINT_RESTORE_BLOCKED: &str = "checkpoint_restore_blocked";
 /// Wall-clock duration of one boot restore (histogram, seconds).
 pub const CHECKPOINT_RESTORE_DURATION_SECONDS: &str = "checkpoint_restore_duration_seconds";

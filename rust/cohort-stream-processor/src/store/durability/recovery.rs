@@ -40,7 +40,7 @@ use crate::observability::metrics::{
     CHECKPOINT_RESTORE_BLOCKED, CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
-use crate::partitions::InputGroups;
+use crate::partitions::{InputGroups, InputTopic};
 use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
 const RETRY_START: Duration = Duration::from_secs(30);
@@ -328,6 +328,7 @@ async fn prepare_store(
         live: &live,
         stage,
         lineage,
+        events_topic: InputTopic::new(&config.cohort_stream_events_topic),
         partition_count: config.partition_count(),
         wipe_on_schema_mismatch: config.cohort_wipe_on_schema_mismatch,
         rejected,
@@ -392,6 +393,7 @@ struct Restore<'a> {
     live: &'a Path,
     stage: PathBuf,
     lineage: CheckpointLineage,
+    events_topic: InputTopic,
     partition_count: u16,
     wipe_on_schema_mismatch: bool,
     rejected: &'a mut HashSet<Rejected>,
@@ -418,7 +420,12 @@ impl Restore<'_> {
         }
 
         let guard = DirCleanupGuard::new(self.stage.clone());
-        link_checkpoint(&dir, &self.stage).map_err(RestoreBlocked::Local)?;
+        if let Err(err) = link_checkpoint(&dir, &self.stage) {
+            return Ok(failed(
+                &metadata.id,
+                format_args!("linking its files into the stage failed: {err}"),
+            ));
+        }
         self.publish(guard, source, manifest)
     }
 
@@ -529,6 +536,14 @@ impl Restore<'_> {
                     manifest.ordinal(),
                     self.lineage.ordinal()
                 ),
+            ));
+        }
+        // An input the manifest lacks resumes from its group's commit. For the events group that
+        // commit lies past the checkpoint, so the restore would skip the events between.
+        if !manifest.inputs().contains(&self.events_topic) {
+            return Some(failed(
+                checkpoint_id,
+                format_args!("its manifest records no position on {}", self.events_topic),
             ));
         }
         None
@@ -802,6 +817,7 @@ mod tests {
                 live: Path::new(&self.config.store_path),
                 stage: staging_path(Path::new(&self.config.store_path)),
                 lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
+                events_topic: InputTopic::new(EVENTS),
                 partition_count: 1,
                 wipe_on_schema_mismatch: false,
                 rejected,
@@ -1008,5 +1024,45 @@ mod tests {
             ),
             "a newest attempt that cannot be read fails rather than giving way to an older one",
         );
+    }
+
+    #[test]
+    fn a_local_attempt_that_cannot_restore_fails_and_leaves_the_search_to_s3() {
+        type BreakAttempt = fn(&mut LocalAttempt);
+        let cases: [(&str, BreakAttempt); 2] = [
+            ("its files are gone", |attempt| {
+                std::fs::remove_dir_all(&attempt.dir).unwrap()
+            }),
+            ("its manifest records no events position", |attempt| {
+                attempt.manifest = OffsetManifest::capture(
+                    PodOrdinal::STANDALONE,
+                    &BTreeSet::from([0]),
+                    vec![InputPositions::new(
+                        InputTopic::new("person_merge_events"),
+                        BTreeMap::from([(0, ResumeOffset::try_from(7).unwrap())]),
+                    )],
+                )
+                .unwrap()
+            }),
+        ];
+        for (name, break_attempt) in cases {
+            let boot = Boot::new();
+            boot.local_checkpoint();
+            let Some(Ok(mut attempt)) = newest_fresh_local_checkpoint(
+                &boot.lineage_dir(),
+                Duration::from_secs(3600),
+                Utc::now(),
+            ) else {
+                panic!("{name}: the attempt is complete before it breaks");
+            };
+            break_attempt(&mut attempt);
+
+            let verdict = boot.restore(&mut HashSet::new()).local(attempt);
+
+            assert!(
+                matches!(verdict, Ok(Verdict::Failed(_))),
+                "{name}: {verdict:?}"
+            );
+        }
     }
 }

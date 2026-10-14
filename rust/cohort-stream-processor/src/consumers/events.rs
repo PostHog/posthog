@@ -32,12 +32,12 @@ use crate::consumers::seeds::ConsumedSeed;
 use crate::filters::manager::CatalogHandle;
 use crate::merge::transfer::PendingTransfer;
 use crate::observability::metrics::{
-    CASCADE_HELD_OFFSET_GAUGE, COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED,
-    COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
-    COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
-    COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED, COHORT_STREAM_KAFKA_RECV_ERRORS,
-    COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED, COHORT_STREAM_OFFSET_COMMITS,
-    COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
+    CASCADE_HELD_OFFSET_GAUGE, CHECKPOINT_RESTORE_BLOCKED,
+    COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED, COHORT_STREAM_CONSUME_BATCH_SIZE,
+    COHORT_STREAM_DESERIALIZE_ERRORS, COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED,
+    COHORT_STREAM_EVENTS_DISPATCHED, COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED,
+    COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED,
+    COHORT_STREAM_OFFSET_COMMITS, COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
     COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED, COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED,
     COHORT_STREAM_WORKERS_SPAWNED, DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL,
     DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
@@ -1288,12 +1288,16 @@ impl CohortStreamEventsConsumer {
             // worker's other tasks to another thread meanwhile, so a runtime with one worker still
             // serves the health server.
             match tokio::task::block_in_place(|| pending.finish(commit_events)) {
-                Ok(()) => info!(
-                    topic = %self.topic,
-                    partitions = sought,
-                    "checkpoint restore finished: the events group committed the restored positions",
-                ),
+                Ok(()) => {
+                    gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
+                    info!(
+                        topic = %self.topic,
+                        partitions = sought,
+                        "checkpoint restore finished: the events group committed the restored positions",
+                    );
+                }
                 Err(err) => {
+                    gauge!(CHECKPOINT_RESTORE_BLOCKED).set(1.0);
                     warn!(
                         topic = %self.topic,
                         error = %format!("{:#}", anyhow::Error::new(err)),

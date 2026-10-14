@@ -156,7 +156,8 @@ The restore judges each candidate from its `metadata.json` and `offsets.json` be
 
 - its store schema must be this build's,
 - its metadata and manifest formats must be ones this build reads,
-- its manifest must belong to this pod's ordinal.
+- its manifest must belong to this pod's ordinal,
+- its manifest must record a position on the events topic.
 
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
