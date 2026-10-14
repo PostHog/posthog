@@ -12,10 +12,22 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
+from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
+from products.product_analytics.backend.hogql_queries.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
+from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_trends_query_runner import (
+    CalendarHeatmapTrendsQueryRunner,
+)
+from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (
+    SlopeGraphTrendsQueryRunner,
+)
+from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 _WRAPPER_KINDS = {kind.value for kind in WRAPPER_NODE_KINDS}
 _SERIES_QUERIES: dict[str, type[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery]] = {
@@ -66,19 +78,17 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
         return None
     runner = get_query_runner(source, team, modifiers=source.modifiers, user=user)
     runner.validate()
-    to_queries = getattr(runner, "to_queries", None)
-    chart_queries = to_queries() if to_queries else [runner.to_query()]
-    reads = [read for chart_query in chart_queries for read in _events_reads(chart_query)]
-    aliases = {cast(ast.JoinExpr, read.select_from).alias for read in reads}
-    filters = [_read_filter(read) for read in reads]
-    wheres = [where for where in filters if where is not None]
-    if len(aliases) != 1 or len(wheres) < len(filters):
+    chart_queries = _chart_queries(runner)
+    if chart_queries is None:
+        return None
+    reads = [(read, date_range) for query, date_range in chart_queries for read in _events_reads(query)]
+    aliases = {cast(ast.JoinExpr, read.select_from).alias for read, _ in reads}
+    filters = [(_read_filter(read), date_range) for read, date_range in reads]
+    if len(aliases) != 1 or any(where is None for where, _ in filters):
         return None
     alias = aliases.pop()
     # A "first time for user" series reads every earlier event to find the first one. The checks read the chart's range.
-    date_range: QueryDateRange | None = getattr(runner, "query_date_range", None)
-    if date_range is not None:
-        wheres = [_from_date(where, date_range, alias) for where in wheres]
+    wheres = [_from_date(cast(ast.Expr, where), date_range, alias) for where, date_range in filters]
     return ChartEvents(
         alias=alias,
         where=_any_of(wheres),
@@ -111,16 +121,44 @@ def _supported_source(query: Mapping[str, Any]) -> TrendsQuery | FunnelsQuery | 
     return source
 
 
-def _events_reads(query: ast.Expr | None) -> list[ast.SelectQuery]:
+def _chart_queries(runner: QueryRunner) -> list[tuple[ast.Expr, QueryDateRange]] | None:
+    """Each query the chart runs, with the date range it reads. None for a chart that runs another query."""
+    if isinstance(runner, SlopeGraphTrendsQueryRunner | BoxPlotTrendsQueryRunner | CalendarHeatmapTrendsQueryRunner):
+        # These charts build their own query in `_calculate()`, not the one `to_queries()` returns.
+        return None
+    if isinstance(runner, TrendsQueryRunner):
+        # A compare series reads the previous period.
+        return [
+            (query, runner.query_previous_date_range if series.is_previous_period_series else runner.query_date_range)
+            for series, query in zip(runner.series, runner.to_queries(), strict=True)
+        ]
+    if isinstance(runner, StickinessQueryRunner):
+        return [(query, runner.query_date_range) for query in runner.to_queries()]
+    if isinstance(runner, FunnelsQueryRunner):
+        queries: list[tuple[ast.Expr, QueryDateRange]] = [(runner.to_query(), runner.query_date_range)]
+        # The chart runs the previous period as a funnel of its own.
+        if runner._is_compare_active():
+            queries.append((runner._build_previous_funnel().get_query(), runner.query_previous_date_range))
+        return queries
+    if isinstance(runner, LifecycleQueryRunner):
+        return [(runner.to_query(), runner.query_date_range)]
+    return None
+
+
+def _events_reads(query: ast.Expr | None, ctes: Mapping[str, ast.CTE] | None = None) -> list[ast.SelectQuery]:
     """The selects that read the events table, found through each FROM, so a subquery in a filter is not one."""
     if isinstance(query, ast.SelectSetQuery):
-        return [read for select in query.select_queries() for read in _events_reads(select)]
+        return [read for select in query.select_queries() for read in _events_reads(select, ctes)]
     if not isinstance(query, ast.SelectQuery) or query.select_from is None:
         return []
+    ctes = {**(ctes or {}), **(query.ctes or {})}
     table = query.select_from.table
     if isinstance(table, ast.Field) and table.chain == ["events"]:
         return [query]
-    return _events_reads(table)
+    if isinstance(table, ast.Field) and len(table.chain) == 1 and table.chain[0] in ctes:
+        cte = ctes[str(table.chain[0])]
+        return _events_reads(cte.expr, ctes) if cte.cte_type == "subquery" else []
+    return _events_reads(table, ctes)
 
 
 def _read_filter(read: ast.SelectQuery) -> ast.Expr | None:
