@@ -75,13 +75,13 @@ class TestQueryStatusManager(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (ClickHouseAtCapacity, 3),
-            (ConcurrencyLimitExceeded, 11),
-            (QueryRanConcurrently, 11),
-            (RuntimeError, 1),
+            (ClickHouseAtCapacity, 3, "clickhouse_at_capacity"),
+            (ConcurrencyLimitExceeded, 11, "clickhouse_at_capacity"),
+            (QueryRanConcurrently, 11, "query_ran_concurrently"),
+            (RuntimeError, 1, None),
         ]
     )
-    def test_process_query_task_on_failure_marks_status_errored(self, error_type, attempts):
+    def test_process_query_task_on_failure_marks_status_errored(self, error_type, attempts, error_code):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
@@ -102,6 +102,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, getattr(error_type, "default_detail", None))
+        self.assertEqual(result.error_code, error_code)
         self.assertIsNotNone(result.end_time)
 
     @parameterized.expand([0, 1, 2])

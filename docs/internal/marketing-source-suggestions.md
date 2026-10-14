@@ -269,3 +269,11 @@ Manual retries bypass the event scan cache, including retries without a loaded p
 Managed external tables count as ready only when their schema sync status is completed; self-managed mapped tables remain available directly.
 
 The source onboarding header opens the in-app feedback form directly. The legacy feedback banner remains unchanged when source onboarding is disabled.
+
+## Bing Ads reconnection warning
+
+The `legacy-oauth-reconnect-warning` feature flag controls the reconnection banner in Marketing analytics and its settings.
+The banner only appears when a project has a Bing Ads integration marked with `oauth_uses_legacy_client`.
+It asks users to reconnect before November 30, 2026.
+The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
+Use project targeting to release the warning gradually.
