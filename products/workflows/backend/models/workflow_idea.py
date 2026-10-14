@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -64,6 +66,11 @@ class WorkflowIdea(TeamScopedRootMixin, UUIDModel):
     resolved_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.hog_flow_id is not None and self.hog_flow.team_id != self.team_id:
+            raise ValueError("A workflow idea can only link a workflow from its own project.")
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"WorkflowIdea {self.team_id}/{self.key} ({self.status})"
