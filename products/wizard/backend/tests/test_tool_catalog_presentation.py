@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from unittest.mock import patch
 
@@ -17,9 +18,10 @@ class TestWizardToolCatalogViewSet(TestCase):
         self.addCleanup(catalog._catalog_document.cache_clear)
         self.addCleanup(catalog.tool_catalog_json.cache_clear)
 
-    def test_anonymous_client_gets_the_generated_catalog_from_memory(self) -> None:
-        text = catalog.CATALOG_JSON.read_text()
+    def test_anonymous_client_gets_the_built_catalog_from_memory(self) -> None:
+        text = json.dumps({"schema_version": catalog.CATALOG_SCHEMA_VERSION, "tools": []})
         with patch.object(catalog, "CATALOG_JSON") as catalog_file:
+            catalog_file.exists.return_value = True
             catalog_file.read_text.return_value = text
             responses = [self.client.get("/api/wizard/tool_catalog/") for _ in range(2)]
 
@@ -30,8 +32,11 @@ class TestWizardToolCatalogViewSet(TestCase):
             assert json.loads(response.content) == json.loads(text)
         assert catalog_file.read_text.call_count == 1
 
-    def test_served_catalog_matches_the_documented_schema(self) -> None:
-        document = json.loads(self.client.get("/api/wizard/tool_catalog/").content)
+    def test_catalog_rendered_without_a_build_matches_the_documented_schema(self) -> None:
+        with patch.object(catalog, "CATALOG_JSON", Path("/nonexistent/tool-catalog.json")):
+            document = json.loads(self.client.get("/api/wizard/tool_catalog/").content)
+
+        assert len(document["tools"]) > 0
 
         serializer = WizardToolCatalogSerializer(data=document)
         assert serializer.is_valid(), serializer.errors
