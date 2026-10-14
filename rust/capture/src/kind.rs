@@ -9,7 +9,11 @@ use std::convert::Infallible;
 
 use crate::api::CaptureError;
 use crate::event_restrictions::Pipeline;
-use crate::pipeline::{self, AddressDecision};
+pub use crate::pipeline::OverflowBudget;
+use crate::pipeline::{
+    self, AddressDecision, AiLane, AnalyticsLane, AnalyticsOutputLane, ImportOutputLane, Lane,
+    SessionReplayLane,
+};
 use crate::v0_request::{is_ai_event, ProcessedEventMetadata};
 
 pub trait EventKind: Copy + std::fmt::Debug + PartialEq + Eq + Send + Sync + 'static {
@@ -26,12 +30,6 @@ pub trait EventKind: Copy + std::fmt::Debug + PartialEq + Eq + Send + Sync + 'st
     fn overflow_budget(self) -> Option<OverflowBudget>;
 
     fn to_historical(self) -> Option<Self>;
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum OverflowBudget {
-    Analytics,
-    Ai,
 }
 
 pub trait Classify: Sized {
@@ -63,12 +61,19 @@ impl Refusal for NonAiEvent {
 }
 
 pub trait Route: EventKind {
-    /// Errs only when the decision cannot be realized (a replay event with no
-    /// session id).
+    /// The lanes events of this kind can take; a deployment's outputs hold a
+    /// target for each.
+    type Lane: Lane;
+
+    /// The lane an event starts on, before overflow, restrictions or
+    /// historical rerouting move it (v1).
+    fn lane(self) -> Self::Lane;
+
+    /// v0's full decision. Errs only when the decision cannot be realized (a
+    /// replay event with no session id).
     fn resolve(
         metadata: &ProcessedEventMetadata<Self>,
-        has_ai_overflow_lane: bool,
-    ) -> Result<AddressDecision, CaptureError>;
+    ) -> Result<AddressDecision<Self::Lane>, CaptureError>;
 }
 
 pub trait AnalyticsVariant:
@@ -202,12 +207,48 @@ impl Classify for AnalyticsKind<Historical> {
     }
 }
 
-impl<A: AnalyticsVariant> Route for AnalyticsKind<A> {
+impl Route for AnalyticsKind<MainOrHistorical> {
+    type Lane = AnalyticsOutputLane;
+
+    fn lane(self) -> AnalyticsOutputLane {
+        match self {
+            Self::Analytics(MainOrHistorical::Main) => {
+                AnalyticsOutputLane::Analytics(AnalyticsLane::Main)
+            }
+            Self::Analytics(MainOrHistorical::Historical) => {
+                AnalyticsOutputLane::Analytics(AnalyticsLane::Historical)
+            }
+            Self::Ai => AnalyticsOutputLane::Ai(AiLane::Main),
+            Self::Heatmap => AnalyticsOutputLane::Heatmaps,
+            Self::ClientWarning => AnalyticsOutputLane::ClientWarnings,
+            Self::Exception => AnalyticsOutputLane::ErrorTracking,
+        }
+    }
+
     fn resolve(
         metadata: &ProcessedEventMetadata<Self>,
-        has_ai_overflow_lane: bool,
-    ) -> Result<AddressDecision, CaptureError> {
-        Ok(pipeline::resolve_analytics(metadata, has_ai_overflow_lane))
+    ) -> Result<AddressDecision<AnalyticsOutputLane>, CaptureError> {
+        Ok(pipeline::resolve_analytics(metadata))
+    }
+}
+
+impl Route for AnalyticsKind<Historical> {
+    type Lane = ImportOutputLane;
+
+    fn lane(self) -> ImportOutputLane {
+        match self {
+            Self::Analytics(Historical) => ImportOutputLane::AnalyticsHistorical,
+            Self::Ai => ImportOutputLane::AiMain,
+            Self::Heatmap => ImportOutputLane::Heatmaps,
+            Self::ClientWarning => ImportOutputLane::ClientWarnings,
+            Self::Exception => ImportOutputLane::ErrorTracking,
+        }
+    }
+
+    fn resolve(
+        metadata: &ProcessedEventMetadata<Self>,
+    ) -> Result<AddressDecision<ImportOutputLane>, CaptureError> {
+        Ok(pipeline::resolve_import(metadata))
     }
 }
 
@@ -253,11 +294,16 @@ impl Classify for AiKind {
 }
 
 impl Route for AiKind {
+    type Lane = AiLane;
+
+    fn lane(self) -> AiLane {
+        AiLane::Main
+    }
+
     fn resolve(
         metadata: &ProcessedEventMetadata<Self>,
-        has_ai_overflow_lane: bool,
-    ) -> Result<AddressDecision, CaptureError> {
-        Ok(pipeline::resolve_ai(metadata, has_ai_overflow_lane))
+    ) -> Result<AddressDecision<AiLane>, CaptureError> {
+        Ok(pipeline::resolve_ai(metadata))
     }
 }
 
@@ -294,10 +340,15 @@ impl EventKind for SnapshotKind {
 }
 
 impl Route for SnapshotKind {
+    type Lane = SessionReplayLane;
+
+    fn lane(self) -> SessionReplayLane {
+        SessionReplayLane::Main
+    }
+
     fn resolve(
         metadata: &ProcessedEventMetadata<Self>,
-        _has_ai_overflow_lane: bool,
-    ) -> Result<AddressDecision, CaptureError> {
+    ) -> Result<AddressDecision<SessionReplayLane>, CaptureError> {
         pipeline::resolve_session_replay(metadata)
     }
 }

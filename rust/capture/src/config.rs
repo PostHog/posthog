@@ -48,11 +48,6 @@ impl CaptureMode {
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
     }
-
-    /// Import has no AI overflow lane: imports must never overflow.
-    pub fn has_ai_overflow_lane(&self) -> bool {
-        !matches!(self, CaptureMode::Import)
-    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -297,9 +292,8 @@ pub struct Config {
     #[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION", default = "none")]
     pub replay_envelope_compression: EnvelopeCompression,
 
-    /// Refuse to boot when a registered output has an empty topic name (see
-    /// `OutputTable::check_complete`). Off by default so that a deployment which
-    /// blanks a topic it never produces to still boots.
+    /// Refuse to boot when one of the deployment's outputs has an empty topic
+    /// name (see `Outputs::check_complete`). Off by default.
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
 

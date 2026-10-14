@@ -6,6 +6,7 @@ use tracing::log::info;
 use crate::api::CaptureError;
 use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::pipeline::Lane;
 use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
 
@@ -27,8 +28,8 @@ impl<K: EventKind> PublishEvents<K> for PrintSink {
 }
 
 #[async_trait]
-impl PublishPrepared for PrintSink {
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+impl<L: Lane> PublishPrepared<L> for PrintSink {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<L>>) -> Vec<SinkResult> {
         let span = tracing::span!(tracing::Level::INFO, "batch of prepared events");
         let _enter = span.enter();
 

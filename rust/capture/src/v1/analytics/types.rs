@@ -25,8 +25,9 @@ impl io::Write for StringWriter<'_> {
 
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
+use crate::pipeline::{Address, Lane};
 use crate::v1::context::RequestContext;
-use crate::v1::types::{Destination, Publishable};
+use crate::v1::types::Publishable;
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -319,8 +320,9 @@ pub struct Event {
     pub properties: Box<RawValue>,
 }
 
+/// `L` is the lane set of the capture mode serving the request.
 #[derive(Debug)]
-pub struct WrappedEvent {
+pub struct WrappedEvent<L> {
     pub event: Event,
     /// Pre-parsed UUID from Event.uuid, set once during validate_events.
     pub uuid: Uuid,
@@ -330,7 +332,9 @@ pub struct WrappedEvent {
     pub adjusted_timestamp: Option<DateTime<Utc>>,
     pub result: EventResult,
     pub details: Option<&'static str>,
-    pub destination: Destination,
+    /// Where the event publishes. `None` when the deployment does not accept
+    /// the event; validation drops it, so it never publishes.
+    pub destination: Option<Address<L>>,
     pub force_disable_person_processing: bool,
     /// Set when the overflow limiter decided this key is bursting and should
     /// be spread across the overflow topic's partitions. Deliberately separate
@@ -346,7 +350,7 @@ pub struct WrappedEvent {
     pub is_gateway_verified: bool,
 }
 
-impl WrappedEvent {
+impl<L> WrappedEvent<L> {
     pub fn failed_option_keys(&self) -> OptionKeys {
         failed_option_keys(&self.event, self.details)
     }
@@ -364,7 +368,7 @@ pub struct ValidatedEvent {
 }
 
 impl ValidatedEvent {
-    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+    pub fn into_wrapped<L>(self, destination: Option<Address<L>>) -> WrappedEvent<L> {
         WrappedEvent {
             event: self.event,
             uuid: self.uuid,
@@ -395,7 +399,9 @@ fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKey
     }
 }
 
-impl Publishable for WrappedEvent {
+impl<L: Lane> Publishable for WrappedEvent<L> {
+    type Lane = L;
+
     fn uuid(&self) -> Uuid {
         self.uuid
     }
@@ -404,8 +410,8 @@ impl Publishable for WrappedEvent {
         self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
-    fn destination(&self) -> &Destination {
-        &self.destination
+    fn destination(&self) -> Option<&Address<L>> {
+        self.destination.as_ref()
     }
 
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
@@ -427,7 +433,7 @@ impl Publishable for WrappedEvent {
             None
         };
 
-        let (dlq_reason, dlq_step, dlq_timestamp) = if self.destination == Destination::Dlq {
+        let (dlq_reason, dlq_step, dlq_timestamp) = if self.destination == Some(Address::Dlq) {
             (
                 Some("event_restriction".to_string()),
                 Some("capture".to_string()),
@@ -481,14 +487,17 @@ impl Publishable for WrappedEvent {
     }
 
     fn ordering(&self) -> OrderingGuarantee {
-        if !self.destination.absorbs_hot_keys() {
+        let Some(destination) = &self.destination else {
+            return OrderingGuarantee::PerDistinctId;
+        };
+        if !destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;
         }
         // A spread decision takes effect on its own only where the consumer
         // does not write persons; on person-writing lanes the key holds until
         // person processing is off, so the person flag alone decides there
-        // (see `Destination::writes_persons`).
-        if self.spread_partitions && !self.destination.writes_persons() {
+        // (see `Lane::writes_persons`).
+        if self.spread_partitions && !destination.writes_persons() {
             return OrderingGuarantee::None;
         }
         person_ordering(self.force_disable_person_processing)
@@ -541,7 +550,7 @@ impl Publishable for WrappedEvent {
     }
 }
 
-impl WrappedEvent {
+impl<L> WrappedEvent<L> {
     /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
@@ -641,7 +650,7 @@ impl WrappedEvent {
 /// forwarded as raw JSON to Kafka. Property checks here are limited to fields
 /// that have been promoted to WrappedEvent.options. If a new quota limiter
 /// predicate needs a property not in Options, add it there first.
-impl HasEventName for WrappedEvent {
+impl<L> HasEventName for WrappedEvent<L> {
     fn event_name(&self) -> &str {
         &self.event.event
     }
@@ -1293,7 +1302,8 @@ mod tests {
     // --- Publishable impl for WrappedEvent ---
 
     use crate::v1::test_utils;
-    use crate::v1::types::{Destination, Publishable};
+    use crate::v1::test_utils::{Destination, WrappedEvent};
+    use crate::v1::types::Publishable;
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
@@ -1383,7 +1393,7 @@ mod tests {
     fn ordering_per_lane(#[case] stamps: Stamps, #[case] expected: OrderingGuarantee) {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = stamps.destination;
+        ev.destination = Some(stamps.destination);
         ev.force_disable_person_processing = stamps.person_off;
         ev.spread_partitions = stamps.spread;
 
@@ -1407,7 +1417,7 @@ mod tests {
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
-        ev.destination = dest;
+        ev.destination = Some(dest);
         assert!(ev.should_publish());
     }
 
@@ -1417,7 +1427,7 @@ mod tests {
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
-        ev.destination = dest;
+        ev.destination = Some(dest);
         assert!(!ev.should_publish());
     }
 
@@ -1494,7 +1504,7 @@ mod tests {
     fn headers_include_dlq_headers_when_destination_dlq() {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::Dlq;
+        ev.destination = Some(Destination::Dlq);
         let h = ev.headers(&ctx);
         assert_eq!(h.dlq_reason.as_deref(), Some("event_restriction"));
         assert_eq!(h.dlq_step.as_deref(), Some("capture"));
@@ -1509,7 +1519,7 @@ mod tests {
     fn headers_omit_dlq_headers_when_not_dlq() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-1");
-        assert_ne!(ev.destination, Destination::Dlq);
+        assert_ne!(ev.destination, Some(Destination::Dlq));
         let h = ev.headers(&ctx);
         assert!(h.dlq_reason.is_none());
         assert!(h.dlq_step.is_none());
@@ -1601,8 +1611,11 @@ mod tests {
     #[test]
     fn destination_returns_event_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
-        ev.destination = Destination::AnalyticsOverflow;
-        assert_eq!(*ev.destination(), Destination::AnalyticsOverflow);
+        ev.destination = Some(Destination::AnalyticsOverflow);
+        assert_eq!(
+            ev.destination().cloned(),
+            Some(Destination::AnalyticsOverflow)
+        );
     }
 
     #[test]
@@ -1610,7 +1623,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-42");
         ev.force_disable_person_processing = true;
-        ev.destination = Destination::AnalyticsMain;
+        ev.destination = Some(Destination::AnalyticsMain);
         assert_eq!(
             ev.partition_key(&ctx),
             format!("{}:user-42", ctx.api_token),
@@ -1696,7 +1709,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -1879,7 +1892,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -1922,7 +1935,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -1964,7 +1977,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2003,7 +2016,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2045,7 +2058,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2184,7 +2197,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: true,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2228,7 +2241,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:55.000Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2270,7 +2283,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -2308,7 +2321,7 @@ mod tests {
             adjusted_timestamp: Some(dt("2026-03-19T14:29:53.123Z")),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,

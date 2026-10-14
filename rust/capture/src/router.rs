@@ -28,7 +28,7 @@ use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
-use crate::kind::{AiKind, Classify, EventKind, Route, SnapshotKind};
+use crate::kind::{AiKind, Classify, Route, SnapshotKind};
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -50,7 +50,7 @@ const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
 pub struct WireBodyLimit(pub usize);
 
 #[derive(Clone)]
-pub struct State<K: EventKind> {
+pub struct State<K: Route> {
     pub outputs: Arc<OutputRegistry<K>>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
@@ -166,7 +166,7 @@ async fn index() -> &'static str {
 /// `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
 /// send everything to one endpoint. Those divert to the AI lane by event
 /// name; that is unrelated to which paths are registered here.
-pub struct Routes<K: EventKind> {
+pub struct Routes<K: Route> {
     /// Wrapped by the legacy CORS layer and concurrency limit.
     legacy: Router<State<K>>,
     /// Wrapped by `crate::v1::router`'s own middleware stack.
@@ -295,7 +295,7 @@ pub fn recordings_routes() -> Routes<SnapshotKind> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn router<
-    K: EventKind,
+    K: Route,
     TZ: TimeSource + Send + Sync + 'static,
     R: Client + Send + Sync + 'static,
 >(

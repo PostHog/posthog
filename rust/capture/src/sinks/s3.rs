@@ -19,6 +19,7 @@ use tracing::log::{debug, error, info};
 use crate::api::CaptureError;
 use crate::kind::EventKind;
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
+use crate::pipeline::Lane;
 use crate::sinks::sink::SinkResult;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -307,9 +308,9 @@ impl<K: EventKind> PublishEvents<K> for S3Sink {
 }
 
 #[async_trait]
-impl PublishPrepared for S3Sink {
+impl<L: Lane> PublishPrepared<L> for S3Sink {
     #[instrument(skip_all)]
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<L>>) -> Vec<SinkResult> {
         let flushed = self
             .write_lines(events.iter().map(|event| &event.payload))
             .await;
@@ -398,9 +399,15 @@ mod tests {
     async fn empty_prepared_batch_returns_without_waiting_for_a_flush() {
         let sink = setup_test_sink().await;
 
-        let results = tokio::time::timeout(Duration::from_secs(5), sink.publish_prepared(vec![]))
-            .await
-            .expect("an empty batch must not wait on the idle buffer");
+        let results = tokio::time::timeout(
+            Duration::from_secs(5),
+            PublishPrepared::<crate::pipeline::AnalyticsOutputLane>::publish_prepared(
+                &sink,
+                vec![],
+            ),
+        )
+        .await
+        .expect("an empty batch must not wait on the idle buffer");
 
         assert!(results.is_empty());
     }

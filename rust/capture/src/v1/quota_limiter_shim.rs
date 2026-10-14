@@ -22,10 +22,10 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 /// Returns `Error::BillingLimitExceeded` when every event is limited.
 /// Expects at least one `Ok` event — all-dropped batches should
 /// short-circuit in `process_batch` before reaching here.
-pub async fn apply_quota_limits(
+pub async fn apply_quota_limits<L>(
     limiter: &CaptureQuotaLimiter,
     token: &str,
-    events: &mut [WrappedEvent],
+    events: &mut [WrappedEvent<L>],
 ) -> Result<(), Error> {
     if events.is_empty() {
         return Ok(());
@@ -96,7 +96,7 @@ pub async fn apply_quota_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v1::types::Destination;
+    use crate::v1::test_utils::{Destination, WrappedEvent};
     use std::num::NonZeroU32;
     use std::sync::Arc;
     use std::time::Duration;
@@ -300,7 +300,7 @@ mod tests {
             ),
             result: EventResult::Ok,
             details: None,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,

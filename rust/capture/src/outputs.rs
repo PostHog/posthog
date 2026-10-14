@@ -18,9 +18,9 @@ use tracing::log::error;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::kind::EventKind;
+use crate::kind::{EventKind, Route};
 use crate::ordering::OrderingGuarantee;
-use crate::pipeline::Address;
+use crate::pipeline::{Address, Lane};
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v0_request::ProcessedEvent;
 
@@ -39,9 +39,9 @@ pub trait PublishEvents<K: EventKind>: Send + Sync {
 }
 
 #[derive(Debug, Clone)]
-pub struct PreparedEvent {
+pub struct PreparedEvent<L> {
     pub uuid: Uuid,
-    pub address: Address,
+    pub address: Address<L>,
     pub partition_key: String,
     pub ordering: OrderingGuarantee,
     pub payload: bytes::Bytes,
@@ -51,24 +51,24 @@ pub struct PreparedEvent {
 /// Returns one [`SinkResult`] per input event, in input order. A failure is
 /// reported in that event's result and does not affect the other events.
 #[async_trait]
-pub trait PublishPrepared: Send + Sync {
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult>;
+pub trait PublishPrepared<L: Lane>: Send + Sync {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<L>>) -> Vec<SinkResult>;
 }
 
-pub trait Sink<K: EventKind>: PublishEvents<K> + PublishPrepared {}
+pub trait Sink<K: Route>: PublishEvents<K> + PublishPrepared<K::Lane> {}
 
-impl<K: EventKind, T: PublishEvents<K> + PublishPrepared> Sink<K> for T {}
+impl<K: Route, T: PublishEvents<K> + PublishPrepared<K::Lane>> Sink<K> for T {}
 
-pub struct Output<K: EventKind> {
+pub struct Output<K: Route> {
     inner: Inner<K>,
 }
 
-enum Inner<K: EventKind> {
+enum Inner<K: Route> {
     Single(Box<dyn Sink<K>>),
     Failover(Failover<K>),
 }
 
-impl<K: EventKind> Output<K> {
+impl<K: Route> Output<K> {
     pub fn single<S: Sink<K> + 'static>(sink: S) -> Self {
         Self {
             inner: Inner::Single(Box::new(sink)),
@@ -104,7 +104,7 @@ impl<K: EventKind> Output<K> {
 // recurse into its child outputs without building an infinitely-sized
 // future type.
 #[async_trait]
-impl<K: EventKind> PublishEvents<K> for Output<K> {
+impl<K: Route> PublishEvents<K> for Output<K> {
     async fn publish_events(&self, events: Vec<ProcessedEvent<K>>) -> Result<(), CaptureError> {
         match &self.inner {
             Inner::Single(sink) => sink.publish_events(events).await,
@@ -114,8 +114,8 @@ impl<K: EventKind> PublishEvents<K> for Output<K> {
 }
 
 #[async_trait]
-impl<K: EventKind> PublishPrepared for Output<K> {
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+impl<K: Route> PublishPrepared<K::Lane> for Output<K> {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<K::Lane>>) -> Vec<SinkResult> {
         match &self.inner {
             Inner::Single(sink) => sink.publish_prepared(events).await,
             Inner::Failover(failover) => failover.publish_prepared(events).await,
@@ -123,13 +123,13 @@ impl<K: EventKind> PublishPrepared for Output<K> {
     }
 }
 
-struct Failover<K: EventKind> {
+struct Failover<K: Route> {
     primary: Box<Output<K>>,
     fallback: Box<Output<K>>,
     advisory_handle: Option<lifecycle::Handle>,
 }
 
-impl<K: EventKind> Failover<K> {
+impl<K: Route> Failover<K> {
     fn primary_is_healthy(&self) -> bool {
         self.advisory_handle
             .as_ref()
@@ -159,7 +159,7 @@ impl<K: EventKind> Failover<K> {
     }
 
     #[instrument(skip_all)]
-    async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    async fn publish_prepared(&self, events: Vec<PreparedEvent<K::Lane>>) -> Vec<SinkResult> {
         let healthy = self.primary_is_healthy();
         gauge!("capture_primary_sink_health").set(if healthy { 1.0 } else { 0.0 });
 
@@ -189,7 +189,8 @@ impl<K: EventKind> Failover<K> {
 
         error!("Primary output failed, falling back");
         counter!("capture_fallback_sink_failovers_total").increment(1);
-        let mut events: Vec<Option<PreparedEvent>> = events.into_iter().map(Some).collect();
+        let mut events: Vec<Option<PreparedEvent<K::Lane>>> =
+            events.into_iter().map(Some).collect();
         let retry_events = retry.iter().filter_map(|&idx| events[idx].take()).collect();
         let fallback_results = self.fallback.publish_prepared(retry_events).await;
         for (idx, result) in retry.into_iter().zip(fallback_results) {
@@ -199,15 +200,14 @@ impl<K: EventKind> Failover<K> {
     }
 }
 
-/// The deployment's output. One output serves every address; the Kafka sink
-/// resolves per-lane topics through its [`OutputTable`] at enqueue.
-///
-/// [`OutputTable`]: crate::sinks::registry::OutputTable
-pub struct OutputRegistry<K: EventKind> {
+/// The deployment's output. One output serves every address of `K`'s lane
+/// set; the Kafka sink resolves per-lane topics through the deployment's
+/// [`Outputs`](crate::sinks::registry::Outputs) at enqueue.
+pub struct OutputRegistry<K: Route> {
     output: Output<K>,
 }
 
-impl<K: EventKind> OutputRegistry<K> {
+impl<K: Route> OutputRegistry<K> {
     pub fn new(output: Output<K>) -> Self {
         Self { output }
     }
@@ -224,7 +224,7 @@ impl<K: EventKind> OutputRegistry<K> {
         self.output.publish_events(events).await
     }
 
-    pub async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    pub async fn publish_prepared(&self, events: Vec<PreparedEvent<K::Lane>>) -> Vec<SinkResult> {
         self.output.publish_prepared(events).await
     }
 }
@@ -233,7 +233,7 @@ impl<K: EventKind> OutputRegistry<K> {
 mod tests {
     use super::*;
     use crate::kind::{AnalyticsKind, MainOrHistorical};
-    use crate::pipeline::{AnalyticsLane, PipelineLane};
+    use crate::pipeline::{AnalyticsLane, AnalyticsOutputLane};
     use crate::sinks::test_sink::MockSink;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::ProcessedEventMetadata;
@@ -255,8 +255,11 @@ mod tests {
     }
 
     #[async_trait]
-    impl PublishPrepared for FailSink {
-        async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    impl PublishPrepared<AnalyticsOutputLane> for FailSink {
+        async fn publish_prepared(
+            &self,
+            events: Vec<PreparedEvent<AnalyticsOutputLane>>,
+        ) -> Vec<SinkResult> {
             events
                 .iter()
                 .map(|event| SinkResult::failed(event.uuid, self.0.clone()))
@@ -294,8 +297,11 @@ mod tests {
     }
 
     #[async_trait]
-    impl PublishPrepared for PreparedSink {
-        async fn publish_prepared(&self, events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+    impl PublishPrepared<AnalyticsOutputLane> for PreparedSink {
+        async fn publish_prepared(
+            &self,
+            events: Vec<PreparedEvent<AnalyticsOutputLane>>,
+        ) -> Vec<SinkResult> {
             self.seen
                 .lock()
                 .unwrap()
@@ -310,11 +316,11 @@ mod tests {
         }
     }
 
-    fn prepared_event() -> PreparedEvent {
+    fn prepared_event() -> PreparedEvent<AnalyticsOutputLane> {
         let event = test_event().event;
         PreparedEvent {
             uuid: Uuid::now_v7(),
-            address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)),
+            address: Address::Lane(AnalyticsOutputLane::Analytics(AnalyticsLane::Main)),
             partition_key: event.key(),
             ordering: OrderingGuarantee::PerDistinctId,
             payload: bytes::Bytes::from_static(b"{}"),

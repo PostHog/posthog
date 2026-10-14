@@ -48,7 +48,7 @@ pub struct BatchResponse {
 impl BatchResponse {
     /// Build the response from a processed batch of WrappedEvents.
     /// Call this after publishing and result merging are complete.
-    pub fn build(ctx: &RequestContext, events: &[WrappedEvent]) -> Self {
+    pub fn build<L>(ctx: &RequestContext, events: &[WrappedEvent<L>]) -> Self {
         let mut has_retry = false;
         let entries: Vec<(Uuid, BatchEntryStatus)> = events
             .iter()
@@ -82,7 +82,7 @@ impl BatchResponse {
 /// Classify the outcome mix of a processed batch for the
 /// `capture_v1_batch_outcomes` counter. `Warning` counts toward "all_ok"
 /// (the event was still accepted). Returns `None` for an empty batch.
-fn classify_batch(events: &[WrappedEvent]) -> Option<&'static str> {
+fn classify_batch<L>(events: &[WrappedEvent<L>]) -> Option<&'static str> {
     if events.is_empty() {
         return None;
     }
@@ -160,9 +160,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
+    use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions};
     use crate::v1::test_utils;
-    use crate::v1::types::Destination;
+    use crate::v1::test_utils::{Destination, WrappedEvent};
 
     fn make_wrapped(result: EventResult, details: Option<&'static str>) -> WrappedEvent {
         let uuid = Uuid::new_v4();
@@ -182,7 +182,7 @@ mod tests {
             adjusted_timestamp: Some(Utc::now()),
             result,
             details,
-            destination: Destination::AnalyticsMain,
+            destination: Some(Destination::AnalyticsMain),
             force_disable_person_processing: false,
             spread_partitions: false,
             is_gateway_verified: false,
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn classify_batch_empty_is_none() {
-        assert_eq!(classify_batch(&[]), None);
+        assert_eq!(classify_batch::<()>(&[]), None);
     }
 
     #[test]

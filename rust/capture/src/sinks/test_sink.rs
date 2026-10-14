@@ -2,7 +2,7 @@
 //! crate.
 
 use crate::api::CaptureError;
-use crate::kind::EventKind;
+use crate::kind::{EventKind, Route};
 use crate::outputs::{PreparedEvent, PublishEvents, PublishPrepared};
 use crate::sinks::sink::SinkResult;
 use crate::v0_request::ProcessedEvent;
@@ -41,8 +41,8 @@ impl<K: EventKind> PublishEvents<K> for MockSink<K> {
 }
 
 #[async_trait]
-impl<K: EventKind> PublishPrepared for MockSink<K> {
-    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+impl<K: Route> PublishPrepared<K::Lane> for MockSink<K> {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent<K::Lane>>) -> Vec<SinkResult> {
         unreachable!("v0 endpoints publish events")
     }
 }

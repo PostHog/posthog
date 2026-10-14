@@ -3,12 +3,12 @@ use axum::Router;
 use super::constants::{
     CAPTURE_V1_AI_PATH, CAPTURE_V1_AI_PATH_TRAILING, CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING,
 };
-use crate::kind::{AiKind, EventKind};
+use crate::kind::{AiKind, Classify, Route};
 use crate::router::State;
 
 /// Route declarations only. The shared v1 middleware stack (headers, metrics,
 /// timeout, CORS, limits) is owned by `crate::v1::router`.
-pub fn routes<K: EventKind>() -> Router<State<K>> {
+pub fn routes<K: Classify + Route>() -> Router<State<K>> {
     Router::new()
         .route(
             CAPTURE_V1_PATH,
@@ -28,7 +28,7 @@ pub fn routes<K: EventKind>() -> Router<State<K>> {
 /// The handler needs no AI-specific branch: every AI behavior in the v1
 /// pipeline (gateway provenance, the llm_events quota exemption, `Pipeline::Ai`
 /// restrictions, the per-event size ceiling, the byte-rate limiter, and the
-/// `Destination::AiMain` lane itself) keys off the event name, not the path.
+/// AI lane itself) keys off the event name, not the path.
 /// What the path decides is which deployment answers, which `crate::router`
 /// gates on the capture mode.
 pub fn ai_routes() -> Router<State<AiKind>> {
