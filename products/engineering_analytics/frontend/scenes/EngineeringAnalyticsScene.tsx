@@ -1,13 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { CIDataAsOfLabel } from '../components/CIDataAsOfLabel'
 import { ProductNav } from '../components/ProductNav'
 import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { engineeringAnalyticsEmptyState } from '../emptyState/engineeringAnalyticsEmptyState'
@@ -35,16 +35,7 @@ export const scene: SceneExport = {
 
 function CIDataAsOf(): JSX.Element | null {
     const { ciDataAsOf } = useValues(engineeringAnalyticsLogic)
-    if (!ciDataAsOf) {
-        return null
-    }
-    return (
-        <Tooltip title="CI data on this page is at least this fresh. Refresh reloads it and does not start a sync.">
-            <span className="text-xs text-secondary">
-                Updated <TZLabel time={ciDataAsOf} />
-            </span>
-        </Tooltip>
-    )
+    return ciDataAsOf ? <CIDataAsOfLabel asOf={ciDataAsOf} /> : null
 }
 
 function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JSX.Element {

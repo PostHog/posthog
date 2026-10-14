@@ -1,15 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconPullRequest, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
+import { CIDataAsOfLabel } from '../components/CIDataAsOfLabel'
 import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
 import { CIExplorerOverview } from '../components/ciExplorer/CIExplorerOverview'
 import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSummaryCounts'
@@ -118,19 +118,11 @@ export function CIExplorerScene(): JSX.Element {
                             data-attr="ci-explorer-views"
                         />
                         <div className="flex items-center gap-2 pb-1 text-xs text-secondary">
-                            <Tooltip title="CI data on this page is at least this fresh. Refresh reloads it and does not start a sync.">
-                                <span>
-                                    {dataAsOf ? (
-                                        <>
-                                            Updated <TZLabel time={dataAsOf} />
-                                        </>
-                                    ) : freshnessLoading ? (
-                                        'Checking update time'
-                                    ) : (
-                                        'Update time unknown'
-                                    )}
-                                </span>
-                            </Tooltip>
+                            {dataAsOf ? (
+                                <CIDataAsOfLabel asOf={dataAsOf} />
+                            ) : (
+                                <span>{freshnessLoading ? 'Checking update time' : 'Update time unknown'}</span>
+                            )}
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"

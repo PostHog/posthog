@@ -416,17 +416,10 @@ class StoredCiReader:
         yesterday = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
         computed_at: list[datetime] = []
         for stored in (STORED_RUNS, STORED_JOBS):
-            start = history_start(stored, self._team, self._source)
+            start = self._history_start(stored)
             if start is None:
                 return None
-            result = ensure_stored(
-                stored,
-                self._team,
-                self._source,
-                since=max(yesterday, start),
-                run_inserts=False,
-                stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
-            )
+            result = self._check(stored, since=max(yesterday, start))
             if not result.ready or result.computed_at is None:
                 return None
             computed_at.append(result.computed_at)
@@ -479,9 +472,7 @@ class StoredCiReader:
         the first day of the history without a floor. None when a day in that span is not stored, the
         first day is not known, or the floor is not a date. No row is older than the first day, so a
         span that starts earlier starts there."""
-        if stored.table not in self._starts:
-            self._starts[stored.table] = history_start(stored, self._team, self._source)
-        since = self._starts[stored.table]
+        since = self._history_start(stored)
         if since is None:
             return None
         if floor is not None:
@@ -491,16 +482,25 @@ class StoredCiReader:
                 return None
         key = (stored.table, since)
         if key not in self._days:
-            result = ensure_stored(
-                stored,
-                self._team,
-                self._source,
-                since=since,
-                run_inserts=False,
-                stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
-            )
+            result = self._check(stored, since=since)
             job_ids = ", ".join(f"'{UUID(str(job_id))}'" for job_id in result.job_ids)
             # A floor after today spans no day, so the check is ready with no job.
             servable = result.ready and bool(job_ids)
             self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if servable else None
         return self._days[key]
+
+    def _history_start(self, stored: StoredRows) -> datetime | None:
+        if stored.table not in self._starts:
+            self._starts[stored.table] = history_start(stored, self._team, self._source)
+        return self._starts[stored.table]
+
+    def _check(self, stored: StoredRows, *, since: datetime) -> LazyComputationResult:
+        """Whether every day from ``since`` is stored and recent enough for a read, with no insert."""
+        return ensure_stored(
+            stored,
+            self._team,
+            self._source,
+            since=since,
+            run_inserts=False,
+            stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
+        )
