@@ -5025,6 +5025,22 @@ class TestSurveyWithActions(APIBaseTest):
         assert not Survey.objects.filter(team=self.team, name="new").exists()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
 
+    @parameterized.expand([("text", "abc"), ("object", {"id": 1})])
+    def test_linking_an_action_rejects_a_non_numeric_id(self, _name: str, action_id: object) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "bad action id",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "conditions": {"actions": {"values": [{"name": "bad", "id": action_id}]}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "conditions"
+
     def test_can_clear_associated_actions(self):
         Action.objects.create(
             team=self.team,

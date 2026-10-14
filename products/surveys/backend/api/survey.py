@@ -1262,12 +1262,14 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(actions_condition, dict) or not isinstance(self.context["request"].user, User):
             return
 
-        action_ids = {value.get("id") for value in actions_condition.get("values") or [] if isinstance(value, dict)}
-        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
-        if self.instance is not None:
-            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
-
-        added = list(added_actions)
+        try:
+            action_ids = {value.get("id") for value in actions_condition.get("values") or [] if isinstance(value, dict)}
+            added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+            if self.instance is not None:
+                added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+            added = list(added_actions)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("Each action in the survey conditions needs a numeric id.")
         access_controls = self.context["view"].user_access_control.for_team_ids({action.team_id for action in added})
         denied_ids = sorted(
             action.id

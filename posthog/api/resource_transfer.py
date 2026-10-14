@@ -346,9 +346,10 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             except (ValueError, TypeError, DjangoValidationError):
                 raise exceptions.ValidationError(f"Invalid {dest_visitor.kind} id: {sub['destination_resource_id']}")
-            if dest_resource is not None and not dest_ac.check_access_level_for_object(
-                dest_resource, required_level="viewer"
-            ):
+            # duplicate_resource_to_new_team rejects a missing or foreign substitution with a 400
+            if dest_resource is None or dest_visitor.get_resource_team(dest_resource).pk != destination_team.pk:
+                continue
+            if not dest_ac.check_access_level_for_object(dest_resource, required_level="viewer"):
                 raise exceptions.PermissionDenied(
                     f"You do not have read access to {dest_visitor.kind} {sub['destination_resource_id']} "
                     "in the destination project"
