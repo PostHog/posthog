@@ -82,19 +82,20 @@ class _ScorerRecorder:
         trace_id = traces.get(name) if isinstance(traces, dict) else None
         return trace_id if isinstance(trace_id, str) else None
 
-    def record(self, metadata: dict[str, Any], score: object) -> None:
+    def record(self, metadata: dict[str, Any], score: object, *, scorer_name: str) -> None:
         name = getattr(score, "name", None)
         value = getattr(score, "score", None)
         if not isinstance(name, str) or not isinstance(value, (float, int, type(None))):
             return
         score_metadata = getattr(score, "metadata", None)
         score_metadata = dict(score_metadata) if isinstance(score_metadata, dict) else {}
+        trace_id = self.trace_id(metadata, name) or self.trace_id(metadata, scorer_name)
         explicit_result = getattr(score, "result", None)
         if isinstance(explicit_result, ScorerResult):
             outcome = replace(
                 explicit_result,
                 metadata={**score_metadata, **explicit_result.metadata},
-                evaluator_trace_id=explicit_result.evaluator_trace_id or self.trace_id(metadata, name),
+                evaluator_trace_id=explicit_result.evaluator_trace_id or trace_id,
                 evaluated_at=explicit_result.evaluated_at or datetime.now(UTC),
             )
         else:
@@ -104,7 +105,7 @@ class _ScorerRecorder:
                 value=value,
                 reasoning=reasoning if isinstance(reasoning, str) else None,
                 metadata=score_metadata,
-                evaluator_trace_id=self.trace_id(metadata, name),
+                evaluator_trace_id=trace_id,
                 evaluated_at=datetime.now(UTC),
             )
         self.results[id(metadata)][name] = outcome
@@ -149,7 +150,7 @@ class _RecordingScorer:
             elif not is_score(result):
                 result = Score(name=self._name(), score=result)
             for score in result if isinstance(result, list) else [result]:
-                self._recorder.record(metadata, score)
+                self._recorder.record(metadata, score, scorer_name=self._name())
         except Exception as error:
             self._recorder.record_error(metadata, self._name(), error)
             raise

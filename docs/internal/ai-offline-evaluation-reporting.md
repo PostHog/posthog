@@ -86,6 +86,8 @@ Application and dataset revisions use the commit captured at run start.
 Items include available input, output, expected output, and case metadata.
 The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
 Fields that exceed payload limits are omitted, with omission details recorded in metadata.
+Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the saved upload.
+Metadata and omission diagnostics have aggregate size limits as well, so many small fields cannot exceed the SDK's item payload limit.
 
 The publisher atomically saves a versioned, credential-free `posthog-offline-upload.json` in the experiment's agent-log directory before sending anything.
 The file retains the original experiment declaration, item identities, scorer versions, and result payloads. Saving and replay use the same JSON representation, including large integer payload values.

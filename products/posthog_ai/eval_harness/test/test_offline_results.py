@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -49,7 +50,9 @@ def _case(name: str = "query") -> CaseResult:
     )
 
 
-def _prepare(publisher: OfflineEvalPublisher, cases: list[CaseResult]) -> OfflineEvalUpload:
+def _prepare(
+    publisher: OfflineEvalPublisher, cases: list[CaseResult], metadata: dict[str, object] | None = None
+) -> OfflineEvalUpload:
     return publisher.prepare(
         experiment_id=EXPERIMENT_ID,
         experiment_name="sql-test",
@@ -63,7 +66,7 @@ def _prepare(publisher: OfflineEvalPublisher, cases: list[CaseResult]) -> Offlin
             ),
             results=cases,
         ),
-        metadata={"agent_model": "test-model", "git_sha": "captured-revision"},
+        metadata={"agent_model": "test-model", "git_sha": "captured-revision", **(metadata or {})},
     )
 
 
@@ -149,6 +152,57 @@ def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_results() 
         "expected_output",
         "metadata.case",
     }
+    assert case.output == original_output
+
+
+@parameterized.expand(
+    [
+        ("null_output_key", {"invalid\x00key": "x" * (300 * 1024)}, {}),
+        ("null_metadata_key", {}, {"invalid\x00key": "value"}),
+        ("surrogate_metadata_key", {}, {"invalid\ud800key": "value"}),
+        (
+            "many_output_fields",
+            {f"field-{index}-" + "k" * 512: "x" * 1024 for index in range(2000)},
+            {},
+        ),
+        (
+            "aggregate_metadata",
+            {"details": "x" * (240 * 1024)},
+            {f"metadata-{index}": "x" * (60 * 1024) for index in range(8)},
+        ),
+    ]
+)
+def test_prepare_bounds_payload_details_without_losing_scores(
+    _name: str, output: dict[str, object], metadata: dict[str, object]
+) -> None:
+    case = _case()
+    case.input["prompt"] = "i" * (240 * 1024)
+    case.expected = "e" * (240 * 1024)
+    original_output = {**output, "answer": "There are 3 events"}
+    case.output = original_output.copy()
+
+    encode_json = json.dumps
+    encoding_calls = 0
+
+    def bounded_encode_json(value: object, **kwargs: Any) -> str:
+        nonlocal encoding_calls
+        encoding_calls += 1
+        assert encoding_calls <= 8 * len(original_output) + 500
+        return encode_json(value, **kwargs)
+
+    with patch.object(json, "dumps", bounded_encode_json):
+        upload = _prepare(_publisher(), [case], metadata)
+    payload = upload.items[0].to_dict()["payload"]
+    omitted = payload["metadata"]["omitted_fields"]
+
+    assert payload["output"]["answer"] == "There are 3 events"
+    assert payload["input"] == case.input
+    assert payload["expected_output"] == case.expected
+    assert all(result.to_dict()["status"] == "ok" for result in upload.results)
+    assert omitted
+    assert all("\x00" not in key and len(key) <= 128 for key in omitted)
+    assert len(json.dumps(omitted, ensure_ascii=False).encode("utf-8")) < 32 * 1024
+    assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) < 1024 * 1024
     assert case.output == original_output
 
 
@@ -435,3 +489,44 @@ def test_settings_reject_partial_or_ambiguous_configuration(_name: str, override
     }
     with patch.dict("os.environ", environment, clear=True), pytest.raises(OfflineUploadError):
         OfflineEvalSettings.from_env(SUITE)
+
+
+@parameterized.expand(
+    [
+        ("dataset_identifier_type", "dataset_item_identifier", 42, "dataset_item_identifier"),
+        (
+            "dataset_version_identifier",
+            "dataset_item_version_identifier",
+            "bad\x00version",
+            "dataset_item_version_identifier",
+        ),
+        ("dataset_version_uuid", "dataset_item_version_id", "not-a-uuid", "dataset_item_version_id"),
+        ("trace_identifier", "trace_id", "bad\x00trace", "application_trace_id"),
+        ("long_case_key", "name", "x" * 256, "case_key"),
+    ]
+)
+def test_prepare_preserves_every_case_when_optional_item_references_are_invalid(
+    _name: str, field: str, value: str | int, omitted_field: str
+) -> None:
+    healthy, malformed = _case("healthy"), _case("malformed")
+    if field == "name":
+        malformed.input["name"] = value
+    else:
+        malformed.metadata[field] = value
+    malformed.metadata["dataset_item_identifier"] = malformed.metadata.get("dataset_item_identifier", "valid-case")
+
+    upload = _prepare(_publisher(link_traces=True), [healthy, malformed])
+
+    assert len(upload.items) == 2
+    assert len(upload.results) == 4
+    assert all(result.to_dict()["status"] == "ok" for result in upload.results)
+    assert upload.items[0].to_dict()["case_key"] == "healthy"
+    item = upload.items[1].to_dict()
+    assert omitted_field not in item
+    assert omitted_field in item["payload"]["metadata"]["omitted_fields"]
+    if omitted_field != "dataset_item_identifier":
+        assert item["dataset_item_identifier"] == "valid-case"
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "upload.json"
+        upload.save(path)
+        assert OfflineEvalUpload.load(path).to_dict() == upload.to_dict()

@@ -231,35 +231,66 @@ def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
 
 
 @pytest.mark.parametrize(
-    "score_output, expected_scores",
+    "score_output, expected_scores, expected_trace_ids",
     [
-        (0.5, {"score": 0.5}),
-        ({"name": "metric", "score": 0.25, "metadata": {"reason": "Partial match"}}, {"metric": 0.25}),
-        ([Score(name="first", score=1.0), Score(name="second", score=None)], {"first": 1.0, "second": None}),
+        (0.5, {"score": 0.5}, {"score": "origin-trace"}),
+        (
+            {"name": "metric", "score": 0.25, "metadata": {"reason": "Partial match"}},
+            {"metric": 0.25},
+            {"metric": "origin-trace"},
+        ),
+        (
+            [
+                Score(name="first", score=1.0),
+                Score(name="second", score=None),
+                HarnessScore(
+                    name="third",
+                    score=0.25,
+                    result=ScorerResult(status="ok", value=0.25, evaluator_trace_id="explicit-trace"),
+                ),
+            ],
+            {"first": 1.0, "second": None, "third": 0.25},
+            {"first": "metric-trace", "second": "origin-trace", "third": "explicit-trace"},
+        ),
     ],
 )
 @pytest.mark.parametrize("is_async", [False, True])
 def test_callable_scorers_keep_their_supported_return_shapes(
-    engine: BraintrustEngine, score_output: object, expected_scores: dict[str, float | None], is_async: bool
+    engine: BraintrustEngine,
+    score_output: object,
+    expected_scores: dict[str, float | None],
+    expected_trace_ids: dict[str, str],
+    is_async: bool,
 ) -> None:
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         return {"answer": "match"}
 
-    def score(output: dict[str, Any]) -> object:
+    def score(output: dict[str, Any], metadata: dict[str, Any]) -> object:
         assert output == {"answer": "match"}
+        metadata["scorer_trace_ids"] = {
+            scorer.__name__: "origin-trace",
+            "first": "metric-trace",
+            "third": "metric-trace",
+        }
         return score_output
 
-    async def async_score(output: dict[str, Any]) -> object:
-        return score(output)
+    async def async_score(output: dict[str, Any], metadata: dict[str, Any]) -> object:
+        return score(output, metadata)
 
     scorer = async_score if is_async else score
     expected_scores = {
         "async_score" if name == "score" and is_async else name: value for name, value in expected_scores.items()
     }
+    expected_trace_ids = {
+        "async_score" if name == "score" and is_async else name: value for name, value in expected_trace_ids.items()
+    }
     result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
 
     assert result.results[0].scores == expected_scores
     assert {name: outcome.value for name, outcome in result.results[0].scorer_results.items()} == expected_scores
+    assert {
+        name: outcome.evaluator_trace_id for name, outcome in result.results[0].scorer_results.items()
+    } == expected_trace_ids
 
 
 def test_engine_does_not_throttle_concurrency(engine: BraintrustEngine) -> None:
