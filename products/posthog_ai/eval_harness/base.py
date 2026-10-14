@@ -409,7 +409,6 @@ class _BaseEvalRun:
     async def _enqueue_offline_upload(self, result: ExperimentResult) -> None:
         if self.offline_publisher is None or self.no_send_logs:
             return
-        upload_path = self.run_log_dir / "posthog-offline-upload.json"
         try:
             upload = await asyncio.to_thread(
                 self.offline_publisher.prepare,
@@ -419,21 +418,24 @@ class _BaseEvalRun:
                 result=result,
                 metadata=self._experiment_metadata(),
             )
-            await asyncio.to_thread(upload.save, upload_path)
         except Exception as error:
             detail = str(error) if isinstance(error, OfflineUploadError) else type(error).__name__
             await self.ctx.reporter.record_posthog_offline_result(
-                self.experiment_name, f"upload preparation failed: {detail}. No retry file was written"
+                self.experiment_name, f"upload preparation failed: {detail}"
             )
             return
 
-        await self.ctx.reporter.record_posthog_offline_result(
-            self.experiment_name, f"pending upload. Saved requests: {upload_path}"
-        )
         delivery = self.ctx.offline_delivery
-        if delivery is not None and not delivery.submit(self.offline_publisher, upload_path, self.experiment_name):
+        if delivery is None:
             await self.ctx.reporter.record_posthog_offline_result(
-                self.experiment_name, f"pending: upload queue is full. Saved requests: {upload_path}"
+                self.experiment_name,
+                "upload failed: background delivery is unavailable. Results were not saved for retry.",
+            )
+            return
+        await self.ctx.reporter.record_posthog_offline_result(self.experiment_name, "upload queued")
+        if not delivery.submit(self.offline_publisher, upload):
+            await self.ctx.reporter.record_posthog_offline_result(
+                self.experiment_name, "upload failed: upload queue is full or closed. Results were not saved for retry."
             )
 
     def _export_case_results(self, result: ExperimentResult) -> None:

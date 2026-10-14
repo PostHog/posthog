@@ -5,7 +5,6 @@ import asyncio
 import threading
 from collections.abc import Callable, Coroutine
 from functools import partial
-from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -28,9 +27,8 @@ from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 STARTED_AT = "2026-01-01T00:00:00+00:00"
 
 
-def _save_upload(directory: Path, index: int) -> Path:
-    path = directory / f"upload-{index}.json"
-    OfflineEvalUpload(
+def _upload(index: int) -> OfflineEvalUpload:
+    return OfflineEvalUpload(
         host="https://posthog.example.com",
         project_id=123,
         experiment_name=f"experiment-{index}",
@@ -42,8 +40,7 @@ def _save_upload(directory: Path, index: int) -> Path:
         },
         items=(),
         results=(),
-    ).save(path)
-    return path
+    )
 
 
 def _receipt(request: httpx.Request, servers: dict[str, OfflineServer]) -> httpx.Response:
@@ -71,7 +68,7 @@ def _publisher(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("pause", [False, True])
 async def test_delivery_limits_queued_work_without_waiting_for_uploads(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], pause: bool
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pause: bool
 ) -> None:
     started = asyncio.Event()
     release = asyncio.Event()
@@ -91,20 +88,19 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
         return _receipt(request, servers)
 
     publisher = _publisher(monkeypatch, respond)
-    paths = [_save_upload(tmp_path, index) for index in (1, 2, 3)]
-    saved = [path.read_bytes() for path in paths]
+    uploads = [_upload(index) for index in (1, 2, 3)]
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=3), max_concurrency=1, max_pending=2)
 
-    assert delivery.submit(publisher, paths[0], "experiment-1")
-    assert delivery.submit(publisher, paths[1], "experiment-2")
-    assert not delivery.submit(publisher, paths[2], "experiment-3")
+    assert delivery.submit(publisher, uploads[0])
+    assert delivery.submit(publisher, uploads[1])
+    assert not delivery.submit(publisher, uploads[2])
     await asyncio.wait_for(started.wait(), timeout=5)
     assert len(requests) == 1
     release.set()
     if pause:
         await asyncio.wait_for(second_started.wait(), timeout=5)
         await delivery.pause()
-        assert not delivery.submit(publisher, paths[2], "experiment-3")
+        assert not delivery.submit(publisher, uploads[2])
         release_second.set()
     await delivery.drain()
 
@@ -113,8 +109,7 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
     )
     if pause:
         assert requests[2].content == requests[3].content
-    assert [path.read_bytes() for path in paths] == saved
-    assert not delivery.submit(publisher, paths[2], "experiment-3")
+    assert not delivery.submit(publisher, uploads[2])
     output = capsys.readouterr().out
     assert output.count("POSTHOG OFFLINE") == 2
     assert "experiment-1  https://posthog.example.com/project/123/" in output
@@ -124,9 +119,8 @@ async def test_delivery_limits_queued_work_without_waiting_for_uploads(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("http_status", [200, 403])
 @pytest.mark.parametrize("shutdown", ["pause", "deadline", "interrupt"])
-async def test_finished_uploads_are_not_replayed_or_marked_interrupted_while_reporting(
+async def test_finished_uploads_are_not_retried_or_marked_interrupted_while_reporting(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     http_status: int,
     shutdown: Literal["pause", "deadline", "interrupt"],
@@ -152,10 +146,8 @@ async def test_finished_uploads_are_not_replayed_or_marked_interrupted_while_rep
 
     monkeypatch.setattr(reporting, "_emit", blocked_emit)
     publisher = _publisher(monkeypatch, respond)
-    path = _save_upload(tmp_path, 1)
-    saved = path.read_bytes()
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=1))
-    assert delivery.submit(publisher, path, "experiment-1")
+    assert delivery.submit(publisher, _upload(1))
     try:
         await asyncio.wait_for(report_started.wait(), timeout=5)
         if shutdown == "pause":
@@ -170,7 +162,6 @@ async def test_finished_uploads_are_not_replayed_or_marked_interrupted_while_rep
     await asyncio.wait_for(report_finished.wait(), timeout=5)
 
     assert len(requests) == (2 if http_status == 200 else 1)
-    assert path.read_bytes() == saved
     output = capsys.readouterr().out
     assert output.count("POSTHOG OFFLINE") == 1
     assert "upload interrupted" not in output
@@ -178,15 +169,15 @@ async def test_finished_uploads_are_not_replayed_or_marked_interrupted_while_rep
     if http_status == 200:
         assert "experiment-1  https://posthog.example.com/project/123/" in output
     else:
-        assert "upload pending:" in output
+        assert "upload failed:" in output
+        assert "Results were not saved for retry." in output
         assert "403" in output
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("shutdown", ["deadline", "interrupt", "before_start", "paused"])
-async def test_shutdown_cancels_active_and_waiting_uploads_and_preserves_replay(
+async def test_shutdown_cancels_active_and_waiting_uploads_and_reports_unsaved_results(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     shutdown: Literal["deadline", "interrupt", "before_start", "paused"],
 ) -> None:
@@ -207,11 +198,10 @@ async def test_shutdown_cancels_active_and_waiting_uploads_and_preserves_replay(
         return _receipt(request, servers)
 
     publisher = _publisher(monkeypatch, respond)
-    paths = [_save_upload(tmp_path, index) for index in (1, 2)]
-    saved = [path.read_bytes() for path in paths]
+    uploads = [_upload(index) for index in (1, 2)]
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=2), max_concurrency=1)
-    for index, path in enumerate(paths, start=1):
-        assert delivery.submit(publisher, path, f"experiment-{index}")
+    for upload in uploads:
+        assert delivery.submit(publisher, upload)
 
     if shutdown != "before_start":
         await asyncio.wait_for(started.wait(), timeout=5)
@@ -225,18 +215,18 @@ async def test_shutdown_cancels_active_and_waiting_uploads_and_preserves_replay(
 
     assert len(requests) == (0 if shutdown == "before_start" else 1)
     assert cancelled.is_set() is (shutdown != "before_start")
-    assert [path.read_bytes() for path in paths] == saved
     output = capsys.readouterr().out
-    assert output.count("upload pending:") == 2
-    for path in paths:
-        assert f"Saved requests: {path}" in output
+    assert output.count("upload failed:") == 2
+    assert output.count("Results were not saved for retry.") == 2
+    for upload in uploads:
+        assert f"POSTHOG OFFLINE  {upload.experiment_name}" in output
     await delivery.drain()
     assert capsys.readouterr().out == ""
 
 
 @pytest.mark.asyncio
-async def test_upload_deadline_preserves_saved_results_before_network(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+async def test_upload_deadline_reports_unsaved_results_before_network(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     requests: list[httpx.Request] = []
     servers: dict[str, OfflineServer] = {}
@@ -246,26 +236,20 @@ async def test_upload_deadline_preserves_saved_results_before_network(
         return _receipt(request, servers)
 
     publisher = _publisher(monkeypatch, respond)
-    path = _save_upload(tmp_path, 1)
-    saved = path.read_bytes()
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=1), upload_timeout=0)
-    assert delivery.submit(publisher, path, "experiment-1")
+    assert delivery.submit(publisher, _upload(1))
     await delivery.drain()
 
     assert requests == []
-    assert path.read_bytes() == saved
     output = capsys.readouterr().out
-    assert "upload pending: upload deadline exceeded" in output
-    assert f"Saved requests: {path}" in output
+    assert "upload failed: upload deadline exceeded" in output
+    assert "Results were not saved for retry." in output
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["invalid_artifact", "rejected_upload"])
-async def test_failed_delivery_does_not_discard_artifacts_or_prevent_other_uploads(
+async def test_rejected_delivery_does_not_prevent_other_uploads(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    failure: Literal["invalid_artifact", "rejected_upload"],
 ) -> None:
     requests: list[httpx.Request] = []
     servers: dict[str, OfflineServer] = {}
@@ -277,18 +261,14 @@ async def test_failed_delivery_does_not_discard_artifacts_or_prevent_other_uploa
         return _receipt(request, servers)
 
     publisher = _publisher(monkeypatch, respond)
-    paths = [_save_upload(tmp_path, index) for index in (1, 2)]
-    if failure == "invalid_artifact":
-        paths[0].write_text("invalid-json")
-    saved = [path.read_bytes() for path in paths]
+    uploads = [_upload(index) for index in (1, 2)]
     delivery = OfflineEvalDelivery(ProgressReporter(total_suites=2), max_concurrency=1)
-    for index, path in enumerate(paths, start=1):
-        assert delivery.submit(publisher, path, f"experiment-{index}")
+    for upload in uploads:
+        assert delivery.submit(publisher, upload)
     await delivery.drain()
 
     assert sum(request.url.path.endswith("/complete/") for request in requests) == 1
-    assert [path.read_bytes() for path in paths] == saved
     output = capsys.readouterr().out
-    assert "POSTHOG OFFLINE  experiment-1  upload pending:" in output
-    assert f"Saved requests: {paths[0]}" in output
+    assert "POSTHOG OFFLINE  experiment-1  upload failed:" in output
+    assert "Results were not saved for retry." in output
     assert "POSTHOG OFFLINE  experiment-2  https://posthog.example.com/project/123/" in output

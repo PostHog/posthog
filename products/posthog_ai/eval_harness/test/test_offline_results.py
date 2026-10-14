@@ -5,8 +5,6 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import UUID
 
@@ -445,14 +443,11 @@ def test_publish_does_not_complete_without_confirmed_persistence(
         assert "retry after 45s" in str(error)
 
 
-def test_saved_upload_replays_partial_success_without_duplicate_results_or_integer_loss(tmp_path: Path) -> None:
+def test_publish_retries_partial_success_without_duplicate_results_or_integer_loss() -> None:
     publisher = _publisher()
     cases = [_case(f"query-{index}") for index in range(501)]
     cases[0].output = {"large_integer": 2**80}
     upload = _prepare(publisher, cases)
-    path = tmp_path / "upload.json"
-    upload.save(path)
-    assert "test-only-token" not in path.read_text()
     server = OfflineServer()
     attempts: list[httpx.Request] = []
     reject = True
@@ -476,65 +471,26 @@ def test_saved_upload_replays_partial_success_without_duplicate_results_or_integ
         assert "acknowledged 500 items and 1000 results" in str(error)
         assert "2 results await acknowledgment" in str(error)
         reject = False
-        replay = OfflineEvalUpload.load(path)
-        asyncio.run(publisher.publish(replay))
+        asyncio.run(publisher.publish(upload))
     assert len(server.results) == 1002
     assert len(server.items) == 501
     first_item = json.loads(attempts[1].content)["items"][0]
     assert first_item["payload"]["output"]["large_integer"] == 2**80
-    assert replay.to_dict() == upload.to_dict()
     assert attempts[0].content == attempts[3].content
     assert attempts[1].content == attempts[4].content
 
 
-def test_atomic_save_preserves_previous_upload_when_replace_fails(tmp_path: Path) -> None:
-    path = tmp_path / "upload.json"
-    upload = _prepare(_publisher(), [_case()])
-    upload.save(path)
-    previous = path.read_bytes()
-    with patch.object(Path, "replace", side_effect=OSError("disk unavailable")), pytest.raises(OSError):
-        replace(upload, experiment_name="new-name").save(path)
-    assert path.read_bytes() == previous
-    assert list(tmp_path.iterdir()) == [path]
-
-
-@parameterized.expand([("original_destination", "123"), ("changed_destination", "456")])
-def test_legacy_replay_uses_saved_versions_and_refuses_a_different_destination(_name: str, project_id: str) -> None:
-    prepared = _prepare(_publisher(), [_case()]).to_dict()
-    legacy = {
-        "host": prepared["host"],
-        "project_id": prepared["project_id"],
-        "experiment": prepared["experiment"],
-        "batches": [{"items": prepared["items"], "results": prepared["results"]}],
-    }
-    with TemporaryDirectory() as directory:
-        path = Path(directory) / "legacy.json"
-        path.write_text(json.dumps(legacy))
-        upload = OfflineEvalUpload.load(path)
+@parameterized.expand([("project", "https://us.posthog.com", 456), ("host", "https://eu.posthog.com", 123)])
+def test_publish_refuses_a_different_destination(_name: str, host: str, project_id: int) -> None:
+    publisher = _publisher()
+    upload = replace(_prepare(publisher, [_case()]), host=host, project_id=project_id)
     server = OfflineServer()
-    environment = {
-        "POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token",
-        "POSTHOG_OFFLINE_EVAL_PROJECT_ID": project_id,
-        "POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS": "ignored-during-replay",
-    }
     with (
-        patch.dict("os.environ", environment, clear=True),
         patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(server.respond))),
+        pytest.raises(OfflineUploadError, match="destination differs"),
     ):
-        settings = OfflineEvalSettings.from_env()
-        assert settings is not None
-        publisher = OfflineEvalPublisher(settings, OfflineEvalSuite(key="replay", scorer_kinds={}))
-        if project_id == "123":
-            asyncio.run(publisher.publish(upload))
-            assert json.loads(server.requests[0].content) == legacy["experiment"]
-            assert json.loads(server.requests[1].content) == {
-                "items": prepared["items"],
-                "results": prepared["results"],
-            }
-        else:
-            with pytest.raises(OfflineUploadError, match="destination differs"):
-                asyncio.run(publisher.publish(upload))
-            assert server.requests == []
+        asyncio.run(publisher.publish(upload))
+    assert server.requests == []
 
 
 def test_settings_accept_a_shared_scorer_map_for_multiple_suites() -> None:
@@ -627,7 +583,3 @@ def test_prepare_preserves_every_case_when_optional_item_references_are_invalid(
     assert omitted_field in item["payload"]["metadata"]["omitted_fields"]
     if omitted_field != "dataset_item_identifier":
         assert item["dataset_item_identifier"] == "valid-case"
-    with TemporaryDirectory() as directory:
-        path = Path(directory) / "upload.json"
-        upload.save(path)
-        assert OfflineEvalUpload.load(path).to_dict() == upload.to_dict()

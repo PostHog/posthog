@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterable
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
-from ..offline_results import OfflineEvalUpload, OfflineUploadError
+from ..offline_results import OfflineUploadError
 
 if TYPE_CHECKING:
-    from ..offline_results import OfflineEvalPublisher
+    from ..offline_results import OfflineEvalPublisher, OfflineEvalUpload
     from .reporting import ProgressReporter
 
 logger = logging.getLogger(__name__)
@@ -20,8 +19,7 @@ logger = logging.getLogger(__name__)
 @frozen
 class _PendingUpload:
     publisher: OfflineEvalPublisher
-    upload_path: Path
-    experiment_name: str
+    upload: OfflineEvalUpload
 
 
 class OfflineEvalDelivery:
@@ -45,9 +43,9 @@ class OfflineEvalDelivery:
         self._paused = False
         self._closed = False
 
-    async def _report_pending(self, job: _PendingUpload, reason: str) -> None:
+    async def _report_failed(self, job: _PendingUpload, reason: str) -> None:
         await self._reporter.record_posthog_offline_result(
-            job.experiment_name, f"upload pending: {reason}. Saved requests: {job.upload_path}"
+            job.upload.experiment_name, f"upload failed: {reason}. Results were not saved for retry."
         )
 
     async def _deliver(self, job: _PendingUpload) -> None:
@@ -57,9 +55,7 @@ class OfflineEvalDelivery:
         url: str | None = None
         try:
             async with self._slots:
-                async with asyncio.timeout(self._upload_timeout):
-                    upload = await asyncio.to_thread(OfflineEvalUpload.load, job.upload_path)
-                    url = await job.publisher.publish(upload)
+                url = await asyncio.wait_for(job.publisher.publish(job.upload), timeout=self._upload_timeout)
         except TimeoutError:
             reason = "upload deadline exceeded"
         except Exception as error:
@@ -67,9 +63,9 @@ class OfflineEvalDelivery:
         finally:
             self._uploading.discard(task)
         if reason is not None:
-            await self._report_pending(job, reason)
+            await self._report_failed(job, reason)
         else:
-            await self._reporter.record_posthog_offline_result(job.experiment_name, "uploaded", url=url)
+            await self._reporter.record_posthog_offline_result(job.upload.experiment_name, "uploaded", url=url)
 
     def _finished(self, task: asyncio.Task[None]) -> None:
         self._tasks.pop(task, None)
@@ -83,10 +79,10 @@ class OfflineEvalDelivery:
         self._uploading.add(task)
         task.add_done_callback(self._finished)
 
-    def submit(self, publisher: OfflineEvalPublisher, upload_path: Path, experiment_name: str) -> bool:
+    def submit(self, publisher: OfflineEvalPublisher, upload: OfflineEvalUpload) -> bool:
         if self._closed or self._paused or sum(not task.done() for task in self._tasks) >= self._max_pending:
             return False
-        self._start(_PendingUpload(publisher=publisher, upload_path=upload_path, experiment_name=experiment_name))
+        self._start(_PendingUpload(publisher=publisher, upload=upload))
         return True
 
     def _pending_uploads(self) -> dict[asyncio.Task[None], _PendingUpload]:
@@ -101,7 +97,7 @@ class OfflineEvalDelivery:
             await asyncio.gather(*pending, return_exceptions=True)
         if reason is not None:
             for job in uploads:
-                await self._report_pending(job, reason)
+                await self._report_failed(job, reason)
 
     async def pause(self) -> None:
         if self._closed:
@@ -116,7 +112,7 @@ class OfflineEvalDelivery:
         await self._cancel(tuple(self._tasks), None)
         self._paused_jobs.clear()
         for job in pending.values():
-            await self._report_pending(job, "upload interrupted")
+            await self._report_failed(job, "upload interrupted")
 
     async def drain(self, timeout: float = 30.0) -> None:
         self._closed = True

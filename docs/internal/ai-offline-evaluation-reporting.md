@@ -38,7 +38,7 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 
 The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
 Other suites continue using Braintrust and the existing event reporting path.
-After scoring, the harness saves the completed results and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
+After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 `no_send_logs=True` suppresses this upload too.
 
 Configure the destination through the environment before running the SQL suite:
@@ -94,25 +94,19 @@ Application and dataset revisions use the commit captured at run start.
 Items include available input, output, expected output, and case metadata.
 The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
 Fields that exceed payload limits are omitted, with omission details recorded in metadata.
-Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the saved upload.
+Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the prepared upload.
 Metadata and omission diagnostics have aggregate size limits as well, so many small fields cannot exceed the SDK's item payload limit.
 
-The publisher atomically saves a versioned, credential-free `posthog-offline-upload.json` in the experiment's agent-log directory before sending anything.
-The file retains the original experiment declaration, item identities, scorer versions, and result payloads. Saving and replay use the same JSON representation, including large integer payload values.
+The publisher retains the prepared experiment, items, scorer versions, and result payloads in memory until delivery finishes.
 The SDK owns request validation, batching, acknowledgements, and retries. Transient failures receive up to three retries with the same experiment and item identities.
 Failure reports retain sanitized error codes and field paths, persistence state, retry guidance, and acknowledged batch/item/result counts without including raw responses or result payloads.
 Local case exports finish before delivery is queued. Up to two uploads run concurrently, with at most 32 queued or active uploads and a 60-second deadline per active upload.
-After suites finish, the harness pauses unfinished uploads before synchronous infrastructure teardown, then replays them with fresh request and upload deadlines.
-It waits up to 30 seconds for remaining uploads after teardown. Timeout, cancellation, a full queue, or a rejected request leaves the saved upload available for replay and does not change the score gate.
-After correcting a configuration or connectivity problem, replay the saved requests without rerunning the eval:
-
-```bash
-python -m products.posthog_ai.eval_harness.offline_results PATH_TO_posthog-offline-upload.json
-```
-
-Replay uses the API key, host, and project environment settings for the original destination.
-It retains the saved scorer version UUIDs regardless of the current `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` mapping, then completes the experiment after all uploads succeed.
-Replay also accepts files produced by the earlier HTTP publisher. Exact retries remain safe after partial acceptance or a lost completion response.
+After suites finish, the harness pauses unfinished uploads before synchronous infrastructure teardown, then retries the same prepared objects with fresh request and upload deadlines.
+These retries retain the experiment, item, and scorer version identities, including after partial acceptance or a lost completion response.
+The harness waits up to 30 seconds for remaining uploads after teardown.
+Timeout, cancellation, a full queue, or a rejected request produces a warning without changing the score gate.
+Failed or interrupted uploads are not saved for later retry. To try publishing again, correct the configuration or connectivity problem and rerun the suite.
+Existing local logs, enabled case exports, and Braintrust results remain available.
 
 ### Enrolling other suites and richer results
 

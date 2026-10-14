@@ -377,15 +377,17 @@ def test_sandboxed_eval_run_adds_exit_code_scorer(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize(
-    "suite_kind,enrolled,no_send_logs,configuration,http_status",
+    "suite_kind,enrolled,no_send_logs,configuration,http_status,delivery_state",
     [
-        ("sandboxed", True, False, "valid", 200),
-        ("sandboxed", True, False, "valid", 403),
-        ("sandboxed", True, False, "partial", 200),
-        ("sandboxed", True, False, "absent", 200),
-        ("sandboxed", True, True, "valid", 200),
-        ("sandboxed", False, False, "valid", 200),
-        ("one-shot", True, False, "valid", 200),
+        ("sandboxed", True, False, "valid", 200, "ready"),
+        ("sandboxed", True, False, "valid", 403, "ready"),
+        ("sandboxed", True, False, "partial", 200, "ready"),
+        ("sandboxed", True, False, "absent", 200, "ready"),
+        ("sandboxed", True, True, "valid", 200, "ready"),
+        ("sandboxed", False, False, "valid", 200, "ready"),
+        ("one-shot", True, False, "valid", 200, "ready"),
+        ("sandboxed", True, False, "valid", 200, "unavailable"),
+        ("sandboxed", True, False, "valid", 200, "closed"),
     ],
 )
 @pytest.mark.asyncio
@@ -398,6 +400,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     no_send_logs: bool,
     configuration: Literal["valid", "partial", "absent"],
     http_status: int,
+    delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
     for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
@@ -445,6 +448,8 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     event_client = MagicMock()
     reporter = ProgressReporter(total_suites=1)
     delivery = OfflineEvalDelivery(reporter)
+    if delivery_state == "closed":
+        await delivery.drain()
     ctx = MagicMock(
         posthog_client=None,
         posthog_evaluation_client=event_client,
@@ -458,7 +463,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         git_dirty=False,
         engine=engine,
         reporter=reporter,
-        offline_delivery=delivery,
+        offline_delivery=delivery if delivery_state != "unavailable" else None,
     )
 
     run_eval = base.SandboxedEval if suite_kind == "sandboxed" else partial(OneShotEval, task=AsyncMock())
@@ -500,27 +505,35 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     output = capsys.readouterr().out
     assert "Braintrust: https://braintrust.example.com/experiment/test" in output
     assert "exit_code_zero: 100.0%" in output
-    saved_path = tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json"
-    if enrolled and not no_send_logs and configuration == "valid":
-        saved = json.loads(saved_path.read_text())
-        assert json.loads(requests[0].content) == saved["experiment"]
-        assert saved["results"][0]["scorer_version_id"] == version_id
-        assert saved["results"][0]["value"] is True
-        assert saved["items"][0]["payload"]["output"]["large_integer"] == 2**64
+    assert not (tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json").exists()
+    if enrolled and not no_send_logs and configuration == "valid" and delivery_state == "ready":
+        declaration = json.loads(requests[0].content)
+        assert declaration["name"] == "offline-pilot"
+        assert declaration["expected_item_count"] == 1
+        assert declaration["expected_result_count"] == 1
         if http_status == 200:
             assert len(requests) == 3
-            assert json.loads(requests[1].content) == {"items": saved["items"], "results": saved["results"]}
+            batch = json.loads(requests[1].content)
+            assert batch["results"][0]["scorer_version_id"] == version_id
+            assert batch["results"][0]["value"] is True
+            assert batch["results"][0]["item_id"] == batch["items"][0]["id"]
+            assert batch["items"][0]["payload"]["output"]["large_integer"] == 2**64
             assert requests[2].url.path.endswith("/complete/")
             assert "PostHog: https://posthog.example.com/project/123/" in output
         else:
             assert len(requests) == 1
-            assert "upload pending:" in output
+            assert "upload failed:" in output
             assert "403" in output
-            assert "Saved requests:" in output
+            assert "Results were not saved for retry." in output
     else:
         assert requests == []
-        assert not saved_path.exists()
-        if enrolled and not no_send_logs:
+        if delivery_state != "ready":
+            reason = (
+                "background delivery is unavailable" if delivery_state == "unavailable" else "queue is full or closed"
+            )
+            assert reason in output
+            assert "Results were not saved for retry." in output
+        elif enrolled and not no_send_logs:
             assert "PostHog offline: disabled:" in output
             assert "POSTHOG_OFFLINE_EVAL_" in output
         else:

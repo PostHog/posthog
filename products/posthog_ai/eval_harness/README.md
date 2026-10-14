@@ -358,7 +358,8 @@ Other suites are unchanged, and `no_send_logs=True` suppresses the new upload to
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write`, `POSTHOG_OFFLINE_EVAL_PROJECT_ID` to the destination project/environment, and `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS` to a JSON object mapping all seven SQL metric names to their immutable scorer version UUIDs.
 `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
 The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
-Delivery runs in a bounded background queue after local results are saved. Unfinished uploads pause before infrastructure teardown and resume from their saved files with fresh deadlines afterward; failed or interrupted uploads remain available for replay.
+Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
+Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to 30 seconds for delivery to finish.
 Both sandboxed and one-shot suites can opt in through `offline_suite`. The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, dataset references, version fields, and shared scorer mappings.
 
 ```bash
@@ -370,11 +371,6 @@ Partial or invalid configuration and upload failures produce warnings while Brai
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
 Raw agent logs stay in the existing local and Braintrust outputs; oversized fields are omitted from the new API payload with omission metadata.
 
-The experiment's agent-log directory contains `posthog-offline-upload.json` with the experiment and result declarations prepared for upload.
-To retry without rerunning the agent or scorers, use the original destination's API key, host, and project environment settings:
-
-```bash
-python -m products.posthog_ai.eval_harness.offline_results PATH_TO_posthog-offline-upload.json
-```
-
-Replay keeps the saved experiment, item, and scorer version identities, even if the current scorer mapping has changed.
+Failed or interrupted uploads and uploads rejected by a full queue are not saved for later retry.
+To try publishing again, correct the configuration or connectivity problem and rerun the suite.
+Existing local logs, enabled case exports, and Braintrust results remain available; upload failures do not change the score gate.

@@ -4,7 +4,6 @@ import asyncio
 import threading
 from contextlib import AsyncExitStack
 from functools import partial
-from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
@@ -31,7 +30,6 @@ from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
 @pytest.mark.parametrize("interrupted", [False, True])
 @pytest.mark.parametrize("teardown_phase", ["async", "sync"])
 def test_harness_tears_down_infrastructure_before_draining_uploads(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     interrupted: bool,
@@ -45,15 +43,14 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     clock_offset = 0.0
     cleanup_thread_id = threading.get_ident()
     server = OfflineServer()
-    path = tmp_path / "upload.json"
-    OfflineEvalUpload(
+    upload = OfflineEvalUpload(
         host="https://posthog.example.com",
         project_id=123,
         experiment_name="test-experiment",
         experiment={"id": str(UUID(int=1)), "started_at": "2026-01-01T00:00:00Z"},
         items=(),
         results=(),
-    ).save(path)
+    )
     publisher = OfflineEvalPublisher(
         OfflineEvalSettings(
             host="https://posthog.example.com", project_id=123, api_key=SecretStr("test"), scorer_versions={}
@@ -73,7 +70,7 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
         original_time = loop.time
         monkeypatch.setattr(loop, "time", lambda: original_time() + clock_offset)
         assert ctx.offline_delivery is not None
-        assert ctx.offline_delivery.submit(publisher, path, "test-experiment")
+        assert ctx.offline_delivery.submit(publisher, upload)
         await asyncio.wait_for(started.wait(), 5)
         assert not torn_down.is_set()
 
@@ -114,9 +111,9 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
     output = capsys.readouterr().out
     if interrupted:
         assert server.requests == []
-        assert output.count("upload pending: upload interrupted") == 1
+        assert output.count("upload failed: upload interrupted") == 1
+        assert "Results were not saved for retry." in output
     else:
         assert server.requests[-1].url.path.endswith("/complete/")
         assert "POSTHOG OFFLINE  test-experiment  https://posthog.example.com/project/123/" in output
-        assert "upload pending:" not in output
-    assert OfflineEvalUpload.load(path).experiment["id"] == str(UUID(int=1))
+        assert "upload failed:" not in output

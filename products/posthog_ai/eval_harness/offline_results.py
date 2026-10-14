@@ -3,14 +3,10 @@ from __future__ import annotations
 import os
 import re
 import json
-import asyncio
-import argparse
-import tempfile
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import field
 from datetime import datetime
-from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid5
@@ -97,7 +93,7 @@ class OfflineEvalSettings(BaseModel):
     max_retries: int = Field(default=3, ge=0)
 
     @classmethod
-    def from_env(cls, suite: OfflineEvalSuite | None = None) -> OfflineEvalSettings | None:
+    def from_env(cls, suite: OfflineEvalSuite) -> OfflineEvalSettings | None:
         prefix = "POSTHOG_OFFLINE_EVAL_"
         if not any(os.getenv(prefix + key) for key in ("API_KEY", "PROJECT_ID", "SCORER_VERSIONS", "HOST")):
             return None
@@ -106,7 +102,7 @@ class OfflineEvalSettings(BaseModel):
                 host=os.getenv(prefix + "HOST", "https://us.posthog.com").rstrip("/"),
                 project_id=int(os.environ[prefix + "PROJECT_ID"]),
                 api_key=SecretStr(os.environ[prefix + "API_KEY"]),
-                scorer_versions=json.loads(os.environ[prefix + "SCORER_VERSIONS"]) if suite is not None else {},
+                scorer_versions=json.loads(os.environ[prefix + "SCORER_VERSIONS"]),
             )
         except (KeyError, ValueError, ValidationError):
             raise OfflineUploadError(
@@ -130,29 +126,16 @@ class OfflineEvalSettings(BaseModel):
             raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_HOST must be an HTTPS origin")
         if not settings.api_key.get_secret_value().strip():
             raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_API_KEY must not be empty")
-        if suite is not None:
-            if not set(suite.scorer_kinds) <= set(settings.scorer_versions):
-                raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS must map every enrolled metric")
-            enrolled_versions = [settings.scorer_versions[metric] for metric in suite.scorer_kinds]
-            if len(set(enrolled_versions)) != len(enrolled_versions):
-                raise OfflineUploadError("Each offline metric must have a distinct scorer version UUID")
+        if not set(suite.scorer_kinds) <= set(settings.scorer_versions):
+            raise OfflineUploadError("POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS must map every enrolled metric")
+        enrolled_versions = [settings.scorer_versions[metric] for metric in suite.scorer_kinds]
+        if len(set(enrolled_versions)) != len(enrolled_versions):
+            raise OfflineUploadError("Each offline metric must have a distinct scorer version UUID")
         return settings
 
 
 def _encode(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def _object(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
-        raise ValueError("Expected a JSON object in the saved offline upload")
-    return cast(dict[str, object], value)
-
-
-def _records(value: object) -> list[dict[str, object]]:
-    if not isinstance(value, list):
-        raise ValueError("Expected a list in the saved offline upload")
-    return [_object(record) for record in value]
 
 
 def _bounded_omissions(omitted: Mapping[str, JSONValue]) -> dict[str, JSONValue]:
@@ -191,67 +174,6 @@ class OfflineEvalUpload:
     experiment: ExperimentOptions
     items: tuple[EvaluationItem, ...]
     results: tuple[EvaluationResult, ...]
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "version": 1,
-            "host": self.host,
-            "project_id": self.project_id,
-            "experiment": {"name": self.experiment_name, **self.experiment},
-            "items": [item.to_dict() for item in self.items],
-            "results": [result.to_dict() for result in self.results],
-        }
-
-    def save(self, path: Path) -> None:
-        encoded = _encode(self.to_dict())
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as pending:
-            temporary_path = Path(pending.name)
-            try:
-                pending.write(encoded)
-                pending.flush()
-                os.fsync(pending.fileno())
-                pending.close()
-                temporary_path.replace(path)
-            finally:
-                temporary_path.unlink(missing_ok=True)
-
-    @classmethod
-    def load(cls, path: Path) -> OfflineEvalUpload:
-        document = _object(json.loads(path.read_bytes()))
-        if document.get("version") not in (None, 1):
-            raise OfflineUploadError("Unsupported saved offline upload version")
-        experiment = _object(document["experiment"]).copy()
-        name = experiment.pop("name")
-        host, project_id = document["host"], document["project_id"]
-        if not isinstance(name, str) or not isinstance(host, str) or type(project_id) is not int:
-            raise ValueError("Invalid saved offline upload destination or experiment name")
-        if "id" not in experiment or "started_at" not in experiment:
-            raise ValueError("Saved offline uploads must retain their original experiment ID and start time")
-        if "batches" in document:
-            batches = _records(document["batches"])
-            item_records = [item for batch in batches for item in _records(batch["items"])]
-            result_records = [result for batch in batches for result in _records(batch["results"])]
-        else:
-            item_records = _records(document["items"])
-            result_records = _records(document["results"])
-        items: dict[str, EvaluationItem] = {}
-        for record in item_records:
-            item = EvaluationItem.from_dict(record)
-            if item.id in items and item.to_dict() != items[item.id].to_dict():
-                raise ValueError("Conflicting item declarations in the saved offline upload")
-            items[item.id] = item
-        results = tuple(
-            EvaluationResult.from_dict(record, item=items[str(record["item_id"])]) for record in result_records
-        )
-        return cls(
-            host=host,
-            project_id=project_id,
-            experiment_name=name,
-            experiment=cast(ExperimentOptions, experiment),
-            items=tuple(items.values()),
-            results=results,
-        )
 
 
 class OfflineEvalPublisher:
@@ -529,7 +451,7 @@ class OfflineEvalPublisher:
 
     async def publish(self, upload: OfflineEvalUpload) -> str:
         if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
-            raise OfflineUploadError("Saved upload destination differs from the configured host/project")
+            raise OfflineUploadError("Upload destination differs from the configured host/project")
         try:
             async with AsyncOfflineEvaluations(
                 host=self.settings.host,
@@ -547,23 +469,3 @@ class OfflineEvalPublisher:
             f"{upload.host}/project/{upload.project_id}"
             f"/ai-evals/evaluations/offline/experiments/{upload.experiment['id']}"
         )
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Retry a saved offline upload without rerunning agents or scorers")
-    parser.add_argument("upload", type=Path)
-    args = parser.parse_args()
-    try:
-        settings = OfflineEvalSettings.from_env()
-        if settings is None:
-            raise OfflineUploadError("Set POSTHOG_OFFLINE_EVAL_API_KEY and POSTHOG_OFFLINE_EVAL_PROJECT_ID")
-        upload = OfflineEvalUpload.load(args.upload)
-        publisher = OfflineEvalPublisher(settings, OfflineEvalSuite(key="replay", scorer_kinds={}))
-        url = asyncio.run(publisher.publish(upload))
-    except (OfflineUploadError, OSError, ValueError, KeyError, TypeError) as error:
-        parser.exit(1, f"Offline upload failed: {error}\n")
-    parser.exit(0, f"PostHog: {url}\n")
-
-
-if __name__ == "__main__":
-    main()
