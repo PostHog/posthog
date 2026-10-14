@@ -4,7 +4,7 @@ import threading
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -46,6 +46,8 @@ from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import _generate_app_private_key
+
+T = TypeVar("T")
 
 # The gate/policy engine lives in packages/pr-approval-agent, and its own suite covers it
 # (test_gates.py, test_policy.py). The server runs it in a child process (the sandbox, or the
@@ -560,25 +562,52 @@ class DigestConfigFetchTests(SimpleTestCase):
 _GH = "products.stamphog.backend.logic.github_client"
 
 
+def _with_scripted_graphql(call: Callable[[StamphogGitHubClient], T], *graphql_responses: fakes.FakeResponse) -> T:
+    # Stub the network boundary (github_request): the access-token mint is answered so the client's
+    # _request machinery runs for real, and /graphql calls consume the scripted responses in order
+    # (the last one repeats, so single-response tests behave as before).
+    remaining = list(graphql_responses)
+
+    def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+        if url.endswith("/access_tokens"):
+            return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+    with (
+        override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+        patch(f"{_GH}.github_request", fake_request),
+        patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+        patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+    ):
+        return call(StamphogGitHubClient("123"))
+
+
+def _teams_page(slugs: list[str], *, has_next: bool) -> fakes.FakeResponse:
+    teams = {"pageInfo": {"hasNextPage": has_next, "endCursor": "c"}, "nodes": [{"slug": s} for s in slugs]}
+    return fakes.FakeResponse(200, json_data={"data": {"organization": {"teams": teams}}})
+
+
+class GetUserTeamSlugsTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("later_page_counts", _teams_page(["team-workflows"], has_next=False), ["team-a", "team-workflows"]),
+            ("failed_later_page_fails_closed", fakes.FakeResponse(502, text="bad gateway"), []),
+        ]
+    )
+    def test_reads_every_page(self, _name: str, second_page: fakes.FakeResponse, expected: list[str]) -> None:
+        slugs = _with_scripted_graphql(
+            lambda client: client.get_user_team_slugs("acme", "alice"),
+            _teams_page(["team-a"], has_next=True),
+            second_page,
+        )
+        assert slugs == expected
+
+
 class GetPrReviewThreadsTests(SimpleTestCase):
     def _fetch(self, *graphql_responses: fakes.FakeResponse) -> list[dict]:
-        # Stub the network boundary (github_request): the access-token mint is answered so the client's
-        # _request machinery runs for real, and /graphql calls consume the scripted responses in order
-        # (the last one repeats, so single-response tests behave as before).
-        remaining = list(graphql_responses)
-
-        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
-            if url.endswith("/access_tokens"):
-                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
-            return remaining.pop(0) if len(remaining) > 1 else remaining[0]
-
-        with (
-            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
-            patch(f"{_GH}.github_request", fake_request),
-            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
-            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
-        ):
-            return StamphogGitHubClient("123").get_pr_review_threads("acme/widgets", 5)
+        return _with_scripted_graphql(
+            lambda client: client.get_pr_review_threads("acme/widgets", 5), *graphql_responses
+        )
 
     def _threads_page(self, nodes: list[dict], *, has_next: bool) -> fakes.FakeResponse:
         payload = {

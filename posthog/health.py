@@ -33,6 +33,7 @@ from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.git import get_git_commit_full
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_producer
 from posthog.security.outbound_proxy import internal_requests
@@ -95,7 +96,7 @@ def livez(request: HttpRequest):
     than readyz but we can hit this harder such that we can take obviously
     broken pods out asap.
     """
-    return JsonResponse({"http": True})
+    return JsonResponse({"http": True, "commit": get_git_commit_full()})
 
 
 def is_shutting_down() -> bool:

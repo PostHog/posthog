@@ -1,0 +1,13 @@
+[
+  { "kind": "created", "data": {} },
+  { "kind": "status_changed", "data": { "previous": "resolved" } },
+  { "kind": "assignee_changed", "data": { "previous": { "type": "user", "id": "42" } } },
+  { "kind": "assignee_changed", "data": { "previous": { "type": "role", "id": "0190a1b2-c3d4-7000-8000-000000000001" } } },
+  { "kind": "assignee_changed", "data": { "previous": null } },
+  { "kind": "severity_changed", "data": { "previous": "high" } },
+  { "kind": "severity_changed", "data": { "previous": null } },
+  { "kind": "name_changed", "data": { "previous": "TypeError: x is undefined" } },
+  { "kind": "merged", "data": { "merged_issue_ids": ["0190a1b2-c3d4-7000-8000-000000000002", "0190a1b2-c3d4-7000-8000-000000000003"] } },
+  { "kind": "split", "data": { "new_issue_ids": ["0190a1b2-c3d4-7000-8000-000000000004"] } },
+  { "kind": "spiking", "data": { "computed_baseline": 12.5, "current_bucket_value": 140 } }
+]

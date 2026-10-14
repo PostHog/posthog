@@ -1,12 +1,14 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useId, useMemo, useState } from 'react'
+import { Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -18,7 +20,6 @@ import {
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
-    MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
@@ -28,9 +29,7 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
-import { ConversionRecordingsModal } from 'products/marketing_analytics/frontend/ConversionRecordingsModal'
 import {
-    conversionRecordingsRequest,
     conversionRecordingsTableQuery,
     restoreConversionRecordingsColumns,
 } from 'products/marketing_analytics/frontend/conversionRecordingsRequest'
@@ -39,13 +38,24 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { rowMatchesSearch } from '../../logic/utils'
-import { MarketingAnalyticsCell } from '../../shared'
 import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
 import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+import {
+    MarketingAnalyticsTableCell,
+    MarketingAnalyticsTableCellContext,
+    MarketingAnalyticsTableCellOptions,
+} from './MarketingAnalyticsTableCell'
+
+// The modal pulls in the recordings playlist and player, so keep it off the dashboard and events eager paths.
+const ConversionRecordingsModal = lazyWithRetry(() =>
+    import('products/marketing_analytics/frontend/ConversionRecordingsModal').then((module) => ({
+        default: module.ConversionRecordingsModal,
+    }))
+)
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -85,6 +95,7 @@ export const MarketingAnalyticsTable = ({
     const marketingAnalyticsContext: QueryContext = useMemo(
         () => ({
             ...webAnalyticsDataTableQueryContext,
+            dataTableAllowContentScroll: true,
             insightProps,
             columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
             rowProps: (record: unknown) => {
@@ -94,9 +105,6 @@ export const MarketingAnalyticsTable = ({
                 return {}
             },
             columns: (() => {
-                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
-                    (c) => c.columnAlias
-                )
                 // Include every column the backend could ever return, not just the current select.
                 // When drill-down level changes, stale response data lingers in kea-cached state
                 // briefly; without a render fn for those stale columns, cells fall through to the
@@ -113,84 +121,38 @@ export const MarketingAnalyticsTable = ({
                 ])
                 const allKnownColumns = new Set<string>([
                     ...Object.values(MarketingAnalyticsBaseColumns),
-                    ...allGroupingAliases,
+                    ...Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map((c) => c.columnAlias),
                     ...conversionGoalColumns,
                     ...((query.source as MarketingAnalyticsTableQuery).select ?? []),
                 ])
-                const draftConversionGoal = (query.source as MarketingAnalyticsTableQuery).draftConversionGoal
-                const drillDownGoals = draftConversionGoal
-                    ? [draftConversionGoal, ...conversion_goals]
-                    : conversion_goals
-                return Array.from(allKnownColumns).reduce(
-                    (acc, column) => {
-                        const isGroupingColumn = allGroupingAliases.includes(column)
-                        const goal = drillDownGoals.find((goal) => goal.conversion_goal_name === column)
-                        acc[column] = {
-                            render: (props) => {
-                                const cell = (
-                                    <MarketingAnalyticsCell
-                                        {...props}
-                                        style={{
-                                            maxWidth: isGroupingColumn ? '200px' : undefined,
-                                        }}
-                                    />
-                                )
-                                const value = (props.value as MarketingAnalyticsItem | null)?.value
-                                const request =
-                                    hasConversionRecordings &&
-                                    !isSharedView() &&
-                                    goal &&
-                                    goal.kind !== 'DataWarehouseNode' &&
-                                    typeof value === 'number' &&
-                                    value > 0
-                                        ? conversionRecordingsRequest(
-                                              (props.query as DataTableNode).source as MarketingAnalyticsTableQuery,
-                                              props.record,
-                                              goal.conversion_goal_id
-                                          )
-                                        : null
-                                return request && goal ? (
-                                    <LemonButton
-                                        type="tertiary"
-                                        fullWidth
-                                        className="[&_.cursor-default]:cursor-pointer"
-                                        data-attr="marketing-analytics-conversion-recordings"
-                                        tooltip="View recordings of these conversion sessions"
-                                        onClick={() =>
-                                            setConversionRecordings({
-                                                tableKey,
-                                                request,
-                                                goalName: goal.conversion_goal_name,
-                                            })
-                                        }
-                                    >
-                                        {cell}
-                                    </LemonButton>
-                                ) : (
-                                    cell
-                                )
-                            },
-                        }
-                        return acc
-                    },
-                    {} as Record<string, QueryContextColumn>
+                return Object.fromEntries(
+                    Array.from(allKnownColumns, (column): [string, QueryContextColumn] => [
+                        column,
+                        { render: MarketingAnalyticsTableCell },
+                    ])
                 )
             })(),
         }),
-        [
-            insightProps,
-            query.source,
-            searchTerm,
-            conversion_goals,
-            hasConversionRecordings,
+        [insightProps, query.source, searchTerm, conversion_goals]
+    )
+
+    const cellOptions: MarketingAnalyticsTableCellOptions = useMemo(
+        () => ({
+            conversionGoals: conversion_goals,
             tableKey,
+            showConversionRecordings: !!hasConversionRecordings && !isSharedView(),
             setConversionRecordings,
-        ]
+        }),
+        [conversion_goals, tableKey, hasConversionRecordings, setConversionRecordings]
     )
 
     return (
         <div className="bg-surface-primary">
-            {recordings && <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />}
+            {recordings && (
+                <Suspense fallback={<DashboardModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
+                    <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
+                </Suspense>
+            )}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
@@ -295,18 +257,20 @@ export const MarketingAnalyticsTable = ({
                     <MarketingAnalyticsNotReady />
                 </div>
             ) : (
-                <div className="relative marketing-analytics-table-container">
-                    <Query
-                        attachTo={attachTo}
-                        query={tableQuery}
-                        readOnly={false}
-                        context={marketingAnalyticsContext}
-                        setQuery={(updated) =>
-                            setQuery(
-                                tableQuery === query ? updated : restoreConversionRecordingsColumns(updated, query)
-                            )
-                        }
-                    />
+                <div className="relative marketing-analytics-table-container max-h-[36rem] overflow-auto">
+                    <MarketingAnalyticsTableCellContext.Provider value={cellOptions}>
+                        <Query
+                            attachTo={attachTo}
+                            query={tableQuery}
+                            readOnly={false}
+                            context={marketingAnalyticsContext}
+                            setQuery={(updated) =>
+                                setQuery(
+                                    tableQuery === query ? updated : restoreConversionRecordingsColumns(updated, query)
+                                )
+                            }
+                        />
+                    </MarketingAnalyticsTableCellContext.Provider>
                 </div>
             )}
             <MarketingAnalyticsColumnConfigModal query={query} />

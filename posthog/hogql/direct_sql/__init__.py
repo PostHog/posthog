@@ -4,6 +4,7 @@ from posthog.hogql.direct_sql.adapter import (
     DirectQueryResult,
     DirectSQLAdapter,
 )
+from posthog.hogql.direct_sql.bigquery_adapter import BigQueryAdapter
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.clickhouse_adapter import ClickHouseAdapter
 from posthog.hogql.direct_sql.duckgres_adapter import DuckgresRawAdapter
@@ -26,6 +27,7 @@ register_adapter(RedshiftAdapter())
 register_adapter(ClickHouseAdapter())
 register_adapter(MotherDuckAdapter())
 register_adapter(TrinoAdapter())
+register_adapter(BigQueryAdapter())
 
 
 def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter | None:
@@ -45,6 +47,7 @@ __all__ = [
     "DirectQueryPrincipal",
     "DirectQueryResult",
     "DirectSQLAdapter",
+    "BigQueryAdapter",
     "ClickHouseAdapter",
     "DuckgresRawAdapter",
     "MotherDuckAdapter",

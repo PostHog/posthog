@@ -57,6 +57,7 @@ from hogli_commands.preflight_checks import (
     Outcome,
     Scope,
     Status,
+    check_cross_lane,
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
@@ -356,6 +357,14 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=SEMGREP_SCOPE,
         verify=None,
         run=check_semgrep_devex,
+    ),
+    DiffCheck(
+        key="cross-lane",
+        label="Python or frontend changes mixed with Node or Rust changes (fails CI without a label)",
+        triggers=["*"],
+        verify=None,
+        run=check_cross_lane,
+        soft=True,
     ),
     DiffCheck(
         key="merge-queue-lane",

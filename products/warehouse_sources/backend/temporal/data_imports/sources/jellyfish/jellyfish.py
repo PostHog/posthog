@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import (
     DEFAULT_LOOKBACK_MONTHS,
     JELLYFISH_ENDPOINTS,
+    FanOutParent,
     JellyfishEndpointConfig,
 )
 
@@ -44,13 +45,16 @@ class JellyfishRateLimitError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class JellyfishResumeConfig:
     # Month-windowed endpoints: the ISO date of the next window to fetch. None = start from the
     # beginning of the lookback range.
     next_window_start: str | None = None
-    # Fan-out endpoint (deliverables): work category slugs already fully fetched this job.
-    completed_slugs: list[str] = dataclasses.field(default_factory=list)
+    # Fan-out endpoints: parent ids (work category slugs, person/team/deliverable ids) already fully
+    # fetched this job.
+    completed_parent_ids: list[str] = dataclasses.field(default_factory=list)
+    # Fan-out month-windowed endpoints: the parent whose windows `next_window_start` refers to.
+    current_parent_id: str | None = None
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -194,6 +198,55 @@ def _list_work_category_slugs(
     return slugs
 
 
+def _list_ids(rows: list[dict[str, Any]], label: str, logger: FilteringBoundLogger) -> list[str]:
+    ids = [str(row["id"]) for row in rows if row.get("id") is not None]
+    if not ids and rows:
+        logger.error(f"Jellyfish: could not find an id field in {label} rows: keys={sorted(rows[0])}")
+    return ids
+
+
+def _flatten_team_tree(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # `include_children` may nest child teams under `children` instead of listing them flat.
+    flat: list[dict[str, Any]] = []
+    for row in rows:
+        flat.append(row)
+        children = row.get("children")
+        if isinstance(children, list):
+            flat.extend(_flatten_team_tree([child for child in children if isinstance(child, dict)]))
+    return flat
+
+
+def _list_parent_ids(
+    parent: FanOutParent,
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    today: date,
+) -> list[str]:
+    if parent == "work_categories":
+        ids = _list_work_category_slugs(session, headers, logger)
+    elif parent in ("engineers", "teams"):
+        config = JELLYFISH_ENDPOINTS[parent]
+        payload = _fetch(session, _build_url(config.path, {"format": "json", **config.params}), headers, logger)
+        rows = _extract_rows(payload, config.data_key)
+        ids = _list_ids(_flatten_team_tree(rows) if parent == "teams" else rows, parent, logger)
+    else:
+        config = JELLYFISH_ENDPOINTS["deliverables"]
+        assert config.fan_out is not None
+        window_start = _month_windows(today)[0][0]
+        ids = []
+        for slug in _list_work_category_slugs(session, headers, logger):
+            params = {
+                "format": "json",
+                config.fan_out.param: slug,
+                "start_date": window_start.isoformat(),
+                "end_date": today.isoformat(),
+            }
+            payload = _fetch(session, _build_url(config.path, params), headers, logger)
+            ids.extend(_list_ids(_extract_rows(payload, config.data_key), parent, logger))
+    return list(dict.fromkeys(ids))
+
+
 def get_rows(
     api_token: str,
     endpoint: str,
@@ -210,12 +263,12 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     today = datetime.now(UTC).date()
 
-    if config.window_mode == "month":
-        yield from _get_month_windowed_rows(
+    if config.fan_out is not None:
+        yield from _get_fan_out_rows(
             session, headers, logger, config, base_params, resumable_source_manager, resume, today
         )
-    elif config.fan_out_slug_param is not None:
-        yield from _get_fan_out_rows(
+    elif config.window_mode == "month":
+        yield from _get_month_windowed_rows(
             session, headers, logger, config, base_params, resumable_source_manager, resume, today
         )
     else:
@@ -274,34 +327,56 @@ def _get_fan_out_rows(
     resume: JellyfishResumeConfig | None,
     today: date,
 ) -> Iterator[list[dict[str, Any]]]:
-    slugs = _list_work_category_slugs(session, headers, logger)
-    completed = set(resume.completed_slugs) if resume is not None else set()
+    assert config.fan_out is not None
+    fan_out = config.fan_out
+    parent_ids = _list_parent_ids(fan_out.parent, session, headers, logger, today)
+    completed = set(resume.completed_parent_ids) if resume is not None else set()
     if completed:
-        logger.debug(f"Jellyfish: resuming {config.name}, skipping {len(completed)} completed work categories")
+        logger.debug(f"Jellyfish: resuming {config.name}, skipping {len(completed)} completed {fan_out.parent}")
 
-    # Deliverables are discrete records, so one wide window over the whole lookback range per work
-    # category (rather than per-month slices) fetches each deliverable once.
-    window_start = _month_windows(today)[0][0]
-
-    for slug in slugs:
-        if slug in completed:
+    for parent_id in parent_ids:
+        if parent_id in completed:
             continue
-        assert config.fan_out_slug_param is not None
-        params = {
-            **base_params,
-            config.fan_out_slug_param: slug,
-            "start_date": window_start.isoformat(),
-            "end_date": today.isoformat(),
-        }
-        payload = _fetch(session, _build_url(config.path, params), headers, logger)
-        rows = _extract_rows(payload, config.data_key)
-        for row in rows:
-            row.setdefault("work_category_slug", slug)
-        if rows:
-            yield rows
 
-        completed.add(slug)
-        resumable_source_manager.save_state(JellyfishResumeConfig(completed_slugs=sorted(completed)))
+        if config.window_mode == "month":
+            windows = _month_windows(today)
+            if resume is not None and resume.current_parent_id == parent_id and resume.next_window_start:
+                windows = [w for w in windows if w[0].isoformat() >= resume.next_window_start]
+        else:
+            # Entity-shaped rows (deliverables, scope history) are discrete records, so one wide
+            # window over the whole lookback range fetches each record once.
+            windows = [(_month_windows(today)[0][0], today)]
+
+        for index, (window_start, window_end) in enumerate(windows):
+            params = {
+                **base_params,
+                fan_out.param: parent_id,
+                "start_date": window_start.isoformat(),
+                "end_date": window_end.isoformat(),
+            }
+            if config.window_mode == "month":
+                params["unit"] = "month"
+            payload = _fetch(session, _build_url(config.path, params), headers, logger)
+            rows = _extract_rows(payload, config.data_key)
+            for row in rows:
+                row.setdefault(fan_out.param, parent_id)
+                if config.window_mode == "month":
+                    row.setdefault("window_start_date", window_start.isoformat())
+                    row.setdefault("window_end_date", window_end.isoformat())
+            if rows:
+                yield rows
+
+            if index + 1 < len(windows):
+                resumable_source_manager.save_state(
+                    JellyfishResumeConfig(
+                        next_window_start=windows[index + 1][0].isoformat(),
+                        completed_parent_ids=sorted(completed),
+                        current_parent_id=parent_id,
+                    )
+                )
+
+        completed.add(parent_id)
+        resumable_source_manager.save_state(JellyfishResumeConfig(completed_parent_ids=sorted(completed)))
 
 
 def jellyfish_source(

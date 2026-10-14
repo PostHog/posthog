@@ -346,14 +346,6 @@ class CanvasVersionNotFoundError(Exception):
     pass
 
 
-class CanvasAccessDeniedError(Exception):
-    """The viewer's access-control level for the canvas is below `required_level`."""
-
-    def __init__(self, required_level: str) -> None:
-        super().__init__(required_level)
-        self.required_level = required_level
-
-
 class CanvasBuildNotFoundError(Exception):
     pass
 

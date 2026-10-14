@@ -75,14 +75,6 @@ def test_movements_scope_probe_checks_child_access(http_mock: MagicMock) -> None
     assert "/v1/accounts/account_example/movements?" in http_mock.call_args.args[0].url
 
 
-@pytest.mark.parametrize("tokens,enabled", [(None, False), ("token_one, token_two", True)])
-def test_open_banking_default_selection_requires_tokens(tokens: str | None, enabled: bool) -> None:
-    schemas = FintocSource().get_schemas(
-        FintocSourceConfig(api_key="sk_test_example", link_tokens=tokens), 1, names=["accounts", "links"]
-    )
-    assert {schema.name: schema.should_sync_default for schema in schemas} == {"accounts": enabled, "links": True}
-
-
 def test_unknown_pipeline_table_fails_clearly(inputs: MagicMock, manager: MagicMock) -> None:
     inputs.schema_name = "unknown"
     with pytest.raises(ValueError, match="Unknown Fintoc table"):

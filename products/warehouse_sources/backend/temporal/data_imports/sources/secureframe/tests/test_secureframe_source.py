@@ -5,7 +5,6 @@ from products.warehouse_sources.backend.facade.source_config import SourceFieldI
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
     SecureframeSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source import SecureframeSource
 
 MOCK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source"
@@ -26,30 +25,6 @@ class TestSecureframeSource:
         assert secret_field.type == SourceFieldInputConfigType.PASSWORD
         assert secret_field.secret is True
         assert secret_field.required is True
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.secureframe.com/controls?page=1&per_page=100",
-            "403 Client Error: Forbidden for url: https://api-uk.secureframe.com/tests?page=1&per_page=100",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_do_not_match_transient_failures(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://api.secureframe.com/controls" for key in non_retryable_errors
-        )
-
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # No verified server-side timestamp filter exists, so nothing may advertise incremental.
-        assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
 
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected_valid",

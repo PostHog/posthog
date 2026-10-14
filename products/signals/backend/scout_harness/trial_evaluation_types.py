@@ -34,6 +34,16 @@ class TrialEvaluationRequest(EvaluationDocument):
     rubric_source: Literal["saved"]
 
 
+class TrialEvaluationAccess(EvaluationDocument):
+    evaluation_id: UUID
+    team_id: int
+    config_id: UUID
+    user_id: int
+    context_id: UUID
+    skill_name: str
+    skill_version: int = Field(ge=1)
+
+
 class TrialEvaluationSnapshot(EvaluationDocument):
     version: Literal[1] = 1
     evaluation_id: UUID
@@ -45,12 +55,15 @@ class TrialEvaluationSnapshot(EvaluationDocument):
     request: TrialEvaluationRequest
     request_hash: str
     rubric_document: dict[str, JsonValue]
-    rubric_reference_context: ScoutRubricReferenceContext
     rubric_reference_generation_id: str
     criteria: list[TrialEvaluationCriterion]
     judge_model: str
     judge_prompt_version: str
     runs: list[TrialRunEvidence]
+
+    @property
+    def rubric_reference_context(self) -> ScoutRubricReferenceContext:
+        return ScoutRubricReferenceContext.model_validate(self.rubric_document["reference_context"])
 
 
 class TrialCriterionAggregate(EvaluationDocument):
@@ -79,7 +92,7 @@ class TrialVariantAggregate(EvaluationDocument):
 
 
 class TrialComparisonOutcome(EvaluationDocument):
-    status: Literal["winner", "tie", "inconclusive"]
+    status: Literal["winner", "tie", "provisional", "inconclusive"]
     variant_ids: list[UUID] = Field(default_factory=list)
     summary: str
 

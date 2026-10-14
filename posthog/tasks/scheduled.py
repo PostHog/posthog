@@ -86,7 +86,7 @@ from products.approvals.backend.tasks import (
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
@@ -133,11 +133,9 @@ from products.streamlit_apps.backend.facade.api import (
 from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
-    reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_inactive_tasks_task,
-    sweep_loop_task_retention_task,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -152,7 +150,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -470,14 +469,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh signals repository activity",
     )
 
-    # Loop task retention sweep - daily at 4:30 AM
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="4", minute="30"),
-        sweep_loop_task_retention_task.s(),
-        name="sweep loop task retention",
-    )
-
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -485,22 +476,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="archive inactive tasks",
     )
 
-    # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules
-    # stranded pending/failed by a transient Temporal outage during create/edit.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        reconcile_loop_trigger_schedules_task.s(),
-        name="reconcile loop trigger schedules",
-    )
-
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
@@ -1087,6 +1077,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

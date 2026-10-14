@@ -12,6 +12,7 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     """The product whose data an alert evaluates."""
 
     LOGS = "logs", "Logs"
+    INSIGHT = "insight", "Insight"
 
 
 class PlatformAlertState(LabeledStrEnum):

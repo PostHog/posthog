@@ -11,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
-from products.data_modeling.backend.facade.contracts import UpstreamTableRef
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -78,6 +78,49 @@ class TestSavedQueryReads(BaseTest):
             {readable.id, editable.id, ungranted.id, owned.id}
         )
 
+    def test_saved_query_definitions_lists_live_views_with_their_node_type(self) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        live = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=False,
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=live, type=NodeType.MAT_VIEW)
+        plain = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="plain",
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            is_materialized=True,
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=plain, type=NodeType.VIEW)
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="gone", deleted=True)
+        other_team = Team.objects.create(organization=self.organization)
+        DataWarehouseSavedQuery.objects.create(team=other_team, name="elsewhere")
+
+        assert api.saved_query_definitions(self.team.id) == [
+            SavedQueryDefinition(
+                id=live.id,
+                name="orders",
+                hogql="SELECT 1",
+                materializes=True,
+                is_test=False,
+                is_managed=False,
+                origin=None,
+                created_at=live.created_at,
+            ),
+            SavedQueryDefinition(
+                id=plain.id,
+                name="plain",
+                hogql="SELECT 2",
+                materializes=False,
+                is_test=False,
+                is_managed=False,
+                origin=None,
+                created_at=plain.created_at,
+            ),
+        ]
+
     def test_dependent_saved_query_ids_follows_every_node_of_the_source(self) -> None:
         source = DataWarehouseSavedQuery.objects.create(team=self.team, name="source")
         near = DataWarehouseSavedQuery.objects.create(team=self.team, name="near")
@@ -121,6 +164,7 @@ class TestSavedQueryReads(BaseTest):
             self.team, dag, "revenue", {"origin": "cross_dag_view", "saved_query_id": str(revenue.saved_query_id)}
         )
         persons = table_node(self.team, dag, "persons", {"origin": POSTHOG_TABLE_ORIGIN})
+        legacy = table_node(self.team, dag, "legacy_orders", {})
         middle = saved_query_node(self.team, dag, "middle", NodeType.VIEW)
         target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
         downstream = saved_query_node(self.team, dag, "downstream", NodeType.VIEW)
@@ -128,6 +172,7 @@ class TestSavedQueryReads(BaseTest):
             (charges, middle),
             (events, middle),
             (proxy, middle),
+            (legacy, middle),
             (middle, target),
             (target, downstream),
             (persons, downstream),
@@ -137,7 +182,8 @@ class TestSavedQueryReads(BaseTest):
         assert api.upstream_table_refs(self.team.id, target.saved_query_id) == frozenset(
             {
                 UpstreamTableRef(name="stripe_charges", warehouse_table_id=warehouse_table_id),
-                UpstreamTableRef(name="events"),
-                UpstreamTableRef(name="invoices"),
+                UpstreamTableRef(name="events", is_posthog_table=True),
+                UpstreamTableRef(name="invoices", is_posthog_table=True),
+                UpstreamTableRef(name="legacy_orders"),
             }
         )

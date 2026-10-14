@@ -9,6 +9,11 @@ export const DEFAULT_MODEL = "claude-opus-5-5";
 
 const MODELS_FETCH_TIMEOUT_MS = 5_000;
 
+type PosthogProviderModelConfig = Extract<
+  ProviderModelConfig,
+  { reasoning: boolean; contextWindow: number; maxTokens: number }
+>;
+
 export interface GatewayModel {
   id: string;
   owned_by?: string;
@@ -87,7 +92,7 @@ export function gatewayBaseUrlForApi(
 function toModelConfig(
   model: GatewayModel,
   region: CloudRegion,
-): ProviderModelConfig {
+): PosthogProviderModelConfig {
   const family = detectFamily(model);
   const name = model.display_name ?? model.id;
   const contextWindow = model.context_window ?? 200000;
@@ -298,7 +303,7 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
 // not be what decides whether they are offered.
 export function fallbackModelConfigs(
   region: CloudRegion,
-): ProviderModelConfig[] {
+): PosthogProviderModelConfig[] {
   return FALLBACK_GATEWAY_MODELS.map((model) => toModelConfig(model, region));
 }
 
@@ -331,7 +336,7 @@ export async function fetchPosthogGatewayModels(
 export function resolveModelConfigsFromGatewayModels(
   models: GatewayModel[],
   region: CloudRegion,
-): ProviderModelConfig[] {
+): PosthogProviderModelConfig[] {
   if (models.length === 0) {
     return fallbackModelConfigs(region);
   }
@@ -348,7 +353,7 @@ export async function resolveModelConfigs(
   baseUrl?: string,
   apiKey?: string,
   projectId?: number,
-): Promise<ProviderModelConfig[]> {
+): Promise<PosthogProviderModelConfig[]> {
   if (process.env.PI_OFFLINE || process.env.HARNESS_STATIC_MODELS) {
     return fallbackModelConfigs(region);
   }

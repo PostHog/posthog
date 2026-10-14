@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
@@ -65,6 +65,8 @@ export function TodayViewsSidebar(): JSX.Element {
     const path = removeProjectIdIfPresent(location.pathname)
     const failedTypes = recentViews.failedTypes
     const showAll = matchesPaneQuery('All views', recentQuery)
+    const showAllDashboards = matchesPaneQuery('All dashboards', recentQuery)
+    const showAllNotebooks = matchesPaneQuery('All notebooks', recentQuery)
 
     const retryButton = (size: 'sm' | 'xs'): JSX.Element => (
         <Button
@@ -79,7 +81,7 @@ export function TodayViewsSidebar(): JSX.Element {
     )
 
     return (
-        <div className="TodayPane" data-quill>
+        <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
             <TodayPaneSearchList
                 query={recentQuery}
                 onQueryChange={setRecentQuery}
@@ -113,6 +115,34 @@ export function TodayViewsSidebar(): JSX.Element {
                             to={urls.views()}
                             active={path === urls.views()}
                             dataAttr="today-views-all"
+                        />
+                    )}
+                    {showAllDashboards && (
+                        <TodayPaneRow
+                            value="all-dashboards"
+                            label="All dashboards"
+                            icon={
+                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO.dashboard.color]}>
+                                    <ViewTypeIcon type="dashboard" />
+                                </ProductIconWrapper>
+                            }
+                            to={urls.dashboards()}
+                            active={path === urls.dashboards()}
+                            dataAttr="today-views-all-dashboards"
+                        />
+                    )}
+                    {showAllNotebooks && (
+                        <TodayPaneRow
+                            value="all-notebooks"
+                            label="All notebooks"
+                            icon={
+                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO.notebook.color]}>
+                                    <ViewTypeIcon type="notebook" />
+                                </ProductIconWrapper>
+                            }
+                            to={urls.notebooks()}
+                            active={path === urls.notebooks()}
+                            dataAttr="today-views-all-notebooks"
                         />
                     )}
                     {recentUnavailable || !recentReady ? (
@@ -159,7 +189,15 @@ export function TodayViewsSidebar(): JSX.Element {
                                         key={`${item.type}-${item.id}`}
                                         value={`view:${item.type}-${item.id}`}
                                         label={item.name}
-                                        icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
+                                        icon={
+                                            building ? (
+                                                <Spinner />
+                                            ) : (
+                                                <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO[item.type].color]}>
+                                                    <ViewTypeIcon type={item.type} />
+                                                </ProductIconWrapper>
+                                            )
+                                        }
                                         meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
                                         to={item.href}
                                         active={path === removeProjectIdIfPresent(item.href)}

@@ -7,6 +7,7 @@ use common_database::{
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
 use serde::Serialize;
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::utils::graph_utils::DependencyType;
@@ -107,6 +108,7 @@ pub enum FlagError {
     /// - `"io_timeout"` - Network/socket timeout
     /// - `"protocol_timeout"` - PostgreSQL protocol timeout
     /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"persons_db_deadline"` - Deadline shared by all persons DB work in one flag evaluation
     /// - `"redis_timeout"` - Redis operation timeout
     /// - `"cache_timeout"` - Cache operation timeout
     /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
@@ -117,6 +119,8 @@ pub enum FlagError {
     DependencyNotFound(DependencyType, i64),
     #[error("Flag dependency {0} failed to evaluate")]
     DependencyFailed(i64),
+    #[error("Group type mapping lookup failed: {0}")]
+    GroupTypeLookupFailed(Arc<FlagError>),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -138,6 +142,9 @@ pub enum FlagError {
 pub(crate) const CODE_FLAG_DATA_PARSING: &str = "flag_data_parsing_error";
 pub(crate) const CODE_PERSON_NOT_FOUND: &str = "person_not_found";
 pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
+
+const TIMEOUT_CLIENT: &str = "client_timeout";
+const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -201,6 +208,18 @@ impl FlagError {
         }
     }
 
+    pub fn client_timeout() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_CLIENT.to_string()))
+    }
+
+    pub fn persons_db_deadline() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_PERSONS_DB_DEADLINE.to_string()))
+    }
+
+    pub fn is_persons_db_deadline(&self) -> bool {
+        matches!(self, FlagError::TimeoutError(Some(t)) if t == TIMEOUT_PERSONS_DB_DEADLINE)
+    }
+
     /// Returns (error_code, status_code) for this error.
     ///
     /// This consolidates error classification in one place to ensure consistency
@@ -246,6 +265,7 @@ impl FlagError {
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
+            FlagError::GroupTypeLookupFailed(cause) => cause.error_metadata(),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -318,6 +338,7 @@ impl FlagError {
             }
             FlagError::TimeoutError(Some(t)) => format!("timeout:{t}"),
             FlagError::TimeoutError(None) => "timeout_error".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_code(),
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
                 DependencyType::Flag => "dependency_not_found_flag".to_string(),
@@ -362,6 +383,7 @@ impl FlagError {
                 DependencyType::Flag => "Flag dependency not found".to_string(),
             },
             FlagError::DependencyFailed(_) => "Flag dependency failed to evaluate".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_description(),
             FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
@@ -546,6 +568,14 @@ impl IntoResponse for FlagError {
                 tracing::error!("Flag dependency {dependency_id} failed to evaluate");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Flag dependency {dependency_id} failed to evaluate"))
             }
+            FlagError::GroupTypeLookupFailed(cause) => {
+                tracing::error!("Group type mapping lookup failed: {cause:?}");
+                (
+                    StatusCode::from_u16(cause.status_code())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    "Group type mapping lookup failed".to_string(),
+                )
+            }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
@@ -648,9 +678,7 @@ impl From<CustomRedisError> for FlagError {
 impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
-            CustomDatabaseError::Timeout(_) => {
-                FlagError::TimeoutError(Some("client_timeout".to_string()))
-            }
+            CustomDatabaseError::Timeout(_) => FlagError::client_timeout(),
             CustomDatabaseError::Other(sqlx_error) => {
                 // Check if it's a timeout-related SQL error
                 if is_timeout_error(&sqlx_error) {

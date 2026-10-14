@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { FlagEvaluationsOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { FlagEvaluationsOutput, IngestionWarningsOutput, RealtimeOnlyEventsOutput } from '~/common/outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
@@ -19,13 +19,17 @@ import {
 
 // Real instances: the service is a pure, synchronous config gate, so mocking
 // it would only hide drift from the real class. Team 7 matches createInput.
-const enabledService = (flagEvaluationsOnlyDisabled = false) =>
-    new FlagEvaluationsService({ teams: '*', excludedTeams: [], flagEvaluationsOnlyDisabled })
-const teamExcludedService = () =>
-    new FlagEvaluationsService({ teams: '*', excludedTeams: [7], flagEvaluationsOnlyDisabled: false })
+const enabledService = ({
+    excludedTeams = [] as number[],
+    flagEvaluationsOnlyDisabled = false,
+    routesToRealtimeOnlyEvents = true,
+} = {}) =>
+    new FlagEvaluationsService({ teams: '*', excludedTeams, flagEvaluationsOnlyDisabled, routesToRealtimeOnlyEvents })
 
 const createStep = (service: FlagEvaluationsService) => {
-    const outputs = createMockIngestionOutputs<FlagEvaluationsOutput | IngestionWarningsOutput>()
+    const outputs = createMockIngestionOutputs<
+        FlagEvaluationsOutput | IngestionWarningsOutput | RealtimeOnlyEventsOutput
+    >()
     const step = createForkFlagEvaluationsStep<ForkFlagEvaluationsStepInput>(outputs, service)
     return { step, outputs }
 }
@@ -64,6 +68,9 @@ const createInput = (
     team: { flag_evaluations_mode: mode },
 })
 
+const emitted = (eventsToEmit: EventToEmit<string>[]) =>
+    eventsToEmit.map(({ event, output }) => ({ uuid: event.uuid, output }))
+
 describe('createForkFlagEvaluationsStep', () => {
     beforeEach(() => {
         flagEvaluationsEventsTotal.reset()
@@ -79,7 +86,7 @@ describe('createForkFlagEvaluationsStep', () => {
         },
         {
             name: 'the team is not enabled',
-            buildService: () => teamExcludedService(),
+            buildService: () => enabledService({ excludedTeams: [7] }),
             buildInput: () => createInput(),
         },
     ])('passes through without producing when $name', async ({ buildService, buildInput }) => {
@@ -265,14 +272,23 @@ describe('createForkFlagEvaluationsStep', () => {
             {
                 name: 'a FLAG_EVALUATIONS_ONLY',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                routesToRealtimeOnlyEvents: false,
                 outcome: 'lost_message_too_large',
                 producedOutputs: ['flag_evaluations', 'ingestion_warnings'],
                 warnings: [{ type: 'message_size_too_large', eventUuid: 'event-uuid-1' }],
             },
+            {
+                name: 'a routed FLAG_EVALUATIONS_ONLY',
+                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                routesToRealtimeOnlyEvents: true,
+                outcome: 'lost_message_too_large',
+                producedOutputs: ['flag_evaluations'],
+                warnings: [],
+            },
         ])(
             'does not block the batch when the row exceeds the broker message limit for $name team',
-            async ({ mode, outcome, producedOutputs, warnings }) => {
-                const { step, outputs } = createStep(enabledService())
+            async ({ mode, routesToRealtimeOnlyEvents, outcome, producedOutputs, warnings }) => {
+                const { step, outputs } = createStep(enabledService({ routesToRealtimeOnlyEvents }))
                 outputs.queueMessages.mockRejectedValueOnce(
                     new MessageSizeTooLarge('too large', new Error('too large'))
                 )
@@ -328,28 +344,45 @@ describe('createForkFlagEvaluationsStep', () => {
     })
 
     describe('FLAG_EVALUATIONS_ONLY mode', () => {
-        it('removes the queued $feature_flag_called event from eventsToEmit and keeps the $experiment_exposure copy', async () => {
-            const { step, outputs } = createStep(enabledService())
-            const input = createInput(
-                [createProcessedEvent(), createExposureDuplicate()],
-                FlagEvaluationsMode.FlagEvaluationsOnly
-            )
+        it.each([
+            {
+                name: 'removes the queued $feature_flag_called event from eventsToEmit',
+                routesToRealtimeOnlyEvents: false,
+                expectedEventsToEmit: [{ uuid: 'dup-uuid', output: 'events' }],
+            },
+            {
+                name: 'sends the queued $feature_flag_called event to the realtime_only_events output',
+                routesToRealtimeOnlyEvents: true,
+                expectedEventsToEmit: [
+                    { uuid: 'event-uuid-1', output: 'realtime_only_events' },
+                    { uuid: 'dup-uuid', output: 'events' },
+                ],
+            },
+        ])(
+            '$name and keeps the $experiment_exposure copy on events',
+            async ({ routesToRealtimeOnlyEvents, expectedEventsToEmit }) => {
+                const { step, outputs } = createStep(enabledService({ routesToRealtimeOnlyEvents }))
+                const input = createInput(
+                    [createProcessedEvent(), createExposureDuplicate()],
+                    FlagEvaluationsMode.FlagEvaluationsOnly
+                )
 
-            const result = await step(input)
+                const result = await step(input)
 
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value.eventsToEmit.map(({ event }) => event.uuid)).toEqual(['dup-uuid'])
-                await Promise.all(result.sideEffects)
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(emitted(result.value.eventsToEmit)).toEqual(expectedEventsToEmit)
+                    await Promise.all(result.sideEffects)
+                }
+                // For a FLAG_EVALUATIONS_ONLY team the flag_evaluations row is the only stored copy of the call.
+                expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
+                expect(outputs.queueMessages.mock.calls[0][1].map((message) => message.key)).toEqual(['event-uuid-1'])
+                // The counter records one outcome per event, so the call must not also count as dual_written.
+                expect((await flagEvaluationsEventsTotal.get()).values).toEqual([
+                    expect.objectContaining({ labels: { outcome: 'flag_evaluations_only' }, value: 1 }),
+                ])
             }
-            // For a FLAG_EVALUATIONS_ONLY team the flag_evaluations row is the only copy of the call.
-            expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
-            expect(outputs.queueMessages.mock.calls[0][1].map((message) => message.key)).toEqual(['event-uuid-1'])
-            // The counter records one outcome per event, so the removed call must not also count as dual_written.
-            expect((await flagEvaluationsEventsTotal.get()).values).toEqual([
-                expect.objectContaining({ labels: { outcome: 'flag_evaluations_only' }, value: 1 }),
-            ])
-        })
+        )
 
         it.each([
             {
@@ -365,12 +398,12 @@ describe('createForkFlagEvaluationsStep', () => {
             {
                 name: 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
-                buildService: () => enabledService(true),
+                buildService: () => enabledService({ flagEvaluationsOnlyDisabled: true }),
             },
             {
                 name: 'the team is not enabled',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
-                buildService: () => teamExcludedService(),
+                buildService: () => enabledService({ excludedTeams: [7] }),
             },
             {
                 name: 'the flag key is missing',
@@ -394,7 +427,7 @@ describe('createForkFlagEvaluationsStep', () => {
                     }),
             },
         ])(
-            'keeps the $feature_flag_called event in eventsToEmit when $name',
+            'keeps the $feature_flag_called event on the events output when $name',
             async ({ mode, buildService, flagCalledOverrides, arrange }) => {
                 const deps = createStep(buildService())
                 arrange?.(deps)
@@ -404,9 +437,9 @@ describe('createForkFlagEvaluationsStep', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventsToEmit.map(({ event }) => event.uuid)).toEqual([
-                        'event-uuid-1',
-                        'dup-uuid',
+                    expect(emitted(result.value.eventsToEmit)).toEqual([
+                        { uuid: 'event-uuid-1', output: 'events' },
+                        { uuid: 'dup-uuid', output: 'events' },
                     ])
                     await Promise.all(result.sideEffects)
                 }

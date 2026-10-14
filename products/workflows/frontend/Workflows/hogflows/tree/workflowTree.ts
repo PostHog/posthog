@@ -5,6 +5,7 @@ export const BRANCHING_ACTION_TYPES = ['conditional_branch', 'random_cohort_bran
 export interface WorkflowTreeSequence {
     nodes: WorkflowTreeNode[]
     trailingEdge: HogFlowEdge | null
+    continueTo: HogFlowAction | null
 }
 
 export interface WorkflowTreeNode {
@@ -112,6 +113,33 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
     return left.size === right.size && [...left].every((value) => right.has(value))
 }
 
+function postOrder(actionIds: string[], outgoingEdgesByActionId: Map<string, HogFlowEdge[]>): string[] {
+    const order: string[] = []
+    const visited = new Set<string>()
+
+    for (const rootId of actionIds) {
+        if (visited.has(rootId)) {
+            continue
+        }
+        visited.add(rootId)
+        const stack: { actionId: string; nextEdge: number }[] = [{ actionId: rootId, nextEdge: 0 }]
+
+        while (stack.length) {
+            const frame = stack[stack.length - 1]
+            const edge = (outgoingEdgesByActionId.get(frame.actionId) ?? [])[frame.nextEdge++]
+            if (!edge) {
+                order.push(frame.actionId)
+                stack.pop()
+            } else if (!visited.has(edge.to)) {
+                visited.add(edge.to)
+                stack.push({ actionId: edge.to, nextEdge: 0 })
+            }
+        }
+    }
+
+    return order
+}
+
 function buildPostDominators(
     actionIds: string[],
     outgoingEdgesByActionId: Map<string, HogFlowEdge[]>
@@ -124,10 +152,14 @@ function buildPostDominators(
         ])
     )
 
+    // Visiting successors first lets each pass see final successor sets, so the loop ends after one or two
+    // passes. In array order, a long chain needs one pass per step, and each pass costs O(n²).
+    const visitOrder = postOrder(actionIds, outgoingEdgesByActionId)
+
     for (let pass = 0; pass < actionIds.length * actionIds.length; pass++) {
         let changed = false
 
-        for (const actionId of actionIds) {
+        for (const actionId of visitOrder) {
             const successors = (outgoingEdgesByActionId.get(actionId) ?? [])
                 .map((edge) => postDominators.get(edge.to))
                 .filter((set): set is Set<string> => !!set)
@@ -198,21 +230,31 @@ function findBranchJoinActionId(
     )
 }
 
+// Walk the edges and not the tree, because a path can end with a link to a step that renders under another
+// path but still reaches the join.
 function collectBranchJoinEdges(
-    sequence: WorkflowTreeSequence,
+    branchingActionId: string,
     joinActionId: string,
-    joinEdges: Map<string, HogFlowEdge>
-): void {
-    if (sequence.trailingEdge?.to === joinActionId) {
-        const edge = sequence.trailingEdge
-        joinEdges.set(`${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`, edge)
-    }
+    outgoingEdgesByActionId: Map<string, HogFlowEdge[]>
+): HogFlowEdge[] {
+    const joinEdges: HogFlowEdge[] = []
+    const visited = new Set([branchingActionId])
+    const stack: { actionId: string; nextEdge: number }[] = [{ actionId: branchingActionId, nextEdge: 0 }]
 
-    for (const node of sequence.nodes) {
-        for (const branch of node.branches) {
-            collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
+    while (stack.length) {
+        const frame = stack[stack.length - 1]
+        const edge = (outgoingEdgesByActionId.get(frame.actionId) ?? [])[frame.nextEdge++]
+        if (!edge) {
+            stack.pop()
+        } else if (edge.to === joinActionId) {
+            joinEdges.push(edge)
+        } else if (!visited.has(edge.to)) {
+            visited.add(edge.to)
+            stack.push({ actionId: edge.to, nextEdge: 0 })
         }
     }
+
+    return joinEdges
 }
 
 export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>): WorkflowTreeSequence {
@@ -238,23 +280,27 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
 
     const postDominatorsByActionId = buildPostDominators([...actionsById.keys()], outgoingEdgesByActionId)
 
+    // Each action renders once. A path that reaches an action that is already placed ends with a link to
+    // it. Copying the shared steps under every path instead grows with the number of routes through the
+    // graph, which is exponential when branches nest and only some of their paths merge.
+    const placedActionIds = new Set<string>()
+
     const buildSequence = (
         startActionId: string | undefined,
         stopActionId: string | null,
-        incomingEdge: HogFlowEdge | null,
-        ancestors: Set<string>
+        incomingEdge: HogFlowEdge | null
     ): WorkflowTreeSequence => {
         const nodes: WorkflowTreeNode[] = []
         let actionId = startActionId
         let edgeIntoAction = incomingEdge
 
-        while (actionId && actionId !== stopActionId && !ancestors.has(actionId)) {
+        while (actionId && actionId !== stopActionId && !placedActionIds.has(actionId)) {
             const action = actionsById.get(actionId)
             if (!action) {
                 break
             }
 
-            ancestors.add(actionId)
+            placedActionIds.add(actionId)
             const outgoingEdges = outgoingEdgesByActionId.get(actionId) ?? []
             const node: WorkflowTreeNode = {
                 action,
@@ -284,30 +330,31 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
             node.branches = outgoingEdges.map((edge) => ({
                 edge,
                 label: getWorkflowBranchLabel(action, edge),
-                sequence: buildSequence(edge.to, joinActionId, edge, new Set(ancestors)),
+                sequence: buildSequence(edge.to, joinActionId, edge),
             }))
             if (joinActionId) {
-                const joinEdges = new Map<string, HogFlowEdge>()
-                for (const branch of node.branches) {
-                    collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
-                }
-                node.joinEdges = [...joinEdges.values()]
+                node.joinEdges = collectBranchJoinEdges(actionId, joinActionId, outgoingEdgesByActionId)
             }
             nodes.push(node)
 
             if (!joinActionId) {
-                return { nodes, trailingEdge: null }
+                return { nodes, trailingEdge: null, continueTo: null }
             }
 
             actionId = joinActionId
             edgeIntoAction = null
         }
 
-        return { nodes, trailingEdge: actionId === stopActionId ? edgeIntoAction : null }
+        const continueTo = actionId && actionId !== stopActionId ? (actionsById.get(actionId) ?? null) : null
+        return {
+            nodes,
+            trailingEdge: actionId === stopActionId || continueTo ? edgeIntoAction : null,
+            continueTo: edgeIntoAction ? continueTo : null,
+        }
     }
 
     const trigger = workflow.actions.find((action) => action.type === 'trigger') ?? workflow.actions[0]
-    return buildSequence(trigger?.id, null, null, new Set())
+    return buildSequence(trigger?.id, null, null)
 }
 
 export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
@@ -342,6 +389,22 @@ function collectWorkflowTreeActionIds(sequence: WorkflowTreeSequence, actionIds:
     }
 }
 
+function collectActionIdsBefore(startActionId: string, stopActionId: string, edges: HogFlowEdge[]): Set<string> {
+    const actionIds = new Set([startActionId])
+    const queue = [startActionId]
+
+    for (let index = 0; index < queue.length; index++) {
+        for (const edge of edges) {
+            if (edge.from === queue[index] && edge.to !== stopActionId && !actionIds.has(edge.to)) {
+                actionIds.add(edge.to)
+                queue.push(edge.to)
+            }
+        }
+    }
+
+    return actionIds
+}
+
 export function computeMoveTreeBranchEdges(
     workflow: Pick<HogFlow, 'actions' | 'edges'>,
     movingActionId: string,
@@ -356,9 +419,17 @@ export function computeMoveTreeBranchEdges(
         return null
     }
 
-    const movedActionIds = new Set([movingActionId])
-    for (const branch of branchNode.branches) {
-        collectWorkflowTreeActionIds(branch.sequence, movedActionIds)
+    // Collect the block from the edges and not from the tree, because a path can end with a link to a step
+    // that renders under another path but still runs before the join.
+    const movedActionIds = collectActionIdsBefore(movingActionId, joinActionId, workflow.edges)
+
+    // A route from outside the block that enters one of its steps would follow that step to the new place and
+    // skip the join, so refuse the move.
+    const enteredFromOutside = workflow.edges.some(
+        (edge) => edge.to !== movingActionId && movedActionIds.has(edge.to) && !movedActionIds.has(edge.from)
+    )
+    if (enteredFromOutside) {
+        return null
     }
 
     if (movedActionIds.has(targetEdge.from) || movedActionIds.has(targetEdge.to)) {

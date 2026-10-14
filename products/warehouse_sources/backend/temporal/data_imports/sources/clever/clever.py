@@ -6,9 +6,9 @@ from requests import Request, Response
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
-    CLEVER_BASE_URL,
     CLEVER_ENDPOINTS,
     CLEVER_PAGE_SIZE,
+    clever_base_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -84,6 +84,7 @@ class CleverPaginator(BasePaginator):
 
 def clever_source(
     bearer_token: str,
+    api_version: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -98,7 +99,7 @@ def clever_source(
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": CLEVER_BASE_URL,
+            "base_url": clever_base_url(api_version),
             "auth": {"type": "bearer", "token": bearer_token},
             "paginator": CleverPaginator(),
             # Clever responses carry student, guardian, and staff PII (names, DOBs, contact
@@ -156,10 +157,10 @@ def clever_source(
     )
 
 
-def validate_credentials(bearer_token: str) -> tuple[bool, str | None]:
+def validate_credentials(bearer_token: str, api_version: str) -> tuple[bool, str | None]:
     try:
         response = make_tracked_session(redact_values=(bearer_token,)).get(
-            f"{CLEVER_BASE_URL}/districts",
+            f"{clever_base_url(api_version)}/districts",
             headers={"Authorization": f"Bearer {bearer_token}"},
             params={"limit": 1},
         )

@@ -60,7 +60,16 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
             format="json",
         )
 
-    def _cache(self, team, integration: Integration, full_name: str, *, tree_paths: str, readme: str = "") -> None:
+    def _cache(
+        self,
+        team,
+        integration: Integration,
+        full_name: str,
+        *,
+        tree_paths: str,
+        readme: str = "",
+        description: str = "",
+    ) -> None:
         IntegrationRepositoryCacheEntry.objects.create(
             team=team,
             integration=integration,
@@ -69,6 +78,7 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
             default_branch_sha="abc123",
             tree_paths=tree_paths,
             readme=readme,
+            description=description,
         )
 
     def test_select_rejects_unknown_bad_and_too_many_repos(self, _capture, _flag) -> None:
@@ -136,6 +146,29 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         self.installation_repos.return_value = []
         assert self.client.get(f"{self.base}/search/", {"query": "billing"}).status_code == 400
 
+    def test_search_returns_the_description_when_no_file_matches(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING], listed=[BILLING]).status_code == 200
+        self._cache(
+            self.team,
+            self.integration,
+            BILLING,
+            tree_paths="contents/handbook/story.md",
+            description="PostHog website and public handbook",
+        )
+
+        response = self.client.get(f"{self.base}/search/", {"query": "anniversary"})
+        assert response.status_code == 200, response.json()
+        assert response.json()["results"] == []
+        assert response.json()["repositories"] == [
+            {
+                "repo": BILLING,
+                "tree_truncated": False,
+                "cache_status": "ready",
+                "description": "PostHog website and public handbook",
+            }
+        ]
+
     def test_search_enqueues_one_refresh_for_a_stale_cache(self, _capture, _flag) -> None:
         # Set the allowlist directly. Selection also queues a warm and would trip the debounce.
         config = get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig)
@@ -151,7 +184,9 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         first = self.client.get(f"{self.base}/search/", {"query": "billing"})
         second = self.client.get(f"{self.base}/search/", {"query": "billing"})
         assert first.status_code == 200
-        assert first.json()["repositories"] == [{"repo": BILLING, "tree_truncated": False, "cache_status": "warming"}]
+        assert first.json()["repositories"] == [
+            {"repo": BILLING, "tree_truncated": False, "cache_status": "warming", "description": ""}
+        ]
         assert second.status_code == 200
         assert self.warm.call_count == 1
 

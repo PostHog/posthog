@@ -3,10 +3,13 @@
 from typing import ClassVar, Literal, NamedTuple
 
 from posthog.models.user import User
+from posthog.psycopg_helpers import has_ipv6_route
+from posthog.security.postgres_hosts import ipv6_only_host_message
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
     ShapeError,
+    resolve_host_ips,
     validate_external_host,
 )
 
@@ -88,6 +91,10 @@ class PostgreSQLServerIntegration:
             raise common.IntegrationError(INVALID_HOST_MESSAGE)
         except ValueError:
             raise common.IntegrationError(UNREACHABLE_HOST_MESSAGE)
+
+        resolved_ips = resolve_host_ips(host)
+        if resolved_ips and all(ip.version == 6 for ip in resolved_ips) and not has_ipv6_route():
+            raise common.IntegrationError(ipv6_only_host_message(host))
 
         port = config.get("port", None)
         try:

@@ -12,6 +12,20 @@ from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
+# Frontend flags for the warehouse person properties feature. Non-cloud deployments do not take part in
+# Cloud rollout evaluation, so these join the persisted baseline unless the
+# WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED kill switch is off.
+WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS = ("warehouse-person-properties",)
+
+# Self-hosted instances can't reach Cloud's staged-rollout flag service, so
+# `person_properties_flag_enabled` (products/customer_analytics/backend/logic/person_property_projection.py)
+# skips it there and enables warehouse-backed person/group properties directly. This is the
+# self-hosted equivalent of that Cloud flag: an operator kill switch, checked via env var instead
+# of a network call, in case the feature needs to be turned off on a given self-hosted instance.
+WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED: bool = get_from_env(
+    "WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED", True, type_cast=str_to_bool
+)
+
 # Encryption keys for remote-config feature flag payloads, kept separate from
 # Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
 # An ordered list: the first key encrypts new payloads, every key can decrypt. That
@@ -170,10 +184,10 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
 )
 
 # OrganizationFeatureFlagsConfig.flag_evaluations_mode for a new organization. 0 reads
-# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab charts.
-# 2 also reads it from flag_evaluations for the per-project counts on a flag's Projects tab and for
-# events lists filtered to only $feature_flag_called, and stops writing it to events for teams in the
-# ingestion allowlist. A change here never moves an existing organization.
+# $feature_flag_called from events. 1 reads it from flag_evaluations for the flag Usage tab, the
+# per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called.
+# 2 also stops writing it to events for teams in the ingestion allowlist. A change here never moves an
+# existing organization.
 FLAG_EVALUATIONS_NEW_ORG_MODE: int = get_from_env("FLAG_EVALUATIONS_NEW_ORG_MODE", 0, type_cast=int)
 
 # Feature flag limits to prevent memory issues during flag evaluation/caching.

@@ -326,7 +326,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && (
-                <Controls showInteractive={false} position="bottom-left">
+                // The button runs its own fitView, so it needs the caller's options to respect the same zoom cap
+                <Controls showInteractive={false} position="bottom-left" fitViewOptions={props.fitViewOptions}>
                     {props.nodesDraggable && props.onResetNodePositions && (
                         <ControlButton
                             aria-label="Reset layout"

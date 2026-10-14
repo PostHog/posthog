@@ -1742,7 +1742,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -1808,6 +1808,8 @@ export interface DataWarehouseSourceUsageApi {
 }
 
 export interface DataWarehouseSyncWarningApi {
+    /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
+    data_is_current?: boolean | null
     /** Human-readable warning shown to the user */
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
@@ -2284,6 +2286,11 @@ export interface CapabilityReadinessApi {
 }
 
 export interface SetupPlanResponseApi {
+    /**
+     * Time of the latest seven-day source scan, including cached scans. Null if no scan time is available.
+     * @nullable
+     */
+    readonly source_scanned_at: string | null
     /** Ranked suggestions, most important first */
     suggestions: SuggestionApi[]
     /** Per-capability readiness, with the suggestions blocking each */

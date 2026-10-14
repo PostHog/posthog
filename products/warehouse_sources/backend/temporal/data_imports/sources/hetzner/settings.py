@@ -36,6 +36,20 @@ class HetznerMetricsEndpointConfig:
     metric_types: str
 
 
+@dataclass(frozen=True)
+class HetznerChildEndpointConfig:
+    name: str
+    # Key into HETZNER_ENDPOINTS for the list whose resources the child list fans out over.
+    parent: str
+    # Column carrying the parent resource id on every child row.
+    parent_id_column: str
+    # Path under `{parent path}/{id}`, e.g. "/members".
+    path_suffix: str
+    response_key: str
+    primary_keys: list[str]
+    sort: str
+
+
 # The Hetzner Cloud API exposes no server-side timestamp filter on any list endpoint (no
 # `created_since` / `updated_after` / `id_gt`), so every table is full refresh only — there is no
 # cursor that would make an "incremental" sync cheaper than re-reading every page. Actions are
@@ -189,7 +203,22 @@ HETZNER_METRICS_ENDPOINTS: dict[str, HetznerMetricsEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = (*HETZNER_ENDPOINTS.keys(), *HETZNER_METRICS_ENDPOINTS.keys())
+# Per-parent lists with no timestamps and no server-side filter, so full refresh only.
+HETZNER_CHILD_ENDPOINTS: dict[str, HetznerChildEndpointConfig] = {
+    # Servers and load balancers attached to each network. Their ids come from separate id spaces,
+    # and one resource can join several networks, so the key needs the network id and the type.
+    "network_members": HetznerChildEndpointConfig(
+        name="network_members",
+        parent="networks",
+        parent_id_column="network_id",
+        path_suffix="/members",
+        response_key="members",
+        primary_keys=["network_id", "type", "id"],
+        sort="id:asc",
+    ),
+}
+
+ENDPOINTS = (*HETZNER_ENDPOINTS.keys(), *HETZNER_METRICS_ENDPOINTS.keys(), *HETZNER_CHILD_ENDPOINTS.keys())
 
 _TIMESTAMP_FIELD = IncrementalField(
     label="timestamp",
@@ -200,5 +229,6 @@ _TIMESTAMP_FIELD = IncrementalField(
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     **{name: [] for name in HETZNER_ENDPOINTS},
+    **{name: [] for name in HETZNER_CHILD_ENDPOINTS},
     **{name: [_TIMESTAMP_FIELD] for name in HETZNER_METRICS_ENDPOINTS},
 }

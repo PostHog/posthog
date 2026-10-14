@@ -54,6 +54,8 @@ pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
 // Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
 // (`sourcemap` / `hermes` / `proguard` / `apple`).
 pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
+// Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
+pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 
 // Histogram buckets for the byte-shaped metrics above. The default
 // `common_metrics` buckets are tuned for milliseconds of latency and saturate

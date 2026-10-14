@@ -6,7 +6,7 @@ import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryF
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     EventsQuery,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
@@ -28,7 +28,7 @@ export interface ColumnMeta {
     onResizeEnd?: () => void
 }
 
-export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode>(
+export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
     key: string,
     query: T,
     context?: QueryContext<T>

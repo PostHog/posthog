@@ -1,3 +1,4 @@
+import { kafkaProducerMessagesDiscardedCounter } from '~/common/kafka/blackhole-producer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { AllowedConfigKey } from './kafka-producer-config'
@@ -94,6 +95,25 @@ describe('KafkaProducerRegistryBuilder', () => {
         await expect(
             new KafkaProducerRegistryBuilder(undefined).register('DEFAULT', configMap).build(config)
         ).rejects.toThrow('connection refused')
+    })
+
+    it('buildBlackhole connects to no broker, and its producers discard messages and pass the checks', async () => {
+        kafkaProducerMessagesDiscardedCounter.reset()
+
+        const producer = new KafkaProducerRegistryBuilder(undefined)
+            .register('DEFAULT', configMap)
+            .buildBlackhole()
+            .getProducer('DEFAULT')
+
+        await producer.produce({ topic: 'events', key: null, value: Buffer.from('v') })
+        await producer.queueMessages({ topic: 'events', messages: [{ value: 'a' }, { value: 'b' }] })
+
+        expect(KafkaProducerWrapper.createWithConfig).not.toHaveBeenCalled()
+        await expect(producer.checkConnection()).resolves.toBeUndefined()
+        await expect(producer.checkTopicExists('events')).resolves.toBeUndefined()
+        expect((await kafkaProducerMessagesDiscardedCounter.get()).values).toEqual([
+            expect.objectContaining({ labels: { topic_name: 'events', producer_name: 'DEFAULT' }, value: 3 }),
+        ])
     })
 
     it('builds an empty registry when no producers are registered', async () => {

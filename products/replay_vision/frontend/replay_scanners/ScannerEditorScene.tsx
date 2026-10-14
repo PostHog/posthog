@@ -45,7 +45,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { CreditPriceNote } from '../components/PricingLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ExampleObservations } from './components/ExampleObservations'
 import { ScannerBudget } from './components/ScannerBudget'
+import { ScannerDraftStatus } from './components/ScannerDraftStatus'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerGoalFlow } from './components/ScannerGoalFlow'
 import { ScannerGoalOverview } from './components/ScannerGoalOverview'
@@ -53,7 +55,7 @@ import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { parseExperimentScannerParams } from './experimentTargeting'
-import { replayScannerLogic } from './replayScannerLogic'
+import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
@@ -112,7 +114,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V3] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -203,8 +205,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     </div>
                                     <h1 className="text-2xl font-bold m-0">What should the scanner find out?</h1>
                                     <p className="text-base text-secondary max-w-2xl mx-auto m-0">
-                                        Describe the goal, set a monthly budget, and the agent drafts the whole scanner
-                                        for you to review.
+                                        Describe the goal, and the agent drafts the whole scanner for you to review.
                                     </p>
                                 </div>
                                 <ScannerGoalFlow />
@@ -230,8 +231,20 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             </>
                         )
                     ) : step === 'overview' ? (
-                        <div className="max-w-4xl w-full mx-auto">
-                            <ScannerGoalOverview scannerId={scannerId} />
+                        <div className="@container w-full">
+                            <div className="grid grid-cols-1 @3xl:grid-cols-[minmax(0,1fr)_18rem] gap-6">
+                                <ScannerGoalOverview scannerId={scannerId} />
+                                {/* Outside the overview so it also shows while the draft generates, which
+                                    is when people have time to read what a scanner gives them. */}
+                                <aside className="flex flex-col gap-2 @3xl:sticky @3xl:top-4 @3xl:self-start">
+                                    <div className="text-sm font-semibold">What you get</div>
+                                    <p className="text-xs text-secondary m-0">
+                                        For each recording it watches, the scanner writes an observation like these and
+                                        cites the moment it found.
+                                    </p>
+                                    <ExampleObservations compact />
+                                </aside>
+                            </div>
                         </div>
                     ) : (
                         <Form
@@ -515,7 +528,7 @@ function EditorFooter({
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
         discardScannerDraft()
-        router.actions.push(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+        leaveScannerEditor(scannerId, isNew ? urls.replayVision() : urls.replayVision(scannerId))
     }
     const handleCancel = (): void => {
         if (!hasUnsavedChanges) {
@@ -538,6 +551,7 @@ function EditorFooter({
             {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    <ScannerDraftStatus scannerId={scannerId} fromOverview />
                     <LemonButton
                         type="tertiary"
                         onClick={handleCancel}
@@ -567,6 +581,7 @@ function EditorFooter({
                         </LemonButton>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <ScannerDraftStatus scannerId={scannerId} fromOverview={false} />
                         <LemonButton
                             type="tertiary"
                             onClick={handleCancel}

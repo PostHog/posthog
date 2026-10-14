@@ -122,6 +122,14 @@ class ScopedCapture:
         if is_cloud() and self._client:
             self._client.capture(*args, **kwargs)
 
+    def alias(self, previous_id: str, distinct_id: str) -> None:
+        """Merge the person behind ``distinct_id`` into the person behind ``previous_id``.
+
+        Ingestion refuses the merge when the ``distinct_id`` person is already identified.
+        """
+        if is_cloud() and self._client:
+            self._client.alias(previous_id=previous_id, distinct_id=distinct_id)
+
     def flush(self) -> None:
         """Wait for every queued event to be attempted. Blocks; keep it off an event loop.
 

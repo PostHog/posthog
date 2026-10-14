@@ -12,13 +12,12 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import { combineUrl, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -545,13 +544,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
-            lemonToast.success('Cohort saved', {
-                toastId: `cohort-saved-${cohort.id}`,
-                button: {
-                    label: 'View cohort',
-                    action: () => router.actions.push(urls.cohort(cohort.id)),
-                },
-            })
+            cohortSavedToast(cohort, 'persons_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)
         },
         loadNextActors: () => {

@@ -37,6 +37,7 @@ from django.db.models import (
     Count,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     Field,
     FloatField,
@@ -165,6 +166,7 @@ from products.customer_analytics.backend.models import (
     EventStream,
     EventStreamMember,
     Meeting,
+    MeetingStatus,
     SyncStatus,
     SyncTrigger,
     TargetType,
@@ -3700,6 +3702,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
+    inactive_last: bool = False,
 ) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
@@ -3730,7 +3733,15 @@ def list_accounts_for_view(
             .values("account_id")
         )
 
-    queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
+    order_fields = [ordering or "-created_at"]
+    if inactive_last:
+        queryset = queryset.annotate(
+            is_inactive=ExpressionWrapper(
+                Q(churned_at__isnull=False) | Q(ignored_at__isnull=False), output_field=BooleanField()
+            )
+        )
+        order_fields.insert(0, "is_inactive")
+    queryset = queryset.order_by(*order_fields)
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
@@ -3785,6 +3796,7 @@ def update_account(
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
     churned_at: "datetime | None | _Unset" = _UNSET,
+    ignored_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -3817,6 +3829,9 @@ def update_account(
     if not isinstance(churned_at, _Unset):
         account.churned_at = churned_at
         update_fields.append("churned_at")
+    if not isinstance(ignored_at, _Unset):
+        account.ignored_at = ignored_at
+        update_fields.append("ignored_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
@@ -3836,6 +3851,7 @@ def create_account(
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
     churned_at: datetime | None = None,
+    ignored_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -3854,6 +3870,7 @@ def create_account(
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
                 churned_at=churned_at,
+                ignored_at=ignored_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -3890,6 +3907,7 @@ def create_account_for_view(
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
         churned_at=input.churned_at,
+        ignored_at=input.ignored_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_details(account)
@@ -3922,6 +3940,8 @@ def update_account_for_view(
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
     if input.churned_at_provided:
         update_kwargs["churned_at"] = input.churned_at
+    if input.ignored_at_provided:
+        update_kwargs["ignored_at"] = input.ignored_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
@@ -4677,11 +4697,24 @@ def list_account_meetings(
     search: str | None = None,
 ) -> tuple[list[contracts.MeetingView], int] | None:
     """Synced calendar meetings for an accessible account, newest first, optionally
-    filtered by ``search`` (title or attendee email/name). None when the account isn't
+    filtered by ``search`` (title or attendee email/name). A recurring series shows each
+    past occurrence but only its next upcoming one. None when the account isn't
     accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    queryset = Meeting.objects.for_team(team_id).filter(account_id=account_id)
+    now = timezone.now()
+    next_occurrence_id = (
+        Meeting.objects.for_team(team_id)
+        .filter(account_id=account_id, ical_uid=OuterRef("ical_uid"), start_time__gte=now)
+        .exclude(recurrence_instance_id="")
+        .exclude(status=MeetingStatus.CANCELLED)
+        .order_by("start_time")
+        .values("id")[:1]
+    )
+    queryset = Meeting.objects.for_team(team_id).filter(
+        Q(recurrence_instance_id="") | Q(start_time__lt=now) | Q(id=Subquery(next_occurrence_id)),
+        account_id=account_id,
+    )
     if search:
         queryset = queryset.filter(
             Q(title__icontains=search)
@@ -4704,6 +4737,7 @@ def list_account_meetings(
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            is_recurring=bool(meeting.recurrence_instance_id),
             gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,

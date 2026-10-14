@@ -35,13 +35,13 @@ export function HogFlowTreeBranch({
     branchCollapsed: boolean
     onToggleCollapsed: () => void
     onFocusBranch?: (path: HogFlowEdge[]) => void
-    onSelectContinuation: (actionId: string, path: HogFlowEdge[]) => void
+    onSelectContinuation: (actionId: string) => void
     path: HogFlowEdge[]
     children: ReactNode
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
-    const joinAction = node.joinAction
+    const continuation = branch.sequence.continueTo ?? node.joinAction
     const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
     const pathColor = getHogFlowBranchColor(branchIndex)
     const isBranchSelected = selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex
@@ -71,10 +71,10 @@ export function HogFlowTreeBranch({
                   : `${branchIndex + 1}`
 
     const selectContinuation = (): void => {
-        if (joinAction) {
+        if (continuation) {
             setSelectedBranch(null)
-            setSelectedNodeId(joinAction.id)
-            onSelectContinuation(joinAction.id, path)
+            setSelectedNodeId(continuation.id)
+            onSelectContinuation(continuation.id)
         }
     }
 
@@ -179,7 +179,7 @@ export function HogFlowTreeBranch({
                 </div>
                 <div className={cn('min-w-0 ps-3 ms-2 mt-2', branchCollapsed && 'hidden')}>
                     {children}
-                    {joinAction && (
+                    {continuation && (
                         <div className="relative py-1">
                             <LemonButton
                                 type="tertiary"
@@ -189,7 +189,7 @@ export function HogFlowTreeBranch({
                                 onClick={selectContinuation}
                                 data-attr="workflow-tree-select-continuation"
                             >
-                                <span className="break-words whitespace-normal">{`Continue to: ${joinAction.name}`}</span>
+                                <span className="break-words whitespace-normal">{`Continue to: ${continuation.name}`}</span>
                             </LemonButton>
                         </div>
                     )}

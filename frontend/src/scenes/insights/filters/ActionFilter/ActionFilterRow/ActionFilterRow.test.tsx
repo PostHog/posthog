@@ -1,4 +1,4 @@
-import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_GROUP_TYPES } from '~/lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -6,21 +6,27 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { EntityFilterProps, entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
+import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
+    BaseMathType,
     EntityTypes,
     FilterType,
     HogQLMathType,
@@ -31,6 +37,8 @@ import {
 } from '~/types'
 
 import filtersJson from '../__mocks__/filters.json'
+import { legacyFiltersToSeries } from '../legacyFilters'
+import { SeriesNode } from '../seriesNode'
 import { ActionFilterRow, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
 import { MathAvailability } from './types'
 
@@ -57,12 +65,10 @@ jest.mock('@dnd-kit/sortable', () => ({
     }),
 }))
 
-const DEFAULT_FILTER = {
-    id: '$pageview',
+const DEFAULT_NODE: SeriesNode = {
+    kind: NodeKind.EventsNode,
+    event: '$pageview',
     name: '$pageview',
-    type: EntityTypes.EVENTS as const,
-    order: 0,
-    uuid: 'test-uuid-1',
     properties: [],
 }
 
@@ -72,15 +78,18 @@ const INLINE_CONTEXT = {
     mathAvailability: MathAvailability.None,
 }
 
-function setup(filtersOverride?: Partial<FilterType>): {
+function setup(
+    seriesOverride?: SeriesNode[],
+    logicProps: Partial<EntityFilterProps> = {}
+): {
     logic: ReturnType<typeof entityFilterLogic.build>
-    setFilters: jest.Mock
+    onChange: jest.Mock
 } {
-    const filters = { ...filtersJson, ...filtersOverride } as FilterType
-    const setFilters = jest.fn()
-    const logic = entityFilterLogic({ setFilters, filters, typeKey: 'test-key' })
+    const series = seriesOverride ?? legacyFiltersToSeries(filtersJson as FilterType)
+    const onChange = jest.fn()
+    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key', ...logicProps })
     logic.mount()
-    return { logic, setFilters }
+    return { logic, onChange }
 }
 
 function renderRow(
@@ -91,7 +100,8 @@ function renderRow(
         <Provider>
             <ActionFilterRow
                 logic={logic}
-                filter={DEFAULT_FILTER}
+                node={DEFAULT_NODE}
+                uuid="test-uuid-1"
                 index={0}
                 typeKey="test-key"
                 mathAvailability={MathAvailability.All}
@@ -170,7 +180,7 @@ describe('ActionFilterRow', () => {
         it('shows the underlying event alongside a renamed series', () => {
             const { logic } = setup()
             renderRow(logic, {
-                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+                node: { ...DEFAULT_NODE, event: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
             })
             const row = document.querySelector('.ActionFilterRow')!
             expect(row.textContent).toContain('Signed up')
@@ -181,7 +191,7 @@ describe('ActionFilterRow', () => {
             const { logic } = setup()
             renderRow(logic, {
                 ...INLINE_CONTEXT,
-                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+                node: { ...DEFAULT_NODE, event: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
             })
 
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
@@ -261,7 +271,7 @@ describe('ActionFilterRow', () => {
             })
 
             it('shows ellipsis menu button in funnel context', () => {
-                const { logic } = setup({ insight: InsightType.FUNNELS })
+                const { logic } = setup()
                 renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
                 expect(screen.getByLabelText('Show more actions')).toBeInTheDocument()
             })
@@ -297,70 +307,69 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
             })
 
-            it('offers only numeric warehouse columns in the box plot property selector for data warehouse series', async () => {
-                databaseTableListLogic.mount()
-                databaseTableListLogic.actions.loadDatabaseSuccess({
-                    tables: {
-                        events_table: {
-                            type: 'data_warehouse',
-                            id: 'wh-table-1',
-                            name: 'events_table',
-                            fields: {
-                                duration: {
-                                    name: 'duration',
-                                    hogql_value: 'duration',
-                                    type: 'float',
-                                    schema_valid: true,
-                                },
-                                customer_name: {
-                                    name: 'customer_name',
-                                    hogql_value: 'customer_name',
-                                    type: 'string',
-                                    schema_valid: true,
+            it.each([
+                { tableType: 'data_warehouse', tableName: 'events_table', seriesName: 'events_table' },
+                // A flag calls series reads a PostHog table, which the warehouse table map leaves out.
+                { tableType: 'posthog', tableName: 'posthog.flag_evaluations', seriesName: 'Feature flag called' },
+            ])(
+                'offers only numeric columns of a $tableType table in the box plot property selector',
+                async ({ tableType, tableName, seriesName }) => {
+                    databaseTableListLogic.mount()
+                    databaseTableListLogic.actions.loadDatabaseSuccess({
+                        tables: {
+                            [tableName]: {
+                                type: tableType,
+                                id: 'wh-table-1',
+                                name: tableName,
+                                fields: {
+                                    duration: {
+                                        name: 'duration',
+                                        hogql_value: 'duration',
+                                        type: 'float',
+                                        schema_valid: true,
+                                    },
+                                    customer_name: {
+                                        name: 'customer_name',
+                                        hogql_value: 'customer_name',
+                                        type: 'string',
+                                        schema_valid: true,
+                                    },
                                 },
                             },
                         },
-                    },
-                    joins: [],
-                } as any)
+                        joins: [],
+                    } as any)
 
-                const dataWarehouseFilter = {
-                    id: 'events_table',
-                    name: 'events_table',
-                    type: EntityTypes.DATA_WAREHOUSE,
-                    table_name: 'events_table',
-                    order: 0,
+                    const dataWarehouseNode = {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: tableName,
+                        name: seriesName,
+                        table_name: tableName,
+                    } as SeriesNode
+                    const { logic, onChange } = setup([dataWarehouseNode])
+                    renderRow(logic, {
+                        mathAvailability: MathAvailability.BoxPlotOnly,
+                        node: dataWarehouseNode,
+                    })
+
+                    await userEvent.click(screen.getByTestId('box-plot-property-select'))
+                    await screen.findByText('duration')
+                    // The box plot runner applies toFloat() to the selected column, so non-numeric
+                    // columns must not be offered
+                    expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
+                    await userEvent.click(screen.getByText('duration'))
+
+                    await waitFor(() => {
+                        expect(onChange).toHaveBeenCalledWith([
+                            expect.objectContaining({
+                                kind: NodeKind.DataWarehouseNode,
+                                math_property: 'duration',
+                                math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                            }),
+                        ])
+                    })
                 }
-                const { logic, setFilters } = setup({
-                    events: [],
-                    actions: [],
-                    data_warehouse: [dataWarehouseFilter],
-                } as Partial<FilterType>)
-                renderRow(logic, {
-                    mathAvailability: MathAvailability.BoxPlotOnly,
-                    filter: { ...DEFAULT_FILTER, ...dataWarehouseFilter },
-                })
-
-                await userEvent.click(screen.getByTestId('box-plot-property-select'))
-                await screen.findByText('duration')
-                // The box plot runner applies toFloat() to the selected column, so non-numeric
-                // columns must not be offered
-                expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
-                await userEvent.click(screen.getByText('duration'))
-
-                await waitFor(() => {
-                    expect(setFilters).toHaveBeenCalledWith(
-                        expect.objectContaining({
-                            data_warehouse: [
-                                expect.objectContaining({
-                                    math_property: 'duration',
-                                    math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                                }),
-                            ],
-                        })
-                    )
-                })
-            })
+            )
         })
 
         describe('property filters', () => {
@@ -436,7 +445,7 @@ describe('ActionFilterRow', () => {
                     ...INLINE_CONTEXT,
                     showCombine: true,
                     singleFilter: false,
-                    filter: { ...DEFAULT_FILTER, type: EntityTypes.DATA_WAREHOUSE },
+                    node: { ...DEFAULT_NODE, kind: NodeKind.DataWarehouseNode } as SeriesNode,
                 })
                 expect(screen.queryByTestId('show-prop-combine-0')).not.toBeInTheDocument()
             })
@@ -468,14 +477,14 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByText('my-suffix')).toBeInTheDocument()
             })
 
-            it('calls function suffix with filter, index, onClose', () => {
+            it('calls function suffix with node, index, onClose', () => {
                 const { logic } = setup()
-                const suffixFn = jest.fn(({ filter }) => <span data-attr="fn-suffix">{filter.name}</span>)
+                const suffixFn = jest.fn(({ node }) => <span data-attr="fn-suffix">{node.name}</span>)
                 renderRow(logic, { customRowSuffix: suffixFn })
                 expect(screen.getByTestId('fn-suffix')).toHaveTextContent('$pageview')
                 expect(suffixFn).toHaveBeenCalledWith(
                     expect.objectContaining({
-                        filter: expect.objectContaining({ id: '$pageview' }),
+                        node: expect.objectContaining({ event: '$pageview' }),
                         index: 0,
                         onClose: expect.any(Function),
                     })
@@ -487,7 +496,7 @@ describe('ActionFilterRow', () => {
             it('renders with the action name', () => {
                 const { logic } = setup()
                 renderRow(logic, {
-                    filter: { ...DEFAULT_FILTER, id: '9', name: 'Users signed up', type: EntityTypes.ACTIONS },
+                    node: { kind: NodeKind.ActionsNode, id: 9, name: 'Users signed up' } as SeriesNode,
                 })
                 expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Users signed up')
             })
@@ -496,30 +505,26 @@ describe('ActionFilterRow', () => {
 
     describe('interactions', () => {
         it('dispatches removeLocalFilter on delete click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDeleteBtn: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Delete graph series'))
             // Deleting the first event (order 0) leaves only 1 event + 1 action, re-ordered
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: [expect.objectContaining({ id: '$pageview' })],
-                    actions: [expect.objectContaining({ id: '9' })],
-                })
-            )
-            // The remaining event list should have exactly 1 entry (down from 2)
-            const call = setFilters.mock.calls[0][0]
-            expect(call.events).toHaveLength(1)
+            expect(onChange).toHaveBeenCalledWith([
+                expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }),
+                expect.objectContaining({ kind: NodeKind.ActionsNode, id: 9 }),
+            ])
+            // Down from 3 series (2 events + 1 action) to 2
+            expect(onChange.mock.calls[0][0]).toHaveLength(2)
         })
 
         it('dispatches duplicateFilter on duplicate click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, hideDuplicate: false, singleFilter: false })
             await userEvent.click(screen.getByTitle('Duplicate graph series'))
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview', order: 0 })]),
-                })
-            )
+            const duplicated = onChange.mock.calls[0][0]
+            expect(duplicated).toHaveLength(4)
+            expect(duplicated[0]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
+            expect(duplicated[1]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
         })
 
         it('dispatches selectFilter and calls onRenameClick on rename', async () => {
@@ -531,12 +536,14 @@ describe('ActionFilterRow', () => {
         })
 
         it('dispatches convertFilterToGroup on combine click', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { ...INLINE_CONTEXT, showCombine: true, singleFilter: false })
             await userEvent.click(screen.getByTestId('show-prop-combine-0'))
-            expect(setFilters).toHaveBeenCalledWith(
+            // The combined row becomes a group holding the event it was built from
+            expect(onChange.mock.calls[0][0][0]).toEqual(
                 expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ id: '$pageview' })]),
+                    kind: NodeKind.GroupNode,
+                    nodes: [expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' })],
                 })
             )
         })
@@ -557,7 +564,7 @@ describe('ActionFilterRow', () => {
 
     describe('math selection', () => {
         it('changing math type calls setFilters with updated math', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.All })
 
             await userEvent.click(screen.getByTestId('math-selector-0'))
@@ -567,19 +574,15 @@ describe('ActionFilterRow', () => {
             })
             await userEvent.click(screen.getByText('Unique users'))
 
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ math: 'dau' })]),
-                })
-            )
+            expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ math: 'dau' })]))
         })
 
         it('shows property value selector when property math is active', () => {
             const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: PropertyMathType.Average,
                     math_property: '$time',
                 },
@@ -591,8 +594,8 @@ describe('ActionFilterRow', () => {
             const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: HogQLMathType.HogQL,
                     math_hogql: 'sum(price)',
                 },
@@ -602,7 +605,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('defaults HogQL math expression to person_id for stickiness insights', async () => {
-            const { logic, setFilters } = setup({ insight: InsightType.STICKINESS })
+            const { logic, onChange } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
                 insightType: InsightType.STICKINESS,
@@ -612,53 +615,49 @@ describe('ActionFilterRow', () => {
             await waitFor(() => expect(screen.getByText('SQL expression')).toBeInTheDocument())
             await userEvent.click(screen.getByText('SQL expression'))
 
-            expect(setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })]),
-                })
+            expect(onChange).toHaveBeenCalledWith(
+                expect.arrayContaining([expect.objectContaining({ math_hogql: 'person_id' })])
             )
         })
 
         it('does not show math selector inline for FunnelsOnly (it goes in the popup menu)', () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
             // MathSelector should NOT be in the center section (it's in the popup menu instead)
             expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
         })
 
         it('selecting property math sets math_property and clears math_hogql', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.All,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     math: PropertyMathType.Average,
                     math_property: '$time',
                     math_hogql: 'count()',
                 },
             })
 
-            // Simulate onMathPropertySelect which calls updateFilterMath
-            logic.actions.updateFilterMath({
-                ...DEFAULT_FILTER,
+            // Simulate onMathPropertySelect
+            logic.actions.updateSeriesMath(0, {
                 math_hogql: undefined,
                 math_property: '$session_duration',
                 math_property_type: TaxonomicFilterGroupType.SessionProperties,
-                index: 0,
             })
 
             await waitFor(() => {
-                const call = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
-                expect(call.events).toEqual(
+                const call = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+                expect(call).toEqual(
                     expect.arrayContaining([
                         expect.objectContaining({
                             math_property: '$session_duration',
                         }),
                     ])
                 )
-                // math_hogql should not be present on the updated filter
-                const updatedEvent = call.events.find((e: any) => e.math_property === '$session_duration')
-                expect(updatedEvent.math_hogql).toBeUndefined()
+                // math_hogql should not be present on the updated series
+                const updated = call.find((node: any) => node.math_property === '$session_duration')
+                expect(updated.math_hogql).toBeUndefined()
             })
         })
 
@@ -680,7 +679,7 @@ describe('ActionFilterRow', () => {
 
     describe('funnel popup menu contents', () => {
         it('shows rename and delete inside popup menu when opened', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -692,7 +691,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows duplicate in popup menu when not singleFilter', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 singleFilter: false,
@@ -706,7 +705,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('hides duplicate in popup menu when singleFilter', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 singleFilter: true,
@@ -721,11 +720,10 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows optional step checkbox for funnel steps after the first', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 index: 1,
-                filter: { ...DEFAULT_FILTER, order: 1 },
             })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -736,7 +734,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('does not show optional step checkbox for the first funnel step', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 index: 0,
@@ -751,7 +749,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows math selector inside funnel popup menu', async () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, { mathAvailability: MathAvailability.FunnelsOnly })
 
             await userEvent.click(screen.getByLabelText('Show more actions'))
@@ -763,7 +761,7 @@ describe('ActionFilterRow', () => {
         })
 
         it('shows property filter outside the popup menu', () => {
-            const { logic } = setup({ insight: InsightType.FUNNELS })
+            const { logic } = setup()
             renderRow(logic, {
                 mathAvailability: MathAvailability.FunnelsOnly,
                 hideFilter: false,
@@ -777,7 +775,7 @@ describe('ActionFilterRow', () => {
 
     describe('event selection onChange handler', () => {
         it('selecting an event updates the filter with the chosen event', async () => {
-            const { logic, setFilters } = setup()
+            const { logic, onChange } = setup()
             renderRow(logic, INLINE_CONTEXT)
 
             await userEvent.click(screen.getByTestId('trend-element-subject-0'))
@@ -789,15 +787,12 @@ describe('ActionFilterRow', () => {
             await userEvent.click(screen.getByTestId('prop-filter-events-1'))
 
             await waitFor(() => {
-                expect(setFilters).toHaveBeenCalledWith(
-                    expect.objectContaining({
-                        events: expect.arrayContaining([
-                            expect.objectContaining({
-                                type: EntityTypes.EVENTS,
-                                order: 0,
-                            }),
-                        ]),
-                    })
+                expect(onChange).toHaveBeenCalledWith(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            kind: NodeKind.EventsNode,
+                        }),
+                    ])
                 )
             })
         })
@@ -839,7 +834,7 @@ describe('ActionFilterRow', () => {
                     },
                 })
 
-                const { logic, setFilters } = setup()
+                const { logic, onChange } = setup()
                 renderRow(logic, {
                     ...INLINE_CONTEXT,
                     actionsTaxonomicGroupTypes: [
@@ -853,11 +848,11 @@ describe('ActionFilterRow', () => {
                 await searchAndSelect('trend-element-subject-0', searchText, `prop-filter-${tab}-0`)
 
                 await waitFor(() => {
-                    const lastCall = setFilters.mock.calls[setFilters.mock.calls.length - 1][0]
-                    expect(lastCall.events).toEqual(
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+                    expect(lastCall).toEqual(
                         expect.arrayContaining([
                             expect.objectContaining({
-                                id: expectedEventId,
+                                event: expectedEventId,
                                 properties: expect.arrayContaining([
                                     expect.objectContaining({
                                         key: expectedPropertyKey,
@@ -874,12 +869,273 @@ describe('ActionFilterRow', () => {
         )
     })
 
+    describe('feature flag calls series', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }: { request: Request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        const flagCalled = {
+                            ...eventDefinitions[0],
+                            id: 'flag-called',
+                            name: '$feature_flag_called',
+                            description: '',
+                        }
+                        const results = [...eventDefinitions, flagCalled].filter((d) => d.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+        })
+
+        // entityFilterLogic copies only the warehouse fields named in its own popover fields. Each case
+        // passes the editor's fields to the logic as well as to the row.
+        it.each([
+            {
+                insight: 'trends on mode 1',
+                mode: FlagEvaluationsModeEnumApi.Number1,
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: {
+                    kind: NodeKind.DataWarehouseNode,
+                    name: 'Feature flag called',
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                },
+                description: /Insights include calls from the last 90 days/,
+            },
+            {
+                insight: 'funnels on mode 2',
+                mode: FlagEvaluationsModeEnumApi.Number2,
+                mathAvailability: MathAvailability.FunnelsOnly,
+                dataWarehousePopoverFields: [
+                    { key: 'id_field', label: 'Unique ID' },
+                    { key: 'timestamp_field', label: 'Timestamp' },
+                    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+                ],
+                expected: {
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    aggregation_target_field: 'person_id',
+                },
+                description: /Insights include calls from the last 90 days/,
+            },
+            {
+                insight: 'trends on mode 0',
+                mode: FlagEvaluationsModeEnumApi.Number0,
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
+                description: /queries on this event will stop returning results/,
+            },
+        ])(
+            'describes and picks Feature flag called for $insight',
+            async ({ mode, mathAvailability, dataWarehousePopoverFields, expected, description }) => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: true })
+                try {
+                    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                    const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
+                    renderRow(logic, {
+                        ...INLINE_CONTEXT,
+                        mathAvailability,
+                        dataWarehousePopoverFields,
+                        flagCallsFromFlagEvaluations: true,
+                        actionsTaxonomicGroupTypes: [
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                            TaxonomicFilterGroupType.DataWarehouse,
+                        ],
+                    })
+
+                    await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+                    await userEvent.type(
+                        await screen.findByTestId('taxonomic-filter-searchfield'),
+                        '$feature_flag_called'
+                    )
+                    const [entry] = await screen.findAllByText('Feature flag called')
+                    await userEvent.hover(entry.closest('[data-attr^="prop-filter-"]') as HTMLElement)
+                    expect(await screen.findByText(description)).toBeInTheDocument()
+                    await userEvent.click(entry)
+
+                    await waitFor(() => {
+                        const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                        expect(lastCall?.[0]).toEqual(expect.objectContaining(expected))
+                    })
+                } finally {
+                    featureFlagLogic.actions.setFeatureFlags([], {})
+                }
+            }
+        )
+
+        it('carries the flag filters of an event series over when Feature flag called is picked again', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+            })
+            const infoToast = jest.spyOn(lemonToast, 'info')
+            const eventsNode: SeriesNode = {
+                kind: NodeKind.EventsNode,
+                event: '$feature_flag_called',
+                name: '$feature_flag_called',
+                math: BaseMathType.WeeklyActiveUsers,
+                properties: [
+                    {
+                        key: '$feature_flag',
+                        value: 'probe-flag',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: '$feature_flag_response',
+                        value: 'test',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: '$feature_flag_response', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event },
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                ],
+            }
+            const { logic, onChange } = setup([eventsNode])
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                node: eventsNode,
+                flagCallsFromFlagEvaluations: true,
+                actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+            await userEvent.click(await screen.findByTestId('prop-filter-events-0'))
+
+            await waitFor(() => {
+                const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                expect(lastCall?.[0]).toEqual(
+                    expect.objectContaining({
+                        table_name: 'posthog.flag_evaluations',
+                        math: undefined,
+                        properties: [
+                            {
+                                key: 'flag_key',
+                                value: 'probe-flag',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'response',
+                                value: 'test',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'response',
+                                value: ['', 'null'],
+                                operator: PropertyOperator.NotIn,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                        ],
+                    })
+                )
+            })
+            expect(infoToast.mock.calls.map(([message]) => message)).toEqual([
+                'Feature flag called supports only flag key, response and SQL filters, so 1 other filter was removed.',
+            ])
+            infoToast.mockRestore()
+        })
+
+        it('leaves out math that trends computes from events', async () => {
+            const flagCallsNode: SeriesNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Feature flag called',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            }
+            const { logic } = setup([flagCallsNode])
+            renderRow(logic, { node: flagCallsNode, mathAvailability: MathAvailability.All })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+
+            expect(await screen.findByText('Unique users')).toBeInTheDocument()
+            for (const label of [
+                'Weekly active users',
+                'Monthly active users',
+                'First-ever occurrence',
+                'First occurrence matching filters',
+            ]) {
+                expect(screen.queryByText(label)).not.toBeInTheDocument()
+            }
+        })
+
+        it('reopens a flag calls series on the event and picks it again in the rebuilt menu', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
+            try {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+                })
+                const flagCallsNode: SeriesNode = {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'posthog.flag_evaluations',
+                    table_name: 'posthog.flag_evaluations',
+                    name: 'Feature flag called',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                }
+                const { logic, onChange } = setup([flagCallsNode])
+                renderRow(logic, {
+                    ...INLINE_CONTEXT,
+                    node: flagCallsNode,
+                    flagCallsFromFlagEvaluations: true,
+                    actionsTaxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                        TaxonomicFilterGroupType.DataWarehouse,
+                    ],
+                })
+
+                await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+                await userEvent.type(await screen.findByTestId('menu-filter-search'), '$feature_flag_called')
+                const options = await screen.findAllByRole('option')
+                const flagCalledOption = options.find((option) => option.textContent?.includes('Feature flag called'))
+                await userEvent.click(flagCalledOption!)
+
+                await waitFor(() => {
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                    expect(lastCall?.[0]).toEqual(
+                        expect.objectContaining({
+                            kind: NodeKind.DataWarehouseNode,
+                            table_name: 'posthog.flag_evaluations',
+                        })
+                    )
+                })
+            } finally {
+                // The flag persists across tests, so the classic-picker tests after this one need it off.
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            }
+        })
+    })
+
     describe('all events entity filter', () => {
         it('renders "All events" placeholder for null event id', () => {
             const { logic } = setup()
             renderRow(logic, {
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     id: null,
                     name: 'All events',
                 },
@@ -894,8 +1150,8 @@ describe('ActionFilterRow', () => {
             renderRow(logic, {
                 ...INLINE_CONTEXT,
                 hideFilter: false,
-                filter: {
-                    ...DEFAULT_FILTER,
+                node: {
+                    ...DEFAULT_NODE,
                     properties: [
                         { key: '$browser', value: 'Chrome', operator: 'exact', type: 'event' },
                         { key: '$os', value: 'Mac', operator: 'exact', type: 'event' },
@@ -911,7 +1167,7 @@ describe('ActionFilterRow', () => {
             renderRow(logic, {
                 ...INLINE_CONTEXT,
                 hideFilter: false,
-                filter: { ...DEFAULT_FILTER, id: 'empty' },
+                node: { ...DEFAULT_NODE, event: 'empty' },
             })
             const filterButton = screen.getByTitle('Show filters')
             expect(filterButton).toHaveAttribute('aria-disabled', 'true')

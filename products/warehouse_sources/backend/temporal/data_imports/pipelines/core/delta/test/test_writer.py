@@ -45,6 +45,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
+    _committed_file_count_change,
+    _committed_version,
     _deltalite_write_stats,
     _merge_predicate_ops,
     commit_covers_batch,
@@ -902,6 +904,65 @@ class TestCreateRaceWithExistingTable:
         assert set(result.to_pyarrow_table().column("id").to_pylist()) == expected_ids
 
 
+class TestFirstBatchOnAMissingTable:
+    @pytest.mark.parametrize("write_type", ["full_refresh", "append", "incremental"])
+    @pytest.mark.asyncio
+    async def test_first_batch_probes_once_and_later_reads_see_each_commit(
+        self, write_type: Literal["incremental", "full_refresh", "append"], tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        helper = make_local_table_ref(delta_path)
+
+        with patch.object(helper, "_open_delta_table", AsyncMock(side_effect=helper._open_delta_table)) as probe:
+            # The loader reads the table before it hands the batch to the writer.
+            assert await helper.get_delta_table() is None
+
+            first = await DeltaWriter(helper).write(
+                data=pa.table({"id": pa.array([1, 2], pa.int64())}),
+                write_type=write_type,
+                should_overwrite_table=True,
+                primary_keys=["id"],
+            )
+            assert await helper.get_delta_table() is first
+            assert first.version() == deltalake.DeltaTable(delta_path).version()
+
+            await DeltaWriter(helper).write(
+                data=pa.table({"id": pa.array([3], pa.int64())}),
+                write_type=write_type,
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
+            current = await helper.get_delta_table()
+
+        assert probe.await_count == 1
+        assert current is not None
+        assert current.version() == deltalake.DeltaTable(delta_path).version()
+        assert set(current.to_pyarrow_table().column("id").to_pylist()) == {1, 2, 3}
+
+    @pytest.mark.parametrize(
+        "should_overwrite_table, expected_ids",
+        [(False, {1, 2, 9}), (True, {1, 2})],
+        ids=["continuation_appends_to_it", "overwrite_replaces_it"],
+    )
+    @pytest.mark.asyncio
+    async def test_table_created_by_another_writer_after_the_probe(
+        self, should_overwrite_table: bool, expected_ids: set[int], tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        helper = make_local_table_ref(delta_path)
+        assert await helper.get_delta_table() is None
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([9], pa.int64())}))
+
+        result = await DeltaWriter(helper).write(
+            data=pa.table({"id": pa.array([1, 2], pa.int64())}),
+            write_type="incremental",
+            should_overwrite_table=should_overwrite_table,
+            primary_keys=["id"],
+        )
+
+        assert set(result.to_pyarrow_table().column("id").to_pylist()) == expected_ids
+
+
 class TestUnpartitionedTableWithPartitionKeyColumn:
     """A Delta table can carry `_ph_partition_key` in its schema while its
     partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in
@@ -1125,6 +1186,20 @@ class TestDeltaliteWritePath:
         stats.helper = lambda: None  # callable attribute must be ignored
         assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
 
+    def test_unreadable_post_commit_stats_are_ignored(self):
+        class UnreadableStats:
+            @property
+            def version(self) -> int:
+                raise RuntimeError("stats unavailable")
+
+            @property
+            def files_added(self) -> int:
+                raise RuntimeError("stats unavailable")
+
+        stats = UnreadableStats()
+        assert _committed_version(stats) is None
+        assert _committed_file_count_change(stats) is None
+
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(self):
         logger = make_logger()  # captured so we can inspect the structured log without hitting the typed attr
@@ -1214,7 +1289,7 @@ class TestDeltaliteWritePath:
             reset_governor_for_tests(None)
         assert wrote is True
         log_kwargs = logger.ainfo.call_args.kwargs
-        assert log_kwargs["governor_rewrite_files"] == 1
+        assert (log_kwargs["governor_rewrite_files"], log_kwargs["governor_columns"]) == (1, 3)
         assert log_kwargs["governor_rewrite_total_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
@@ -1225,6 +1300,7 @@ class TestDeltaliteWritePath:
         assert "governor_observed_delta_mb" not in log_kwargs
         upsert_kwargs = fake_table.upsert.call_args.kwargs
         assert (upsert_kwargs["max_parallel_partitions"], upsert_kwargs["max_parallel_files"]) == (1, 8)
+        assert upsert_kwargs["max_fetch_bytes"] == 128 * 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_falls_back_when_deltalite_raises(self):

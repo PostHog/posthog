@@ -20,15 +20,21 @@ class MaxToolError(Exception):
     """
 
     error_type: MaxToolErrorType = "internal"
+    error_code: str | None = None
 
-    def __init__(self, message: str, *, error_type: MaxToolErrorType | None = None) -> None:
+    def __init__(
+        self, message: str, *, error_type: MaxToolErrorType | None = None, error_code: str | None = None
+    ) -> None:
         """
         Args:
             message: Detailed, actionable error message that helps the LLM understand what went wrong
+            error_code: Machine-readable name of the leaf failure, for analytics. It must hold no caller input.
         """
         super().__init__(message)
         if error_type is not None:
             self.error_type = error_type
+        if error_code is not None:
+            self.error_code = error_code
 
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:

@@ -57,7 +57,6 @@ class TestPrivateScoutCapture(SimpleTestCase):
                 client.shutdown()
 
     @parameterized.expand([("US", False), ("EU", False), ("US", True), ("EU", True)])
-    @override_settings(SCOUT_LIVE_TRIALS_ENABLED=False)
     def test_regional_capture_respects_private_deployment_setting(self, region: str, private_capture: bool) -> None:
         before_send = MagicMock(side_effect=lambda message: message)
         with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=private_capture):

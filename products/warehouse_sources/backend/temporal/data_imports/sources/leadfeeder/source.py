@@ -63,7 +63,7 @@ class LeadfeederSource(ResumableSource[LeadfeederSourceConfig, LeadfeederResumeC
             label="Leadfeeder",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["dealfront"],
-            caption="""Enter your Dealfront (Leadfeeder) API key to pull your website visitor and lead data into the PostHog data warehouse. This syncs the **Accounts**, **Leads**, and **Visits** tables.
+            caption="""Enter your Dealfront (Leadfeeder) API key to pull your website visitor and lead data into the PostHog data warehouse. This syncs the **Accounts**, **Custom feeds**, **Leads**, and **Visits** tables.
 
 New connections use the unified Dealfront API. Create an API key in your Dealfront platform settings, under Personal, API keys.
 
@@ -120,8 +120,8 @@ Optionally set a **Start date** to bound the initial sync. Leave it blank to pul
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Discovery is version-independent: both generations expose the same accounts / leads / visits
-        # tables with the same incremental fields, so the static catalog is identical whatever the pin.
+        # Discovery is version-independent: both generations expose the same accounts / leads / visits /
+        # custom_feeds tables with the same incremental fields, so the static catalog is identical whatever the pin.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = LEADFEEDER_ENDPOINTS[endpoint]
             # Only endpoints with a server-side start_date/end_date filter are genuinely incremental.

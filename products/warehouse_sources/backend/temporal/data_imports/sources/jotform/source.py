@@ -59,6 +59,10 @@ Supported tables:
 - `submissions`
 - `reports`
 - `questions`
+- `usage`
+- `history`
+- `labels`
+- `label_resources`
 """,
             iconPath="/static/services/jotform.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jotform",

@@ -23,9 +23,11 @@ from uuid import UUID
 
 import structlog
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -38,6 +40,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
+    NOTIFICATION_EVENT_KINDS,
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -48,6 +51,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     Outcome,
     apply_broken_config,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
@@ -71,6 +75,7 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -98,16 +103,53 @@ MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
 
-# A check that announced nothing is a CHECK even when it moved the alert; the row's two states
-# carry the move. `AlertEventKind`'s other four values are the `EventKind` strings the destination
-# config is keyed on, so this is also the only table mapping an action to a destination.
-_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
-    NotificationAction.NONE: AlertEventKind.CHECK,
-    NotificationAction.FIRE: AlertEventKind.FIRING,
-    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
-    NotificationAction.ERROR: AlertEventKind.ERRORED,
-    NotificationAction.BROKEN: AlertEventKind.BROKEN,
-}
+
+@frozen
+class LogsAlertCondition:
+    """The logs bound, which the platform keeps under `source_config["condition"]`."""
+
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+
+    def __post_init__(self) -> None:
+        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
+        # decide the alert against the wrong side of its bound instead of failing.
+        if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
+            raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
+        # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.
+        for name, minimum in (("threshold_count", 0), ("window_minutes", 1)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer of at least {minimum}, got {value!r}")
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
+        condition = check.condition
+        return cls(
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+        )
+
+    def as_source_config(self) -> dict[str, int | str]:
+        return {
+            "threshold_count": self.threshold_count,
+            "threshold_operator": self.threshold_operator,
+            "window_minutes": self.window_minutes,
+        }
+
+
+def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
+    """A bound the cohort query cannot read. Caught here, because the cohort key reads it for
+    every check in the batch, so one malformed row would otherwise stop the whole batch."""
+    try:
+        LogsAlertCondition.of(check)
+    except (KeyError, TypeError):
+        return "The alert's threshold is missing from its configuration"
+    except ValueError as error:
+        return f"The alert's threshold is invalid: {error}"
+    return None
 
 
 _WINDOW_MARKER = "window:"
@@ -145,7 +187,7 @@ def window_end_of(evaluation_key: str) -> datetime | None:
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
-        check.window_minutes,
+        LogsAlertCondition.of(check).window_minutes,
         check.evaluation_periods,
         check.check_interval_minutes,
         is_projection_eligible(check.source_config),
@@ -300,7 +342,7 @@ def _delivery(
         check,
         outcome=outcome,
         evaluation_key=_evaluation_key(check, window_end),
-        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+        kind=NOTIFICATION_EVENT_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
         value=value,
@@ -311,18 +353,50 @@ def _delivery(
         ),
         disable=outcome.disable,
     )
-    if outcome.notification == NotificationAction.NONE:
-        return recorded, None
+    return recorded, _request(check, recorded, outcome, sends_messages=outcome.notification != NotificationAction.NONE)
 
-    return recorded, AlertDeliveryRequest(
+
+def _request(
+    check: PlatformAlertCheckInput, recorded: PlatformAlertOutcome, outcome: Outcome, *, sends_messages: bool
+) -> AlertDeliveryRequest | None:
+    """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
+
+    A firing that opens or closes needs a delivery even when cooldown or mute held the
+    announcement, because a paging destination needs one resolve for every trigger. An alert
+    with no such destination gets no incident action, so its edges start no delivery.
+    """
+    destination_alert_id = str(check.legacy_configuration_id or check.id)
+    incident_action = decide_incident_action(
+        AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
+    )
+    if incident_action is not None and not _has_incident_destination(check.team_id, destination_alert_id):
+        incident_action = None
+    if not sends_messages and incident_action is None:
+        return None
+    return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=check.team_id,
         configuration_id=str(check.id),
         # The recorded key unchanged, so a delivery can address the row the check wrote. The
         # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
-        destination_alert_id=str(check.legacy_configuration_id or check.id),
+        destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
+        # Logs does not group, so its one row has the empty grouping key.
+        incident_actions={"": incident_action} if incident_action is not None else {},
+        sends_messages=sends_messages,
+    )
+
+
+def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
+    """Whether a destination of this alert follows the incident events. Read only on a firing edge."""
+    return bool(
+        configured_destination_template_ids(
+            team_id=team_id,
+            alert_id=destination_alert_id,
+            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+        )
     )
 
 
@@ -334,12 +408,18 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     if kind.value in EVENT_KIND_CONFIG
 }
 
+# Which event id an incident manager destination filters on for each incident action.
+_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+    spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
+}
+
 
 def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
+    condition = LogsAlertCondition.of(check)
     current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
+        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -394,7 +474,7 @@ def _held(
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
-    return recorded, None
+    return recorded, _request(check, recorded, outcome, sends_messages=False)
 
 
 def _evaluate_cohort(
@@ -417,6 +497,7 @@ def _evaluate_cohort(
             date_to=date_to,
             projection_eligible=projection_eligible,
             max_execution_time=query_seconds,
+            ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
     except Exception as error:
         # One cohort's query must not end the batch, which is how the production cohort runner
@@ -471,7 +552,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
-        broken_reason = _detect_broken_filter_config(check.source_config)
+        broken_reason = _detect_broken_filter_config(check.source_config) or _broken_condition(check)
         if broken_reason is not None:
             logger.warning(
                 "Marking a logs alert BROKEN for an invalid filter config",
@@ -548,7 +629,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
-        checkpoint = fetch_live_logs_checkpoint(team)
+        checkpoint = fetch_live_logs_checkpoint(team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS)
     except Exception as error:
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None

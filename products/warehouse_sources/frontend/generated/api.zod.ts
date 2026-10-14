@@ -116,6 +116,27 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
 })
 
+/**
+ * Manage where warehouse sources write their synced rows.
+ *
+ * A destination can be attached to several sources, or to a single table on a source.
+ * Credentials come from an integration, so one connection can be reused across syncs.
+ */
+export const externalDataDestinationsAddSourcesCreateBodySourceIdsMax = 50
+
+export const externalDataDestinationsAddSourcesCreateBodyResyncDefault = false
+
+export const ExternalDataDestinationsAddSourcesCreateBody = /* @__PURE__ */ zod.object({
+    source_ids: zod
+        .array(zod.uuid())
+        .max(externalDataDestinationsAddSourcesCreateBodySourceIdsMax)
+        .describe('IDs of up to 50 existing sources to attach to this destination.'),
+    resync: zod
+        .boolean()
+        .default(externalDataDestinationsAddSourcesCreateBodyResyncDefault)
+        .describe('Start a full resync for each enabled table newly attached.'),
+})
+
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 

@@ -581,7 +581,7 @@
                 },
                 "refresh": {
                     "default": false,
-                    "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                    "description": "Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.",
                     "type": "boolean"
                 }
             },
@@ -707,7 +707,6 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
                     "anyOf": [
                         {
                             "type": "string"
@@ -715,7 +714,8 @@
                         {
                             "type": "number"
                         }
-                    ]
+                    ],
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`."
                 },
                 "output_format": {
                     "default": "optimized",

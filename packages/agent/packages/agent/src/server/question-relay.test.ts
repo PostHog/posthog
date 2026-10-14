@@ -1061,6 +1061,7 @@ describe("Question relay", () => {
         {
           status: "failed",
           error_message: `upstream_connection_error: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+          error_type: "upstream_connection_error",
           state: { agent_version: expect.any(String) },
         },
       );

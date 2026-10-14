@@ -520,6 +520,8 @@ def sync_execute(
         # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
         # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
         ch_user = ClickHouseUser.LLM_ANALYTICS
+    elif ch_user == ClickHouseUser.DEFAULT and tags.ch_user:
+        ch_user = ClickHouseUser(tags.ch_user)
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

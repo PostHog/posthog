@@ -182,6 +182,11 @@ const surveyActionsMapping: Record<
             borderColor: 'border color',
             placeholder: 'placeholder text',
             whiteLabel: 'white label option',
+            displayIntroScreen: 'intro screen display',
+            introScreenHeader: 'intro screen header',
+            introScreenDescription: 'intro screen description',
+            introScreenDescriptionContentType: 'intro screen content type',
+            introScreenButtonText: 'intro screen button text',
             displayThankYouMessage: 'thank you message display',
             thankYouMessageHeader: 'thank you message header',
             thankYouMessageDescription: 'thank you message description',
@@ -286,7 +291,7 @@ const surveyActionsMapping: Record<
                     added a targeting flag with key <strong>{afterFlag.key}</strong>
                 </>
             )
-            if (afterFlag.filters?.groups?.length > 0) {
+            if ((afterFlag.filters?.groups?.length ?? 0) > 0) {
                 changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {

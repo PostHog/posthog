@@ -39,7 +39,7 @@ const pieByHedgehog = (trendsFilter: Record<string, unknown> = {}): ReturnType<t
         trendsFilter: { display: ChartDisplayType.ActionsPie, showValuesOnSeries: true, ...trendsFilter },
     })
 
-describe('TrendsPieChart (ActionsPie)', () => {
+describe('TrendsPieChart', () => {
     it.each([
         {
             name: 'shows raw slice values when percent stack view is off',
@@ -73,6 +73,21 @@ describe('TrendsPieChart (ActionsPie)', () => {
             { timeout: 5000 }
         )
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
+    })
+
+    it('floors a negative part at 0 in the total, matching the slices the pie draws', async () => {
+        const { container } = renderInsight({
+            query: buildTrendsQuery({
+                series: [
+                    { kind: NodeKind.EventsNode, event: 'NappedWithNegativePart', name: 'NappedWithNegativePart' },
+                ],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsPie },
+            }),
+        })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
+
+        expect(container.querySelector('[data-attr="trend-total"]')).toHaveTextContent('10')
     })
 
     describe('quill in-chart legend', () => {
