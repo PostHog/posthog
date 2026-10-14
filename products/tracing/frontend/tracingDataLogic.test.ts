@@ -208,8 +208,19 @@ describe('tracingDataLogic', () => {
 
         it('flags the capture when a service name filter is excluding spans', () => {
             logic.actions.setServiceNames(['checkout-api'])
+            // Snapshots the active filters via loadTraceSpans (the real request path), then fires the
+            // success action directly rather than waiting on its unmocked network call.
+            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
             logic.actions.loadTraceSpansSuccess([])
             expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: true })
+        })
+
+        // Filters changing mid-flight must not relabel a request made under the old filters.
+        it('captures the filters active at request time, not at response time', () => {
+            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
+            logic.actions.setServiceNames(['checkout-api'])
+            logic.actions.loadTraceSpansSuccess([])
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: false })
         })
     })
 
