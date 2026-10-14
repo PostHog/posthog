@@ -54,7 +54,6 @@ jobs:
         # nothing else. No secret is available to this job.
         permissions:
             contents: read
-            pull-requests: read
         outputs:
             targets: ${{ steps.targets.outputs.targets }}
             telemetry: ${{ steps.telemetry.outputs.properties }}
@@ -97,8 +96,6 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
                   MERGE_TARGET: ${{ github.event.repository.default_branch }}
-                  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   set -uo pipefail
 
@@ -140,19 +137,18 @@ jobs:
                   [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || unresolved "The compare API returned no merge base"
                   jq -e '.files | type == "array"' "$compare" > /dev/null || unresolved "The compare API returned no file list"
 
-                  # The compare API lists at most 300 files. The pull request files
-                  # API lists up to 3,000 of the same PR's changes when it targets
-                  # the default branch, so it takes over there. A stacked PR has no
-                  # such fallback, because its own base is the layer below it.
+                  # The compare API lists at most 300 files. Past that, the merge
+                  # base commit is fetched without blobs and diffed against the
+                  # checked-out merge commit, which needs only their trees. The pull
+                  # request files API is no substitute: it describes the PR head
+                  # against its own base, and reads whatever head the PR has now.
                   if [ "$(jq '.files | length' "$compare")" -lt 300 ]; then
                       jq -r ".files[] | $file_paths" "$compare" > "$RUNNER_TEMP/listed-files.txt"
-                  elif [ "$PR_BASE_REF" = "$MERGE_TARGET" ]; then
-                      gh_api_to "$RUNNER_TEMP/listed-files.txt" --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --jq ".[] | $file_paths" \
-                          || unresolved "The pull request files API failed"
-                      [ "$(wc -l < "$RUNNER_TEMP/listed-files.txt")" -lt 3000 ] \
-                          || unresolved "The change set reaches the 3,000-file limit of the pull request files API"
                   else
-                      unresolved "The change set reaches the 300-file limit of the compare API"
+                      git fetch --no-tags --depth=1 --filter=blob:none origin "$merge_base" \
+                          || unresolved "Could not fetch the merge base $merge_base"
+                      git diff --name-only --no-renames "$merge_base" HEAD > "$RUNNER_TEMP/listed-files.txt" \
+                          || unresolved "Could not diff against the merge base"
                   fi
 
                   sort -u "$RUNNER_TEMP/listed-files.txt" > "$RUNNER_TEMP/changed-files.txt"
