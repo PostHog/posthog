@@ -1,5 +1,5 @@
 import { setAuthProvider } from './client'
-import { fetchInboxReports } from './reports'
+import { fetchInboxPage, INBOX_PAGE_SIZE } from './reports'
 
 describe('reports api', () => {
     const urls: string[] = []
@@ -25,16 +25,15 @@ describe('reports api', () => {
         setAuthProvider(null)
     })
 
-    test('the fallback inbox keeps reports that already have a PR', async () => {
-        await fetchInboxReports()
+    test('the inbox asks for the next page of only the reports for the user', async () => {
+        await fetchInboxPage(INBOX_PAGE_SIZE)
 
         const url = new URL(urls[0] ?? '')
-        expect(url.pathname).toBe('/api/projects/2/signals/reports/')
+        expect(url.pathname).toBe('/api/projects/2/signals/reports/for_you/')
         expect(Object.fromEntries(url.searchParams)).toEqual({
-            scope: 'for_me',
-            status: 'ready,pending_input,failed',
-            sort: 'priority',
-            limit: '50',
+            include_unowned: 'false',
+            limit: String(INBOX_PAGE_SIZE),
+            offset: String(INBOX_PAGE_SIZE),
         })
     })
 })

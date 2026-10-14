@@ -27,10 +27,11 @@ function controlledRun(): { run: (id: string) => Promise<void>; started: string[
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe('prefetchPlan', () => {
+    const deep = INITIAL_PREFETCH_COUNT + 10
     test.each<[string, number, number | null, number]>([
-        ['no viewability event yet', 40, null, INITIAL_PREFETCH_COUNT],
-        ['a small visible index keeps the initial count', 40, 2, INITIAL_PREFETCH_COUNT],
-        ['a deep visible index extends past it by the lookahead', 40, 20, 20 + PREFETCH_LOOKAHEAD + 1],
+        ['no viewability event yet', deep * 2, null, INITIAL_PREFETCH_COUNT],
+        ['a small visible index keeps the initial count', deep * 2, 2, INITIAL_PREFETCH_COUNT],
+        ['a deep visible index extends past it by the lookahead', deep * 2, deep, deep + PREFETCH_LOOKAHEAD + 1],
         ['a short list is not overrun', 3, 2, 3],
     ])('prefetchWindow: %s', (_name, length, lastVisible, expectedCount) => {
         expect(prefetchWindow(ids(length), lastVisible)).toEqual(ids(length).slice(0, expectedCount))

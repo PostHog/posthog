@@ -1,7 +1,8 @@
+import { INBOX_PAGE_SIZE } from '@/api/reports'
 import type { InboxItem } from '@/model/types'
 
-/** About one phone screen of inbox rows, plus a few. */
-export const INITIAL_PREFETCH_COUNT = 10
+/** The first two pages of the list: the reports a session most likely opens. */
+export const INITIAL_PREFETCH_COUNT = 2 * INBOX_PAGE_SIZE
 export const PREFETCH_LOOKAHEAD = 5
 /** Reports in flight at once. Each report is 3 to 4 requests. */
 export const PREFETCH_CONCURRENCY = 2

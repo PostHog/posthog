@@ -34,7 +34,7 @@ products/mobile/
                           sessionThreads.ts (demo session run logs)
     features/
       tabs/               TabsLayout (Inbox and Chats tab navigator, Products link), BottomBar (rendered once)
-      inbox/              InboxScreen, InboxRow, InboxHeader, NavMenu, hooks,
+      inbox/              InboxScreen, InboxRow, InboxHeader, InboxListFooter, NavMenu, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports
       report/             ReportScreen, TopChrome, Headline, ReportMeta, Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
@@ -93,7 +93,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 
 | Need | Source | Fallback |
 | --- | --- | --- |
-| Inbox rows | `GET today/briefing/?timezone=` | `GET signals/reports/?scope=for_me&status=ready,pending_input,failed&sort=priority` when Today returns 403 or 404 |
+| Inbox rows | `GET signals/reports/for_you/?include_unowned=false&limit=20&offset=` one page at a time | A server without `next` shows the first page only |
 | Report page | `GET signals/reports/{id}/`, `/signals/`, `/artefacts/`, `GET today/reports/{id}/page/` | Signals only when the Today page is unavailable |
 | Current run | `GET tasks/{taskId}/` then `GET .../runs/{runId}/stream/` (SSE) | Polling the run on stream errors |
 | New chat | `POST tasks/` then `POST tasks/{id}/run/` (`mode: interactive`) | A refused run deletes the new task |
@@ -113,13 +113,13 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
 
 | Hook | File | Returns |
 | --- | --- | --- |
-| `useInboxItems()` | `features/inbox/hooks.ts` | `QueryState<InboxItem[]>` |
+| `useInboxItems()` | `features/inbox/hooks.ts` | `InboxQueryState`: `QueryState<InboxItem[]>` plus `hasMore`, `isLoadingMore`, `loadMoreFailed`, `loadMore` |
 | `useMarkReadAction(id)`, `useMarkReadOnOpen(id)` | `features/inbox/hooks.ts` | `AsyncAction<[]>`, `void` |
 | `usePrefetchReports(items)` | `features/inbox/usePrefetchReports.ts` | `{ onViewableItemsChanged, viewabilityConfig }` for the inbox `FlatList` |
 | `useReport(id)` | `features/report/hooks.ts` | `QueryState<ReportView>` |
 | `useReportWithLiveRun(id)` | `features/handoff/useReportWithLiveRun.ts` | `QueryState<ReportView>` with the live run merged in |
 | `useReportActions(id)` | `features/report/hooks.ts` | `ReportActions` (`handOff`, `answerDecision`, `undoDecision`, `snooze`, `setReviewers`, `setPriority`, `markRead`, `pending`) |
-| `useReportNeighbors(items, id)` | `features/report/hooks.ts` | `{ previousId, nextId }`, wrapping |
+| `useReportNeighbors(inbox, id)` | `features/report/hooks.ts` | `{ previousId, nextId }`, wrapping only when every page is loaded; loads the next page on the last loaded report |
 | `useMetricSeries(data)`, `useMetricAggregate(data)` | `features/report/metrics/hooks.ts` | `QueryState<MetricSeries>`, `QueryState<number>` from the query endpoint or fixture data |
 | `useMetricValue(metric)` | `features/report/metrics/useMetricValue.ts` | `MetricValueState`: the live value, else the snapshot with its measured time |
 | `useChartPoints(data, fallback?)` | `features/report/metrics/useChartPoints.ts` | `{ points, isLoading, isError }` for `MetricChart`, from live buckets or the snapshot series |

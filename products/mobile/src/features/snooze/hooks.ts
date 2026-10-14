@@ -1,14 +1,13 @@
-import { type QueryClient, useQueryClient } from '@tanstack/react-query'
+import { type InfiniteData, type QueryClient, useQueryClient } from '@tanstack/react-query'
 
 import { NotSignedInError } from '@/api/client'
 import {
-    type PaginatedApi,
+    type InboxPageApi,
     type ProjectScope,
     reportKeys,
     type SignalReportApi,
     snoozeReportForSignals,
 } from '@/api/reports'
-import type { BriefingApi } from '@/api/today'
 import { addSessionEndTask } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
@@ -47,13 +46,9 @@ export async function wakeSnooze(scope: ProjectScope, reportId: string): Promise
 
 function cachedTitle(queryClient: QueryClient, scope: ProjectScope, reportId: string): string {
     const report = queryClient.getQueryData<SignalReportApi>(reportKeys.detail(scope, reportId))
-    const briefings = queryClient.getQueriesData<BriefingApi>({ queryKey: reportKeys.briefingAll(scope) })
-    const fromBriefing = briefings
-        .flatMap(([, briefing]) => briefing?.items ?? [])
-        .find((item) => item.key === `report:${reportId}`)
-    const list = queryClient.getQueryData<PaginatedApi<SignalReportApi>>(reportKeys.inbox(scope))
-    const fromList = list?.results.find((candidate) => candidate.id === reportId)
-    return displayTitle(report?.title || fromBriefing?.title || fromList?.title, 'Report')
+    const list = queryClient.getQueryData<InfiniteData<InboxPageApi, number>>(reportKeys.inbox(scope))
+    const fromList = list?.pages.flatMap((page) => page.results).find((candidate) => candidate.id === reportId)
+    return displayTitle(report?.title || fromList?.title, 'Report')
 }
 
 async function snoozeUntil(

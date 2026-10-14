@@ -54,8 +54,6 @@ export interface InboxItem {
     sourceLabel: string
     accent: Accent
     updatedAt: string
-    /** Today briefing rank, lowest first. Absent in the signals fallback. */
-    rank?: number
     reason?: InboxReason
     state: InboxItemState
     needsInput: boolean

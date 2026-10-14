@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { type ReactElement, useCallback, useEffect, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
@@ -17,6 +17,7 @@ import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import type { RowAnchor } from './contextMenuPlacement'
 import { useInboxItems } from './hooks'
 import { INBOX_HEADER_BOTTOM, InboxHeader } from './InboxHeader'
+import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { NavMenu } from './NavMenu'
@@ -39,6 +40,7 @@ export function InboxScreen(): ReactElement {
     const [menuOpen, setMenuOpen] = useState(false)
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
+    const listRef = useRef<FlatList<InboxItem>>(null)
 
     // The native splash waits for this, so release it only after the loaded list has had a frame to paint.
     useEffect(() => {
@@ -53,6 +55,11 @@ export function InboxScreen(): ReactElement {
     const openRowMenu = useCallback((item: InboxItem, anchor: RowAnchor) => setRowMenu({ item, anchor }), [])
     const refresh = (): void => {
         void query.refetch()
+    }
+    // A refresh keeps only the first page, so the header button also brings the list back to the top.
+    const refreshFromHeader = (): void => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true })
+        refresh()
     }
     const closeMenu = (): void => {
         if (signOut.pending) {
@@ -103,10 +110,20 @@ export function InboxScreen(): ReactElement {
     return (
         <View style={styles.screen} testID="inbox-screen">
             <FlatList
+                ref={listRef}
                 data={query.data ?? []}
                 keyExtractor={keyFor}
                 renderItem={renderItem}
                 ListEmptyComponent={empty}
+                ListFooterComponent={
+                    <InboxListFooter
+                        isLoadingMore={query.isLoadingMore}
+                        loadMoreFailed={query.loadMoreFailed}
+                        onRetry={query.retryLoadMore}
+                    />
+                }
+                onEndReached={query.loadMore}
+                onEndReachedThreshold={0.5}
                 onViewableItemsChanged={prefetch.onViewableItemsChanged}
                 viewabilityConfig={prefetch.viewabilityConfig}
                 contentContainerStyle={[
@@ -122,7 +139,11 @@ export function InboxScreen(): ReactElement {
                     />
                 }
             />
-            <InboxHeader onRefresh={refresh} refreshing={query.isRefetching} onOpenMenu={() => setMenuOpen(true)} />
+            <InboxHeader
+                onRefresh={refreshFromHeader}
+                refreshing={query.isRefetching}
+                onOpenMenu={() => setMenuOpen(true)}
+            />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}

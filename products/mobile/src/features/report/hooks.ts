@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { NotSignedInError } from '@/api/client'
 import { reportKeys, retryUnlessMissing } from '@/api/reports'
@@ -14,7 +14,7 @@ import type { InboxItem, QueryState, ReportActions, ReportView } from '@/model/t
 
 import { useHandoffActions } from '../handoff/hooks'
 import { buildReportImplementationPrompt } from '../handoff/prompt'
-import { useMarkReadAction } from '../inbox/hooks'
+import { type InboxQueryState, useMarkReadAction } from '../inbox/hooks'
 import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
@@ -143,19 +143,29 @@ export interface ReportNeighbors {
     nextId?: string
 }
 
-export function reportNeighbors(items: InboxItem[] | undefined, reportId: string): ReportNeighbors {
+// While the server has more pages, the loaded rows are not the whole list, so Prev and Next stop at its ends.
+export function reportNeighbors(items: InboxItem[] | undefined, reportId: string, hasMore = false): ReportNeighbors {
     if (!items || items.length < 2) {
         return {}
     }
+    const last = items.length - 1
     const index = items.findIndex((item) => item.reportId === reportId)
     if (index === -1) {
-        return { previousId: items[items.length - 1]?.reportId, nextId: items[0]?.reportId }
+        return { previousId: hasMore ? undefined : items[last]?.reportId, nextId: items[0]?.reportId }
     }
-    const previous = items[(index - 1 + items.length) % items.length]
-    const next = items[(index + 1) % items.length]
+    const previous = index > 0 ? items[index - 1] : hasMore ? undefined : items[last]
+    const next = index < last ? items[index + 1] : hasMore ? undefined : items[0]
     return { previousId: previous?.reportId, nextId: next?.reportId }
 }
 
-export function useReportNeighbors(items: InboxItem[] | undefined, reportId: string): ReportNeighbors {
-    return useMemo(() => reportNeighbors(items, reportId), [items, reportId])
+/** Prev and Next in inbox order. On the last loaded report, it loads the next page so Next can go on. */
+export function useReportNeighbors(inbox: InboxQueryState, reportId: string): ReportNeighbors {
+    const { data, hasMore, loadMore } = inbox
+    const atLoadedEnd = hasMore && data !== undefined && data[data.length - 1]?.reportId === reportId
+    useEffect(() => {
+        if (atLoadedEnd) {
+            loadMore()
+        }
+    }, [atLoadedEnd, loadMore])
+    return useMemo(() => reportNeighbors(data, reportId, hasMore), [data, reportId, hasMore])
 }

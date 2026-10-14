@@ -343,7 +343,7 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
     }
 }
 
-function itemFor(briefing: DemoBriefing, index: number, anchor: Date): InboxItem {
+function itemFor(briefing: DemoBriefing, anchor: Date): InboxItem {
     const hasAgent = briefing.kind === 'decision' || briefing.kind === 'pr_ready'
     const task = taskFor(briefing)
     return {
@@ -354,7 +354,6 @@ function itemFor(briefing: DemoBriefing, index: number, anchor: Date): InboxItem
         sourceLabel: briefing.sourceLabel,
         accent: briefing.accent,
         updatedAt: agoToDate(briefing, anchor).toISOString(),
-        rank: index + 1,
         reason: REASON_BY_KIND[briefing.kind],
         state: briefing.kind === 'done' ? 'done' : 'open',
         needsInput: briefing.kind === 'decision',
@@ -365,9 +364,9 @@ function itemFor(briefing: DemoBriefing, index: number, anchor: Date): InboxItem
 }
 
 export function buildDemoFixtures(anchor: Date): DemoFixtures {
-    const list = DEMO_BRIEFINGS.map((briefing, index) => ({
+    const list = DEMO_BRIEFINGS.map((briefing) => ({
         briefing,
-        item: itemFor(briefing, index, anchor),
+        item: itemFor(briefing, anchor),
         report: reportFor(briefing, anchor),
     }))
     return { anchor, list, byId: Object.fromEntries(list.map((fixture) => [fixture.report.id, fixture])) }

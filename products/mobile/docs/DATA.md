@@ -11,9 +11,8 @@ Each interface names the serializer it mirrors.
 
 | Use | Request | Serializer | Scope |
 | --- | --- | --- | --- |
-| Inbox list | `GET today/briefing/?timezone=<IANA>` | `BriefingSerializer` (today) | `today:read` |
-| Inbox fallback | `GET signals/reports/?scope=for_me&status=ready,pending_input,failed&sort=priority&limit=50` | `SignalReportListSerializer` | `task:read` |
-| Read states of the list | `POST signals/reports/read_state/` `{report_ids}` (100 ids per call) | `ReportReadStateResponseSerializer` | `task:read` |
+| Inbox list | `GET signals/reports/for_you/?include_unowned=false&limit=20&offset=<n>` | `SignalReportsForYouResponseSerializer` | `task:read` |
+| Read states of the list | `POST signals/reports/read_state/` `{report_ids}` (one call per page) | `ReportReadStateResponseSerializer` | `task:read` |
 | Report | `GET signals/reports/{id}/` | `SignalReportSerializer` | `task:read` |
 | Work log | `GET signals/reports/{id}/artefacts/?limit=100` (newest first) | `SignalReportArtefactSerializer` | `task:read` |
 | Signals | `GET signals/reports/{id}/signals/` | `ReportSignalsResponseSerializer` | `task:read` |
@@ -30,43 +29,35 @@ Each interface names the serializer it mirrors.
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
 
-## The Today fallback
+## The inbox list
 
-`useInboxItems()` asks for the briefing first.
-It uses the signals reports list instead when:
+`useInboxItems()` reads `signals/reports/for_you/` one page of 20 reports at a time, with `useInfiniteQuery`.
+The server ranks the reports the way the Today briefing does (`_briefing_pick` in `products/signals/backend/briefing_reports.py`): P0 first, then by the ranking model's chance that the report ends in a merged PR or that someone acts on it, then by priority, then newest. It leaves out the reports the model expects to be dismissed as wrong.
+`include_unowned=false` leaves out the P0 reports that nobody owns, so the list holds only the open, actionable reports that wait for the user's input, that the user claimed, or that name the user as a reviewer.
+The server ranks at most 500 of them.
 
-- the briefing request fails before any briefing loaded, including a 404 (flag off, no AI data processing approval, no AI credits) or a 403 (the token lacks `today:read`), which are not retried;
-- the briefing has no report items yet and is not `ready` (`collecting` on the first open of the day, or `failed`).
+The list asks for the next page when the user scrolls within half a screen of its end, and while the response has a `next` link.
+A server from before `for_you/` paged sends no `next`, so the list then shows its first page only.
+Each page ranks the reports again, so a report that moved can come back on a later page; `reportsFromPages()` keeps its first place.
+A next page that fails shows "Couldn't load more reports." and "Try again" under the list.
+`mobile_inbox_page_requested` carries the page number of each next-page request.
 
-The list holds the reports that name the user as a reviewer and are ready, waiting for input or failed, highest priority first.
-It does not use `view=needs_decision`, because that view drops a report once it has an implementation PR, and the reviewer of that PR still needs the report.
-`scope=for_me` matches the user in the report's current reviewer set, so a report the user claimed without being a reviewer is not in the list.
+Read states are fetched once per page, so a new page does not ask again for the pages above it.
 
-While the briefing is `collecting` or `writing`, the hook polls it every 5 seconds for at most 132 polls, like the web.
-A failed poll keeps the briefing that is already on screen.
-The Today page on the report screen follows the same rule: a 404 or 403 means no page, and the evidence comes from the signals.
-
-Pull to refresh refetches the briefing (or the fallback list) and the read states.
-It never calls `today/briefing/refresh/`, which writes a new briefing with the language model.
+Pull to refresh, and the refresh button, keep only the first page and refetch it and the read states.
+Refetching every loaded page would rank the whole list once per page.
+The refresh button also scrolls the list back to the top.
+A change made on the report screen (snooze, reviewers, priority, hand-off) refetches every loaded page in the background.
 
 ## Inbox rows
 
-`inboxFromBriefing(briefing)`:
-
-- keeps items in the `report` group with a `report:<uuid>` key and a live `report`; dashboards, tickets and deleted reports are dropped;
-- sorts by `rank`; `id` is the item key, `reportId` the uuid;
-- `sourceProduct` is `source_product` (unknown values become `other`), else the Today `source` (`support` is `conversations`, `self_driving` is `signals_scout`);
-- `state`, `reason` and `rank` come from the item; `updatedAt` from `report.updated_at`;
-- `needsInput` is `reason === 'waiting_for_you'`, which the server gives for `pending_input` reports that name the user;
-- no `agent`: the briefing does not say who claimed a report.
-
-`inboxFromReports(list)`:
+`inboxFromReports(reports)`:
 
 - `needsInput` is `status === 'pending_input'`; `agent` is the PostHog badge when `assignee.kind` is `task` or `agent`;
 - `state` is `done` for resolved, `dismissed` for suppressed or deleted, else `open`;
 - `sourceProduct` is the first source that is not `signals_scout` or `signals_check`, else the first.
 
-Accent for both: `resolved` when the report is resolved, suppressed or deleted (or the Today item is done or dismissed); `alert` when any source is an error source or any source is not feedback; `opportunity` when every source is feedback (support tickets, feedback boards, app reviews) or the report is scout-only.
+Accent: `resolved` when the report is resolved, suppressed or deleted; `alert` when any source is an error source or any source is not feedback; `opportunity` when every source is feedback (support tickets, feedback boards, app reviews) or the report is scout-only.
 
 The hook then sets `read` from the read-state map and applies local snoozes (below).
 
@@ -78,7 +69,8 @@ The task fills in when it arrives.
 A failed background refetch keeps the cached report on screen.
 
 **Prefetch and refresh.**
-The inbox prefetches the report detail, work log and Today page of the first 10 rows, and of the rows that scroll into view plus 5 ahead.
+The inbox prefetches the report detail, work log and Today page of the first 40 rows (the first two pages, as they load), and of the rows that scroll into view plus 5 ahead.
+These are the requests the report screen waits for before its first render; the task and the metric queries load after it opens.
 It also prefetches the signals of a report when the Today page answers 404 or 403, because the signals are the evidence then.
 It works on two reports at a time and skips done and dismissed rows.
 It uses a 5 minute stale time, so a refresh or a scroll does not fetch a report again within 5 minutes of its prefetch.
@@ -179,7 +171,7 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 
 Two kinds, both remembered in `useSnoozeStore` (zustand, persisted in AsyncStorage as `posthog-mobile-snoozes`), keyed by `{host}|{project id}|{report id}`:
 
-- **Until more signals arrive** posts `state: potential` with `snooze_for: 5`. The server hides the report from the signals list until its `signal_count` reaches `signals_at_run`. The Today briefing keeps listing it, so the device stores the threshold and labels the row "Snoozed until more signals" until the row's signal count reaches it, or for at most 14 days.
+- **Until more signals arrive** posts `state: potential` with `snooze_for: 5`. The server hides the report from the inbox list until its `signal_count` reaches `signals_at_run`. The device stores the threshold and labels the row "Snoozed until more signals" until the list refetches without the report, the row's signal count reaches the threshold, or 14 days pass.
 - **Time snoozes** stay on the device. The row reads "Snoozed until 3:31 PM", "Snoozed until tomorrow" or "Snoozed until Oct 16", computed against the current time, and the entry ends by itself at its time. A local notification is scheduled for that time (`expo-notifications`, title the report title, body "Snoozed report is back", data `{type: 'report', report_id, project_id}`). The reminder is scheduled only when notifications are already allowed; the app does not ask for permission here, and without it the snooze still works. Web schedules no reminder.
 
 Snoozed rows stay in the list, muted, in their place. Rows that are done or dismissed keep their state.
@@ -190,4 +182,3 @@ Limits:
 - Time snoozes do not sync. Another device or the web app still shows the report as open.
 - Reinstalling the app or clearing its storage forgets every snooze. Scheduled reminders survive only as long as the OS keeps them.
 - Signing out, or a session that expires, clears every snooze on the device and cancels the reminders.
-- A signal snooze made on the web is not labeled in the app's Today list, because the briefing does not carry report status.

@@ -153,9 +153,6 @@ export function scopeKey(scope: ProjectScope | null): ScopeKey {
 /** Query keys. Every key carries the host and project so a project switch never shows stale data. */
 export const reportKeys = {
     all: (scope: ProjectScope | null) => ['signals', ...scopeKey(scope)] as const,
-    briefingAll: (scope: ProjectScope | null) => ['today', ...scopeKey(scope), 'briefing'] as const,
-    briefing: (scope: ProjectScope | null, timezone: string | null) =>
-        [...reportKeys.briefingAll(scope), timezone] as const,
     inbox: (scope: ProjectScope | null) => [...reportKeys.all(scope), 'inbox'] as const,
     readStates: (scope: ProjectScope | null, ids: readonly string[]) =>
         [...reportKeys.all(scope), 'read_states', ids.join(',')] as const,
@@ -171,13 +168,21 @@ export const reportKeys = {
         [...reportKeys.all(scope), 'available_reviewers', query] as const,
 }
 
-export const INBOX_REPORT_LIMIT = 50
+/** `SignalReportsForYouResponseSerializer`. A server from before `for_you/` paged sends no `next`. */
+export interface InboxPageApi {
+    results: SignalReportApi[]
+    count: number
+    next?: string | null
+}
 
-// No `view=needs_decision`: that view drops a report once it has an implementation PR, and the reviewer of that PR
-// still needs the report in the inbox.
-export function fetchInboxReports(signal?: AbortSignal): Promise<PaginatedApi<SignalReportApi>> {
-    return apiJson<PaginatedApi<SignalReportApi>>(projectPath('signals/reports/'), {
-        query: { scope: 'for_me', status: 'ready,pending_input,failed', sort: 'priority', limit: INBOX_REPORT_LIMIT },
+/** The most reports `for_you/` returns in one call (`MAX_FOR_YOU_REPORTS`). */
+export const INBOX_PAGE_SIZE = 20
+
+/** One page of the reports for the user, in the order the Today briefing ranks them. */
+export function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
+    // Without `include_unowned=false` the P0 reports nobody owns would lead the list, and they belong to the project.
+    return apiJson<InboxPageApi>(projectPath('signals/reports/for_you/'), {
+        query: { include_unowned: false, limit: INBOX_PAGE_SIZE, offset },
         signal,
     })
 }

@@ -4,6 +4,7 @@ export type AnalyticsEvent =
     | 'mobile_inbox_opened'
     | 'mobile_inbox_report_menu_opened'
     | 'mobile_inbox_report_menu_action'
+    | 'mobile_inbox_page_requested'
     | 'mobile_report_opened'
     | 'mobile_report_chart_scrubbed'
     | 'mobile_report_insight_opened'

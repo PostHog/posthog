@@ -67,10 +67,11 @@ Known gaps and behavior that stays on the device.
 
 ## Inbox and report data
 
-- **`today:read` scope.** The briefing and the Today page need `today:read`. Without it in the OAuth request, both return 403 and the app always uses the reports list and signal evidence.
+- **`today:read` scope.** The Today page needs `today:read`. Without it in the OAuth request, the page returns 403 and the report screen always uses signal evidence.
+- **Inbox length.** The server ranks at most 500 open reports for a user, so the inbox does not list more than that.
+- **Inbox paging.** Each page ranks the list again. A report that moves down while the user scrolls can be skipped until the next refresh.
 - **Time snoozes do not sync** to other devices or the web, and are lost when the app's storage is cleared.
-- **Web-made signal snoozes** are not labeled in the Today list, because briefing items carry no report status.
-- **Briefing rows** carry no agent badge and no progress label.
+- **Inbox rows** carry no progress label.
 - **Evidence** maps error, feedback and recording signals only. Scout findings, GitHub and analytics signals add no evidence block.
 - **Work log** shows one page of 100 artefacts. Older entries of a very long log are not shown.
 - **PR details.** The PR view has the URL, number, state and review decision. Title, diff size, checks and the agent's note need `pr_checks/` or the run output, which the hand-off feature may add.

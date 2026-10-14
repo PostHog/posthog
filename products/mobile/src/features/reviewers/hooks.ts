@@ -145,7 +145,6 @@ export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]>
         await putReportReviewers(reportId, content)
         track('mobile_reviewers_changed', { count: uuids.length })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
-        void queryClient.invalidateQueries({ queryKey: reportKeys.briefingAll(scope) })
         // The sheet closes when this resolves, so wait for the work log that names the new reviewers.
         await queryClient.invalidateQueries({ queryKey: reportKeys.artefacts(scope, reportId) })
     })

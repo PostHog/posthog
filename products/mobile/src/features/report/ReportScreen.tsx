@@ -83,7 +83,7 @@ function ReportContent({ reportId }: ReportScreenProps): ReactElement {
     const viewer = useViewer()
     const query = useReportWithLiveRun(reportId)
     const inbox = useInboxItems()
-    const neighbors = useReportNeighbors(inbox.data, reportId)
+    const neighbors = useReportNeighbors(inbox, reportId)
     const actions = useReportActions(reportId)
     const answer = useDecisionAnswer(reportId)
     const notice = useHandoffNotice(reportId)

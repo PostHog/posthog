@@ -21,12 +21,23 @@ export interface ReportPrefetchListProps {
     viewabilityConfig: ViewabilityConfig
 }
 
+// A failed query is always stale, so without this check every scroll would ask again for the Today page of each report
+// in the window when the project has no Today.
+function knownMissing(queryClient: QueryClient, scope: ProjectScope, reportId: string): boolean {
+    const page = queryClient.getQueryState(reportPageQuery(scope, reportId).queryKey)
+    return (
+        page?.status === 'error' && isMissingFeature(page.error) && Date.now() - page.errorUpdatedAt < PREFETCH_STALE_MS
+    )
+}
+
 async function prefetchReport(queryClient: QueryClient, scope: ProjectScope, reportId: string): Promise<void> {
     const options = { staleTime: PREFETCH_STALE_MS }
     await Promise.all([
         queryClient.prefetchQuery({ ...reportDetailQuery(scope, reportId), ...options }),
         queryClient.prefetchQuery({ ...reportArtefactsQuery(scope, reportId), ...options }),
-        queryClient.prefetchQuery({ ...reportPageQuery(scope, reportId), ...options }),
+        knownMissing(queryClient, scope, reportId)
+            ? Promise.resolve()
+            : queryClient.prefetchQuery({ ...reportPageQuery(scope, reportId), ...options }),
     ])
     // The screen shows the signals as the evidence only when the report has no Today page.
     const page = queryClient.getQueryState(reportPageQuery(scope, reportId).queryKey)

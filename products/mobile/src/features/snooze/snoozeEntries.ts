@@ -3,7 +3,7 @@ import type { InboxItem } from '@/model/types'
 import { snoozeLabels } from './snoozeTimes'
 
 // A `signals` snooze is server state (`state: potential`): the server hides the report until its `signal_count`
-// reaches `threshold`, but the Today briefing keeps showing it, so the device remembers it to label the row.
+// reaches `threshold`. The device remembers it to label the row until the inbox list refetches without the report.
 export type SnoozeEntry =
     | { kind: 'until'; until: string; at: string; notificationId?: string }
     | { kind: 'signals'; threshold: number | null; at: string }

@@ -1,50 +1,18 @@
-import type { BriefingApi, BriefingItemApi } from '@/api/today'
-
-import { inboxFromBriefing, inboxFromReports } from './inbox'
+import { inboxFromReports, reportsFromPages } from './inbox'
 import { reportFixture } from './testFixtures'
 
-function briefingItem(overrides: Partial<BriefingItemApi>): BriefingItemApi {
-    return {
-        key: 'report:00000000-0000-0000-0000-000000000001',
-        group: 'report',
-        source: 'self_driving',
-        reason: 'suggested_reviewer',
-        title: 'Exports fail for guests',
-        rank: 1,
-        state: 'open',
-        source_product: 'error_tracking',
-        report: { priority: 'P1', pull_request_state: null, signal_count: 4, updated_at: '2026-10-09T09:00:00Z' },
-        ...overrides,
-    }
-}
-
 describe('inbox adapters', () => {
-    test('keeps only live report items from the briefing, in rank order', () => {
-        const briefing: BriefingApi = {
-            id: 'b1',
-            status: 'ready',
-            items: [
-                briefingItem({ key: 'report:second', rank: 2, reason: 'waiting_for_you', source_product: 'zendesk' }),
-                briefingItem({ key: 'dashboard:7', group: 'dashboard', rank: 3, source_product: null, report: null }),
-                briefingItem({ key: 'report:deleted', rank: 4, report: null }),
-                briefingItem({ key: 'report:first', rank: 1, state: 'done' }),
-            ],
-        }
-        expect(inboxFromBriefing(briefing)).toMatchObject([
-            { id: 'report:first', reportId: 'first', state: 'done', accent: 'resolved', needsInput: false, rank: 1 },
-            {
-                id: 'report:second',
-                reportId: 'second',
-                sourceProduct: 'zendesk',
-                sourceLabel: 'Zendesk',
-                accent: 'opportunity',
-                needsInput: true,
-                reason: 'waiting_for_you',
-            },
-        ])
+    test('keeps the first place of a report that a later page ranks again', () => {
+        const page = (ids: string[], next: string | null) => ({
+            results: ids.map((id) => reportFixture({ id })),
+            count: 3,
+            next,
+        })
+        const reports = reportsFromPages([page(['a', 'b'], 'next'), page(['b', 'c'], null)])
+        expect(reports.map((report) => report.id)).toEqual(['a', 'b', 'c'])
     })
 
-    test('maps the fallback list: input needed, agent claims and closed reports', () => {
+    test('maps reports: input needed, agent claims and closed reports', () => {
         const items = inboxFromReports([
             reportFixture({ id: 'a', status: 'pending_input', source_products: ['signals_scout', 'session_replay'] }),
             reportFixture({
