@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -97,9 +97,10 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
-    const { aiEvents, hasMoreAiEvents, aiEventsLimit, aiEventsResponseLoading } = useValues(
+    const { aiEvents, hasMoreAiEvents, aiEventsLimit, aiEventsResponseLoading, aiEventsLoadFailed } = useValues(
         traceAiEventsLogic({ traceId })
     )
+    const { loadAiEvents } = useActions(traceAiEventsLogic({ traceId }))
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
@@ -193,13 +194,22 @@ export function TraceDrawer({
         >
             <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
             {/* A failed refetch only replaces the waterfall when there are no spans to fall back on. */}
-            {traceId && !loading && loadFailed && spans.length === 0 ? (
-                <TraceLoadErrorNotice onRetry={onRetry} />
+            {traceId && !loading && (loadFailed || aiEventsLoadFailed) && spans.length === 0 ? (
+                <TraceLoadErrorNotice
+                    onRetry={() => {
+                        if (loadFailed) {
+                            onRetry?.()
+                        }
+                        if (aiEventsLoadFailed) {
+                            loadAiEvents()
+                        }
+                    }}
+                />
             ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">
-                    {loading && <SpinnerOverlay />}
+                    {(loading || (aiEventsResponseLoading && spans.length === 0)) && <SpinnerOverlay />}
                     <div className="flex-1 min-w-0">
                         {loadFailed && (
                             <LemonBanner

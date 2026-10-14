@@ -108,4 +108,20 @@ describe('TraceDrawer', () => {
 
         expect(screen.queryByText('Trace unavailable')).toBeNull()
     })
+
+    it('shows a retryable error when the AI events fetch fails and there are no spans', async () => {
+        mockAiEventsRetrieve.mockRejectedValueOnce(new Error('boom'))
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_AI_EVENTS]: true })
+        const onRetry = jest.fn()
+
+        renderDrawer({ loading: false, onRetry })
+
+        expect(await screen.findByText("Couldn't load trace")).toBeInTheDocument()
+        expect(screen.queryByText('Trace unavailable')).toBeNull()
+
+        screen.getByText('Try again').click()
+        expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(2)
+        expect(onRetry).not.toHaveBeenCalled()
+    })
 })
