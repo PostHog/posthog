@@ -102,7 +102,6 @@ export function TraceDialog(): JSX.Element | null {
                             No spans found for this trace. Open it in Tracing to search other time ranges.
                         </div>
                     ) : (
-                        // Side by side where both panes fit, stacked where the dialog is narrower.
                         <div className="@container/trace-dialog flex flex-1 min-h-0">
                             <div className="flex flex-1 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
                                 <div className="flex-1 min-w-0 min-h-0">
