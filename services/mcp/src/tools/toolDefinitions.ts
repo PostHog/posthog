@@ -118,18 +118,20 @@ export function getToolDefinitions(): ToolDefinitions {
 
 let _advertisedOAuthScopes: readonly string[] | undefined = undefined
 
+export const EVENT_SUBSCRIPTION_SCOPES = ['mcp_event_subscription:write', 'query:read'] as const
+
 /**
  * Scopes published as `scopes_supported` in the MCP protected-resource
- * metadata: every grantable scope the tool catalog requires, plus identity
+ * metadata: every grantable scope the tool catalog or event methods require, plus identity
  * scopes (no `:`) that ride every authorize. Narrower than
  * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
- * clients are not asked to consent to write access no tool exercises. Filtering
+ * clients consent only to scopes a tool or event method exercises. Filtering
  * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
  * scope is rejected at `/authorize`.
  */
 export function getAdvertisedOAuthScopes(): readonly string[] {
     if (!_advertisedOAuthScopes) {
-        const required = new Set<string>()
+        const required = new Set<string>(EVENT_SUBSCRIPTION_SCOPES)
         for (const definition of Object.values(getToolDefinitions())) {
             for (const scope of definition.required_scopes ?? []) {
                 required.add(scope)

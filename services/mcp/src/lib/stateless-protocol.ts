@@ -45,6 +45,8 @@ export const MCP_NAME_HEADER = 'Mcp-Name'
 // Methods where `Mcp-Name` is required, and the params field it must mirror.
 const NAME_HEADER_PARAM: Record<string, 'name' | 'uri'> = {
     'tools/call': 'name',
+    'events/subscribe': 'name',
+    'events/unsubscribe': 'name',
     'prompts/get': 'name',
     'resources/read': 'uri',
 }

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { McpEventSubscriptionsPreviewBody } from '@/generated/cdp/api'
+
 import {
     AiObservabilityOfflineExperimentsUploadCreateBody,
     aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax,
@@ -1280,3 +1282,5 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+export const McpEventFiltersSchema = McpEventSubscriptionsPreviewBody().shape.filters.strict()
