@@ -118,7 +118,7 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(environment: W
     @activity.defn(name="plan_platform_insight_batch_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[str]:
         plans.append(inputs.exclude)
-        if len(evaluated) < len(inputs.exclude):
+        if set(inputs.exclude) - set(evaluated):
             return []
         return [configuration_id for configuration_id in due if configuration_id not in inputs.exclude][:1]
 

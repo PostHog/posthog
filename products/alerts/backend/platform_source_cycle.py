@@ -125,11 +125,13 @@ def plan_insight_batch(
     The checks left out keep their due time, so a later tick finds them again. `expires_at` comes
     from the workflow rather than the clock, so a retried attempt gets back the same admitted ids.
 
-    `exclude` names the checks the workflow already started. A finished check stays due until the
-    workflow records its outcome, so without it a later round would admit the same check again.
+    `exclude` names the checks the workflow already started. A running check holds its slot under
+    the same expiry, and a finished one stays due until the workflow records its outcome. Without
+    `exclude`, a later round would admit either one again.
     """
+    started = set(exclude)
     checks = [
-        check for check in due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff) if str(check.id) not in exclude
+        check for check in due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff) if str(check.id) not in started
     ]
     if not checks:
         return ()
@@ -139,7 +141,8 @@ def plan_insight_batch(
         expires_at=expires_at,
         key=INFLIGHT_KEY,
     )
-    if len(admitted) < len(checks):
+    # Only on a batch's first round, because later rounds of a full pool would repeat it every few seconds.
+    if len(admitted) < len(checks) and not exclude:
         logger.info(
             "Deferred platform insight checks over the pool limit",
             team_id=team_id,

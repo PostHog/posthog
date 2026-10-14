@@ -195,7 +195,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.check_alert_for_insight", return_value=AlertEvaluationResult(value=1.0, breaches=[])):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
-        # The finished check stays due until its outcome is recorded, so a later round must skip it.
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at, exclude=(admitted,)) == tuple(
             {str(first.id), str(second.id)} - {admitted}
         )

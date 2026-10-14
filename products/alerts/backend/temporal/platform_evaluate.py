@@ -182,22 +182,14 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         started: dict[str, asyncio.Task[SourceBatchEvaluation | None]] = {}
         deadline = workflow.now() + ADMISSION_RUN_BUDGET
         while True:
-            admitted = await self._plan(inputs, expires_at, exclude=tuple(started))
-            for configuration_id in admitted:
-                if configuration_id not in started:
-                    started[configuration_id] = asyncio.create_task(self._check(inputs, configuration_id, expires_at))
+            for configuration_id in await self._plan(inputs, expires_at, exclude=tuple(started)):
+                started[configuration_id] = asyncio.create_task(self._check(inputs, configuration_id, expires_at))
             running = [task for task in started.values() if not task.done()]
-            if not running and not admitted:
+            if not running or workflow.now() >= deadline:
                 break
-            if workflow.now() >= deadline:
-                break
-            # A finished check frees its slot, so the next round can admit another.
-            try:
-                await workflow.wait_condition(
-                    lambda running=running: any(task.done() for task in running), timeout=ADMISSION_POLL_INTERVAL
-                )
-            except TimeoutError:
-                pass
+            await asyncio.wait(
+                running, timeout=ADMISSION_POLL_INTERVAL.total_seconds(), return_when=asyncio.FIRST_COMPLETED
+            )
         return await asyncio.gather(*started.values(), return_exceptions=True)
 
 
