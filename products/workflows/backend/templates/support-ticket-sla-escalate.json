@@ -456,7 +456,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":rotating_light: Ticket *#{variables.ticket.number}* is over a day past its SLA\nIt has been reassigned for escalation. Previous assignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}"
+                                    "text": ":rotating_light: Ticket *#{variables.ticket.number}* is over a day past its SLA\nReassigned from {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'} to *{variables.assignee_after.user.email ?? variables.assignee_after.role.name ?? 'unassigned'}*"
                                 }
                             },
                             {
@@ -476,7 +476,7 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "Ticket #{variables.ticket.number} is over a day past its SLA",
+                        "value": "Ticket #{variables.ticket.number} is over a day past its SLA and has been reassigned to {variables.assignee_after.user.email ?? variables.assignee_after.role.name ?? 'unassigned'}",
                         "templating": "hog"
                     }
                 }

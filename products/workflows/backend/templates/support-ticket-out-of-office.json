@@ -290,7 +290,7 @@
                         "templating": "hog"
                     },
                     "message": {
-                        "value": "Reassigned automatically because {variables.ticket.assignee.user.email} is out of office.",
+                        "value": "Reassigned automatically from {variables.ticket.assignee.user.email} to {variables.assignee_after.user.email ?? variables.assignee_after.role.name ?? 'unassigned'}, because {variables.ticket.assignee.user.email} is out of office.",
                         "templating": "hog"
                     },
                     "is_private": {
