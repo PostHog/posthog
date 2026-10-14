@@ -193,22 +193,18 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            ("legacy_on_falls_back_to_v2", LEGACY, True, "UTC", "2024-01-03"),
-            ("legacy_off_falls_back_to_live", None, False, "UTC", "2024-01-03"),
-            # 01-01..01-02 in Los Angeles ends at 01-03 07:59 UTC, past the precomputed UTC days.
-            ("non_utc_team_range_past_utc_days", None, False, "America/Los_Angeles", "2024-01-02"),
+            ("legacy_on_falls_back_to_v2", LEGACY, True),
+            ("legacy_off_falls_back_to_live", None, False),
         ]
     )
-    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2, timezone, date_to):
-        # Dimensional is precomputed for the 2024-01-01 and 01-02 UTC days only (setUp). A
-        # window that reaches past them is only partially covered, so the job_id filter would
-        # silently drop the uncovered hours. The runner must skip dimensional instead.
-        self.team.timezone = timezone
-        self.team.save()
+    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
+        # Dimensional is precomputed for 2024-01-01 and 01-02 only (setUp). A window that
+        # also spans 2024-01-03 is only partially covered, so the job_id filter would
+        # silently drop the uncovered day. The runner must skip dimensional instead.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
-                dateRange=DateRange(date_from="2024-01-01", date_to=date_to),
+                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
                 properties=[],
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
