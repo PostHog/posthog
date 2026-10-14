@@ -338,6 +338,7 @@ def compute_scanner_budgets(
     period: BillingPeriod | None = None,
     *,
     include_free_credits: bool = True,
+    org_state: QuotaState | None = None,
 ) -> dict[UUID, ScannerBudget]:
     """Per-scanner budgets for the org's current billing period, with an entry for every requested scanner.
 
@@ -406,7 +407,12 @@ def compute_scanner_budgets(
             credits_reserved=reserved,
         )
     if free_only_ids and include_free_credits:
-        free_budget = _free_credits_budget(organization_id, period)
+        # A caller that already read the org's spend passes it, so the ledger is not read twice.
+        free_budget = (
+            _free_credits_budget_from_state(org_state)
+            if org_state is not None
+            else _free_credits_budget(organization_id, period)
+        )
         for scanner_id in free_only_ids:
             own = result[scanner_id]
             free = replace(free_budget, credits_per_observation=own.credits_per_observation)
@@ -418,11 +424,19 @@ def compute_scanner_budgets(
 
 
 def compute_scanner_budget(
-    scanner: ReplayScanner, period: BillingPeriod | None = None, *, include_free_credits: bool = True
+    scanner: ReplayScanner,
+    period: BillingPeriod | None = None,
+    *,
+    include_free_credits: bool = True,
+    org_state: QuotaState | None = None,
 ) -> ScannerBudget:
     """This scanner's own credit allowance and draw for the org's current billing period."""
     budgets = compute_scanner_budgets(
-        scanner.team.organization_id, [scanner.id], period, include_free_credits=include_free_credits
+        scanner.team.organization_id,
+        [scanner.id],
+        period,
+        include_free_credits=include_free_credits,
+        org_state=org_state,
     )
     return budgets[scanner.id]
 
