@@ -1,6 +1,7 @@
 import os
 import math
 import time
+import random
 import statistics
 from collections.abc import Sequence
 from typing import cast
@@ -13,8 +14,11 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 
 from posthog import redis
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
+from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.bootstrap import bootstrap_openfga
 from products.authz.backend.client import get_openfga_client
 from products.authz.backend.facade import api
@@ -22,6 +26,7 @@ from products.authz.backend.facade.contracts import CheckRequest, Resource, Subj
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.authz.backend.logic import sync_state
 from products.authz.backend.logic.rollout import RolloutMode
+from products.dashboards.backend.models.dashboard import Dashboard
 
 ROLLOUT_MODES: tuple[RolloutMode, ...] = ("v1", "v1-shadow-log", "v2")
 
@@ -102,6 +107,10 @@ class Command(BaseCommand):
                 organization: Organization | None = None
                 try:
                     organization = Organization.objects.create(name=f"Authorization benchmark {uuid4()}")
+                    organization.available_product_features = [
+                        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+                    ]
+                    organization.save()
                     team = Team.objects.create(organization=organization, name="Authorization benchmark")
                     user = User.objects.create_and_join(
                         organization,
@@ -109,18 +118,73 @@ class Command(BaseCommand):
                         password=None,
                         level=OrganizationMembership.Level.OWNER,
                     )
+                    benchmark_users = [
+                        User.objects.create_and_join(
+                            organization,
+                            f"authz-benchmark-{uuid4()}@example.com",
+                            password=None,
+                            level=OrganizationMembership.Level.MEMBER,
+                        )
+                        for _ in range(20)
+                    ]
+                    memberships = {
+                        member.user_id: member
+                        for member in OrganizationMembership.objects.filter(
+                            organization=organization, user__in=benchmark_users
+                        )
+                    }
+                    dashboards = Dashboard.objects.bulk_create(
+                        [Dashboard(team=team, created_by=user) for _ in range(20)]
+                    )
+                    dashboard_ids = [str(dashboard.id) for dashboard in dashboards]
+
+                    rng = random.Random(0)
+                    candidates = [
+                        (member, resource, None)
+                        for member in memberships.values()
+                        for resource in ACCESS_CONTROL_RESOURCES
+                    ]
+                    candidates.extend(
+                        (member, "dashboard", dashboard_id)
+                        for member in memberships.values()
+                        for dashboard_id in dashboard_ids
+                    )
+                    rng.shuffle(candidates)
+                    AccessControl.objects.bulk_create(
+                        [
+                            AccessControl(
+                                team=team,
+                                organization_member=member,
+                                resource=resource,
+                                resource_id=resource_id,
+                                access_level=rng.choice(("none", "viewer", "editor", "manager")),
+                                created_by=user,
+                            )
+                            for member, resource, resource_id in candidates
+                        ]
+                    )
+
+                    resource_type = ResourceType(cast(str, options["resource_type"]))
+                    action = Action(cast(str, options["action"]))
+                    request_pool = [
+                        CheckRequest(
+                            resource=Resource(
+                                type=resource_type,
+                                id=dashboard_id if resource_type == ResourceType.DASHBOARD else None,
+                                project_id=team.id,
+                                organization_id=organization.id,
+                            ),
+                            action=action,
+                            subject=Subject(user_id=member.id),
+                        )
+                        for member in benchmark_users
+                        for dashboard_id in (
+                            [None] * 10 + dashboard_ids if resource_type == ResourceType.DASHBOARD else [None]
+                        )
+                    ]
                     model_id = bootstrap_openfga()
                     os.environ["OPENFGA_AUTHORIZATION_MODEL_ID"] = model_id
                     api.synchronize_organization(organization.id)
-                    request = CheckRequest(
-                        resource=Resource(
-                            type=ResourceType(cast(str, options["resource_type"])),
-                            project_id=team.id,
-                            organization_id=organization.id,
-                        ),
-                        action=Action(cast(str, options["action"])),
-                        subject=Subject(user_id=user.id),
-                    )
 
                     self.stdout.write("Authorization benchmark")
                     self.stdout.write(f"Checks per mode: {total_requests:,}; batch size: {batch_size:,}")
@@ -144,6 +208,7 @@ class Command(BaseCommand):
                             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=mode),
                             patch("products.authz.backend.logic.rollout.logger.info", _discard_log),
                         ):
+                            rng = random.Random(1)
                             for batch_number in range(warmup_batches + batches):
                                 measured_batch = batch_number - warmup_batches
                                 count = (
@@ -151,7 +216,7 @@ class Command(BaseCommand):
                                     if measured_batch >= 0
                                     else batch_size
                                 )
-                                checks = [request] * count
+                                checks = [rng.choice(request_pool) for _ in range(count)]
                                 with api.authorization_session():
                                     started = time.perf_counter_ns()
                                     decisions = api.check(checks)

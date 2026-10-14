@@ -11,6 +11,7 @@ from structlog.testing import capture_logs
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import CheckRequest
 from products.authz.backend.logic import rollout
 from products.authz.backend.management.commands.benchmark_authorization import summarize
@@ -33,20 +34,23 @@ class TestAuthorizationBenchmarkCommand(TestCase):
     def test_bootstraps_request_data_and_rolls_it_back_after_counting_batches(self) -> None:
         output = StringIO()
         organization_ids: list[UUID] = []
+        request_shapes: set[tuple[int, str | None]] = set()
         client = MagicMock()
         client.get_store_id.return_value = None
 
         def check(requests: Sequence[CheckRequest]) -> list[bool]:
-            request = requests[0]
-            organization = Organization.objects.get(id=request.resource.organization_id)
-            team = Team.objects.get(id=request.resource.project_id, organization=organization)
-            assert request.subject is not None
-            user = User.objects.get(id=request.subject.user_id)
-            membership = OrganizationMembership.objects.get(organization=organization, user=user)
-            organization_ids.append(organization.id)
-            self.assertEqual(team.organization_id, organization.id)
-            self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
-            self.assertTrue(user.is_active)
+            for request in requests:
+                organization = Organization.objects.get(id=request.resource.organization_id)
+                team = Team.objects.get(id=request.resource.project_id, organization=organization)
+                assert request.subject is not None
+                user = User.objects.get(id=request.subject.user_id)
+                membership = OrganizationMembership.objects.get(organization=organization, user=user)
+                organization_ids.append(organization.id)
+                request_shapes.add((user.id, request.resource.id))
+                self.assertEqual(team.organization_id, organization.id)
+                self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+                self.assertTrue(user.is_active)
+                self.assertGreater(AccessControl.objects.filter(team=team).count(), 100)
             rollout.logger.info("authz_decision_comparison", mode="test")
             return [True] * len(requests)
 
@@ -80,5 +84,8 @@ class TestAuthorizationBenchmarkCommand(TestCase):
         self.assertIn("5/5 allowed", output.getvalue())
         self.assertFalse(any(log["event"] == "authz_decision_comparison" for log in logs))
         self.assertTrue(organization_ids)
+        self.assertGreater(len({user_id for user_id, _ in request_shapes}), 1)
+        self.assertIn(None, {resource_id for _, resource_id in request_shapes})
+        self.assertGreater(len({resource_id for _, resource_id in request_shapes if resource_id}), 1)
         synchronize.assert_called_once_with(organization_ids[0])
         self.assertFalse(Organization.objects.filter(id=organization_ids[0]).exists())

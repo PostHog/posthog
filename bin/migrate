@@ -5,7 +5,7 @@ set -o pipefail     # Exit if any command in a pipeline fails
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
 # --scope flag: run specific migration(s) only. Without --scope, runs all.
-# Usage: bin/migrate [--scope=postgres] [--scope=clickhouse] [--scope=async] ...
+# Usage: bin/migrate [--scope=postgres] [--scope=clickhouse] [--scope=async] [--scope=openfga] ...
 SCOPES=()
 for arg in "$@"; do
     [[ "$arg" == --scope=* ]] && SCOPES+=("${arg#*=}")
@@ -15,6 +15,19 @@ run_scope() {
     for s in "${SCOPES[@]}"; do [[ "$s" == "$1" ]] && return 0; done
     return 1
 }
+
+# OpenFGA uses its own datastore and is optional in local development, so it runs only
+# when explicitly selected rather than as part of the default migration set.
+if [[ ${#SCOPES[@]} -gt 0 ]] && run_scope "openfga"; then
+    if [[ "${DEBUG:-0}" != "1" ]]; then
+        echo "OpenFGA migrations require DEBUG=1." >&2
+        exit 1
+    fi
+    COMPOSE=(docker compose -p "${COMPOSE_PROJECT_NAME:-posthog}" -f "$SCRIPT_DIR/../docker-compose.dev.yml" --profile authz)
+    "${COMPOSE[@]}" run --rm openfga migrate
+    "${COMPOSE[@]}" up -d --wait openfga
+    DEBUG=1 python manage.py bootstrap_openfga
+fi
 
 # timestamp function with nanosecond precision if supported, otherwise fallback to seconds with .000000000 suffix for uniform formatting
 if [ "$(date +%N)" != "N" ]; then
