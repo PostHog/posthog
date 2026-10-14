@@ -866,29 +866,37 @@ fn collect_payload() -> String {
 }
 
 #[test]
-fn web_only_refuses_a_mobile_replay_before_and_after_the_walk() {
+fn web_only_keeps_only_a_web_source() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let event = json!({"type": 3, "timestamp": TS0, "data": {"source": 0, "texts": [], "attributes": [], "removes": [], "adds": []}});
-    let payload = |source: &str, library: &str, escape_key: bool| {
+    let payload = |source: Option<&str>, escape_key: bool| {
         let mut message = snapshot_message(json!([event.clone()]));
-        message["properties"]["$snapshot_source"] = json!(source);
-        message["properties"]["$lib"] = json!(library);
+        match source {
+            Some(source) => message["properties"]["$snapshot_source"] = json!(source),
+            None => {
+                message["properties"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("$snapshot_source");
+            }
+        }
         let mut inner = serde_json::to_string(&message).unwrap();
         if escape_key {
-            // An escaped key defeats the key-only prescan and sends the message down the tree path.
+            // An escaped envelope key sends the message down the tree path.
             inner = inner.replace("\"$snapshot_source\"", "\"$snapshot_\\u0073ource\"");
         }
         serde_json::to_string(&json!({"distinct_id": "d-1", "data": inner})).unwrap()
     };
     let cases = [
-        ("mobile", "posthog-ios", false, false),
-        ("web", "posthog-android", false, false),
-        ("mobile", "posthog-ios", true, false),
-        ("web", "web", false, true),
+        (Some("web"), false, true),
+        (Some("web"), true, true),
+        (Some("mobile"), false, false),
+        (Some("mobile"), true, false),
+        (None, false, false),
     ];
-    for (source, library, escape_key, kept) in cases {
+    for (source, escape_key, kept) in cases {
         for web_only in [true, false] {
-            let mut bytes = payload(source, library, escape_key).into_bytes();
+            let mut bytes = payload(source, escape_key).into_bytes();
             let out = anonymize_kafka_payload_opts(
                 &allow,
                 &mut bytes,
@@ -902,7 +910,7 @@ fn web_only_refuses_a_mobile_replay_before_and_after_the_walk() {
             assert_eq!(
                 refused,
                 web_only && !kept,
-                "{source} {library} escaped={escape_key} web_only={web_only}: {:?}",
+                "{source:?} escaped={escape_key} web_only={web_only}: {:?}",
                 out.as_ref().err()
             );
         }

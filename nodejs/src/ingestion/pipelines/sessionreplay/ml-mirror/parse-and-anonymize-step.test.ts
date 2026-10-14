@@ -208,13 +208,11 @@ describe('createParseAndAnonymizeMessageStep', () => {
     })
 
     it.each([
-        ['web', 'posthog-js', PipelineResultType.OK],
-        [null, null, PipelineResultType.OK],
-        ['mobile', 'posthog-ios', PipelineResultType.DROP],
-        ['mobile', null, PipelineResultType.DROP],
-        [null, 'posthog-android', PipelineResultType.DROP],
-    ])('mirrors only web replays (source %p, library %p)', async (snapshotSource, snapshotLibrary, expected) => {
-        addonSuccess({ snapshotSource, snapshotLibrary })
+        ['web', PipelineResultType.OK],
+        ['mobile', PipelineResultType.DROP],
+        [null, PipelineResultType.DROP],
+    ])('mirrors only web replays (source %p)', async (snapshotSource, expected) => {
+        addonSuccess({ snapshotSource })
         const result = await step({ message: kafkaMessage(), headers, team })
         expect(result.type).toBe(expected)
         if (expected === PipelineResultType.DROP) {
@@ -438,7 +436,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
             distinctId: 'distinct-id',
             sessionId: 'session-id',
             windowId: 'w',
-            snapshotSource: null,
+            snapshotSource: 'web',
             snapshotLibrary: null,
             startTs: now,
             endTs: now,

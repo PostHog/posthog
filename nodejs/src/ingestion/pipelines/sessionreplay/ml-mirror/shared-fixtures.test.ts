@@ -87,7 +87,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         })
         const inner = JSON.stringify({
             event: '$snapshot_items',
-            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId },
+            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId, $snapshot_source: 'web' },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
@@ -355,6 +355,7 @@ describeAddon('native image collection', () => {
                 ],
                 $session_id: 's-1',
                 $window_id: 'w',
+                $snapshot_source: 'web',
             },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
