@@ -575,8 +575,10 @@ function DictionaryFieldWithSecretRows({
                             />
                         </Tooltip>
                         {row.masked ? (
-                            <div className="flex flex-2 gap-2 items-center px-2 h-10 rounded border border-dashed overflow-hidden">
-                                <span className="flex-1 italic text-secondary">Secret value is hidden</span>
+                            <div className="flex flex-2 gap-2 items-center px-2 min-w-0 h-10 rounded border border-dashed overflow-hidden">
+                                <span className="flex-1 min-w-0 italic truncate text-secondary">
+                                    Secret value is hidden
+                                </span>
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
@@ -588,7 +590,7 @@ function DictionaryFieldWithSecretRows({
                         ) : row.secret ? (
                             <LemonInput
                                 type="password"
-                                className="flex-2 ph-no-capture"
+                                className="flex-2 min-w-0 ph-no-capture"
                                 value={row.value ?? ''}
                                 onChange={(value) => updateRow(index, { value })}
                                 placeholder="Secret value"

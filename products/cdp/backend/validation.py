@@ -953,6 +953,18 @@ class InputsItemSerializer(serializers.Serializer):
         return attrs
 
 
+def exposes_secret_dictionary_keys(schema: dict, schemas: list) -> bool:
+    """Only a `secret_<key>` dictionary paired with a plain `<key>` dictionary holds locked rows the editor lists by key."""
+    key = schema.get("key")
+    if schema.get("type") != "dictionary" or not isinstance(key, str) or not key.startswith("secret_"):
+        return False
+    plain_key = key.removeprefix("secret_")
+    return any(
+        isinstance(s, dict) and s.get("key") == plain_key and s.get("type") == "dictionary" and not s.get("secret")
+        for s in schemas
+    )
+
+
 def masked_dictionary_secret(stored: Any) -> dict:
     """Mask a secret dictionary input entry by entry, so the editor can still list its keys."""
     entries = stored.get("value") if isinstance(stored, dict) else None
@@ -970,7 +982,8 @@ def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, lis
     stored_entries = stored_entries if isinstance(stored_entries, dict) else {}
     missing = [k for k, v in entries.items() if v == MASKED_SECRET_VALUE and k not in stored_entries]
     restored = {k: stored_entries.get(k) if v == MASKED_SECRET_VALUE else v for k, v in entries.items()}
-    return {**value, "value": restored}, missing
+    stored_metadata = {k: v for k, v in stored.items() if k != "value"} if isinstance(stored, dict) else {}
+    return {**stored_metadata, **value, "value": restored}, missing
 
 
 class InputsSerializer(serializers.DictField):

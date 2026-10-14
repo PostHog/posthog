@@ -78,6 +78,7 @@ from products.cdp.backend.validation import (
     MappingsSerializer,
     added_duplicate_input_keys,
     compile_hog,
+    exposes_secret_dictionary_keys,
     generate_template_bytecode,
     masked_dictionary_secret,
     masked_secret_input_keys,
@@ -172,7 +173,7 @@ def mask_config_secrets(content: dict) -> dict:
             continue
         schemas = config.get("inputs_schema") or []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret") and "key" in schema}
-        dictionary_keys = {schema.get("key") for schema in schemas if schema.get("type") == "dictionary"}
+        dictionary_keys = {schema.get("key") for schema in schemas if exposes_secret_dictionary_keys(schema, schemas)}
         for schema in schemas:
             if schema.get("key") in secret_keys:
                 schema.pop("default", None)
@@ -864,7 +865,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 if has_value:
                     # Marker to indicate to the user that a secret is set
                     inputs[schema["key"]] = (
-                        masked_dictionary_secret(has_value) if schema.get("type") == "dictionary" else {"secret": True}
+                        masked_dictionary_secret(has_value)
+                        if exposes_secret_dictionary_keys(schema, inputs_schema)
+                        else {"secret": True}
                     )
 
         data["inputs"] = inputs

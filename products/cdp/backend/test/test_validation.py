@@ -991,12 +991,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             context={
                 "function_type": "destination",
                 "encrypted_inputs": {
-                    "secret_headers": {"value": {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"}}
+                    "secret_headers": {
+                        "value": {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+                        "templating": "liquid",
+                    }
                 },
             },
         )
         serializer.is_valid(raise_exception=True)
         assert serializer.validated_data["inputs"]["secret_headers"]["value"] == expected
+        assert serializer.validated_data["inputs"]["secret_headers"]["templating"] == "liquid"
 
     def test_validate_filters_builds_bytecode(self):
         filters = {
