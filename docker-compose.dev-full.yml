@@ -226,6 +226,10 @@ services:
         build:
             context: .
             dockerfile: Dockerfile.node
+        environment:
+            # The image runs with NODE_ENV=production, where push-api refuses to start without a key.
+            # This is Django's local default, which the web service here also uses.
+            SECRET_KEY: '<randomly generated secret key>'
         depends_on:
             - db
             - capture
