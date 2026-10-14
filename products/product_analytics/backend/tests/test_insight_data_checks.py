@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition
 
 from products.access_control.backend.facade.api import upsert_property_access_control
@@ -65,8 +66,20 @@ class TestEvaluateDataChecks(SimpleTestCase):
                 WARNING,
             ),
             ("local_under_50_events", InsightDataCheckKey.LOCAL_DEVELOPMENT, counts(100, local=49), PASSED),
+            (
+                "local_under_50_sampled_events_but_over_50_in_the_insight",
+                InsightDataCheckKey.LOCAL_DEVELOPMENT,
+                counts(1000000, local=10, sample_rate=0.01),
+                WARNING,
+            ),
             ("local_fifth_is_a_problem", InsightDataCheckKey.LOCAL_DEVELOPMENT, counts(1000, local=200), PROBLEM),
             ("bots_small_share_is_a_warning", InsightDataCheckKey.BOT_TRAFFIC, counts(10000, bots=200), WARNING),
+            (
+                "bots_under_50_sampled_events_but_over_50_in_the_insight",
+                InsightDataCheckKey.BOT_TRAFFIC,
+                counts(1000, bots=40, sample_rate=0.1),
+                WARNING,
+            ),
             ("bots_under_one_percent", InsightDataCheckKey.BOT_TRAFFIC, counts(100000, bots=500), PASSED),
             ("duplicates_under_100_events", InsightDataCheckKey.DUPLICATE_EVENTS, counts(1000, duplicates=99), PASSED),
             (
@@ -290,17 +303,30 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("that_has_no_filter", [], 0.25, range(1, 400)),
+            ("that_has_no_filter", [], 10, 0.25, range(1, 400)),
             (
                 "whose_filter_keeps_few_of_them",
                 [{"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}],
+                10,
                 1,
                 range(20, 21),
+            ),
+            (
+                "whose_filter_keeps_few_of_them_with_the_larger_sample_capped",
+                [{"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}],
+                2,
+                0.5,
+                range(1, 21),
             ),
         ]
     )
     def test_reads_a_sample_of_an_insight_with_more_events_than_the_limit(
-        self, _name: str, properties: list[dict[str, Any]], sample_rate: float, events_checked: range
+        self,
+        _name: str,
+        properties: list[dict[str, Any]],
+        max_growth: int,
+        sample_rate: float,
+        events_checked: range,
     ) -> None:
         for person in range(200):
             self._events(
@@ -315,6 +341,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", 100),
             patch(f"{CHECKS_MODULE}.MIN_SAMPLED_EVENTS", 40),
             patch(f"{CHECKS_MODULE}.RESAMPLED_EVENTS", 100),
+            patch(f"{CHECKS_MODULE}.MAX_RESAMPLE_GROWTH", max_growth),
         ):
             result = self._check(
                 self._query(series={"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, properties=properties)
@@ -334,6 +361,12 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert result.status == expected
         assert {check.level for check in result.checks} == {"skipped"}
+
+    def test_a_filter_that_cannot_run_raises_with_the_debug_modifier_on(self) -> None:
+        query = self._query(properties=[{"type": "hogql", "key": "throwIf(1, 'stop') = 0"}], modifiers={"debug": True})
+
+        with self.assertRaises(ExposedCHQueryError):
+            self._check(query)
 
     def test_does_not_check_for_a_member_with_a_hidden_property(self) -> None:
         self.organization.available_product_features = [
