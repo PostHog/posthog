@@ -1455,7 +1455,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     let checkpoint_dir = root.path().join("checkpoints");
     let config = s3_restore_config(&store_path, &checkpoint_dir, &prefix, &topics);
     let lineage = config.checkpoint_lineage().expect("standalone lineage");
-    let groups = Arc::new(InputGroups::new(&config).expect("create input group readers"));
+    let groups = Arc::new(InputGroups::new(&config));
     let lsk = behavioral_lsk(&behavioral_catalog());
     let total_persons = (PERSONS + NEW_PERSONS) as usize;
 

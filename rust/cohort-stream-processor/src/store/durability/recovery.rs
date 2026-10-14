@@ -599,17 +599,31 @@ fn remove_dir_if_present(path: &Path) -> io::Result<()> {
 /// The newest attempt under `lineage_dir` whose id is within `max_staleness` before `now`. An older
 /// one is distrusted, because the broker has likely moved past what it would replay. An attempt cut
 /// short before its `metadata.json`, or written in a format this build does not read, is passed
-/// over for the one before. Any other unreadable file fails the attempt, so the boot blocks instead
-/// of creating a store without the history the attempt may hold.
+/// over for the one before. Any other unreadable file fails the attempt, and so does a listing error
+/// other than a missing `lineage_dir`, so the boot blocks instead of creating a store without the
+/// history the attempt may hold.
 fn newest_fresh_local_checkpoint(
     lineage_dir: &Path,
     max_staleness: Duration,
     now: DateTime<Utc>,
 ) -> Option<Result<LocalAttempt, CandidateFailure>> {
-    std::fs::read_dir(lineage_dir)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
+    let listed = std::fs::read_dir(lineage_dir).and_then(|entries| {
+        entries
+            .map(|entry| Ok(entry?.path()))
+            .collect::<io::Result<Vec<_>>>()
+    });
+    let paths = match listed {
+        Ok(paths) => paths,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            return Some(Err(CandidateFailure::new(
+                &lineage_dir.to_string_lossy(),
+                format_args!("listing local checkpoints failed: {err}"),
+            )))
+        }
+    };
+    paths
+        .into_iter()
         .filter(|path| path.is_dir())
         .filter_map(|dir| {
             let id = dir.file_name()?.to_str()?.to_owned();
@@ -1023,6 +1037,19 @@ mod tests {
                 Some(Err(_))
             ),
             "a newest attempt that cannot be read fails rather than giving way to an older one",
+        );
+
+        let not_a_directory = boot.lineage_dir().join(&newest.id).join(METADATA_FILENAME);
+        assert!(
+            matches!(
+                newest_fresh_local_checkpoint(
+                    &not_a_directory,
+                    Duration::from_secs(3600),
+                    Utc::now()
+                ),
+                Some(Err(_))
+            ),
+            "a lineage directory that cannot be listed fails rather than reading as empty",
         );
     }
 

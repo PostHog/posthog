@@ -178,7 +178,7 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
-    let groups = Arc::new(InputGroups::new(&config).context("creating input position readers")?);
+    let groups = Arc::new(InputGroups::new(&config));
     if lineage.is_some() {
         ensure_one_filesystem(
             Path::new(&config.checkpoint_local_dir),

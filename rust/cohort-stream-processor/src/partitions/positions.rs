@@ -13,7 +13,7 @@ use std::time::Duration;
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer, ConsumerContext};
 use rdkafka::error::{KafkaError, KafkaResult};
 use rdkafka::types::RDKafkaErrorCode;
-use rdkafka::{Offset, TopicPartitionList};
+use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
@@ -143,17 +143,23 @@ pub enum PositionsError {
 /// async callers go through `spawn_blocking`.
 struct GroupReader {
     topic: InputTopic,
-    client: BaseConsumer,
+    config: ClientConfig,
 }
 
 impl GroupReader {
-    /// A client that never subscribes or assigns, so it outlives the group's own consumer at
-    /// shutdown and never takes part in a rebalance.
-    fn new(config: &Config, topic: &str, group: &str) -> KafkaResult<Self> {
-        Ok(Self {
+    fn new(config: &Config, topic: &str, group: &str) -> Self {
+        Self {
             topic: InputTopic::new(topic),
-            client: config.follower_client_config(group).create()?,
-        })
+            config: config.follower_client_config(group),
+        }
+    }
+
+    /// A client that never subscribes or assigns, so it outlives the group's own consumer at
+    /// shutdown and never takes part in a rebalance. Each call builds its own and drops it: nothing
+    /// polls these clients, so one kept between calls would hold every log and error event
+    /// librdkafka queues for it.
+    fn client(&self) -> KafkaResult<BaseConsumer> {
+        self.config.create()
     }
 
     fn topic(&self) -> &InputTopic {
@@ -172,7 +178,8 @@ impl GroupReader {
         for &partition in partitions {
             request.add_partition(topic, i32::from(partition));
         }
-        let committed = self.client.committed_offsets(request, FETCH_TIMEOUT)?;
+        let client = self.client()?;
+        let committed = client.committed_offsets(request, FETCH_TIMEOUT)?;
 
         let mut offsets = BTreeMap::new();
         let mut uncommitted = Vec::new();
@@ -186,7 +193,7 @@ impl GroupReader {
                 _ => uncommitted.push(partition),
             }
         }
-        for (partition, low) in low_watermarks(&self.client, topic, uncommitted)? {
+        for (partition, low) in low_watermarks(&client, topic, uncommitted)? {
             offsets.insert(partition, ResumeOffset::try_from(low)?);
         }
         Ok(InputPositions::new(self.topic.clone(), offsets))
@@ -214,7 +221,7 @@ impl FollowerGroup {
                 Offset::Offset(offset.get()),
             )?;
         }
-        self.0.client.commit(&tpl, CommitMode::Sync)
+        self.0.client()?.commit(&tpl, CommitMode::Sync)
     }
 }
 
@@ -225,12 +232,12 @@ pub struct InputGroups {
 }
 
 impl InputGroups {
-    pub fn new(config: &Config) -> KafkaResult<Self> {
+    pub fn new(config: &Config) -> Self {
         let events = GroupReader::new(
             config,
             &config.cohort_stream_events_topic,
             &config.kafka_consumer_group,
-        )?;
+        );
         let mut follower_inputs = vec![
             (
                 &config.person_merge_events_topic,
@@ -255,9 +262,9 @@ impl InputGroups {
         }
         let followers = follower_inputs
             .into_iter()
-            .map(|(topic, group)| GroupReader::new(config, topic, group).map(FollowerGroup))
-            .collect::<KafkaResult<Vec<_>>>()?;
-        Ok(Self { events, followers })
+            .map(|(topic, group)| FollowerGroup(GroupReader::new(config, topic, group)))
+            .collect();
+        Self { events, followers }
     }
 
     pub fn followers(&self) -> &[FollowerGroup] {

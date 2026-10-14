@@ -1112,8 +1112,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             NUM_PARTITIONS as usize,
             "the dispatcher must still own all 64 partitions at checkpoint time",
         );
-        let input_groups =
-            Arc::new(InputGroups::new(&config).expect("create input group readers"));
+        let input_groups = Arc::new(InputGroups::new(&config));
         checkpoint_to_s3(&instance, &config, &input_groups).await;
 
         shutdown.request_shutdown();
