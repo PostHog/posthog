@@ -13,8 +13,8 @@ import { type StepContext, type StepDirection, stepRange } from './rangeStep'
 /** `dashboard:{id}`, `insight:{short_id}` or `web`. */
 export type ViewRangeKey = string
 
-export function dashboardRangeKey(dashboardId: number): ViewRangeKey {
-    return `dashboard:${dashboardId}`
+export function dashboardRangeKey(dashboardRef: string | number): ViewRangeKey {
+    return `dashboard:${dashboardRef}`
 }
 
 export function insightRangeKey(shortId: string): ViewRangeKey {

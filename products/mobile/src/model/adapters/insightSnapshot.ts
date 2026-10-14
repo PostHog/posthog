@@ -22,6 +22,8 @@ export interface SnapshotContext {
     serverNow: number
     /** The tile's `filters_overrides`, for "Uses its own range". */
     tileOverrides?: Record<string, unknown> | null
+    /** Known from the dashboard read. A per-tile read returns the insight without the tile's overrides. */
+    usesOwnRange?: boolean
 }
 
 interface ResponseStatus {
@@ -388,7 +390,7 @@ export function insightSnapshot(
         queryKind: queryKindOf(query),
         query,
         savedRange: savedRangeOf(query),
-        usesOwnRange: usesOwnRange(context.tileOverrides, query),
+        usesOwnRange: context.usesOwnRange ?? usesOwnRange(context.tileOverrides, query),
         kindLabel: kindLabelOf(query),
     }
     if (!hasGoodResult(response)) {
