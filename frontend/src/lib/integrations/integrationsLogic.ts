@@ -29,6 +29,7 @@ import {
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsGithubLinkExistingCreate,
+    integrationsGithubOauthAuthorizeCreate,
     integrationsList,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
@@ -47,6 +48,7 @@ import type { PreflightStatus, UserBasicType } from '../../types'
 import { ICONS, getIntegrationNameFromKind } from './utils'
 
 const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
+const GITHUB_LINK_EXISTING_PERSONAL_GITHUB_REQUIRED = 'github_link_existing_personal_github_required'
 
 function toastApiError(e: unknown): void {
     const detail = e instanceof ApiError ? e.detail : null
@@ -1065,6 +1067,20 @@ export const integrationsLogic = kea<integrationsLogicType>([
                             values.currentProjectId !== projectId ||
                             cache.githubProjectGeneration !== projectGeneration
                         ) {
+                            return values.linkedGithubInstallation
+                        }
+                        // The backend needs personal GitHub proof from this user. Send them through
+                        // GitHub OAuth, which proves access and links the installation on return.
+                        if (
+                            installationId &&
+                            error instanceof ApiError &&
+                            error.code === GITHUB_LINK_EXISTING_PERSONAL_GITHUB_REQUIRED
+                        ) {
+                            const { oauth_url } = await integrationsGithubOauthAuthorizeCreate(String(projectId), {
+                                installation_id: installationId,
+                                next: router.values.location.pathname,
+                            })
+                            window.location.href = oauth_url
                             return values.linkedGithubInstallation
                         }
                         throw error
