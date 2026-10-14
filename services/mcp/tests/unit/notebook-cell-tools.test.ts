@@ -854,6 +854,62 @@ describe('notebook cell tools', () => {
     })
 
     describe('markdown cells', () => {
+        it.each(['update', 'delete'] as const)(
+            '%s preserves neighboring cells and operates on the full markdown span',
+            async (operation) => {
+                const source = '## Overview\n\nFirst paragraph.\n\nSecond paragraph.'
+                const prefix = '# Title\n\n\n<!--ph:phb-note-->\n'
+                const suffix = '\n\n\nA separate cell.'
+                const state = makeState(prefix + source + suffix)
+                state.stateCells = [
+                    {
+                        node_id: 'phb-note',
+                        cell_type: 'markdown',
+                        code: source,
+                        start: prefix.length,
+                        end: prefix.length + source.length,
+                    },
+                ]
+                const context = createMockContext(state)
+                if (operation === 'update') {
+                    await updateCellHandler(context, {
+                        notebook_id: 'aBcD1234',
+                        node_id: 'phb-note',
+                        markdown: 'Replacement.',
+                    })
+                    expect(state.markdown).toBe(prefix + 'Replacement.' + suffix)
+                } else {
+                    await deleteCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'phb-note' })
+                    expect(state.markdown).toBe('# Title\n\n\n' + suffix)
+                }
+                expect(state.runBodies).toEqual([])
+            }
+        )
+
+        it.each(['version', 'span', 'duplicate'] as const)(
+            'refuses to delete a markdown cell with a mismatched %s',
+            async (mismatch) => {
+                const state = makeState('First paragraph.')
+                const cell = {
+                    node_id: 'mdp-note-0',
+                    cell_type: 'markdown',
+                    code: 'First paragraph.',
+                    start: 0,
+                    end: 16,
+                }
+                state.stateCells = mismatch === 'duplicate' ? [cell, cell] : [cell]
+                if (mismatch === 'version') {
+                    state.stateVersion = state.version + 1
+                } else if (mismatch === 'span') {
+                    cell.start = 1
+                }
+                await expect(
+                    deleteCellHandler(createMockContext(state), { notebook_id: 'aBcD1234', node_id: cell.node_id })
+                ).rejects.toThrow()
+                expect(state.saveBodies).toEqual([])
+            }
+        )
+
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.
         const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 9, end: 25 }

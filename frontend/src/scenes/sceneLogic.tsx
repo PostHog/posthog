@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import api from 'lib/api'
+import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -175,6 +176,12 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/legal',
 ]
 
+// The server refused the project this address names and served the user's own one.
+function isRefusedProjectPath(pathname: string): boolean {
+    const refusedProject = getAppContext()?.project_access_denied
+    return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
+}
+
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     const path = removeProjectIdIfPresent(pathname)
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
@@ -188,6 +195,13 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     }, [])
     return <>{show ? <Spinner /> : null}</>
 }
+
+const captureSceneLoadFailure = (
+    error: unknown,
+    sceneId: string,
+    stage: 'import' | 'logic_mount',
+    extra: Record<string, unknown> = {}
+): SupportTicketExceptionEvent | undefined => posthog.captureException(error, { extra: { sceneId, stage, ...extra } })
 
 const scrollMainContentToTop = (): void => {
     const element = document.getElementById('main-content')
@@ -276,6 +290,7 @@ export interface sceneLogicValues {
     sceneConfig: SceneConfig | null
     sceneId: string | null
     sceneKey: string | null
+    sceneLoadExceptionEvent: SupportTicketExceptionEvent | null
     sceneParams: SceneParams
     searchParams: Record<string, any>
     titleAndIcon: {
@@ -353,6 +368,9 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
         scrollToTop: boolean
+    }
+    setSceneLoadExceptionEvent: (exceptionEvent: SupportTicketExceptionEvent | undefined) => {
+        exceptionEvent: SupportTicketExceptionEvent | undefined
     }
 }
 
@@ -470,6 +488,7 @@ export const sceneLogic = kea<sceneLogicType>([
         homepageSaved: (tab: SceneTab | null) => ({ tab }),
         setHomepageSaving: (saving: boolean) => ({ saving }),
         resetUnavailableHomepage: (pathname: string) => ({ pathname }),
+        setSceneLoadExceptionEvent: (exceptionEvent: SupportTicketExceptionEvent | undefined) => ({ exceptionEvent }),
     }),
     reducers({
         sceneId: [
@@ -543,6 +562,10 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         homepageSaving: [false, { setHomepageSaving: (_, { saving }) => saving }],
+        sceneLoadExceptionEvent: [
+            null as SupportTicketExceptionEvent | null,
+            { setSceneLoadExceptionEvent: (_, { exceptionEvent }) => exceptionEvent ?? null },
+        ],
     })),
     selectors({
         sceneConfig: [
@@ -562,12 +585,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 // The server refused the project this address names and served the user's own one,
                 // so the page cannot load. Once the address bar names a project we do serve, the
                 // scene loads as usual.
-                if (
-                    appContext?.project_access_denied &&
-                    sceneId &&
-                    sceneConfigurations[sceneId]?.projectBased &&
-                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
-                ) {
+                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 
@@ -842,7 +860,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    posthog.captureException(error, { extra: { sceneId, sceneKey } })
+                    actions.setSceneLoadExceptionEvent(
+                        captureSceneLoadFailure(error, sceneId, 'logic_mount', { sceneKey })
+                    )
                     newLogicErrored = true
                 }
             } else {
@@ -858,7 +878,11 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             if (newLogicErrored) {
-                actions.loadScene(Scene.Error404, undefined, emptySceneParams, 'REPLACE')
+                // Not a 404: the route exists and the person is allowed on it, so saying the page
+                // is missing sends them looking for a URL mistake that isn't there. `setScene`
+                // rather than `loadScene`, because the error scenes are preloaded and so are
+                // absent from `props.scenes`.
+                actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, false)
                 return
             }
 
@@ -964,7 +988,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname)
+                        !isOnboardingNotRequiredForPath(location.pathname) &&
+                        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
+                        !isRefusedProjectPath(router.values.location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
@@ -1032,7 +1058,17 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    throw error
+                    // A slow import can reject after the person has already navigated somewhere
+                    // else, so break first: the error scene must not replace a newer one.
+                    breakpoint()
+                    // Rethrowing here escapes the listener unhandled: the address bar sits on the
+                    // scene that failed while the previous one stays rendered, and nothing reaches
+                    // error tracking. Report it, then render an error where the URL points.
+                    actions.setSceneLoadExceptionEvent(
+                        captureSceneLoadFailure(error, sceneId, 'import', { sceneKey, source: 'sceneLogic.loadScene' })
+                    )
+                    actions.setScene(Scene.ErrorSceneLoad, undefined, emptySceneParams, clickedLink)
+                    return
                 } finally {
                     window.clearTimeout(timeout)
                 }

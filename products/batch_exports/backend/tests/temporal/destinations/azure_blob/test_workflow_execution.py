@@ -40,8 +40,7 @@ async def test_workflow_exports_model_successfully(
     model: BatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
-    batch_export_model = model if isinstance(model, BatchExportModel) else None
-    batch_export_schema = model if isinstance(model, dict) else None
+    batch_export_model = BatchExportModel(name="events", schema=model) if isinstance(model, dict) else model
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -54,7 +53,6 @@ async def test_workflow_exports_model_successfully(
         file_format=file_format,
         compression=compression,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     assert run.status == "Completed"

@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { eventName } from '../pipelineQuestion'
 import { PredictionSegmentDefinition, formatProbability, predictionSegmentPeopleUrl } from '../predictionSegments'
 
 function SegmentCard({ segment }: { segment: PredictionSegmentDefinition }): JSX.Element {
@@ -88,13 +89,15 @@ function SegmentCutPoints(): JSX.Element | null {
     if (!thresholds) {
         return null
     }
-    const target = pipeline?.target_event ?? 'the target event'
+    const target = pipeline ? eventName(pipeline.target_event) : 'the target event'
     return (
         <>
             <p className="text-sm text-secondary mb-0">
-                {thresholds.base_rate != null
+                {thresholds.base_rate_source === 'realized' && thresholds.base_rate != null
                     ? `Segments compare each score with the average: ${formatProbability(thresholds.base_rate)} of scored people did ${target} over the last ${thresholds.base_rate_dates} checked dates.`
-                    : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
+                    : thresholds.base_rate_source === 'training' && thresholds.base_rate != null
+                      ? `Segments compare each score with the average in the training data: ${formatProbability(thresholds.base_rate)} of people did ${target}. They switch to measured outcomes once enough predictions are checked against what people did.`
+                      : 'Segments use fixed cut points until enough predictions are checked against what people did.'}
             </p>
             {thresholds.scores_miscalibrated &&
                 thresholds.champion_mean_p_y != null &&

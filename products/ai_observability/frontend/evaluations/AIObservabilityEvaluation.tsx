@@ -49,12 +49,7 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import {
-    EVALUATION_RUNS_QUERY_LIMIT,
-    formatNumericEvaluationScore,
-    numericOutputConfigError,
-    categoricalOutputConfigError,
-} from './constants'
+import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -373,12 +368,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div className="min-w-0">
                                         <p className="text-muted text-sm m-0">
                                             History of when this evaluation has been executed.
-                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
-                                                <>
-                                                    {' '}
-                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
-                                                </>
-                                            )}
                                         </p>
 
                                         {isReportableEvaluation && (
@@ -412,7 +401,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                 ? '–'
                                                                 : `${runsSummary.successRate}%`}
                                                         </div>
-                                                        <div className="text-muted">Success rate</div>
+                                                        <div className="text-muted">Pass rate</div>
                                                     </div>
                                                 )}
                                                 {supportsRunOutcomes && originalEvaluation?.output_config.allows_na && (
@@ -423,12 +412,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Applicable</div>
                                                     </div>
                                                 )}
-                                                <div className="text-center">
-                                                    <div className="font-semibold text-lg text-danger">
-                                                        {runsSummary.errors}
-                                                    </div>
-                                                    <div className="text-muted">Errors</div>
-                                                </div>
                                             </div>
                                             <div className="text-muted text-xs">
                                                 {runsBackfillId

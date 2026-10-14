@@ -40,6 +40,7 @@ from products.signals.dags.inbox_ranking.training.classification import (
 )
 from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
+from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
@@ -156,6 +157,10 @@ class HeadGrade:
     # The in-cohort rows at the threshold of the model that wrote the scores, so an early and a
     # mature grade of one cohort use the same cut.
     classification: ClassificationMetrics = UNKNOWN_THRESHOLD
+    # `auc` and `recency_auc` over the pairs inside one team only. A row without a team id is left
+    # out of these and kept in every other field.
+    within_team: WithinTeamAuc = NO_TEAMS
+    recency_within_team: WithinTeamAuc = NO_TEAMS
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -168,6 +173,8 @@ class HeadGrade:
             "calibration_buckets": len(self.calibration),
             "auc": self.auc,
             "recency_auc": self.recency_auc,
+            **self.within_team.as_dict(),
+            **self.recency_within_team.as_dict(prefix="recency_"),
             "null_auc": self.null_auc,
             "null_auc_std": self.null_auc_std,
             "null_permutations": NULL_PERMUTATIONS,
@@ -389,6 +396,8 @@ def head_grades(
         outcomes = rows["outcome"].to_numpy(dtype=bool)
         scores = rows["score"].to_numpy(dtype=float)
         at_scoring = rows["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
+        team_ids = rows["team_id"].to_numpy(dtype=object)
+        newest_first = _newest_first(rows)
         band = chance_band(outcomes, scores)
         buckets = calibration_buckets(outcomes, scores)
         grades.append(
@@ -408,13 +417,15 @@ def head_grades(
                 base_rate=float(outcomes.mean()) if len(rows) else None,
                 mean_score=float(scores.mean()) if len(rows) else None,
                 auc=_auc(outcomes, scores),
-                recency_auc=_auc(outcomes, _newest_first(rows)),
+                recency_auc=_auc(outcomes, newest_first),
                 null_auc=band.auc,
                 null_auc_std=band.auc_std,
                 calibration=buckets,
                 expected_calibration_error=expected_calibration_error(buckets),
                 # Read from every scored row, so an empty cohort still reports its threshold.
                 classification=classification_metrics(outcomes, scores, saved_threshold(scored)),
+                within_team=within_team_auc(outcomes, scores, team_ids),
+                recency_within_team=within_team_auc(outcomes, newest_first, team_ids),
             )
         )
     return grades
