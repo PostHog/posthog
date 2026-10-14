@@ -25,6 +25,8 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
 # - kafka_session_replay_events_ws + session_replay_events_ws_mv (INGESTION_SMALL)
 # - kafka_session_replay_features_ws + session_replay_features_ws_mv (INGESTION_MEDIUM)
 
+EXCLUDE_LATER_COLUMNS = ["surfacing_score", "snapshot_mode_v2"]
+
 operations = (
     []
     if not run_mode().is_deployed_cloud
@@ -35,7 +37,7 @@ operations = (
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
-            SESSION_REPLAY_EVENTS_WS_MV_SQL(),
+            SESSION_REPLAY_EVENTS_WS_MV_SQL(exclude_columns=EXCLUDE_LATER_COLUMNS),
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         # session_replay_features (INGESTION_MEDIUM, matching existing MSK table)

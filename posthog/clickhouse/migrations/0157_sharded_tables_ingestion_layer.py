@@ -59,6 +59,15 @@ from products.error_tracking.backend.sql import (
     WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 
+EXCLUDE_LATER_COLUMNS = [
+    "is_deleted",
+    "ai_tags_fixed",
+    "ai_tags_freeform",
+    "ai_highlighted",
+    "surfacing_score",
+    "snapshot_mode_v2",
+]
+
 operations = [
     # heatmaps
     run_sql_with_exceptions(DROP_HEATMAPS_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
@@ -88,7 +97,8 @@ operations = [
         WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
     ),
     run_sql_with_exceptions(
-        SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+        SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False, exclude_columns=EXCLUDE_LATER_COLUMNS),
+        node_roles=[NodeRole.INGESTION_SMALL],
     ),
     # log entries
     run_sql_with_exceptions(DROP_LOG_ENTRIES_TABLE_MV_SQL, node_roles=[NodeRole.DATA]),

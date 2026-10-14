@@ -2,6 +2,7 @@ import os
 import re
 import ast
 import sys
+import inspect
 import importlib
 from collections import defaultdict
 from pathlib import Path
@@ -11,6 +12,7 @@ from unittest import TestCase, mock
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, NodeRole
+from posthog.session_recordings.sql.session_replay_event_sql import _session_replay_events_mv_sql
 
 # Migrations created before this validation existed are grandfathered.
 MIN_CHECKED_MIGRATION_NUMBER = 150
@@ -302,3 +304,50 @@ class TestUniqueMigrationPrefixes(TestCase):
             return False
         first = tree.body[0].value
         return first is node
+
+
+# Migration that adds each optional column of the session replay MV to the target table.
+SESSION_REPLAY_MV_COLUMN_ADDED_IN = {
+    "retention_period_days": 137,
+    "is_deleted": 210,
+    "ai_tags_fixed": 231,
+    "ai_tags_freeform": 231,
+    "ai_highlighted": 231,
+    "surfacing_score": 265,
+    "snapshot_mode_v2": 322,
+}
+
+
+class TestSessionReplayMVMigrations(TestCase):
+    def test_column_map_covers_every_optional_mv_column(self):
+        source = inspect.getsource(_session_replay_events_mv_sql)
+        optional_columns = set(re.findall(r'if "(\w+)" not in exclude_columns', source))
+        self.assertEqual(optional_columns, set(SESSION_REPLAY_MV_COLUMN_ADDED_IN))
+
+    def test_mv_only_selects_columns_that_exist_when_the_migration_runs(self):
+        violations: list[str] = []
+        modules = [
+            module
+            for name, module in sorted(import_submodules(MIGRATIONS_PACKAGE_NAME).items())
+            if re.match(r"^\d+_", name) and int(name.split("_")[0]) >= 115
+        ]
+        try:
+            for deployment in CLOUD_DEPLOYMENTS_TO_CHECK:
+                with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment):
+                    for module in modules:
+                        module = importlib.reload(module)
+                        number = int(module.__name__.rsplit(".", 1)[1].split("_")[0])
+                        for operation in getattr(module, "operations", None) or []:
+                            sql = getattr(operation, "_sql", "") or ""
+                            if not re.search(r"CREATE MATERIALIZED VIEW .*session_replay_events(_ws)?_mv\b", sql):
+                                continue
+                            violations += [
+                                f"{module.__name__} (CLOUD_DEPLOYMENT={deployment!r}) selects {column}, added in {added_in}"
+                                for column, added_in in SESSION_REPLAY_MV_COLUMN_ADDED_IN.items()
+                                if added_in > number and f"`{column}`" in sql
+                            ]
+        finally:
+            for module in modules:
+                importlib.reload(sys.modules[module.__name__])
+
+        self.assertEqual(violations, [])

@@ -11,6 +11,16 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
 )
 
+EXCLUDE_LATER_COLUMNS = [
+    "retention_period_days",
+    "is_deleted",
+    "ai_tags_fixed",
+    "ai_tags_freeform",
+    "ai_highlighted",
+    "surfacing_score",
+    "snapshot_mode_v2",
+]
+
 # The Kafka table only has block_url String (not arrays). Block array columns are only in the aggregate tables.
 operations = [
     # 1. Drop the old materialized view so it's no longer pulling from Kafka
@@ -29,5 +39,5 @@ operations = [
     # 6. Recreate the Kafka table with the updated schema
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 7. Recreate the materialized view with the updated schema
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(exclude_columns=["retention_period_days"])),
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(exclude_columns=EXCLUDE_LATER_COLUMNS)),
 ]

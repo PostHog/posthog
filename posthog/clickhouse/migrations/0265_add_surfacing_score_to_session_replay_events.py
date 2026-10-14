@@ -20,6 +20,8 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 # Add surfacing_score to session_replay_events. Cloud uses WarpStream and is dropping MSK;
 # non-cloud only has MSK.
 
+EXCLUDE_LATER_COLUMNS = ["snapshot_mode_v2"]
+
 operations = [
     # Drop MV + Kafka tables (DROP IF EXISTS, so WS drops no-op in non-cloud).
     run_sql_with_exceptions(
@@ -53,7 +55,10 @@ operations = [
     *(
         [
             run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
-            run_sql_with_exceptions(SESSION_REPLAY_EVENTS_WS_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+            run_sql_with_exceptions(
+                SESSION_REPLAY_EVENTS_WS_MV_SQL(exclude_columns=EXCLUDE_LATER_COLUMNS),
+                node_roles=[NodeRole.INGESTION_SMALL],
+            ),
         ]
         if run_mode().is_deployed_cloud
         else [
@@ -61,7 +66,8 @@ operations = [
                 KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
             ),
             run_sql_with_exceptions(
-                SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
+                SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False, exclude_columns=EXCLUDE_LATER_COLUMNS),
+                node_roles=[NodeRole.INGESTION_SMALL],
             ),
         ]
     ),
