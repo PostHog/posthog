@@ -150,4 +150,7 @@ Frequent causes are:
 
 Every real invocation mirrors stdout and stderr to `products/posthog_ai/eval_harness/logs/harness/<timestamp>_<id>.log`.
 The final terminal line is that transcript's absolute path, and `logs/harness/latest.log` points to the newest run.
-After a case starts, its agent log directory contains `<case>.jsonl`, `<case>.artifacts.json`, and `<case>.summary.txt` for deeper debugging.
+After a case starts, its agent log directory contains `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt` for deeper debugging.
+Each trial writes its own files. The `trial_id` line at the top of each summary identifies the trial.
+The filename uses a slugified case name, and the harness shortens a long case name to keep the filename valid.
+Case names and `--eval` filters do not change.
