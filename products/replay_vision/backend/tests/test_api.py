@@ -4280,8 +4280,10 @@ class TestScannerSpend(_VisionAPITestCase):
         # keyed on the wrong scanner would give every row the first row's answer.
         capped = self._create_scanner(name="capped")
         self._create_scanner(name="uncapped")
+        free = self._create_scanner(name="free")
         cost = observation_credits_for_model(capped.model)
         ReplayScanner.objects.filter(pk=capped.pk).update(credit_limit=cost)
+        ReplayScanner.objects.filter(pk=free.pk).update(free_only=True)
         self._spend_against_limit(capped, "capped-spend")
 
         resp = self.client.get(self.scanners_url)
@@ -4291,6 +4293,10 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertIs(by_name["uncapped"]["limit_reached"], False)
         self.assertEqual(by_name["capped"]["credits_used_against_limit"], cost)
         self.assertEqual(by_name["uncapped"]["credits_used_against_limit"], 0)
+        self.assertEqual(
+            {name: row["limit_from_free_credits"] for name, row in by_name.items()},
+            {"capped": False, "uncapped": False, "free": True},
+        )
 
     def test_limit_below_one_observation_reports_reached_before_any_spend(self) -> None:
         # `limit_reached` answers "can this scanner run again", not "has it spent its limit". A cap

@@ -601,6 +601,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "organization's free credits, this is the organization's usage, not the scanner's own."
         ),
     )
+    limit_from_free_credits = serializers.SerializerMethodField(
+        help_text=(
+            "True when the organization's free credits bind this `free_only` scanner rather than its own "
+            "`credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against "
+            "its free credits."
+        ),
+    )
     limit_reached = serializers.SerializerMethodField(
         help_text=(
             "Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, "
@@ -669,6 +676,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
             "dashboard_id",
@@ -690,6 +698,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
             "dashboard_id",
@@ -759,6 +768,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     @extend_schema_field(serializers.IntegerField())
     def get_credits_used_against_limit(self, scanner: ReplayScanner) -> int:
         return self._scanner_budget(scanner).credits_used
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_limit_from_free_credits(self, scanner: ReplayScanner) -> bool:
+        return self._scanner_budget(scanner).free_credits_bound
 
     @extend_schema_field(serializers.IntegerField())
     def get_sweep_throttle_factor(self, scanner: ReplayScanner) -> int:
