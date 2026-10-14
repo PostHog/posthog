@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by": {
+            "description": "Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
+            "minLength": 1,
+            "type": "string"
+        },
         "date_from": {
             "default": "-7d",
             "description": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.",

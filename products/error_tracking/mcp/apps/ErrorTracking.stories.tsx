@@ -272,7 +272,7 @@ const sampleErrorDetails: ErrorDetailsData = {
             },
         },
     ],
-    _posthogUrl: 'https://us.posthog.com/project/1/error_tracking/issue-1',
+    _posthogUrl: 'https://us.posthog.com/project/1/error-tracking/issue-1',
 }
 
 export const ErrorDetails: Story = {

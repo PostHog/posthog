@@ -2324,6 +2324,11 @@ export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
 
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+    created_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
     date_from: zod
         .string()
         .min(1)
