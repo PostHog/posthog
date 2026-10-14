@@ -1212,7 +1212,7 @@ function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: 
     return (
         new Set(expressions).size !== expressions.length ||
         (!hasMeasures && expressions.includes('count')) ||
-        expressions.some((expression) => expression.includes('%'))
+        expressions.some((expression) => expression.includes('%') || /^(true|false|null|team_id)$/i.test(expression))
     )
 }
 
@@ -1480,7 +1480,8 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         `WHERE\n    ${[getBIFiltersPlaceholder(config), ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`
     )
     if (dimensionExpressions.length > 0) {
-        queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
+        const grouping = generatedDimensionAliases ? dimensions.map(({ alias }) => alias) : dimensionExpressions
+        queryParts.push(`GROUP BY\n    ${grouping.join(',\n    ')}`)
     }
 
     const orderByExpression = buildOrderByExpression(config, dimensions, configuredValues)

@@ -65,16 +65,22 @@ const countryField: BIField = {
 
 describe('BI editor query generation', () => {
     it.each(
-        [ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot].flatMap(
-            (chartType) => [
+        [ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot]
+            .flatMap((chartType) => [
                 { chartType, name: 'repeated dimensions', rows: [eventField, eventField, eventField] },
                 {
                     chartType,
                     name: 'an expression containing a percent sign',
                     rows: [{ ...eventField, expression: "if(event LIKE 'page%', 'page', 'other')" }],
                 },
-            ]
-        )
+            ])
+            .concat(
+                ['true', 'FALSE', 'null', 'team_id'].map((expression) => ({
+                    chartType: ChartDisplayType.ActionsTable,
+                    name: `the reserved alias ${expression}`,
+                    rows: [{ ...eventField, expression }],
+                }))
+            )
     )('binds $name to supported distinct result columns in $chartType', ({ chartType, rows }) => {
         const config = {
             ...DEFAULT_BI_CONFIG,
@@ -85,8 +91,10 @@ describe('BI editor query generation', () => {
         const result = buildBIQuery(config)!
         const columns = getBIResultDimensions(config).map(({ column }) => column)
         expect(new Set(columns).size).toBe(rows.length)
+        expect(result.query).toContain(`GROUP BY\n    ${columns.join(',\n    ')}`)
         for (const [index, column] of columns.entries()) {
             expect(column).not.toContain('%')
+            expect(['true', 'false', 'null', 'team_id']).not.toContain(column.toLowerCase())
             expect(result.query).toContain(`${rows[index].expression} AS ${column}`)
             expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
         }
