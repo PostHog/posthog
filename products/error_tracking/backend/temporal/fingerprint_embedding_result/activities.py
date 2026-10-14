@@ -23,6 +23,16 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
 )
+from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
+    DEFAULT_AUTO_MERGE_CONFIG,
+    JUDGE_MODEL,
+    JUDGE_PROMPT_VERSION,
+    AutoMergeConfig,
+    JudgeUnavailableError,
+    ask_judge,
+    fetch_fingerprint_documents,
+    load_auto_merge_config,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeOutcome,
     AutoMergeReopenedTarget,
@@ -32,7 +42,6 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 )
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
-AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
 NIL_UUID = "00000000-0000-0000-0000-000000000000"
 
 CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
@@ -230,28 +239,141 @@ def _reopened_target(
     )
 
 
+def _merge_into_candidate(
+    team: Team,
+    fingerprint: str,
+    source_fingerprint: ErrorTrackingIssueFingerprintV2,
+    target_fingerprint: ErrorTrackingIssueFingerprintV2,
+    candidate: SimilarFingerprintDistance,
+    event_reference: str,
+    decision_properties: dict[str, object],
+) -> AutoMergeOutcome:
+    source_issue_id = source_fingerprint.issue_id
+    target_issue_id = target_fingerprint.issue_id
+    target_issue = target_fingerprint.issue
+    merge_outcome = target_issue.merge(
+        issue_ids=[source_issue_id],
+        expected_fingerprint_issue_ids={
+            fingerprint: source_issue_id,
+            candidate.fingerprint: target_issue_id,
+        },
+    )
+    if merge_outcome.result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+        return AutoMergeOutcome()
+    if merge_outcome.result != ErrorTrackingIssueMergeResult.MERGED:
+        raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team.id}")
+
+    capture = ph_background_capture()
+    capture(
+        distinct_id=str(team.uuid),
+        event="error_tracking_issue_merged",
+        groups=groups(team=team),
+        properties={
+            "merge_source": "auto",
+            "source_issue_id": str(source_issue_id),
+            "target_issue_id": str(target_issue_id),
+            "source_fingerprint": fingerprint,
+            "target_fingerprint": candidate.fingerprint,
+            "distance": candidate.distance,
+            **decision_properties,
+        },
+    )
+    reopened_target = (
+        _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
+    )
+    return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
+
+
+def _judge_candidate(
+    team: Team,
+    inputs: FingerprintEmbeddingResultInputs,
+    candidate: SimilarFingerprintDistance,
+    config: AutoMergeConfig,
+) -> float | None:
+    """Ask the judge about one candidate and report the verdict. Returns the score, or None when unavailable.
+
+    A judge failure never fails the activity: the fingerprint just stays unmerged, as it would today.
+    """
+    score: float | None = None
+    latency_ms: float | None = None
+    error: str | None = None
+    # The source text normally arrives with the inputs; only the neighbour's is read back.
+    wanted = [candidate.fingerprint] if inputs.content else [inputs.fingerprint, candidate.fingerprint]
+    documents = fetch_fingerprint_documents(
+        team,
+        _model_specific_embeddings_table_name(inputs.model_name),
+        inputs.rendering,
+        wanted,
+        min_timestamp=_parse_timestamp(inputs.timestamp) - timedelta(days=30),
+    )
+    source_document = inputs.content or documents.get(inputs.fingerprint)
+    candidate_document = documents.get(candidate.fingerprint)
+    if source_document is None or candidate_document is None:
+        error = "missing_document"
+    else:
+        try:
+            verdict = ask_judge(team.id, source_document, candidate_document, config.judge_timeout_seconds)
+            score, latency_ms = verdict.score, verdict.latency_ms
+        except JudgeUnavailableError as err:
+            error = str(err)
+
+    capture = ph_background_capture()
+    capture(
+        distinct_id=str(team.uuid),
+        event="error_tracking_auto_merge_judged",
+        groups=groups(team=team),
+        properties={
+            "source_fingerprint": inputs.fingerprint,
+            "target_fingerprint": candidate.fingerprint,
+            "distance": candidate.distance,
+            "judge_score": score,
+            "judge_latency_ms": latency_ms,
+            "judge_error": error,
+            "judge_model": JUDGE_MODEL,
+            "judge_prompt_version": JUDGE_PROMPT_VERSION,
+            "judge_cutoff": config.judge_cutoff,
+            "judge_max_distance": config.judge_max_distance,
+            "judge_shadow": config.judge_shadow,
+            "auto_merge_threshold": config.auto_merge_threshold,
+            "would_merge": score is not None and score >= config.judge_cutoff,
+        },
+    )
+    return score
+
+
 def _merge_fingerprint_into_closest_issue(
     team: Team,
     fingerprint: str,
     closest_fingerprints: list[SimilarFingerprintDistance],
     expected_source_issue_id: str | None = None,
     event_reference: str = "",
+    config: AutoMergeConfig = DEFAULT_AUTO_MERGE_CONFIG,
+    judge_inputs: FingerprintEmbeddingResultInputs | None = None,
 ) -> AutoMergeOutcome:
+    """Merge into the nearest neighbour in another issue: directly below the threshold, else if the judge agrees.
+
+    `judge_inputs` carries what the judge needs (model, rendering, source text); without it only the
+    distance rule applies.
+    """
     team_id = team.id
     if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED:
         return AutoMergeOutcome()
 
-    eligible_fingerprints = [
-        candidate for candidate in closest_fingerprints if candidate.distance < AUTO_MERGE_DISTANCE_THRESHOLD
+    judging = config.judge_enabled and judge_inputs is not None
+    candidates = [
+        candidate
+        for candidate in closest_fingerprints
+        if candidate.distance < config.auto_merge_threshold
+        or (judging and candidate.distance <= config.judge_max_distance)
     ]
-    if not eligible_fingerprints:
+    if not candidates:
         return AutoMergeOutcome()
 
     fingerprints_by_value = {
         row.fingerprint: row
         for row in ErrorTrackingIssueFingerprintV2.objects.filter(
             team_id=team_id,
-            fingerprint__in=[fingerprint, *(candidate.fingerprint for candidate in eligible_fingerprints)],
+            fingerprint__in=[fingerprint, *(candidate.fingerprint for candidate in candidates)],
         )
         .select_related("issue")
         .order_by("fingerprint", "id")
@@ -270,44 +392,32 @@ def _merge_fingerprint_into_closest_issue(
         # completed, so allow the issue-created side effects instead of exhausting activity retries.
         return AutoMergeOutcome()
 
-    for candidate in eligible_fingerprints:
+    # Candidates come nearest first, so a distance merge always wins over a judged one.
+    for candidate in candidates:
         target_fingerprint = fingerprints_by_value.get(candidate.fingerprint)
         if target_fingerprint is None or source_fingerprint.issue_id == target_fingerprint.issue_id:
             continue
-
-        source_issue_id = source_fingerprint.issue_id
-        target_issue_id = target_fingerprint.issue_id
-        target_issue = target_fingerprint.issue
-        merge_outcome = target_issue.merge(
-            issue_ids=[source_issue_id],
-            expected_fingerprint_issue_ids={
-                fingerprint: source_issue_id,
-                candidate.fingerprint: target_issue_id,
-            },
+        if candidate.distance < config.auto_merge_threshold:
+            decision: dict[str, object] = {
+                "merge_decision": "distance",
+                "auto_merge_threshold": config.auto_merge_threshold,
+            }
+        elif judge_inputs is not None:
+            score = _judge_candidate(team, judge_inputs, candidate, config)
+            if score is None or score < config.judge_cutoff or config.judge_shadow:
+                return AutoMergeOutcome()
+            decision = {
+                "merge_decision": "judge",
+                "judge_score": score,
+                "judge_cutoff": config.judge_cutoff,
+                "judge_model": JUDGE_MODEL,
+                "judge_prompt_version": JUDGE_PROMPT_VERSION,
+            }
+        else:
+            continue
+        return _merge_into_candidate(
+            team, fingerprint, source_fingerprint, target_fingerprint, candidate, event_reference, decision
         )
-        if merge_outcome.result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
-            return AutoMergeOutcome()
-        if merge_outcome.result != ErrorTrackingIssueMergeResult.MERGED:
-            raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
-
-        capture = ph_background_capture()
-        capture(
-            distinct_id=str(team.uuid),
-            event="error_tracking_issue_merged",
-            groups=groups(team=team),
-            properties={
-                "merge_source": "auto",
-                "source_issue_id": str(source_issue_id),
-                "target_issue_id": str(target_issue_id),
-                "source_fingerprint": fingerprint,
-                "target_fingerprint": candidate.fingerprint,
-                "distance": candidate.distance,
-            },
-        )
-        reopened_target = (
-            _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
-        )
-        return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
     return AutoMergeOutcome()
 
@@ -338,6 +448,11 @@ def merge_similar_fingerprints(
             closest_fingerprints,
             inputs.source_issue_id,
             event_reference=_event_reference(inputs),
+            # Only read the flag when there is something to decide.
+            config=load_auto_merge_config(team)
+            if settings.ERROR_TRACKING_AUTO_MERGE_ENABLED and closest_fingerprints
+            else DEFAULT_AUTO_MERGE_CONFIG,
+            judge_inputs=inputs,
         )
 
         return FingerprintEmbeddingMergeResult(
