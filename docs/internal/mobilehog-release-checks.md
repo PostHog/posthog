@@ -56,7 +56,10 @@ To check cross-device delivery, start a cloud task from Desktop, put the mobile 
 
 ## Self-driving and task conversations
 
-Self-driving lists reports needing attention and PRs ready for review where the signed-in user is a suggested reviewer.
+Self-driving defaults to the "For you" scope, showing only reports where the signed-in user is a suggested reviewer.
+A header menu switches between "For you" and "Entire project". The scope lives in memory and resets to "For you" on app relaunch or account change.
+The drawer badge and triage deck also use the selected scope.
+Search remains project-wide regardless of scope.
 Its status control filters All active, Needs attention, Review PR, Resolved, or Dismissed before pagination. Newest first is the default; the sort menu also offers Priority.
 Opening a report marks it read for the current account and syncs with Desktop. Read actions clear the new-item indicators without dismissing the reports.
 Tapping a report in the list opens a separate full-detail screen. Report actions stay in its options menu. The visible Triage button opens the optional decision deck. Existing PRs remain in the report list.
@@ -64,7 +67,7 @@ The sync notice sits below the deck and cannot cover a card.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
 Read actions appear only when visible items are unread.
-Empty lists have a centered explanation. Loading and request failures have separate states.
+Empty lists have a centered explanation. When the scope is "For you", the empty state says "Nothing for you right now" and can be tapped to switch to the entire project. Loading and request failures have separate states.
 The empty Self-driving list does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
@@ -108,13 +111,17 @@ Before sharing a build:
   Confirm that the task appears. Disconnect the network and check that refresh shows an error with Retry.
 - Tap the login button twice quickly.
   Only one login flow should start.
-- Open Self-driving with reports for different suggested reviewers. Only your reports should appear. Select Priority and confirm that P0 appears first.
+- Open Self-driving. Confirm the list defaults to "For you" and shows only reports where you are a suggested reviewer.
+  Use the header menu to switch to "Entire project" and confirm that all project reports appear. Switch back to "For you".
+  Restart the app and confirm that the scope resets to "For you". Sign out and sign in to another account; confirm the scope resets.
+  Select Priority and confirm that P0 appears first.
   Open a report, mark loaded reports read, and confirm that the drawer indicator clears. Restart and check read state.
   Dismiss a report and confirm it leaves the project inbox. Disconnect the network and check that failed actions permit another attempt.
 - Open Activity with no items, then with only read items. Confirm that no mark-as-read action appears.
   Mark one unread item read, then mark the remaining visible items read. Confirm that the action disappears and the badge updates.
   Load older items. New activity that arrives during a read action must remain unread.
-- Open Self-driving with no reports. Confirm that the empty state has no read or triage action and no report instructions.
+- Open Self-driving with no reports for you. Confirm the empty state says "Nothing for you right now" and that tapping it switches to the entire project view.
+  Confirm that the empty state has no read or triage action and no report instructions.
   Disconnect the network and refresh. Confirm that the screen shows a request error with Retry, rather than a successful empty state.
 - Open a task with an uploaded image, a Markdown image, and a saved insight. Expand the images and read chart values.
   Reopen the task and check that stored attachments still load. Check an unavailable image and insight, then retry.
