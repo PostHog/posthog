@@ -5475,12 +5475,16 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_request", False),
+            ("same_request", False, False),
             # A backfill requested before calculation key version 2 writes the same days, so a second one would race it.
-            ("backfill_requested_before_key_version_2", True),
+            ("backfill_requested_before_key_version_2", True, False),
+            # A settings edit changes the key, but the running backfill still writes the same days.
+            ("settings_edited_while_the_backfill_runs", False, True),
         ]
     )
-    def test_request_timeseries_recalculation_idempotent(self, _name: str, first_under_legacy_key: bool) -> None:
+    def test_request_timeseries_recalculation_idempotent(
+        self, _name: str, first_under_legacy_key: bool, edit_settings_after_first: bool
+    ) -> None:
         self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
         experiment = service.create_experiment(
@@ -5502,6 +5506,14 @@ class TestExperimentService(APIBaseTest):
             ).id
         else:
             first_id = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})["id"]
+        if edit_settings_after_first:
+            key_before_edit = _calculation_key(experiment, "m1")
+            experiment.stats_config = {
+                **(experiment.stats_config or {}),
+                "cuped": {"enabled": True, "lookback_days": 21},
+            }
+            experiment.save()
+            assert _calculation_key(experiment, "m1") != key_before_edit
 
         second = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
 
