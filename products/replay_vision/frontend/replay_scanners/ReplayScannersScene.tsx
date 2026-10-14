@@ -178,7 +178,10 @@ export function ReplayScannersScene(): JSX.Element {
                           : null
                 return (
                     <Tooltip title={tooltip}>
-                        <ScannerStatusLabel status={status} className="whitespace-nowrap" />
+                        {/* The tooltip attaches its trigger to a DOM element, which the label component is not. */}
+                        <span>
+                            <ScannerStatusLabel status={status} className="whitespace-nowrap" />
+                        </span>
                     </Tooltip>
                 )
             },
