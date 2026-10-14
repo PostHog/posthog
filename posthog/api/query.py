@@ -364,7 +364,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
                 if is_enforced_guest(request) and isinstance(result.get("query_status"), dict):
-                    remember_joined_query(self.team.pk, result["query_status"], request.user.pk)
+                    remember_joined_query(self.team.pk, result["query_status"], cast(User, request.user).pk)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:
@@ -476,7 +476,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         # A query status holds the full results, so a guest may read only the queries they started or joined.
-        if is_enforced_guest(request) and not guest_may_read_query(self.team.pk, query_status, request.user.pk):
+        if is_enforced_guest(request) and not guest_may_read_query(
+            self.team.pk, query_status, cast(User, request.user).pk
+        ):
             raise QueryNotFoundError()
         managed_connection_id = next(
             (
