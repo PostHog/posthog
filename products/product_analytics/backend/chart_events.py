@@ -205,7 +205,7 @@ class _AliasInliner(CloningVisitor):
 
 
 def _from_date(where: ast.Expr, date_range: QueryDateRange, alias: str | None) -> ast.Expr:
-    """`where`, with the start of its date range when it reads events from any date before that.
+    """`where`, with the start the chart gives its date range when it reads events from any date before that.
 
     A "first time for user" series reads every earlier event to find the first one. The checks read its range only.
     """
@@ -219,7 +219,7 @@ def _from_date(where: ast.Expr, date_range: QueryDateRange, alias: str | None) -
     start = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=[alias, "timestamp"] if alias else ["timestamp"]),
-        right=date_range.date_from_as_hogql(),
+        right=date_range.to_placeholders()["date_from_with_adjusted_start_of_interval"],
     )
     return ast.And(exprs=[where, start])
 
