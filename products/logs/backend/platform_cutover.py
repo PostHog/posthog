@@ -35,6 +35,8 @@ class CutoverSkip(StrEnum):
     # The logs scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
+    # A team on live delivery can have the platform copy inside a firing of its own.
+    PLATFORM_FIRING = "platform_firing"
 
 
 @frozen
@@ -70,7 +72,7 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
             return CutoverSkip.CHECK_DUE
 
         upsert_configuration(platform_upsert_of(alert))
-        take_ownership(
+        taken = take_ownership(
             PlatformOwnershipHandover(
                 legacy_configuration_id=alert.id,
                 team_id=alert.team_id,
@@ -81,6 +83,8 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
                 at=at,
             )
         )
+        if not taken:
+            return CutoverSkip.PLATFORM_FIRING
         LogsAlertConfiguration.objects.filter(id=alert.id).update(
             owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at
         )

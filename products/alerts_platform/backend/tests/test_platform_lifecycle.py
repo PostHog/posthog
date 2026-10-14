@@ -105,6 +105,32 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         assert self._alert().state == "not_firing"
 
+    def test_a_copy_inside_its_own_firing_is_not_taken_over(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+            PlatformAlert.objects.create(
+                team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
+            )
+
+        taken = take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff,
+            )
+        )
+
+        assert not taken
+        self.configuration.refresh_from_db()
+        assert (self.configuration.owner, self._alert().state) == ("source", "firing")
+
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
 

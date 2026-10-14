@@ -45,9 +45,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return platform_lifecycle.upsert_configuration(upsert)
 
 
-def take_ownership(handover: PlatformOwnershipHandover) -> None:
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
-    platform_lifecycle.take_ownership(handover)
+    return platform_lifecycle.take_ownership(handover)
 
 
 def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:

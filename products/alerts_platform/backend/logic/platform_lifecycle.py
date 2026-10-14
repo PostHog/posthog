@@ -359,11 +359,13 @@ _HANDOVER_STATES: Final = frozenset(
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
 
 
-def take_ownership(handover: PlatformOwnershipHandover) -> None:
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state.
 
     The second writer of an alert's state beside `record_outcomes`. The caller holds the source's
     row lock and writes the source's owner in the same transaction, so both rows change together.
+    Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
+    delivery can have one open while its source is quiet, and replacing it would orphan the incident.
     Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
     """
     if handover.state not in _HANDOVER_STATES:
@@ -374,6 +376,9 @@ def take_ownership(handover: PlatformOwnershipHandover) -> None:
             .select_for_update()
             .get(legacy_configuration_id=handover.legacy_configuration_id)
         )
+        alert = _alerts_for_write(handover.team_id, [configuration])[str(configuration.id)]
+        if alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None:
+            return False
         configuration.owner = PlatformAlertOwner.PLATFORM
         configuration.owner_changed_at = handover.at
         configuration.consecutive_failures = handover.consecutive_failures
@@ -382,11 +387,10 @@ def take_ownership(handover: PlatformOwnershipHandover) -> None:
         configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
         configuration.save(update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at"])
 
-        alert = _alerts_for_write(handover.team_id, [configuration])[str(configuration.id)]
         alert.state = handover.state
         alert.last_notified_at = handover.last_notified_at
-        alert.firing_started_at = None
-        alert.save(update_fields=["state", "last_notified_at", "firing_started_at"])
+        alert.save(update_fields=["state", "last_notified_at"])
+    return True
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
