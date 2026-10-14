@@ -38,7 +38,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.RESOLVED})
+_SNOOZE_SOURCE_STATUSES = frozenset(
+    {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
+)
 
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
@@ -437,8 +439,8 @@ def arm_pending_checks_when_report_resolved(
         instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
         return
-    if instance.status != SignalReport.Status.RESOLVED:
-        if prior_status == SignalReport.Status.RESOLVED:
+    if instance.effective_status != SignalReport.Status.RESOLVED:
+        if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
             park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
@@ -493,7 +495,7 @@ def roll_up_plan_parents_when_report_closes(
     The roll-up walks the whole ancestor chain itself and marks the reports it moved, so this
     receiver stops on its own writes instead of starting a second walk per level.
     """
-    if instance.status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
+    if instance.effective_status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
         return
     if getattr(instance, "_plan_rollup", False):
         return

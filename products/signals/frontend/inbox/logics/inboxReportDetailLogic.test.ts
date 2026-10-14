@@ -29,7 +29,7 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
-    describe('priority editing', () => {
+    describe('report editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 
         beforeEach(async () => {
@@ -127,6 +127,29 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(save).toHaveBeenCalledTimes(1)
         })
+
+        it.each([200, 500])(
+            'guards Monitoring submissions and releases the guard after response %s',
+            async (responseStatus) => {
+                let completeSave: () => void = () => {}
+                const pendingSave = new Promise<void>((resolve) => {
+                    completeSave = resolve
+                })
+                const save = jest.fn(async () => {
+                    await pendingSave
+                    return [responseStatus, { ...REPORT, status: 'monitoring' }]
+                })
+                useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': save } })
+                logic.actions.changeReportState('monitoring')
+                await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+                expect(logic.values.reportStateSaving).toBe(true)
+                logic.actions.changeReportState('monitoring')
+                completeSave()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(save).toHaveBeenCalledTimes(1)
+                expect(logic.values.reportStateSaving).toBe(false)
+            }
+        )
 
         it('keeps the saved priority after a failure and allows retrying', async () => {
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })
