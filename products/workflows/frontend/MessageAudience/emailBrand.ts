@@ -213,6 +213,7 @@ async function findEmailBrand(
     const sent = await hogFlowsList(projectId, {
         origin_product: 'broadcasts',
         broadcast_status: 'sent',
+        latest_send_first: true,
         limit: SENT_BROADCASTS_TO_CHECK,
     })
     for (const broadcast of sent.results ?? []) {
