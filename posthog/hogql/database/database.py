@@ -2469,6 +2469,13 @@ class Database(BaseModel):
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
+            if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
+                # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
+                # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
+                database.get_table(["posthog", "flag_evaluations"]).fields["session"] = cast(
+                    LazyJoin, database.get_table("events").fields["session"]
+                ).model_copy()
+
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
                 _use_virtual_fields(database, modifiers, timings)
@@ -3222,6 +3229,12 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             create_traffic_type_field,
         )
 
+        # A flag call stores the same properties blob these fields read. A team's test account filters can read them.
+        flag_evaluations = (
+            database.get_table(["posthog", "flag_evaluations"])
+            if database.has_table(["posthog", "flag_evaluations"])
+            else None
+        )
         for field_name, factory_fn in [
             ("$virt_is_bot", create_is_bot_field),
             ("$virt_traffic_type", create_traffic_type_field),
@@ -3230,6 +3243,10 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
+            if flag_evaluations is not None:
+                flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
+                    update={"hidden": True}
+                )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

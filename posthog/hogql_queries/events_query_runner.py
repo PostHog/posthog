@@ -452,7 +452,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         )
 
     def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
-        # flag_evaluations rows carry no person properties, so a person filter joins persons.
+        # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
         # The pushdown limits that join to the persons that the page's flag calls reach.
         # An explicit personIdPushdown value on the team or the query still wins.
         if table is FLAG_EVALUATIONS_LIST_TABLE and self.modifiers.personIdPushdown is None:
