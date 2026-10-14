@@ -76,6 +76,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_cursor_partition_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sinks import (
     PipelineSinks,
     build_pipeline_sinks,
@@ -275,12 +278,10 @@ class PipelineV3(Generic[ResumableData]):
         # A queued repartition target is the scheme of the table when this attempt deletes the table
         # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
         # so no rewrite of the old table is necessary.
-        staged_scheme = (
-            self._schema.pending_scheme_for_table_replacement
-            if attempt <= 1
-            and resets_table_before_extraction(reset_pipeline, is_resume, self._schema, self._resource.webhook_only)
-            else None
+        replaces_table = attempt <= 1 and resets_table_before_extraction(
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
         )
+        staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
         self._writes_staged_repartition_scheme = staged_scheme is not None
         if staged_scheme is not None:
             partition_count = staged_scheme.get("partition_count") or self._resource.partition_count
@@ -312,6 +313,13 @@ class PipelineV3(Generic[ResumableData]):
             partition_mode = (
                 self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
             )
+            # The reset clears the saved layout only after this point, so a table that this attempt
+            # replaces must not inherit the mode of the table it deletes.
+            saved_mode = None if replaces_table else self._schema.partition_mode
+            if not (self._schema.partition_mode_override or saved_mode or self._resource.partition_mode):
+                cursor_keys = append_cursor_partition_keys(self._schema, table_is_replaced=replaces_table)
+                if cursor_keys:
+                    partition_keys, partition_mode = cursor_keys, "datetime"
 
         # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
         # so the query that tells the warehouse from an external destination cannot run here.

@@ -70,6 +70,7 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_event_count_with_groups_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -6111,6 +6112,37 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 5)
+
+    def test_get_teams_with_event_count_with_groups_in_period_excludes_non_billable_events(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        grouped_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="grouped_event",
+            team=self.team,
+            distinct_id="grouped_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$group_0": "org:1"},
+        )
+        for event in ["grouped_event", "$feature_flag_called", "$exception", "$ai_generation"]:
+            _create_event(
+                event_uuid=grouped_event_uuid if event == "grouped_event" else None,
+                event=event,
+                team=self.team,
+                distinct_id="grouped_user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$group_0": "org:1"},
+                person_mode="full",
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(get_teams_with_event_count_with_groups_in_period(self.begin, self.end), [(self.team.id, 2)])
+        self.assertEqual(
+            get_teams_with_event_count_with_groups_in_period(self.begin, self.end, count_distinct=True),
+            [(self.team.id, 1)],
+        )
 
     def test_get_all_event_metrics_counts_ai_sub_sdks(self) -> None:
         _create_event(

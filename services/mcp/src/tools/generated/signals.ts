@@ -782,6 +782,78 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
+const InboxSteeringInstructionsGetSchema = () => z.object({})
+
+const inboxSteeringInstructionsGet = (): ToolBase<
+    ReturnType<typeof InboxSteeringInstructionsGetSchema>,
+    Schemas.SignalTeamConfig
+> => ({
+    name: 'inbox-steering-instructions-get',
+    schema: InboxSteeringInstructionsGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSteeringInstructionsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalTeamConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/config/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'research_instructions',
+            'implementation_instructions',
+            'scout_instructions',
+        ]) as typeof result
+        return filtered
+    },
+})
+
+const InboxSteeringInstructionsUpdateSchema = () => {
+    const SignalsConfigCreateBody = orvalSchemas.SignalsConfigCreateBody()
+    return SignalsConfigCreateBody.omit({
+        autostart_enabled: true,
+        default_autostart_priority: true,
+        default_slack_notification_channel: true,
+        autostart_base_branches: true,
+        issue_tracking_integration: true,
+        issue_tracking_config: true,
+        max_reports_per_day: true,
+        default_open_pull_request_ready: true,
+        github_issue_writeback_enabled: true,
+        pull_request_label_enabled: true,
+        pull_request_label: true,
+    })
+}
+
+const inboxSteeringInstructionsUpdate = (): ToolBase<
+    ReturnType<typeof InboxSteeringInstructionsUpdateSchema>,
+    Schemas.SignalTeamConfig
+> => ({
+    name: 'inbox-steering-instructions-update',
+    schema: InboxSteeringInstructionsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSteeringInstructionsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scout_instructions !== undefined) {
+            body['scout_instructions'] = params.scout_instructions
+        }
+        if (params.research_instructions !== undefined) {
+            body['research_instructions'] = params.research_instructions
+        }
+        if (params.implementation_instructions !== undefined) {
+            body['implementation_instructions'] = params.implementation_instructions
+        }
+        const result = await context.api.request<Schemas.SignalTeamConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/config/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'research_instructions',
+            'implementation_instructions',
+            'scout_instructions',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ScoutCheckRecordResultSchema = () => {
     const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
     const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
@@ -3052,6 +3124,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
+    'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,

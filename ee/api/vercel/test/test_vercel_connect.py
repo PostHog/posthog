@@ -5,7 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.http.response import HttpResponseBase
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1301,7 +1301,7 @@ class TestDeleteOrphanedIntegration(VercelConnectTestBase):
         assert surviving_team_ids == {teams[key].pk for key in surviving_teams}
 
 
-class TestValidateNextUrl(TestCase):
+class TestValidateNextUrl(SimpleTestCase):
     @parameterized.expand(
         [
             ("valid_vercel", "https://vercel.com/done", "https://vercel.com/done"),
