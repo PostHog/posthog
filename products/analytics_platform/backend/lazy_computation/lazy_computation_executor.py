@@ -1887,6 +1887,10 @@ def get_ready_job_ids(
         cache_key_context=cache_key_context,
     )
     query_hash = compute_query_hash(query_info)
+    # The daily coverage check builds UTC days from the calendar date of each bound, so a
+    # project-local bound would shift the checked days and accept partial coverage.
+    time_range_start = _as_utc(time_range_start)
+    time_range_end = _as_utc(time_range_end)
     existing = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
     ready = filter_overlapping_jobs([j for j in existing if j.status == PreaggregationJob.Status.READY])
     # Only return ids when READY jobs fully cover [start, end). Partial coverage
@@ -1896,6 +1900,10 @@ def get_ready_job_ids(
     if find_missing_contiguous_windows(ready, time_range_start, time_range_end):
         return []
     return [j.id for j in ready]
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

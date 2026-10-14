@@ -2,6 +2,8 @@ import uuid
 from datetime import timedelta
 from typing import Optional
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
@@ -22,6 +24,9 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
 get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces"
+
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -45,7 +50,13 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                 start = min(start, self.runner.query_compare_to_date_range.date_from())
             end = self.runner.query_date_range.date_to()
             resolver = web_stats_dimensional_job_ids if which == "stats" else web_bounces_dimensional_job_ids
-            self._dimensional_job_ids[which] = resolver(self.runner.team, start, end)
+            try:
+                self._dimensional_job_ids[which] = resolver(self.runner.team, start, end)
+            except Exception:
+                # The dimensional read is optional, so a failed lookup must not fail the tile.
+                # An empty list makes the runner use the legacy or live path instead.
+                logger.exception("web_dimensional_ready_jobs_lookup_failed", team_id=self.runner.team.pk)
+                self._dimensional_job_ids[which] = []
         return self._dimensional_job_ids[which]
 
     def use_dimensional_tables(self) -> bool:
