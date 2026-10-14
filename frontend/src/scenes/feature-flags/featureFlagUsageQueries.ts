@@ -53,9 +53,7 @@ export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     emptyState?: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'>
 }
 
-// The generic empty state asks the user to change the query. For a new flag the query is right, but a
-// daily result stays cached for hours, so an empty result cached before the first calls arrived can
-// hide calls that the log below already lists. Point at Reload, which skips the cache, and at the log.
+// A cached empty daily result can hide new calls for hours, so point at Reload and the log, not the query.
 const FLAG_CALLS_EMPTY_STATE: FlagUsageChart['emptyState'] = {
     emptyStateHeading: 'No calls to this flag in this date range',
     emptyStateDetail:

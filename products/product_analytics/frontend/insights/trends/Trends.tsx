@@ -60,6 +60,17 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    const tableEmptyState =
+        context?.emptyStateHeading !== undefined || context?.emptyStateDetail !== undefined ? (
+            <InsightEmptyState
+                heading={context.emptyStateHeading}
+                detail={context.emptyStateDetail}
+                icon={context.emptyStateIcon}
+                sampleDataVariant="table"
+                insightProps={insightProps}
+            />
+        ) : undefined
+
     const renderViz = (): JSX.Element => {
         if (isLifecycle) {
             return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
@@ -84,11 +95,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                     canEditSeriesNameInline={editMode}
                     editMode={editMode}
                     isMainInsightView={true}
-                    emptyState={
-                        context?.emptyStateHeading !== undefined || context?.emptyStateDetail !== undefined ? (
-                            <InsightEmptyState heading={context.emptyStateHeading} detail={context.emptyStateDetail} />
-                        ) : undefined
-                    }
+                    emptyState={tableEmptyState}
                 />
             )
         }
