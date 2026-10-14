@@ -42,6 +42,10 @@ export const calculateFreeTier = (product: BillingProductV2Type | BillingProduct
     return product.free_allocation || 0
 }
 
+// Add-ons never carry the flag, and older billing omits it, so both count as allowing a limit.
+export const canHaveBillingLimit = (product: BillingProductV2Type | BillingProductV2AddonType): boolean =>
+    !('no_billing_limit' in product && product.no_billing_limit === true)
+
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     options: {
@@ -55,7 +59,8 @@ export const createGaugeItems = (
         // Billing limit (only for main products, excl. product variants setup)
         options.billingLimitAsUsage &&
         options.billing?.discount_percent !== 100 &&
-        !isProductVariantPrimary(product.type)
+        !isProductVariantPrimary(product.type) &&
+        canHaveBillingLimit(product)
             ? {
                   type: BillingGaugeItemKind.BillingLimit,
                   text: 'Billing limit',

@@ -150,13 +150,16 @@ class TestFileSystemAPI(APIBaseTest):
         queries = [
             {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
             {"kind": "InsightVizNode", "source": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+            {"kind": "BIVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
             None,
         ]
-        for query, expected_type in zip(queries, ["hog", "hog", "paths"]):
+        for query, expected_type in zip(queries, ["hog", "hog", "bi", "paths"]):
             Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query, filters={"insight": "JOURNEYS"})
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], expected_type)
+            if expected_type == "bi":
+                self.assertEqual(response.json()["results"][0]["href"], f"/bi/{insight.short_id}")
 
     def test_list_rejects_invalid_content_type_parameter(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})

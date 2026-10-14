@@ -424,6 +424,19 @@ def get_scout_report_capture_snapshot(*, team_id: int, report_id: str) -> dict[s
     return document
 
 
+def get_scout_report_decision_contents(*, team_id: int, report_id: str) -> dict[str, JsonValue]:
+    _validate_report_id(report_id)
+    contents: dict[str, JsonValue] = {}
+    for kind, model in (
+        ("actionability_judgment", ActionabilityAssessment),
+        ("priority_judgment", PriorityAssessment),
+    ):
+        assessment = SignalReportArtefact.latest_content(team_id=team_id, report_id=report_id, model=model)
+        if assessment is not None:
+            contents[kind] = assessment.model_dump(mode="json")
+    return contents
+
+
 def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
     the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate
@@ -1283,22 +1296,6 @@ def set_scout_report_repository(
     return True
 
 
-def _latest_status_artefact_content(
-    report_id: str, artefact_type: str, model: type[ActionabilityAssessment] | type[PriorityAssessment]
-) -> ActionabilityAssessment | PriorityAssessment | None:
-    row = (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-        .order_by("-created_at", "-id")
-        .first()
-    )
-    if row is None:
-        return None
-    try:
-        return model.model_validate_json(row.content)
-    except ValidationError:
-        return None
-
-
 def set_scout_report_decision(
     *,
     team_id: int,
@@ -1329,8 +1326,8 @@ def set_scout_report_decision(
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
         # Compared under the lock: `edit_report` is non-idempotent, and a re-send must not log a
         # second note or re-run auto-start for a decision that did not move.
-        if actionability is not None and actionability != _latest_status_artefact_content(
-            report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+        if actionability is not None and actionability != SignalReportArtefact.latest_content(
+            team_id=team_id, report_id=report_id, model=ActionabilityAssessment
         ):
             SignalReportArtefact.append_status(
                 team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
@@ -1345,8 +1342,8 @@ def set_scout_report_decision(
                 attribution=attribution,
             )
             changed.append("actionability")
-        if priority is not None and priority != _latest_status_artefact_content(
-            report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+        if priority is not None and priority != SignalReportArtefact.latest_content(
+            team_id=team_id, report_id=report_id, model=PriorityAssessment
         ):
             SignalReportArtefact.append_status(
                 team_id=team_id, report_id=report_id, content=priority, attribution=attribution

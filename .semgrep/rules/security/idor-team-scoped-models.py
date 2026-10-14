@@ -6,6 +6,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.actions.backend.models.action import Action
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
+from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.user_scene_personalisation import UserScenePersonalisation
 
 from ee.models.rbac.role import Role, RoleMembership
@@ -336,6 +337,12 @@ def vulnerable_org_filter_from_data(request):
     return RoleMembership.objects.filter(pk=membership_id)
 
 
+def vulnerable_org_get_id_jag_identity(request):
+    identity_id = request.data.get("identity_id")
+    # ruleid: idor-taint-user-input-to-org-model, idor-lookup-without-org
+    return IdJagIdentity.objects.get(pk=identity_id)
+
+
 # ok: idor-taint-user-input-to-org-model
 def safe_org_get_with_organization(request, organization):
     project_id = request.GET.get("project_id")
@@ -355,6 +362,13 @@ def safe_org_filter_with_role_organization(request, organization):
     membership_id = request.data.get("membership_id")
     # ok: idor-lookup-without-org
     return RoleMembership.objects.filter(pk=membership_id, role__organization=organization)
+
+
+# ok: idor-taint-user-input-to-org-model
+def safe_org_get_id_jag_identity_with_config(request, idp_config):
+    identity_id = request.data.get("identity_id")
+    # ok: idor-lookup-without-org
+    return IdJagIdentity.objects.get(pk=identity_id, identity_provider_config=idp_config)
 
 
 # ============================================================
@@ -387,6 +401,14 @@ obj, created = Role.objects.get_or_create(name="test")
 
 # ok: idor-lookup-without-org
 obj, created = Role.objects.get_or_create(name="test", organization=organization)
+
+# ruleid: idor-lookup-without-org
+identity, created = IdJagIdentity.objects.get_or_create(subject=subject, defaults={"user": user})
+
+# ok: idor-lookup-without-org
+identity, created = IdJagIdentity.objects.get_or_create(
+    identity_provider_config=idp_config, subject=subject, defaults={"user": user}
+)
 
 # ruleid: idor-lookup-without-org
 obj = Role.objects.aget_or_create(name="test")

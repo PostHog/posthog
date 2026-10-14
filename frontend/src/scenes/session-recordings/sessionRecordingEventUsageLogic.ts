@@ -51,8 +51,12 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingDebugChatReopened: () => {
         value: true
     }
-    reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
+    reportRecordingDebuggedWithAI: (
+        playerTimeSeconds: number,
+        promptEdited: boolean
+    ) => {
         playerTimeSeconds: number
+        promptEdited: boolean
     }
     reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
         format: 'json' | 'mp4'
@@ -86,13 +90,6 @@ export interface sessionRecordingEventUsageLogicActions {
         enabled: boolean
         minifilterKey: string
     }
-    reportRecordingListVisibilityToggled: (
-        type: string,
-        visible: boolean
-    ) => {
-        type: string
-        visible: boolean
-    }
     reportRecordingLoaded: (
         playerData: SessionPlayerData,
         metadata: SessionRecordingType | null
@@ -109,9 +106,6 @@ export interface sessionRecordingEventUsageLogicActions {
     }
     reportRecordingPinnedToList: (pinned: boolean) => {
         pinned: boolean
-    }
-    reportRecordingPlayerSeekbarEventHovered: () => {
-        value: true
     }
     reportRecordingsListFetched: (
         loadTime: number,
@@ -174,7 +168,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
-        reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
@@ -184,10 +177,12 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
             automatic,
         }),
         reportRecordingExportedToFile: (format: 'json' | 'mp4') => ({ format }),
-        reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => ({ playerTimeSeconds }),
+        reportRecordingDebuggedWithAI: (playerTimeSeconds: number, promptEdited: boolean) => ({
+            playerTimeSeconds,
+            promptEdited,
+        }),
         reportRecordingDebugChatReopened: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
-        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
@@ -257,9 +252,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingOpenedFromRecentRecordingList: () => {
             posthog.capture('recording opened from recent recording list')
         },
-        reportRecordingPlayerSeekbarEventHovered: () => {
-            posthog.capture('recording player seekbar event hovered')
-        },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
             posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })
         },
@@ -272,17 +264,17 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingExportedToFile: ({ format }) => {
             posthog.capture('recording exported to file', { format })
         },
-        reportRecordingDebuggedWithAI: ({ playerTimeSeconds }) => {
-            posthog.capture('recording debugged with ai', { player_time_seconds: playerTimeSeconds })
+        reportRecordingDebuggedWithAI: ({ playerTimeSeconds, promptEdited }) => {
+            posthog.capture('recording debugged with ai', {
+                player_time_seconds: playerTimeSeconds,
+                prompt_edited: promptEdited,
+            })
         },
         reportRecordingDebugChatReopened: () => {
             posthog.capture('recording debug chat reopened')
         },
         reportRecordingLoadedFromFile: (properties) => {
             posthog.capture('recording loaded from file', properties)
-        },
-        reportRecordingListVisibilityToggled: (properties) => {
-            posthog.capture('recording list visibility toggled', properties)
         },
         reportRecordingPinnedToList: (properties) => {
             posthog.capture('recording pinned to list', properties)

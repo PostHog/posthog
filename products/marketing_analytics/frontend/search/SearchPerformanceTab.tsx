@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonInput,
+    LemonMenu,
+    LemonSwitch,
     LemonSegmentedButton,
     LemonSelect,
     LemonSkeleton,
@@ -12,35 +13,37 @@ import {
 
 import { urls } from 'scenes/urls'
 
-import { SEARCH_PLATFORM_LABELS, SearchChannel, SearchPlatform, requiredSearchTables } from './searchPerformance'
+import { SearchChannel } from './searchPerformance'
 import { SearchPerformanceDetail } from './SearchPerformanceDetail'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 import { SearchSourceSuggestions } from './SearchSourceSuggestions'
 
-export function SearchPerformanceTab(): JSX.Element {
+export function SearchPerformanceTab({
+    showSourceSuggestions = true,
+}: {
+    showSourceSuggestions?: boolean
+}): JSX.Element {
     const {
         dataWarehouseSources,
         dataWarehouseSourcesLoading,
         sourcesError,
         sources,
         allSearchSources,
-        pendingSources,
+        sourceNotices,
         readySources,
         displayMetrics,
-        hasPaidSources,
-        showPosition,
-        canShowPosition,
+        wrapText,
+        conversionsDisabledReason,
         search,
         query,
         breakdown,
         channel,
         hasActiveFilters,
-        hasSelectedBingSource,
     } = useValues(searchPerformanceLogic)
-    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, setShowPosition, clearFilters } =
+    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, clearFilters, setWrapText } =
         useActions(searchPerformanceLogic)
-    const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
+    const loading = !sourcesError && !dataWarehouseSources
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -73,26 +76,23 @@ export function SearchPerformanceTab(): JSX.Element {
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
-            ) : sourcesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSources, loading }}>
+            ) : sourcesError && !dataWarehouseSources ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSources, loading: dataWarehouseSourcesLoading }}
+                >
                     Could not load your search sources. Try again to view search performance.
                 </LemonBanner>
             ) : (
                 <>
-                    {!hasActiveFilters && <SearchSourceSuggestions />}
-                    {breakdown === 'page' && channel !== 'organic' && hasSelectedBingSource && (
-                        <LemonBanner type="info">
-                            Bing Ads landing page metrics are not available in this view. Its keyword metrics are
-                            available under Keywords and queries.
-                        </LemonBanner>
-                    )}
-                    {pendingSources.map((source) => (
+                    {showSourceSuggestions && !hasActiveFilters && <SearchSourceSuggestions />}
+                    {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
-                            key={source.id}
+                            key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(source.id) }}
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
                         >
-                            {`${source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]}: enable ${requiredSearchTables(source, breakdown)} and wait for the first sync to finish.`}
+                            {message}
                         </LemonBanner>
                     ))}
                     {sources.length === 0 && (hasActiveFilters || allSearchSources.length > 0) && (
@@ -111,14 +111,28 @@ export function SearchPerformanceTab(): JSX.Element {
                                     data-attr="marketing-search-keyword-filter"
                                 />
                                 <div className="flex flex-wrap items-center gap-3">
-                                    {canShowPosition && (
-                                        <LemonCheckbox
-                                            checked={showPosition}
-                                            onChange={setShowPosition}
-                                            label="Show position"
-                                            data-attr="marketing-search-show-position"
-                                        />
-                                    )}
+                                    <LemonMenu
+                                        items={[
+                                            {
+                                                custom: true,
+                                                label: (
+                                                    <LemonSwitch
+                                                        label="Wrap text"
+                                                        checked={wrapText}
+                                                        onChange={setWrapText}
+                                                    />
+                                                ),
+                                            },
+                                        ]}
+                                    >
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            data-attr="marketing-search-table-options"
+                                        >
+                                            Table options
+                                        </LemonButton>
+                                    </LemonMenu>
                                     <LemonSegmentedButton
                                         value={displayMetrics}
                                         onChange={setMetrics}
@@ -126,10 +140,8 @@ export function SearchPerformanceTab(): JSX.Element {
                                             { value: 'traffic', label: 'Traffic' },
                                             {
                                                 value: 'conversions',
-                                                label: 'Spend and conversions',
-                                                disabledReason: !hasPaidSources
-                                                    ? 'Organic search does not report spend or conversions'
-                                                    : undefined,
+                                                label: 'Conversions',
+                                                disabledReason: conversionsDisabledReason ?? undefined,
                                             },
                                         ]}
                                     />
@@ -138,7 +150,7 @@ export function SearchPerformanceTab(): JSX.Element {
                             <SearchPerformanceTable
                                 query={query}
                                 metrics={displayMetrics}
-                                showPosition={showPosition}
+                                wrapText={wrapText}
                                 onSelect={selectRow}
                                 emptyState={
                                     <div className="flex flex-col items-center gap-2 py-4">
@@ -159,9 +171,9 @@ export function SearchPerformanceTab(): JSX.Element {
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                                Conversions use the ad platform's attribution. Google Search Console does not report
-                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
-                                impressions. Hover over a change to see its comparison value.
+                                Reported conversions use the ad platform's attribution. Google Search Console does not
+                                report spend or conversions, and can omit low-volume queries. Organic positions are
+                                weighted by impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}

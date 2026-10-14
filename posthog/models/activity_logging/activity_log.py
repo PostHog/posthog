@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -129,9 +130,13 @@ ActivityScope = Literal[
     "TableCertification",
     "DataQualityCheck",
     "DataQualityCheckSchedule",
+    "WarehouseSuggestion",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
+    "ReviewRepository",
+    "ReviewProjectSettings",
+    "ReviewInstallationClaim",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -284,6 +289,63 @@ class ActivityLog(UUIDTModel):
     detail = models.JSONField(encoder=ActivityDetailEncoder, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
+    @property
+    def safe_detail(self) -> Optional[dict[str, Any]]:
+        """The detail with the values of masked fields hidden, including rows written before the mask."""
+        masked_fields = {
+            *field_with_masked_contents.get(cast(AuditableScope, self.scope), []),
+            *read_masked_fields.get(self.scope, []),
+        }
+        if not masked_fields or not isinstance(self.detail, dict) or not isinstance(self.detail.get("changes"), list):
+            return self.detail
+        changes = []
+        for change in self.detail["changes"]:
+            if isinstance(change, dict) and change.get("field") in masked_fields:
+                masked = mask_change_values(self.scope, change["field"], change.get("before"), change.get("after"))
+                change = {**change, "before": masked.before, "after": masked.after}
+            changes.append(change)
+        return {**self.detail, "changes": changes}
+
+
+# Fields older rows still hold in plaintext although new rows no longer record them.
+read_masked_fields: dict[str, list[str]] = {
+    # Site functions inline their input values into the compiled JavaScript.
+    "HogFunction": ["transpiled"],
+}
+
+# Fields whose keys stay readable, so a reader still sees which entry changed.
+key_masked_fields: dict[str, list[str]] = {
+    "HogFunction": ["inputs"],
+}
+
+
+@frozen
+class MaskedChange:
+    before: Any
+    after: Any
+
+
+def mask_change_values(scope: str, field: str, before: Any, after: Any) -> MaskedChange:
+    """Hide a masked field's values. A key-masked field keeps its keys and marks the changed ones."""
+    if field in key_masked_fields.get(scope, []) and isinstance(before or {}, dict) and isinstance(after or {}, dict):
+        before_values = before or {}
+        after_values = after or {}
+        masked_before = dict.fromkeys(before_values, "masked") if before is not None else None
+        masked_after = (
+            {
+                key: "masked"
+                if key in before_values
+                and json.dumps(before_values[key], sort_keys=True, default=str)
+                == json.dumps(value, sort_keys=True, default=str)
+                else "changed"
+                for key, value in after_values.items()
+            }
+            if after is not None
+            else None
+        )
+        return MaskedChange(before=masked_before, after=masked_after)
+    return MaskedChange(before="masked" if before is not None else None, after="masked" if after is not None else None)
+
 
 common_field_exclusions = [
     "id",
@@ -302,7 +364,10 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "AccountView": ["name", "content", "text_content"],
+    "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
+        "inputs",
+        "mappings",
         # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
         # leak-adjacent at worst; record that they changed, never the values.
         "encrypted_inputs",
@@ -409,6 +474,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
+        "lifecycle_locked": "owner-only pause, resume, and delete",
+        "allowed_mcp_tools": "allowed MCP tools",
+        "tool_preset": "tool preset",
     },
     # Match the labels the inbox settings show, so an entry reads the way the setting was flipped.
     "SignalTeamConfig": {
@@ -465,6 +533,7 @@ replay_scanner_machine_fields = [
     "search_last_viewed_at",
     "prompt_question",
     "prompt_question_source",
+    "prompt_valence",
     "limit_notified_period_start",
     "admission_budget_used",
     "admission_budget_refreshed_at",
@@ -505,12 +574,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
-    "Loop": [
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -528,6 +591,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
+    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
+    # site, so the save that only moves the active version must not add an `updated` row.
+    "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
     # and the failure streak by the runner on every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
@@ -651,6 +717,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # on each settings toggle, and none of it is configuration.
         "pull_requests",
     ],
+    "StreamlitApp": [
+        # Reverse relations. Version uploads and activations log their own rows, and a version's
+        # str() includes the app name, so a rename would show a false versions change.
+        "versions",
+        "sandbox",
+    ],
     "HogFlow": [
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.
@@ -673,20 +745,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "saved_query",
         "table",
     ],
-    "Loop": [
-        # FK relations are not JSON-serializable for the change detail (same reason
-        # FeatureFlag/Subscription exclude theirs).
-        "team",
-        "sandbox_environment",
-        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
-        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
-        "triggers",
-        "fires",
-        # Run bookkeeping, not user-meaningful config.
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
+    "WarehouseSuggestion": [
+        "evidence",
+        "score_inputs",
+        "payload",
     ],
     "OrganizationDomain": [
         "organization",
@@ -724,7 +786,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "errors_calculating",
     ],
     "HogFunction": [
+        # Compiled output of `hog`, which the diff records on its own. For site functions the
+        # transpiled JavaScript also inlines the input values that `field_with_masked_contents`
+        # hides, so a diff of it would put those values back into the log.
         "bytecode",
+        "transpiled",
         "icon_url",
         # Bookkeeping for the draft/revision cycle: `draft` already records that config was staged,
         # and the per-version audit lives in the revisions endpoints.
@@ -944,7 +1010,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "static_devices",
         "recovery_devices",
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
-        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        # ambient team scope at signal-handling time.
         "facet_settings",
     ],
     "AlertConfiguration": [
@@ -967,6 +1033,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
+        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
+        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -1160,8 +1228,13 @@ def changes_between(
             left_is_none = left is None or (empty_values is not None and left in empty_values)
             right_is_none = right is None or (empty_values is not None and right in empty_values)
 
-            left_value = "masked" if field_name in masked_fields else left
-            right_value = "masked" if field_name in masked_fields else right
+            change_values = (
+                mask_change_values(model_type, field_name, left, right)
+                if field_name in masked_fields
+                else MaskedChange(before=left, after=right)
+            )
+            left_value = change_values.before
+            right_value = change_values.after
 
             # Use the override name if it exists
             display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
@@ -1631,8 +1704,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

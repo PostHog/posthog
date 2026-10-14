@@ -1,14 +1,24 @@
 """Classify a failed scoring run, and tell when the champion's scheduled runs show it cannot score."""
 
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
+
+from django.utils import timezone as django_timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error
 
 from products.autoresearch.backend.inference.sandbox import ModelLoadError
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchRun
+
+logger = structlog.get_logger(__name__)
+
+# The inference workflow's execution timeout. It covers both activity attempts plus their backoff,
+# so an inference run still RUNNING after this long lost its worker and no attempt can close it.
+INFERENCE_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
 
 class FailureKind(StrEnum):
@@ -102,3 +112,29 @@ def find_unscorable_champion(champion: AutoresearchModel | None) -> UnscorableCh
         return None
     newest_day = max(failed_days)
     return UnscorableChampion(failure_kind=failed_days[newest_day], onset=min(failed_days))
+
+
+def fail_stale_inference_runs() -> int:
+    """
+    Fail every inference run, across all teams, that is still RUNNING after ``INFERENCE_WORKFLOW_TIMEOUT``.
+
+    A lost worker, a heartbeat timeout, or a cancellation ends the attempt before the scoring code
+    records an outcome. The kind is ``other``, so ``find_unscorable_champion`` does not count the run.
+    """
+    now = django_timezone.now()
+    stale = AutoresearchRun.objects.unscoped().filter(
+        run_type=AutoresearchRun.RunType.INFERENCE,
+        status=AutoresearchRun.Status.RUNNING,
+        started_at__lt=now - INFERENCE_WORKFLOW_TIMEOUT,
+    )
+    failed = 0
+    for run in stale:
+        run.status = AutoresearchRun.Status.FAILED
+        run.error = "Scoring stopped without a result. The worker was lost or the attempt timed out."
+        run.metrics["failure_kind"] = FailureKind.OTHER
+        run.completed_at = now
+        run.save(update_fields=["status", "error", "metrics", "completed_at"])
+        failed += 1
+    if failed:
+        logger.warning("autoresearch_stale_inference_runs_failed", count=failed)
+    return failed

@@ -1,20 +1,21 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Source-level vendor API version labels. Distinct from the per-endpoint URL versions baked into
-# LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). The source already
-# reads Langfuse's current route for every resource that has one (`/v2/observations`, `/v3/scores`,
-# `/v2/prompts`, `/v2/datasets`), so both labels resolve to the same wire — the bump is a declaration
-# plus deprecation with no request-layer branching. v1 keeps the pre-versioning UNVERSIONED default
-# so already-pinned rows resolve unchanged.
+# LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). v1 and v2 resolve
+# to the same wire: v1 keeps the pre-versioning UNVERSIONED default so already-pinned rows resolve
+# unchanged. Both read the `/traces` and `/sessions` routes Langfuse Cloud stops serving on
+# 2026-11-16; v3 drops those tables, as `observations` already carries traceId and sessionId.
 LANGFUSE_API_VERSION_V1 = UNVERSIONED_API_VERSION
 LANGFUSE_API_VERSION_V2 = "v2"
-SUPPORTED_VERSIONS = (LANGFUSE_API_VERSION_V1, LANGFUSE_API_VERSION_V2)
-DEFAULT_VERSION = LANGFUSE_API_VERSION_V2
+LANGFUSE_API_VERSION_V3 = "v3"
+SUPPORTED_VERSIONS = (LANGFUSE_API_VERSION_V1, LANGFUSE_API_VERSION_V2, LANGFUSE_API_VERSION_V3)
+DEFAULT_VERSION = LANGFUSE_API_VERSION_V3
+LANGFUSE_LEGACY_SUNSET = date(2026, 11, 16)
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -61,6 +62,9 @@ class LangfuseEndpointConfig:
     # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
     # ascending on the field the from-filter applies to, so a later page never holds an earlier row.
     keyset_pagination: bool = False
+    # Fan-out child: `path` holds a `{parent_id}` placeholder, filled with the `id` of every row of
+    # this parent endpoint.
+    parent: Optional[str] = None
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -73,7 +77,8 @@ _OBSERVATION_FIELDS = "core,basic,time,io,metadata,model,usage,prompt,metrics,tr
 _SCORE_FIELDS = "details,subject,annotation"
 
 # Endpoints cover the resources a user most commonly wants to analyze from an LLM observability
-# platform: traces, observations, scores, sessions, prompts, datasets, and model pricing.
+# platform: traces, observations, scores, sessions, prompts, datasets, model pricing, score
+# configs, and annotation queues.
 # Incremental support is only declared where the API documents a server-side timestamp filter.
 LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
     "traces": LangfuseEndpointConfig(
@@ -169,9 +174,51 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         page_size=50,
         # No server-side timestamp filter -> full refresh only.
     ),
+    "score_configs": LangfuseEndpointConfig(
+        name="score_configs",
+        path="/api/public/score-configs",
+        pagination="page",
+        page_size=50,
+        # No server-side timestamp filter -> full refresh only.
+        partition_key="createdAt",
+    ),
+    "annotation_queues": LangfuseEndpointConfig(
+        name="annotation_queues",
+        path="/api/public/annotation-queues",
+        pagination="page",
+        page_size=50,
+        # No server-side timestamp filter -> full refresh only.
+        partition_key="createdAt",
+    ),
+    "annotation_queue_items": LangfuseEndpointConfig(
+        name="annotation_queue_items",
+        path="/api/public/annotation-queues/{parent_id}/items",
+        pagination="page",
+        page_size=50,
+        parent="annotation_queues",
+        # Only filterable by status, not by time -> full refresh only.
+        primary_keys=["queueId", "id"],
+        partition_key="createdAt",
+    ),
 }
 
 ENDPOINTS = tuple(LANGFUSE_ENDPOINTS.keys())
+
+LEGACY_ONLY_ENDPOINTS = frozenset({"traces", "sessions"})
+
+ENDPOINTS_BY_VERSION: dict[str, tuple[str, ...]] = {
+    LANGFUSE_API_VERSION_V1: ENDPOINTS,
+    LANGFUSE_API_VERSION_V2: ENDPOINTS,
+    LANGFUSE_API_VERSION_V3: tuple(name for name in ENDPOINTS if name not in LEGACY_ONLY_ENDPOINTS),
+}
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    try:
+        return ENDPOINTS_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(f"Unsupported Langfuse API version: {api_version!r}") from e
+
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in LANGFUSE_ENDPOINTS.items()

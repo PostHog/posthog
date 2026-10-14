@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -74,6 +75,17 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
             releaseStatus=ReleaseStatus.ALPHA,
             # Hidden until PostHog's X app is approved for Ads API access and its keys are deployed.
             featureFlag="dwh-twitter-ads",
+            suggestedTables=[
+                SuggestedTable(table="campaigns", tooltip="Required for campaign names in Marketing analytics."),
+                SuggestedTable(
+                    table="campaign_stats",
+                    tooltip="Required for daily spend, clicks, and impressions in Marketing analytics.",
+                ),
+                SuggestedTable(table="line_items", tooltip="Required for ad group names in Marketing analytics."),
+                SuggestedTable(
+                    table="line_item_stats", tooltip="Required for daily ad group metrics in Marketing analytics."
+                ),
+            ],
             fields=cast(
                 list[FieldType],
                 [

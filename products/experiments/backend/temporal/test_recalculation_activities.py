@@ -20,8 +20,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -30,12 +30,12 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.temporal.models import (
-    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
+    TIMEOUT_MAX_METRIC_ATTEMPTS,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -51,6 +51,12 @@ _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defi
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
 _calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _discover(recalculation_id: str):
@@ -747,44 +753,68 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
-            # the explicit next_retry_delay; a generic transient on attempt 2 follows the policy backoff
-            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
-            # (which can embed the executed query, warehouse secrets included) never reaches the API field.
+            # (name, exc, attempt, expected_error_type, expected_delay_seconds, expected_max_attempts,
+            # expected_message) — backpressure uses the explicit next_retry_delay; a generic transient on
+            # attempt 2 follows the policy backoff (5 * 2^1). The generic exception carries a fake credential
+            # to lock in that raw exception text (which can embed the executed query, warehouse secrets
+            # included) never reaches the API field.
             (
                 "backpressure",
                 ConcurrencyLimitExceeded("quota"),
+                2,
                 "rate_limited",
-                60,
+                47.5,
+                CAPACITY_MAX_METRIC_ATTEMPTS,
                 "The query was deferred because the cluster is at capacity.",
             ),
             (
                 "generic_transient",
                 RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                2,
                 "server_error",
                 10,
+                MAX_METRIC_ATTEMPTS,
                 "The query failed with a server error.",
+            ),
+            (
+                "timeout",
+                ClickHouseQueryTimeOut(),
+                1,
+                "timeout",
+                5,
+                TIMEOUT_MAX_METRIC_ATTEMPTS,
+                "The query timed out.",
             ),
         ]
     )
     @time_machine.travel("2026-05-29T13:00:00Z", tick=False)
     def test_transient_attempt_records_retry_state_and_success_clears_it(
-        self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int, expected_message: str
+        self,
+        name: str,
+        exc: Exception,
+        attempt: int,
+        expected_error_type: str,
+        expected_delay_seconds: float,
+        expected_max_attempts: int,
+        expected_message: str,
     ):
         # The retry entry is what the UI shows between attempts; without it the metric looks stuck. It must
         # carry the attempt counters and a next_retry_at estimate, and vanish once the metric resolves.
         exp = self._experiment(flag_key=f"calc-retry-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
+        ):
             mock_runner.return_value.run.side_effect = exc
             with pytest.raises((type(exc), ApplicationError)):
-                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=attempt)
 
         recalc.refresh_from_db()
         entry = recalc.metric_retries["m1"]
-        assert entry["attempt"] == 2
-        assert entry["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert entry["attempt"] == attempt
+        assert entry["max_attempts"] == expected_max_attempts
         assert entry["error_type"] == expected_error_type
         assert entry["message"] == expected_message
         assert "AKIAFAKESECRET" not in entry["message"]
@@ -793,7 +823,7 @@ class TestCalculateActivity(BaseTest):
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=3)
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=attempt + 1)
 
         assert result.success is True
         recalc.refresh_from_db()
@@ -862,13 +892,14 @@ class TestCalculateActivity(BaseTest):
         with (
             patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+            patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
         ):
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
             assert exc_info.value.type == type(exc).__name__
-            assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
+            assert exc_info.value.next_retry_delay == timedelta(seconds=47.5)
             mock_capture.assert_not_called()
             recalc.refresh_from_db()
             assert recalc.metric_errors == {}
@@ -882,6 +913,37 @@ class TestCalculateActivity(BaseTest):
             assert "m1" in recalc.metric_errors
             row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
             assert row.status == ExperimentMetricResult.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity(), CAPACITY_MAX_METRIC_ATTEMPTS, "rate_limited"),
+            ("timeout", ClickHouseQueryTimeOut(), TIMEOUT_MAX_METRIC_ATTEMPTS, "timeout"),
+        ]
+    )
+    def test_error_class_cap_fails_the_metric_before_the_policy_limit(
+        self, name: str, exc: Exception, cap: int, expected_error_type: str
+    ):
+        exp = self._experiment(flag_key=f"calc-class-cap-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            with pytest.raises((type(exc), ApplicationError)):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=cap - 1)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_retries
+            assert recalc.metric_errors == {}
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=cap)
+
+        assert exc_info.value.non_retryable is True
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+        assert recalc.metric_errors["m1"]["error_type"] == expected_error_type
+        assert recalc.metric_errors["m1"]["retriable"] is True
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
 
     @parameterized.expand(
         [
@@ -989,15 +1051,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1056,15 +1110,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1580,15 +1626,16 @@ class TestRecalculationAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
-            # the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_max_attempts, expected_message) —
+            # backpressure uses the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
             # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
             # (which can embed the executed query, warehouse secrets included) never reaches analytics.
             (
                 "backpressure",
                 ConcurrencyLimitExceeded("quota"),
                 "rate_limited",
-                60,
+                47.5,
+                CAPACITY_MAX_METRIC_ATTEMPTS,
                 "The query was deferred because the cluster is at capacity.",
             ),
             (
@@ -1596,6 +1643,7 @@ class TestRecalculationAnalytics(BaseTest):
                 RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
                 "server_error",
                 10,
+                MAX_METRIC_ATTEMPTS,
                 "The query failed with a server error.",
             ),
         ]
@@ -1605,7 +1653,8 @@ class TestRecalculationAnalytics(BaseTest):
         name: str,
         exc: Exception,
         expected_error_type: str,
-        expected_delay_seconds: int,
+        expected_delay_seconds: float,
+        expected_max_attempts: int,
         expected_message: str,
     ):
         # A non-final attempt re-raises for Temporal to retry. It emits 'experiment metric retry' (not
@@ -1616,9 +1665,10 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with (
+                patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+                patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
+            ):
                 mock_runner.return_value.run.side_effect = exc
                 with pytest.raises((type(exc), ApplicationError)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
@@ -1630,7 +1680,7 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["error_message"] == expected_message
         assert "AKIAFAKESECRET" not in props["error_message"]
         assert props["attempt"] == 2
-        assert props["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert props["max_attempts"] == expected_max_attempts
         assert props["next_retry_delay_seconds"] == expected_delay_seconds
         assert props["execution_mode"] == "recalculation"
         assert props["mechanism"] == "orchestrated"

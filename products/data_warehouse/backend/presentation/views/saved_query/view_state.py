@@ -17,12 +17,18 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.data_modeling.backend.facade.api import get_incremental_config
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
-from . import sync_cadence, view_description
+from . import rendered_node_states, sync_cadence, view_description
 
 # Only these two are still written to the column: MODIFIED on edit, CANCELLED by the cancel action.
 # Every other value was last written by the v1 materialization workflow, which no longer exists, so it
 # describes a run no current code path could have produced.
 STATUSES_STILL_WRITTEN = frozenset({DataWarehouseSavedQuery.Status.MODIFIED, DataWarehouseSavedQuery.Status.CANCELLED})
+
+
+class SavedQuerySuspensionSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When materialization was suspended.")
+    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
+    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -70,6 +76,18 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
         return run.error if run is not None else None
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=SavedQuerySuspensionSerializer(),
+            help_text="Engines this query's materialization is suspended for after repeated failures. "
+            "Suspended engines are skipped by scheduled runs until the query is resumed.",
+        )
+    )
+    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        state = rendered_node_states.rendered_node_states(self.root, view).get(str(view.pk))  # type: ignore[attr-defined]
+        suspended = state.suspended if state is not None else {}
+        return {engine: SavedQuerySuspensionSerializer(marker).data for engine, marker in suspended.items()}
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -141,6 +159,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
+    suspended = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     folder_id = serializers.UUIDField(source="folder.id", read_only=True, allow_null=True)
     folder_name = serializers.CharField(source="folder.name", read_only=True, allow_null=True)
@@ -167,6 +186,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "folder_id",
             "folder_name",
             "latest_error",
+            "suspended",
             "is_materialized",
             "is_incremental",
             "origin",
@@ -175,9 +195,3 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "user_access_level",
         ]
         read_only_fields = fields
-
-
-class SavedQuerySuspensionSerializer(serializers.Serializer):
-    at = serializers.DateTimeField(help_text="When materialization was suspended.")
-    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
-    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")

@@ -139,12 +139,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def repartition_view(self, request, schema_id):
-        # Stage partition settings and trigger a non-billable reset resync. Covers both
+        # Stage partition settings and trigger a non-billable in-place repartition. Covers both
         # repartitioning in place (keep the mode, change its knob — count/size/format) and
         # switching the mode entirely (e.g. md5 → datetime on a date column). The chosen
-        # mode/keys/knob are written as *_override keys that survive the bundled reset and are
-        # consumed once applied. Repartition without the reset would mix old and new layouts in
-        # the same Delta table and corrupt it, so the reset is always bundled in.
+        # mode/keys/knob become a `repartition_pending` target, which the run's pre-extraction
+        # activity applies by rewriting the stored files. No reset, no source re-pull.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 

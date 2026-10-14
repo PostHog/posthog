@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -65,7 +66,7 @@ from familiarity import (
     familiarity_from_facts,
 )
 from gates import POLICY, assign_tier, dependency_manifests_without_lockfile, substantive_size
-from gateway import REVIEWER_MODEL
+from gateway import SUMMARY_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
     CommitProvenance,
@@ -75,6 +76,7 @@ from github import (
     _normalize_reviews_for_prompt,
     _prompt_worthy_author,
     _reaction_emoji,
+    git_touched_paths,
     is_bot_author,
     pr_provenance,
     provenance_from_messages,
@@ -182,8 +184,12 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     base_ref = base.get("ref") or default_branch
 
     files = _git_diff_files(base_sha, head_sha, REPO_ROOT, merge_base_sha) if checkout else []
-    if not files:
-        files = [_convert_api_file(f) for f in context.get("files") or []]
+    if files:
+        touched_paths = git_touched_paths(base_sha, head_sha, REPO_ROOT, merge_base_sha)
+    else:
+        api_files = context.get("files") or []
+        files = [_convert_api_file(f) for f in api_files]
+        touched_paths = [path for f in api_files for path in (f.get("filename"), f.get("previous_filename")) if path]
 
     # Drop only EMPTY COMMENTED reviews from the offline reviews. A bare COMMENTED top-level review
     # carries no readable body — yet _summarize_assurance would surface its author as a current-head
@@ -245,6 +251,8 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 }
             )
 
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -259,6 +267,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         head_sha=head_sha,
         merge_base_sha=merge_base_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=review_comments,
         check_runs=context.get("check_runs") or [],
@@ -267,6 +276,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
+        review_evidence=review_evidence,
     )
 
 
@@ -561,7 +571,7 @@ def pregate(context: dict) -> dict:
     if "commit_messages" in context:
         pipeline.provenance = _context_provenance(context, pipeline.pr)
     folder_policies_known = context.get("folder_policies_known") is True
-    outcome = {"final": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
+    outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
@@ -646,6 +656,23 @@ def run(context: dict) -> dict:
                     f"{bot_list} still {'have' if len(in_flight) > 1 else 'has'} a review in flight (👀) — "
                     "not approving over an unfinished review. The review re-runs on the next push, or "
                     "re-request one once the reviewer finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
+        # The server waited for these reviews too, so a review still pending here outlasted the
+        # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
                 ),
                 "risk": "unknown",
                 "issues": [],

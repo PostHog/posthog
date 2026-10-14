@@ -33,8 +33,11 @@ import { DEFAULT_MATERIALIZE_SYNC_FREQUENCY, dataWarehouseViewsLogic } from './d
 import { latestSuccessfulSyncAt } from './materializationJobUtils'
 import { SyncFrequencyValue } from './SyncFrequencySelect'
 
-const ACTIVE_REFRESH_INTERVAL_MS = 10000
+const ACTIVE_REFRESH_INTERVAL_MS = 5000
 const IDLE_REFRESH_INTERVAL_MS = 60000
+// The run request returns before the workflow writes the job row, so a run can take a while to show up.
+// Give up waiting after this long so the controls do not stay blocked when no job ever appears.
+const STARTING_TIMEOUT_MS = 120000
 export const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export interface MaterializationJobsLogicProps {
@@ -93,6 +96,7 @@ export interface materializationJobsLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     materializationChanged: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic
@@ -293,6 +297,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 'deleteDataWarehouseSavedQuery',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'deleteDataWarehouseSavedQueryFailure',
+                'loadDataWarehouseSavedQueries',
             ],
         ],
     })),
@@ -399,7 +404,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         jobsPage: [1, { setJobsPage: (_, { page }) => page }],
         olderJobsPageError: [false, { loadOlderJobsPage: () => false, loadOlderJobsPageFailure: () => true }],
         deletingView: [false, { deleteView: () => true, finishDeletingView: () => false }],
@@ -496,25 +501,13 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             false,
             {
                 setStartingMaterialization: (_, { starting }: { starting: boolean }) => starting,
-                // No job exists when the request itself failed, so the job-status reset below never
-                // fires and the controls would stay disabled until the panel remounts.
-                runDataWarehouseSavedQueryFailure: () => false,
-                loadDataModelingJobsSuccess: (
-                    state: boolean,
-                    { dataModelingJobs }: { dataModelingJobs: PaginatedDataModelingJobListApi | null }
-                ) => {
-                    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
-                    if (
-                        currentJobStatus &&
-                        ['Running', 'Completed', 'Failed', 'Cancelled', 'Skipped'].includes(currentJobStatus)
-                    ) {
-                        return false
-                    }
-                    return state
-                },
+                // No job exists when the request itself failed, so the reset on job arrival never
+                // fires and the controls would stay disabled until the starting timeout.
+                runDataWarehouseSavedQueryFailure: (state: boolean, { viewId }: { viewId: string }) =>
+                    viewId === props.viewId ? false : state,
             },
         ],
-    }),
+    })),
     selectors({
         materializationRefreshPending: [
             (s) => [s.savedQueryRefreshPending, s.jobsRefreshPending],
@@ -562,11 +555,26 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             ) => latestSuccessfulSyncAt([...(dataModelingJobs?.results ?? []), ...(latestCompletedJob?.results ?? [])]),
         ],
     }),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, cache, props }) => {
         if (props.viewId) {
             actions.loadDataModelingJobs()
             actions.loadSavedQuery()
         }
+        // Background tabs pause the poll timer, and it restarts with its full delay. Reload at once
+        // when the user comes back, so the panel does not show a finished run as still running.
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (!document.hidden && props.viewId) {
+                        actions.loadDataModelingJobs()
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'visibilityRefresh',
+            { pauseOnPageHidden: false }
+        )
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.viewId && props.viewId !== oldProps.viewId) {
@@ -611,6 +619,26 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 const timeoutId = setTimeout(() => actions.loadDataModelingJobs(), delay)
                 return () => clearTimeout(timeoutId)
             }, 'dataModelingJobsRefreshTimeout')
+        },
+        setStartingMaterialization: ({ starting }) => {
+            if (!starting) {
+                cache.disposables.dispose('startingMaterializationTimeout')
+                return
+            }
+            cache.newestJobIdBeforeStart = values.dataModelingJobs?.results[0]?.id ?? null
+            cache.disposables.add(
+                () => {
+                    const timeoutId = setTimeout(() => actions.setStartingMaterialization(false), STARTING_TIMEOUT_MS)
+                    return () => clearTimeout(timeoutId)
+                },
+                'startingMaterializationTimeout',
+                { pauseOnPageHidden: false }
+            )
+        },
+        runDataWarehouseSavedQueryFailure: ({ viewId }) => {
+            if (viewId === props.viewId) {
+                cache.disposables.dispose('startingMaterializationTimeout')
+            }
         },
         loadDataModelingJobsFailure: () => {
             actions.scheduleJobsRefresh(IDLE_REFRESH_INTERVAL_MS)
@@ -675,6 +703,8 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 lemonToast.success('Materialization resumed. The next scheduled run will include this view.')
                 actions.loadSavedQuery()
                 actions.loadDataModelingJobs()
+                // The SQL editor sidebar reads suspension from the view list, not from this view's record.
+                actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(
                     "Couldn't resume materialization. Try again, and contact support if it keeps happening."
@@ -727,7 +757,20 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             if (!dataModelingJobs.results.some((job) => job.status === 'Completed')) {
                 actions.loadLatestCompletedJob()
             }
-            const active = values.startingMaterialization || values.dataModelingJobs?.results[0]?.status === 'Running'
+            // The SQL editor sidebar reads run status from the view list, so reload it once when a run ends.
+            // Compare the newest run's id and status, because a run can start and end between idle polls.
+            const newestJob = dataModelingJobs.results[0]
+            const running = newestJob?.status === 'Running'
+            const newestJobState = newestJob ? `${newestJob.id}:${newestJob.status}` : null
+            if (cache.newestJobState !== undefined && cache.newestJobState !== newestJobState && !running) {
+                actions.loadDataWarehouseSavedQueries()
+            }
+            cache.newestJobState = newestJobState
+            // Until the new run's job row exists, the newest job is the run before the click.
+            if (values.startingMaterialization && newestJob && newestJob.id !== cache.newestJobIdBeforeStart) {
+                actions.setStartingMaterialization(false)
+            }
+            const active = values.startingMaterialization || running
             actions.scheduleJobsRefresh(active ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
         },
     })),

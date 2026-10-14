@@ -45,4 +45,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "system_metadata": "Platform-derived metadata about the video (filename, duration, fps, width, height, size).",
         },
     },
+    "asset_transcriptions": {
+        "description": "The speech transcription of a video or audio asset, with its status and timestamped segments.",
+        "docs_url": "https://docs.twelvelabs.io/v1.3/api-reference/manage-assets/retrieve-transcription",
+        "columns": {
+            "asset_id": "Identifier of the transcribed asset (injected during fan-out).",
+            "asset_created_at": "Date and time, in RFC 3339 format, the asset was created (injected during fan-out).",
+            "status": "Transcription status: pending, processing, ready, or failed.",
+            "sentences": "One entry for each detected sentence, with start and end timestamps in seconds and the recognized text. Present when the status is ready.",
+            "utterances": "One entry for each speaker turn, with start and end timestamps in seconds, the recognized text, and the speaker identifier when available. Present when the status is ready.",
+            "error": "Details about the failure, with a human-readable message. Present when the status is failed.",
+        },
+    },
 }

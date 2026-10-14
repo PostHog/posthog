@@ -413,7 +413,6 @@ def delete_person(person: Person) -> None:
     fake = _get_active_fake()
     if fake is None:
         return
-    from personhog.types.v1 import person_pb2  # noqa: PLC0415
 
     dids_with_version = list(fake._distinct_ids.get((person.team_id, person.pk), []))
     _ch_create_person(
@@ -430,7 +429,9 @@ def delete_person(person: Person) -> None:
             person.team_id, did.distinct_id, str(person.uuid), version=(did.version or 0) + 100, is_deleted=True
         )
 
-    fake.delete_persons(person_pb2.DeletePersonsRequest(team_id=person.team_id, person_uuids=[str(person.uuid)]))
+    stored = fake._persons_by_uuid.get((person.team_id, str(person.uuid)))
+    if stored is not None:
+        fake._remove_person(person.team_id, stored)
 
 
 def update_person(person: Person) -> None:

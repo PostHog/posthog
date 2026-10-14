@@ -8,9 +8,12 @@ function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
     return <DrawerPrimitive.Root data-slot="drawer" {...props} />
 }
 
-function DrawerTrigger({ ...props }: DrawerPrimitive.Trigger.Props): React.ReactElement {
-    return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />
-}
+const DrawerTrigger = React.forwardRef<HTMLButtonElement, DrawerPrimitive.Trigger.Props>(function DrawerTrigger(
+    props,
+    ref
+) {
+    return <DrawerPrimitive.Trigger ref={ref} data-slot="drawer-trigger" {...props} />
+})
 
 function DrawerPortal({ ...props }: DrawerPrimitive.Portal.Props): React.ReactElement {
     return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />

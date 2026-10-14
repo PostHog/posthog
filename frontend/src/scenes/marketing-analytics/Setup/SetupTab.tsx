@@ -46,9 +46,17 @@ export function SetupTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { setupSection } = useValues(marketingAnalyticsLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
-    const { setupPlan, visibleSuggestions, reviewingSuggestion, isReviewingBatch, safeBatch, applyingIds } =
-        useValues(setupPlanLogic)
-    const { loadSetupPlan, reviewSuggestion, confirmReviewedSuggestion, confirmReviewedBatch } =
+    const {
+        setupPlan,
+        setupPlanLoading,
+        sourceScanDisabledReason,
+        visibleSuggestions,
+        reviewingSuggestion,
+        isReviewingBatch,
+        safeBatch,
+        applyingIds,
+    } = useValues(setupPlanLogic)
+    const { loadSetupPlan, rescanSources, reviewSuggestion, confirmReviewedSuggestion, confirmReviewedBatch } =
         useActions(setupPlanLogic)
     const { integrationSettingsModal, setupEntryPointLabel } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
@@ -113,6 +121,17 @@ export function SetupTab(): JSX.Element {
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
                 {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
+                {active.key === SetupSection.SOURCES && (
+                    <LemonButton
+                        size="small"
+                        loading={setupPlanLoading}
+                        onClick={rescanSources}
+                        disabledReason={sourceScanDisabledReason}
+                        data-attr="marketing-sources-rescan"
+                    >
+                        Scan events again
+                    </LemonButton>
+                )}
                 {active.content}
             </div>
 

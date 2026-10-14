@@ -48,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.se
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 API_SECURITY_URL = "https://app.mailgun.com/settings/api_security"
 
@@ -92,6 +92,11 @@ class MailgunSource(
             "401 Client Error: Unauthorized for url: https://api.eu.mailgun.net": "Mailgun authentication failed. Please check your private API key and that the EU region is correct for your account.",
             "403 Client Error: Forbidden for url: https://api.mailgun.net": "Mailgun denied access. Please check that your API key has the required permissions.",
             "403 Client Error: Forbidden for url: https://api.eu.mailgun.net": "Mailgun denied access. Please check that your API key has the required permissions.",
+            # Raised by get_rows when every sending domain on the account rejected a domain-scoped
+            # endpoint (inactive/unverified domains, or a key without access to them) — retrying
+            # hits the same domains with the same result. Keep the raw message: it names the HTTP
+            # status per domain, which tells disabled domains apart from a key without access.
+            "request for every sending domain": None,
         }
 
     @property

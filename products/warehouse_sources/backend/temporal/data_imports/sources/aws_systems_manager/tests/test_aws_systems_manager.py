@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import requests
 import structlog
-from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager import (
     aws_systems_manager as transport,
@@ -27,6 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_system
     AwsSystemsManagerSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssystemsmanager import (
     AwsSystemsManagerSourceConfig,
@@ -43,6 +48,10 @@ def response(body: object, status: int = 200, headers: dict[str, str] | None = N
 
 def iter_batches(source: SourceResponse) -> Iterator[list[dict[str, Any]]]:
     return iter(cast(Iterable[list[dict[str, Any]]], source.items()))
+
+
+def driver(config: AwsSystemsManagerSourceConfig) -> SourceDriver:
+    return SourceDriver(AwsSystemsManagerSource(), config)
 
 
 @pytest.fixture
@@ -80,47 +89,50 @@ def manager() -> MagicMock:
 )
 @pytest.mark.parametrize("token", [None, "fake-token"])
 def test_signs_serialized_body_for_selected_region(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, region: str, host: str, token: str | None
+    config: AwsSystemsManagerSourceConfig, region: str, host: str, token: str | None
 ) -> None:
     config.aws_region = region
     config.aws_session_token = token
-    client = SystemsManagerClient(config, API_VERSION)
-    client.request("DescribeInstanceInformation", {"MaxResults": 5})
-    call = http.post.call_args
-    assert call.args == (f"https://{host}/",)
-    assert json.loads(call.kwargs["data"]) == {"MaxResults": 5}
-    headers = call.kwargs["headers"]
-    assert headers["X-Amz-Target"] == "AmazonSSM.DescribeInstanceInformation"
-    assert headers["Content-Type"] == "application/x-amz-json-1.1"
-    assert headers.get("X-Amz-Security-Token") == token
-    assert f"/{region}/ssm/aws4_request" in headers["Authorization"]
-    assert "content-type;host;x-amz-date;" in headers["Authorization"]
-    assert "x-amz-target" in headers["Authorization"]
-    assert headers["X-Amz-Date"]
-    assert call.kwargs["allow_redirects"] is False
-    assert call.kwargs["timeout"] == 60
-    factory = cast(MagicMock, transport.make_tracked_session)
-    assert config.aws_secret_access_key in factory.call_args.kwargs["redact_values"]
+    with scripted_network(
+        [ScriptedResponse(status=302, json={}, headers={"Location": "https://example.com/"})]
+    ) as network:
+        client = SystemsManagerClient(config, API_VERSION)
+        assert client.request("DescribeInstanceInformation", {"MaxResults": 5}) == {}
+        client.close()
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.url == f"https://{host}/"
+    assert request.json() == {"MaxResults": 5}
+    headers = request.headers
+    assert headers["x-amz-target"] == "AmazonSSM.DescribeInstanceInformation"
+    assert headers["content-type"] == "application/x-amz-json-1.1"
+    assert headers.get("x-amz-security-token") == token
+    assert f"/{region}/ssm/aws4_request" in headers["authorization"]
+    assert "content-type;host;x-amz-date;" in headers["authorization"]
+    assert "x-amz-target" in headers["authorization"]
+    assert headers["x-amz-date"]
+    assert request.read_timeout == 60
+    assert config.aws_secret_access_key in network.session_options[0]["redact_values"]
     if token:
-        assert token in factory.call_args.kwargs["redact_values"]
+        assert token in network.session_options[0]["redact_values"]
 
 
 @pytest.mark.parametrize(
     "region", ["", "https://example.com", "us-east-1.example.com", "../us-east-1", "us-east-1/path"]
 )
-def test_rejects_region_before_sending_credentials(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, region: str
-) -> None:
+def test_rejects_region_before_sending_credentials(config: AwsSystemsManagerSourceConfig, region: str) -> None:
     config.aws_region = region
-    valid, reason = validate_credentials(config, API_VERSION)
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config, API_VERSION)
     assert not valid and reason and "valid AWS region" in reason
-    http.post.assert_not_called()
+    assert network.requests_log == []
 
 
-def test_rejects_unsupported_model_version(config: AwsSystemsManagerSourceConfig, http: MagicMock) -> None:
-    valid, reason = validate_credentials(config, "2099-01-01")
+def test_rejects_unsupported_model_version(config: AwsSystemsManagerSourceConfig) -> None:
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config, "2099-01-01")
     assert not valid and reason and "Unsupported" in reason
-    http.post.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize(
@@ -219,46 +231,54 @@ def test_resume_state_is_staged_before_yield(
 
 
 def test_completed_resume_does_not_restart_walk(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock
+    config: AwsSystemsManagerSourceConfig,
 ) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = SystemsManagerResumeConfig(completed=True)
-    assert list(iter_batches(aws_systems_manager_source(config, "associations", API_VERSION, manager))) == []
-    http.post.assert_not_called()
+    result = driver(config).run("associations", [], resume_state=SystemsManagerResumeConfig(completed=True))
+    assert result.raised is None
+    assert result.rows == []
+    assert result.requests == []
+    assert result.final_state == SystemsManagerResumeConfig(completed=True)
 
 
 @pytest.mark.parametrize("resumed", [False, True])
-def test_expired_token_restarts_only_saved_walk(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock, resumed: bool
-) -> None:
-    manager.can_resume.return_value = resumed
-    manager.load_state.return_value = SystemsManagerResumeConfig(next_token="expired")
-    http.post.side_effect = [
-        response({"__type": "InvalidNextToken", "Message": "The specified token isn't valid."}, 400),
-        response({"Associations": [{"AssociationId": "a-example"}]}),
+def test_expired_token_restarts_only_saved_walk(config: AwsSystemsManagerSourceConfig, resumed: bool) -> None:
+    script = [
+        ScriptedResponse(
+            status=400, json={"__type": "InvalidNextToken", "Message": "The specified token isn't valid."}
+        ),
+        ScriptedResponse(json={"Associations": [{"AssociationId": "a-example"}]}),
     ]
-    source = aws_systems_manager_source(config, "associations", API_VERSION, manager)
+    result = driver(config).run(
+        "associations",
+        script,
+        resume_state=SystemsManagerResumeConfig(next_token="expired") if resumed else None,
+    )
     if resumed:
-        batches = list(iter_batches(source))
-        assert batches[0][0]["association_id"] == "a-example"
-        assert json.loads(http.post.call_args_list[1].kwargs["data"]) == {"MaxResults": 50}
+        assert result.raised is None
+        assert result.rows[0]["association_id"] == "a-example"
+        assert [request.json() for request in result.requests] == [
+            {"MaxResults": 50, "NextToken": "expired"},
+            {"MaxResults": 50},
+        ]
     else:
-        with pytest.raises(SystemsManagerError, match="InvalidNextToken"):
-            list(iter_batches(source))
-        assert http.post.call_count == 1
+        assert isinstance(result.raised, SystemsManagerError)
+        assert "InvalidNextToken" in str(result.raised)
+        assert len(result.requests) == 1
+        assert result.requests[0].json() == {"MaxResults": 50}
 
 
 @pytest.mark.parametrize("token", ["same", 123])
-def test_invalid_pagination_fails_without_loop(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock, token: object
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = SystemsManagerResumeConfig(next_token="same")
-    http.post.return_value = response({"NextToken": token})
-    with pytest.raises(ValueError, match="invalid or repeated page token"):
-        list(iter_batches(aws_systems_manager_source(config, "associations", API_VERSION, manager)))
-    assert http.post.call_count == 1
-    manager.save_state.assert_not_called()
+def test_invalid_pagination_fails_without_loop(config: AwsSystemsManagerSourceConfig, token: object) -> None:
+    result = driver(config).run(
+        "associations",
+        [ScriptedResponse(json={"NextToken": token})],
+        resume_state=SystemsManagerResumeConfig(next_token="same"),
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "invalid or repeated page token" in str(result.raised)
+    assert len(result.requests) == 1
+    assert result.saved_states == []
+    assert result.final_state == SystemsManagerResumeConfig(next_token="same")
 
 
 @pytest.mark.parametrize(
@@ -275,31 +295,32 @@ def test_invalid_pagination_fails_without_loop(
     ],
 )
 def test_authentication_errors_are_terminal_and_actionable(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, code: str, fragment: str
+    config: AwsSystemsManagerSourceConfig, code: str, fragment: str
 ) -> None:
-    http.post.return_value = response({"__type": f"com.amazonaws.ssm#{code}", "message": "Rejected"}, 400)
-    valid, reason = validate_credentials(config, API_VERSION)
+    body = {"__type": f"com.amazonaws.ssm#{code}", "message": "Rejected"}
+    with scripted_network([ScriptedResponse(status=400, json=body)]) as network:
+        valid, reason = validate_credentials(config, API_VERSION)
     assert not valid and reason and fragment in reason
-    error = error_for_response(http.post.return_value)
+    error = error_for_response(response(body, 400))
     matches = [
         message
         for pattern, message in AwsSystemsManagerSource().get_non_retryable_errors().items()
         if pattern in str(error)
     ]
     assert reason in matches
-    assert http.post.call_count == 1
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize("code", ["AccessDenied", "AccessDeniedException"])
 @pytest.mark.parametrize("schema,expected", [(None, True), ("inventory", False)])
 def test_permission_denial_only_allows_source_creation(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, code: str, schema: str | None, expected: bool
+    config: AwsSystemsManagerSourceConfig, code: str, schema: str | None, expected: bool
 ) -> None:
-    http.post.return_value = response({"__type": code, "Message": "Access denied"}, 400)
-    valid, reason = validate_credentials(config, API_VERSION, schema)
+    with scripted_network([ScriptedResponse(status=400, json={"__type": code, "Message": "Access denied"})]) as network:
+        valid, reason = validate_credentials(config, API_VERSION, schema)
     assert valid is expected
     assert reason is None if expected else reason == "Grant ssm:GetInventory to read this table."
-    assert http.post.call_count == 1
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize(
@@ -321,23 +342,25 @@ def test_validation_uses_one_small_request(
 
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
-def test_missing_credentials_do_not_send_request(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, field: str
-) -> None:
+def test_missing_credentials_do_not_send_request(config: AwsSystemsManagerSourceConfig, field: str) -> None:
     setattr(config, field, "")
-    valid, reason = validate_credentials(config, API_VERSION)
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config, API_VERSION)
     assert not valid and reason and "Enter both" in reason
-    http.post.assert_not_called()
+    assert network.requests_log == []
 
 
 def test_unknown_table_fails_before_request(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock
+    config: AwsSystemsManagerSourceConfig,
 ) -> None:
-    valid, reason = validate_credentials(config, API_VERSION, "unknown")
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config, API_VERSION, "unknown")
     assert not valid and reason and "Unknown" in reason
-    with pytest.raises(ValueError, match="Unknown AWS Systems Manager table"):
-        aws_systems_manager_source(config, "unknown", API_VERSION, manager)
-    http.post.assert_not_called()
+    result = driver(config).run("unknown", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown AWS Systems Manager table" in str(result.raised)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
 @pytest.mark.parametrize(
@@ -356,24 +379,26 @@ def test_decodes_aws_errors(status: int, body: object, headers: dict[str, str], 
 
 
 @pytest.mark.parametrize("code", ["Throttling", "ThrottlingException", "TooManyRequestsException"])
-def test_retries_body_throttling(config: AwsSystemsManagerSourceConfig, http: MagicMock, code: str) -> None:
-    http.post.side_effect = [response({"__type": code}, 400), response({"Associations": []})]
-    client = SystemsManagerClient(config, API_VERSION)
-    request = cast(Any, client.request).retry_with(wait=wait_none())
-    assert request(client, "ListAssociations", {"MaxResults": 50}) == {"Associations": []}
-    assert http.post.call_count == 2
+def test_retries_body_throttling(config: AwsSystemsManagerSourceConfig, code: str) -> None:
+    with scripted_network(
+        [ScriptedResponse(status=400, json={"__type": code}), ScriptedResponse(json={"Associations": []})]
+    ) as network:
+        client = SystemsManagerClient(config, API_VERSION)
+        assert client.request("ListAssociations", {"MaxResults": 50}) == {"Associations": []}
+        client.close()
+    assert len(network.requests_log) == 2
 
 
 @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
-def test_status_retries_belong_only_to_tracked_transport(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, status: int
-) -> None:
-    http.post.return_value = response({"__type": "InternalServerError"}, status)
-    with pytest.raises(SystemsManagerError):
-        SystemsManagerClient(config, API_VERSION).request("ListAssociations", {"MaxResults": 50})
-    assert http.post.call_count == 1
-    factory = cast(MagicMock, transport.make_tracked_session)
-    assert factory.call_args.kwargs["retry"].is_retry("POST", status)
+def test_status_retries_belong_only_to_tracked_transport(config: AwsSystemsManagerSourceConfig, status: int) -> None:
+    with scripted_network(always(ScriptedResponse(status=status, json={"__type": "InternalServerError"}))) as network:
+        client = SystemsManagerClient(config, API_VERSION)
+        with pytest.raises(SystemsManagerError):
+            client.request("ListAssociations", {"MaxResults": 50})
+        client.close()
+    assert len(network.requests_log) > 1
+    assert {request.path for request in network.requests_log} == {"/"}
+    assert network.session_options[0]["retry"].is_retry("POST", status)
 
 
 def test_network_failure_is_not_reported_as_valid_credentials(
@@ -386,32 +411,37 @@ def test_network_failure_is_not_reported_as_valid_credentials(
 
 
 def test_normalizes_nested_counts_timestamps_and_composite_keys(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock
+    config: AwsSystemsManagerSourceConfig,
 ) -> None:
-    http.post.return_value = response(
-        {
-            "ResourceComplianceSummaryItems": [
-                {
-                    "ResourceId": "i-example",
-                    "ResourceType": "ManagedInstance",
-                    "ComplianceType": compliance,
-                    "CompliantSummary": {"CompliantCount": 2},
-                    "ExecutionSummary": {"ExecutionTime": 1735689600},
+    result = driver(config).run(
+        "resource_compliance_summaries",
+        [
+            ScriptedResponse(
+                json={
+                    "ResourceComplianceSummaryItems": [
+                        {
+                            "ResourceId": "i-example",
+                            "ResourceType": "ManagedInstance",
+                            "ComplianceType": compliance,
+                            "CompliantSummary": {"CompliantCount": 2},
+                            "ExecutionSummary": {"ExecutionTime": 1735689600},
+                        }
+                        for compliance in ["Patch", "Association"]
+                    ]
                 }
-                for compliance in ["Patch", "Association"]
-            ]
-        }
+            )
+        ],
     )
-    source = aws_systems_manager_source(config, "resource_compliance_summaries", API_VERSION, manager)
-    batches = list(iter_batches(source))
-    rows = batches[0]
-    assert len({tuple(row[key] for key in source.primary_keys or []) for row in rows}) == 2
+    assert result.raised is None
+    assert result.response is not None
+    rows = result.rows
+    assert len({tuple(row[key] for key in result.response.primary_keys or []) for row in rows}) == 2
     assert rows[0]["compliant_summary_compliant_count"] == 2
     assert rows[0]["execution_summary_execution_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
 
 
 def test_preserves_inventory_content(
-    config: AwsSystemsManagerSourceConfig, http: MagicMock, manager: MagicMock
+    config: AwsSystemsManagerSourceConfig,
 ) -> None:
     data = {
         "AWS:InstanceInformation": {
@@ -419,9 +449,9 @@ def test_preserves_inventory_content(
             "Content": [{"InstanceId": "i-example", "InstanceStatus": "Stopped"}],
         }
     }
-    http.post.return_value = response({"Entities": [{"Id": "i-example", "Data": data}]})
-    batches = list(iter_batches(aws_systems_manager_source(config, "inventory", API_VERSION, manager)))
-    row = batches[0][0]
+    result = driver(config).run("inventory", [ScriptedResponse(json={"Entities": [{"Id": "i-example", "Data": data}]})])
+    assert result.raised is None
+    row = result.rows[0]
     assert json.loads(row["data"]) == data
 
 

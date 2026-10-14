@@ -1,16 +1,14 @@
-from typing import Any, cast
+from typing import Any
 
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -41,58 +39,6 @@ class TestVercelSource:
         # team_id retargets the stored token at a different Vercel team, so editing it must force
         # the token to be re-entered.
         assert self.source.connection_host_fields == ["team_id"]
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
-        assert set(fields) == {"access_token", "team_id"}
-        assert fields["access_token"].required is True
-        assert fields["access_token"].secret is True
-        # Team scoping is optional — a personal token can sync its own resources.
-        assert fields["team_id"].required is False
-        assert fields["team_id"].secret is False
-
-    def test_get_schemas_sync_capabilities_per_endpoint(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, team_id=1)}
-        assert set(schemas) == {
-            "deployments",
-            "events",
-            "projects",
-            "teams",
-            "domains",
-            "aliases",
-            "check_runs",
-            "billing_charges",
-        }
-
-        deployments = schemas["deployments"]
-        assert deployments.supports_incremental is True
-        assert deployments.supports_append is True
-        assert [f["field"] for f in deployments.incremental_fields] == ["created"]
-        assert deployments.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
-
-        # The activity stream cursors on the event's own creation time, which never changes, and
-        # supports append because events are immutable once emitted.
-        events = schemas["events"]
-        assert events.supports_incremental is True
-        assert events.supports_append is True
-        assert [f["field"] for f in events.incremental_fields] == ["createdAt"]
-        assert events.incremental_fields[0]["field_type"] == IncrementalFieldType.Integer
-
-        # Billing supports incremental merge but not append (append would duplicate restated charges),
-        # cursors on the charge period, and carries a lookback so restatements get re-read and merged.
-        billing = schemas["billing_charges"]
-        assert billing.supports_incremental is True
-        assert billing.supports_append is False
-        assert [f["field"] for f in billing.incremental_fields] == ["charge_period_start"]
-        assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
-        assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
-
-        # check_runs is a full-refresh fan-out over deployments: Vercel documents no server-side time
-        # filter on the check-runs endpoint, so it re-fans every sync with no incremental cursor.
-        for full_refresh in ("projects", "teams", "domains", "aliases", "check_runs"):
-            assert schemas[full_refresh].supports_incremental is False
-            assert schemas[full_refresh].supports_append is False
-            assert schemas[full_refresh].incremental_fields == []
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])

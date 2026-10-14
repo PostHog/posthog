@@ -38,6 +38,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -64,6 +65,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
+    rulesV2CreateDisabledReason,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
@@ -809,6 +811,8 @@ export function FeatureFlags(): JSX.Element {
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
+    const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <SceneContent className="feature_flags">
@@ -824,6 +828,22 @@ export function FeatureFlags(): JSX.Element {
                             surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
                             data-attr="feature-flags-feedback-button"
                         />
+                        {showRulesV2Editor && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                    disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                                    data-attr="new-rules-v2-feature-flag"
+                                >
+                                    New rules v2 flag
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
                             minAccessLevel={AccessControlLevel.Editor}

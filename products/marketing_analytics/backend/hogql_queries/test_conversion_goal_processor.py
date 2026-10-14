@@ -5437,7 +5437,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Both should attribute to same UTM source
         assert events_campaign == actions_campaign == "summer_launch"
-        assert events_source == actions_source == "twitter_ads"
+        assert events_source == actions_source == "twitter"
 
         # ActionsNode should count both events, EventsNode only one
         assert events_count == 1

@@ -1,6 +1,6 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -26,7 +26,7 @@ jest.mock('@posthog/lemon-ui', () => ({
 }))
 
 describe('DataTableVisualization', () => {
-    const query: DataVisualizationNode = {
+    const query: VisualizationNode = {
         kind: NodeKind.DataVisualizationNode,
         source: {
             kind: NodeKind.HogQLQuery,

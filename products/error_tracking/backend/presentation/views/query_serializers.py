@@ -9,7 +9,7 @@ from rest_framework import serializers
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField
+from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
@@ -99,7 +99,7 @@ class VolumeResolutionField(serializers.IntegerField):
 
 class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     id = StringOrIntegerField(help_text="User ID or role UUID to filter by.")
-    type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
+    type = serializers.ChoiceField(choices=AssigneeType.choices, help_text="Assignee target type: user or role.")
 
 
 class ErrorTrackingIssueOrderBy(models.TextChoices):

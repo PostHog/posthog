@@ -11,46 +11,34 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { FileSystemEntry, FileSystemImport, UserProductListItem } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
 import type { PreflightStatus } from '~/types'
 
 import * as decisionsApi from 'products/ml_inference/frontend/generated/api'
 
 import { customProductsLogic } from '../../ProjectTree/customProductsLogic'
-import { getDefaultTreeData, getDefaultTreeProducts, withProductShortcutHref } from '../../ProjectTree/defaultTree'
+import { withProductShortcutHref } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { findProductShortcut, shortcutFromEntry } from '../../ProjectTree/utils'
 import { APP_MATCH_THRESHOLD, AppMatchGroups, buildAppRankingQuestions, readAppRankings } from './appRanking'
-import {
-    POPULAR_CATEGORY,
-    POPULAR_PRODUCT_PATHS,
-    ProductsItemGroup,
-    groupProducts,
-    productMatchesSearch,
-    productsItemName,
-} from './productsCatalog'
+import { PINNED_CATEGORY, getNavProductItems } from './navProductItems'
+import { ProductsItemGroup, groupProducts, productMatchesSearch, productsItemName } from './productsCatalog'
 
 // projectTreeLogic persists state under its logic key, so renaming this value resets it.
 export const PRODUCTS_STARRED_TREE_KEY = 'navbar-apps-starred'
 
-// These pages are tabs of Event definitions, so the sidebar lists only that entry for them.
-const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !== 'events').map((tab) => tab.url))
-
-// Items in this category sit above Starred and All products, so they are never starred or grouped.
-const PINNED_CATEGORY = 'Project'
-
 // `starred-setup` moves a user's custom products to starred products when they switch to the simple sidebar.
 export type CustomizeSidebarMode = 'customize' | 'starred-setup'
+
+// `dismiss` covers the modal's close button, Escape, and overlay clicks.
+export type CustomizeSidebarCloseMethod = 'cancel_button' | 'dismiss'
 
 export const SUGGESTED_GROUP_LABEL = 'Suggested'
 
@@ -84,6 +72,7 @@ export interface navProductsTabLogicValues {
     draftStarredPaths: Set<string>
     draftStartsEmpty: boolean
     groupedItems: ProductsItemGroup[]
+    hasDraftStarredChanges: boolean
     initialStarredPaths: string[]
     pinnedItems: FileSystemImport[]
     rankedConfigurableApps: FileSystemImport[]
@@ -225,7 +214,11 @@ export interface navProductsTabLogicActions {
     setCustomizeSearch: (search: string) => {
         search: string
     }
-    setCustomizeSidebarOpen: (open: boolean) => {
+    setCustomizeSidebarOpen: (
+        open: boolean,
+        closeMethod?: CustomizeSidebarCloseMethod
+    ) => {
+        closeMethod: CustomizeSidebarCloseMethod | undefined
         open: boolean
     }
     setDraftStarred: (
@@ -289,6 +282,7 @@ export interface navProductsTabLogicMeta {
             draftStarredChanges: Record<string, boolean>,
             draftStartsEmpty: boolean
         ) => Set<string>
+        hasDraftStarredChanges: (draftStarredPaths: Set<string>, initialStarredPaths: string[]) => boolean
         allProductsCollapsible: (shortcutDataHasLoaded: boolean, starredProductIds: Record<string, string>) => boolean
         allProductsVisible: (
             allProductsOpen: boolean,
@@ -343,7 +337,10 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         setSearch: (search: string) => ({ search }),
         setAppRecommendationQuery: (query: string) => ({ query }),
         setAppRankingError: (error: string | null) => ({ error }),
-        setCustomizeSidebarOpen: (open: boolean) => ({ open }),
+        setCustomizeSidebarOpen: (open: boolean, closeMethod?: CustomizeSidebarCloseMethod) => ({
+            open,
+            closeMethod,
+        }),
         setAllProductsOpen: (open: boolean) => ({ open }),
         revealAllProductsForFind: true,
         openStarredSetup: true,
@@ -540,59 +537,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         ],
         allItems: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): FileSystemImport[] => {
-                const items: FileSystemImport[] = [
-                    {
-                        path: 'Home',
-                        category: PINNED_CATEGORY,
-                        iconType: 'home',
-                        href: urls.projectRoot(),
-                        visualOrder: 0,
-                    },
-                    {
-                        path: 'Activity',
-                        category: PINNED_CATEGORY,
-                        iconType: 'activity',
-                        href: urls.activity(ActivityTab.ExploreEvents),
-                        visualOrder: 2,
-                    },
-                    {
-                        path: 'Persons',
-                        displayLabel: 'People and groups',
-                        category: PINNED_CATEGORY,
-                        iconType: 'persons',
-                        href: urls.persons(),
-                        visualOrder: 3,
-                    },
-                    ...getDefaultTreeProducts().map(
-                        (item): FileSystemImport =>
-                            item.href === urls.inbox()
-                                ? {
-                                      ...item,
-                                      displayLabel: 'Self-driving',
-                                      category: PINNED_CATEGORY,
-                                      visualOrder: 1,
-                                  }
-                                : item
-                    ),
-                    ...getDefaultTreeData(),
-                ]
-                const destinations = new Map<string, FileSystemImport>()
-                for (const item of items) {
-                    if (
-                        !item.href ||
-                        DEFINITIONS_TAB_HREFS.has(item.href) ||
-                        (item.flag && !featureFlags[item.flag as keyof FeatureFlagsSet])
-                    ) {
-                        continue
-                    }
-                    const existing = destinations.get(item.href)
-                    destinations.set(item.href, existing ? { ...item, ...existing } : item)
-                }
-                return [...destinations.values()].map((item) =>
-                    POPULAR_PRODUCT_PATHS.includes(item.path) ? { ...item, category: POPULAR_CATEGORY } : item
-                )
-            },
+            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],
@@ -680,6 +625,12 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                         .map((item) => item.path)
                 )
             },
+        ],
+        hasDraftStarredChanges: [
+            (s) => [s.draftStarredPaths, s.initialStarredPaths],
+            (draftStarredPaths: Set<string>, initialStarredPaths: string[]): boolean =>
+                draftStarredPaths.size !== initialStarredPaths.length ||
+                initialStarredPaths.some((path) => !draftStarredPaths.has(path)),
         ],
         // Only a sidebar with starred products has something to show above the list, so only then can it close.
         allProductsCollapsible: [
@@ -780,9 +731,12 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     actions.setAllProductsOpen(false)
                 }
             },
-            setCustomizeSidebarOpen: ({ open }) => {
+            setCustomizeSidebarOpen: ({ open, closeMethod }) => {
                 if (!open && values.customizeSidebarMode === 'starred-setup') {
-                    posthog.capture('sidebar starred setup cancelled')
+                    posthog.capture('sidebar starred setup cancelled', {
+                        close_method: closeMethod,
+                        had_changes: values.hasDraftStarredChanges,
+                    })
                 }
             },
             saveStarredProducts: async () => {

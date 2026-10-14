@@ -13,8 +13,9 @@ from products.metrics.backend.metric_query_runner import _active_since_expr, _hi
 class TestPickInterval:
     @parameterized.expand(
         [
+            ("15m_range_picks_15_seconds", dt.timedelta(minutes=15), "second_15"),
             ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
-            ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
+            ("1d_range_picks_30_minutes", dt.timedelta(days=1), "minute_30"),
             ("30d_range_picks_day", dt.timedelta(days=30), "day"),
         ]
     )
@@ -57,6 +58,8 @@ class TestFormulaParser:
             ("unary_minus", "-a + 5", {"a": 2.0}, 3.0),
             ("division_by_zero_yields_zero", "a / b", {"a": 5.0, "b": 0.0}, 0.0),
             ("number_only_arithmetic", "a * 0 + 1.5", {"a": 9.0}, 1.5),
+            ("exponent_literal", "a * 1e3", {"a": 2.0}, 2000.0),
+            ("negative_exponent_literal", "a * 2.5E-2", {"a": 4.0}, 0.1),
         ]
     )
     def test_evaluate(self, _name, formula, values, expected):
@@ -70,6 +73,8 @@ class TestFormulaParser:
             ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
             ("empty", "   ", frozenset({"a"})),
             ("bad_char", "a ^ b", frozenset({"a", "b"})),
+            ("non_finite_literal", "9" * 400, frozenset({"a"})),
+            ("non_finite_exponent_literal", "a * 1e400", frozenset({"a"})),
             ("nesting_too_deep_parens", "(" * 40 + "a" + ")" * 40, frozenset({"a"})),
             ("nesting_too_deep_unary", "-" * 40 + "a", frozenset({"a"})),
         ]
@@ -77,3 +82,7 @@ class TestFormulaParser:
     def test_rejects(self, _name, formula, names):
         with pytest.raises(ValueError):
             parse_formula(formula, names)
+
+    def test_overflowing_exponent_asks_for_a_smaller_number(self):
+        with pytest.raises(ValueError, match="too large"):
+            parse_formula("a * 1e400", frozenset({"a"}))

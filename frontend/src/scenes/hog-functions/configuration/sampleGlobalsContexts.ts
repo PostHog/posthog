@@ -1,6 +1,11 @@
 import { ApiConfig } from 'lib/api'
 
-import { CyclotronJobInvocationGlobals, HogFunctionConfigurationContextId } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    CyclotronJobInvocationGlobals,
+    HogFunctionConfigurationContextId,
+    PropertyOperator,
+} from '~/types'
 
 import {
     errorTrackingFingerprintsList,
@@ -8,8 +13,25 @@ import {
 } from 'products/error_tracking/frontend/generated/api'
 
 export type SampleGlobalsLoader = (
-    exampleGlobals: CyclotronJobInvocationGlobals
+    exampleGlobals: CyclotronJobInvocationGlobals,
+    filters?: CyclotronJobFiltersType | null
 ) => Promise<CyclotronJobInvocationGlobals>
+
+// An alert scoped to some health check kinds skips an event of any other kind, so the sample
+// takes a kind the filters accept. Only an exact-match filter names an accepted kind. Any other
+// operator, such as "is not", names kinds the alert excludes.
+function sampleHealthCheckKind(filters?: CyclotronJobFiltersType | null): string {
+    const kindFilter = filters?.properties?.find(
+        (property) =>
+            'key' in property &&
+            property.key === 'kind' &&
+            'operator' in property &&
+            property.operator === PropertyOperator.Exact
+    )
+    const value = kindFilter && 'value' in kindFilter ? kindFilter.value : null
+    const kind = Array.isArray(value) ? value[0] : value
+    return typeof kind === 'string' && kind ? kind : 'test'
+}
 
 /**
  * Per-context overrides for the "load sample globals" flow in the hog function test panel.
@@ -48,4 +70,47 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         }
     },
+    // Health alert templates read only this envelope. An empty title or summary renders an empty
+    // Slack block, and Slack rejects the whole message.
+    'health-alerts': async (exampleGlobals, filters) => ({
+        ...exampleGlobals,
+        event: {
+            ...exampleGlobals.event,
+            properties: {
+                kind: sampleHealthCheckKind(filters),
+                severity: 'warning',
+                issue_id: 'test-issue-id',
+                title: 'Test health check',
+                summary: 'This is a test alert from PostHog',
+                link: '/health',
+                remediation: null,
+                payload: {},
+            },
+        },
+    }),
+    // The templates read these fields. An empty value renders an empty Slack block, and Slack rejects
+    // the whole message.
+    'data-warehouse-alerts': async (exampleGlobals) => ({
+        ...exampleGlobals,
+        event: {
+            ...exampleGlobals.event,
+            properties: {
+                source_id: '00000000-0000-4000-8000-000000000001',
+                source_type: 'Stripe',
+                source_prefix: 'stripe_',
+                schema_id: '00000000-0000-4000-8000-000000000002',
+                schema_name: 'charges',
+                job_id: '00000000-0000-4000-8000-000000000003',
+                status: 'Failed',
+                kind: 'job_failed',
+                error: 'This is a test alert from PostHog',
+                rows_synced: 1200,
+                paused: false,
+                failed_runs_in_a_row: 1,
+                source_url: 'https://example.com/data-warehouse/sources/00000000-0000-4000-8000-000000000001',
+                schema_url: 'https://example.com/data-warehouse/sources/00000000-0000-4000-8000-000000000001/charges',
+                finished_at: '2026-01-01T00:00:00.000Z',
+            },
+        },
+    }),
 }

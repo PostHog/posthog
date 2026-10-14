@@ -1,8 +1,6 @@
 """Braintrust behavior this repo replaces. Importing this module applies the replacement.
 
-Both offline eval entry points import it: the harness engine in ``braintrust.py``
-and ``ee/hogai/eval/base.py``. Patching once at import, rather than per run, keeps
-concurrent suites from restoring the original under each other.
+Patching once at import keeps concurrent suites from restoring the original under each other.
 """
 
 from __future__ import annotations

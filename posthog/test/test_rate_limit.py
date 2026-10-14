@@ -906,7 +906,7 @@ class _PSAKThrottleForTest(rate_limit.PersonalOrProjectSecretApiKeyRateThrottle)
     rate = "100/minute"
 
 
-class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
+class TestPersonalOrProjectSecretApiKeyRateThrottle(SimpleTestCase):
     def _psak_request(self, key_id=1):
         auth = ProjectSecretAPIKeyAuthentication()
         auth.project_secret_api_key = Mock(id=key_id)
@@ -1026,7 +1026,7 @@ class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
     rate = "100/minute"
 
 
-class TestProjectSecretApiKeyTeamRateThrottle(APIBaseTest):
+class TestProjectSecretApiKeyTeamRateThrottle(SimpleTestCase):
     def _psak_request(self, team_id=7):
         auth = ProjectSecretAPIKeyAuthentication()
         auth.project_secret_api_key = Mock(team_id=team_id)

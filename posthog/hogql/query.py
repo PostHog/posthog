@@ -446,6 +446,10 @@ class HogQLQueryExecutor:
 
         source = self._direct_source
         adapter = get_adapter(source.direct_engine) if source is not None else None
+        if adapter is not None and adapter.dialect is None:
+            # A raw-only engine (BigQuery) has no HogQL printer; falling back to another
+            # dialect would send SQL the engine cannot parse.
+            raise ExposedHogQLError("This connection supports raw SQL queries only (sendRawQuery).")
         dialect: HogQLDialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
 
         direct_context = dataclasses.replace(
@@ -626,6 +630,10 @@ class HogQLQueryExecutor:
         adapter = adapter or get_adapter(source.direct_engine)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
+
+        stats = query_stats.get_active()
+        if stats is not None:
+            stats.add_direct_source(str(source.id))
 
         query_tags = get_query_tags()
         cancellation_token = (
@@ -934,6 +942,11 @@ class HogQLQueryExecutor:
                 )
 
             stats = query_stats.get_active()
+            if stats is not None:
+                stats.add_reads(
+                    warehouse_table_ids=self.context.referenced_warehouse_table_ids,
+                    saved_query_ids=self.context.referenced_saved_query_ids,
+                )
             # The rows are read back per thread after the run, so a run ClickHouse stops is still
             # recorded with what it read, and a series running in another thread is not charged here.
             query_stats.reset_last_rows_read()

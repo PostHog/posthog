@@ -410,7 +410,5 @@ def mark_image_build_failed(input: MarkImageBuildFailedInput) -> None:
                 else SandboxCustomImage.Status.BUILD_FAILED
             )
             image.error = input.error[:2000]
-            if input.refresh:
-                image.base_image_refresh_reference = None
-            image.save(update_fields=["status", "error", "base_image_refresh_reference", "updated_at"])
+            image.save(update_fields=["status", "error", "updated_at"])
             observe_custom_image_build("failed")

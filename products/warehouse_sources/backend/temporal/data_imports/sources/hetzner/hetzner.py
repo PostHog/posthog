@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
+    HETZNER_CHILD_ENDPOINTS,
     HETZNER_ENDPOINTS,
     HETZNER_METRICS_ENDPOINTS,
 )
@@ -287,6 +288,56 @@ def hetzner_metrics_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=["timestamp"],
+    )
+
+
+def hetzner_child_source(
+    api_token: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[HetznerResumeConfig],
+) -> SourceResponse:
+    config = HETZNER_CHILD_ENDPOINTS[endpoint]
+    parent = HETZNER_ENDPOINTS[config.parent]
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        client = RESTClient(
+            base_url=HETZNER_BASE_URL,
+            headers=_non_secret_headers(),
+            auth=BearerTokenAuth(api_token),
+            allow_redirects=False,
+            request_timeout=REQUEST_TIMEOUT,
+        )
+        parent_params = {"per_page": PAGE_SIZE, "sort": parent.sort}
+
+        for resources in client.paginate(
+            parent.path, params=parent_params, paginator=_list_paginator(), data_selector=parent.response_key
+        ):
+            for resource in resources:
+                yielded = False
+                try:
+                    for page in client.paginate(
+                        f"{parent.path}/{resource['id']}{config.path_suffix}",
+                        params={"per_page": PAGE_SIZE, "sort": config.sort},
+                        paginator=_list_paginator(),
+                        data_selector=config.response_key,
+                    ):
+                        if page:
+                            yielded = True
+                            yield [{config.parent_id_column: resource["id"], **row} for row in page]
+                except HTTPError as e:
+                    # The resource was deleted after the parent list was read.
+                    if e.response is None or e.response.status_code != 404:
+                        raise
+                if not yielded:
+                    resumable_source_manager.safe_point()
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=config.primary_keys,
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
     )
 
 

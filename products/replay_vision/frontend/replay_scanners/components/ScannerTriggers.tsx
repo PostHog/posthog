@@ -32,7 +32,9 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
+import { scannerExperimentScope } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ExperimentScopeFilter } from './ExperimentScopeFilter'
 
 // The wizard holds an unsaved draft, so sending someone to the settings scene to define their test
 // account filters drops them out of the flow they were told to fix. Configure them in place instead.
@@ -117,34 +119,21 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
-// The experiment population, which the backend derives from exposure data at scan time, so there is
-// no filter in the card below to hand-edit. The experiment type picks it in its configuration step.
-// Legacy targeting on other types is read-only: the API refuses a new target but accepts a clear.
+// Legacy experiment targeting on other scanner types. The backend derives the population from
+// exposure data at scan time, so there is no filter in the card below to hand-edit. It is read-only:
+// the API refuses a new target but accepts a clear. The experiment type shows its experiment inside
+// the filters card instead.
 function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
     const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
     // Until experiment scanners ship, legacy targeting keeps its variant picker.
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
-    if (!experimentContext || !scanner) {
+    if (!experimentContext || !scanner || scanner.scanner_type === 'experiment') {
         return null
     }
     const { experiment, variantKey } = experimentContext
     const experimentLink = <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>
-
-    if (scanner.scanner_type === 'experiment') {
-        const variants = scanner.scanner_config.variants
-        return (
-            <LemonCard hoverEffect={false} className="p-3 space-y-1" data-attr="vision-experiment-targeting">
-                <LemonLabel>Experiment</LemonLabel>
-                <div className="text-xs text-muted">
-                    This scanner watches sessions of people exposed to {experimentLink}
-                    {variants?.length ? <span> in {variants.join(', ')}</span> : null}. Filters you add here narrow it
-                    further.
-                </div>
-            </LemonCard>
-        )
-    }
 
     if (!experimentScanners) {
         // A null value targets every variant; each experiment variant is a single-select option.
@@ -222,6 +211,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
+    // The experiment already limits the scan to exposed people, so a scanner without filters of its own
+    // does not scan every recording.
+    const experimentScoped = scannerExperimentScope(scanner) !== null
 
     return (
         <div className="space-y-6">
@@ -266,6 +258,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     onConfigure={openTestAccountFilterSettings}
                                 />
                             </div>
+                            <ExperimentScopeFilter scannerId={scannerId} />
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}
                             <div className="-ml-2">
                                 <AndOrFilterSelect
@@ -296,6 +289,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     </span>
                                 </LemonBanner>
                             ) : (
+                                !experimentScoped &&
                                 groupHasNoFilters(universal.filter_group) && (
                                     <LemonBanner type="warning">
                                         <span className="text-xs">

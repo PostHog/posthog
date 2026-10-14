@@ -9,6 +9,7 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -24,6 +25,7 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -225,6 +227,8 @@ export interface InsightCardProps extends Resizeable {
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Project the insight belongs to, when that is not the current project. The card's links then open it there. */
     projectId?: number
+    /** Time zone of `projectId`, so the chart places that project's annotations on the right day. */
+    projectTimezone?: string
     /** Shown above the title, for a card that has to name where its insight comes from. */
     contextHeading?: JSX.Element | null
 }
@@ -267,6 +271,7 @@ function InsightCardInternal(
         variablesOverride,
         children,
         projectId,
+        projectTimezone,
         contextHeading,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
@@ -321,8 +326,17 @@ function InsightCardInternal(
             loadPriority,
             doNotLoad,
             refreshAfterDisplayOptionsChange: handleRefreshAfterDisplayOptionsChange,
+            sourceProject: projectId !== undefined ? { id: projectId, timezone: projectTimezone } : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad, handleRefreshAfterDisplayOptionsChange]
+        [
+            insight,
+            dashboardId,
+            loadPriority,
+            doNotLoad,
+            handleRefreshAfterDisplayOptionsChange,
+            projectId,
+            projectTimezone,
+        ]
     )
 
     const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
@@ -337,7 +351,18 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
+
+    const [, setCooldownTick] = useState(0)
+    // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
+    const capacityRetryAt = getCapacityRetryAt(apiErrored ? apiError : null, insightDataError)
+    const { secondsLeft: retrySecondsLeft, disabledReason: refreshDisabledReason } = getRetryCooldown(capacityRetryAt)
+    useInterval(() => setCooldownTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
+    const refreshAfterCooldown = useCallback((): void => {
+        if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+            refresh?.()
+        }
+    }, [refresh, capacityRetryAt])
 
     if (insightLoading || insightDataLoading) {
         loading = true
@@ -381,10 +406,6 @@ function InsightCardInternal(
             )
         }
 
-        if (!hasResults && loadingQueued) {
-            return <InsightLoadingState insightProps={insightLogicProps} />
-        }
-
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
@@ -404,15 +425,23 @@ function InsightCardInternal(
                         titleStatus={apiError.status}
                         queryId={apiError.data?.queryId ?? queryId}
                         retryAfter={apiError.formattedRetryAfter}
-                        retryLoading={loading}
+                        retryAfterTimestamp={capacityRetryAt}
+                        retryLoading={loading || !!loadingQueued}
                         query={insight.query}
                         excludeActions={sharedView}
                         placement={placement}
-                        onRetry={sharedView ? undefined : refresh}
+                        onRetry={sharedView || !refresh ? undefined : refreshAfterCooldown}
                     />
                 )
             }
             return <InsightErrorState />
+        }
+
+        // Below the failure branch on purpose: a tile whose query is known to have failed must show
+        // that, even while the next attempt is already queued. The other way round, the spinner wins
+        // for as long as the retries run and the user cannot tell a dead tile from a slow one.
+        if (!hasResults && loadingQueued) {
+            return <InsightLoadingState insightProps={insightLogicProps} />
         }
 
         if (timedOut) {
@@ -482,7 +511,8 @@ function InsightCardInternal(
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
-                        refresh={refresh}
+                        refresh={refresh ? refreshAfterCooldown : undefined}
+                        refreshDisabledReason={refreshDisabledReason}
                         loadingQueued={loadingQueued}
                         loading={loading}
                         rename={rename}

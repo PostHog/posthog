@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rewardful import (
+    RewardfulSourceConfig,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+@SourceRegistry.register
+class RewardfulSource(SimpleSource[RewardfulSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.REWARDFUL
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.REWARDFUL,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            label="Rewardful",
+            iconPath="/static/services/rewardful.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )
