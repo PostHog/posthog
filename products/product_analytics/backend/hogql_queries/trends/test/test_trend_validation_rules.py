@@ -27,6 +27,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
@@ -431,16 +432,8 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
         )
         with (
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    [self.team.pk]
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
             patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
         ):
             result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
@@ -460,15 +453,9 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
                 )
             )
         )
-        with patch(
-            "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: (
-                [self.team.pk]
-                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                else "native.example.com"
-                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                else False
-            ),
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
         ):
             runner = ActorsQueryRunner(query=query, team=self.team, user=self.user)
             source = runner.source_query_runner

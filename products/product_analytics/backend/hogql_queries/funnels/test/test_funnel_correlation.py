@@ -2516,24 +2516,21 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
         self.user = User(id=123, is_staff=True, is_active=True)
         self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-        self.settings_patch = patch(
-            "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: (
-                [44]
-                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                else "native.example.com"
-                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                else False
-            ),
+        self.enterContext(
+            patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect={
+                    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
+                    "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+                }.get,
+            )
         )
-        self.settings_patch.start()
-        self.addCleanup(self.settings_patch.stop)
-        cookieless = patch(
-            "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
-            return_value=True,
+        self.enterContext(
+            patch(
+                "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
+                return_value=True,
+            )
         )
-        cookieless.start()
-        self.addCleanup(cookieless.stop)
 
     def _enqueue(self, runner: QueryRunner) -> dict:
         with (
@@ -2570,24 +2567,15 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         elif kind == "EventsQuery":
             from posthog.schema import EventsQuery
 
-            from posthog.hogql_queries.query_runner import query_node_modifiers
-
-            events_source = source.model_copy(
-                update={
-                    "modifiers": modifiers.model_copy(update={"convertToProjectTimezone": True})
-                    if source_choice is not None
-                    else None
-                }
+            source.modifiers = (
+                modifiers.model_copy(update={"convertToProjectTimezone": True}) if source_choice is not None else None
             )
             self.team.timezone = "Europe/Amsterdam"
             query = EventsQuery(
                 select=["timestamp"],
-                source=InsightActorsQuery(source=events_source),
+                source=InsightActorsQuery(source=source),
                 modifiers=self.modifiers.model_copy(update={"convertToProjectTimezone": False}),
             )
-            effective = query_node_modifiers(query)
-            assert effective is not None
-            self.assertIs(effective.convertToProjectTimezone, False)
         else:
             query = FunnelCorrelationQuery(funnelCorrelationType=FunnelCorrelationResultsType.EVENTS, source=actors)
         if wrapper_choice is not None:

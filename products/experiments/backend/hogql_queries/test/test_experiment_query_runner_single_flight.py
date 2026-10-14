@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -100,27 +101,13 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = True
         config.save()
-        eligibility = patch(
-            "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: (
-                [self.team.id]
-                if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                else "native.example.com"
-                if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                else False
-            ),
-        )
-        eligibility.start()
-        self.addCleanup(eligibility.stop)
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
         modifiers = HogQLQueryModifiers(useNewEventsSchema=native, useNewEventsCluster=native)
         runner: ExperimentQueryRunner | ExperimentExposuresQueryRunner
         if kind == "metric":
             runner = ExperimentQueryRunner(
-                query=ExperimentQuery(
-                    experiment_id=experiment.id,
-                    metric=ExperimentMeanMetric(source=EventsNode(event="example")),
-                    precomputation_mode=PrecomputationMode.PRECOMPUTED,
-                ),
+                query=self.query.model_copy(update={"precomputation_mode": PrecomputationMode.PRECOMPUTED}),
                 team=self.team,
                 user=self.user,
                 modifiers=modifiers,
@@ -213,16 +200,8 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
                 modifiers=parent_modifiers,
             )
         with (
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    [self.team.pk]
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
         ):
             children: list[QueryRunner]
             if isinstance(query, ExperimentTrendsQuery):

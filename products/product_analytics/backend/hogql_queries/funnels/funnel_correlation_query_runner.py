@@ -36,6 +36,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
@@ -115,6 +116,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self._use_new_events_schema = use_new_events_schema(team.pk, self.modifiers)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 

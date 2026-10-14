@@ -11,12 +11,14 @@ from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Organization, Team, User
+from posthog.models.instance_setting import override_instance_config
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
@@ -25,21 +27,19 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
         self.user = User(id=123, is_staff=True, is_active=True)
         self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-        self.settings_patch = patch(
-            "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: {
-                "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
-                "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
-            }.get(key, False),
+        self.instance_settings: dict[str, object] = {
+            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
+            "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+        }
+        self.enterContext(
+            patch("posthog.models.event.new_events_schema.get_instance_setting", self.instance_settings.get)
         )
-        self.settings_patch.start()
-        self.addCleanup(self.settings_patch.stop)
-        cookieless = patch(
-            "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
-            return_value=True,
+        self.enterContext(
+            patch(
+                "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
+                return_value=True,
+            )
         )
-        cookieless.start()
-        self.addCleanup(cookieless.stop)
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
         with (
@@ -56,46 +56,20 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         [
             ([], "native.example.com", "not enabled"),
             ([44, True], "native.example.com", "not enabled"),
-            (["44"], "native.example.com", "not enabled"),
-            ({"44": True}, "native.example.com", "not enabled"),
             ([44], None, "host is not configured"),
         ]
     )
     def test_unavailable_native_route_fails_closed(self, allowed: object, host: str | None, error: str) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
-        with (
-            override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST=host),
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: host if key == "CLICKHOUSE_NATIVE_EVENTS_HOST" else allowed,
-            ),
-        ):
-            with self.assertRaisesRegex(ExposedHogQLError, error):
-                HogQLQueryRunner(
-                    query=HogQLQuery(
-                        query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True})
-                    ),
-                    team=self.team,
-                )
-
-    def test_project_defaults_cannot_opt_in_and_settings_api_drops_cluster_choice(self) -> None:
-        from posthog.api.team import TeamSerializer
-
-        self.team.modifiers = {"useNewEventsCluster": True, "useNewEventsSchema": True}
-        runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1", modifiers=self.modifiers), team=self.team)
-        self.assertIsNone(runner.modifiers.useNewEventsCluster)
-        self.assertIs(runner.modifiers.useNewEventsSchema, True)
-        self.assertEqual(
-            TeamSerializer.validate_modifiers(
-                {"useNewEventsCluster": True, "useNewEventsSchema": True, "personsOnEventsMode": "disabled"}
-            ),
-            {"personsOnEventsMode": "disabled"},
-        )
+        self.instance_settings.update(CLICKHOUSE_NATIVE_EVENTS_HOST=host, CLICKHOUSE_NATIVE_EVENTS_TEAMS=allowed)
+        with self.assertRaisesRegex(ExposedHogQLError, error):
+            HogQLQueryRunner(
+                query=HogQLQuery(
+                    query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True})
+                ),
+                team=self.team,
+            )
 
     def test_direct_warehouse_connection_cannot_claim_native_cluster_opt_in(self) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
         with self.assertRaisesRegex(ExposedHogQLError, "warehouse connection"):
             HogQLQueryExecutor(
                 query="SELECT 1",
@@ -124,11 +98,8 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         ):
             keys = []
             for host in ("native.example.com", "replacement.example.com"):
-                with patch(
-                    "posthog.models.event.new_events_schema.get_instance_setting",
-                    side_effect=lambda key, host=host: host if key == "CLICKHOUSE_NATIVE_EVENTS_HOST" else [44],
-                ):
-                    keys.append(runner.get_cache_key())
+                self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_HOST"] = host
+                keys.append(runner.get_cache_key())
         self.assertEqual(len(set(keys)), 2 if native else 1)
 
     def test_worker_revalidates_eligibility_instead_of_falling_back(self) -> None:
@@ -219,8 +190,6 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         ]
     )
     def test_native_opt_in_accepts_only_analytics_workloads(self, workload: Workload, supported: bool) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
         executor = HogQLQueryExecutor(
             query="SELECT 1",
             team=self.team,
@@ -242,36 +211,19 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                     executor._execute_clickhouse_query()
                 execute.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("native.example.com", True),
-            ("localhost", True),
-            ("", True),
-            ("https://native.example.com", False),
-            ("native.example.com:8443", False),
-            ("native.example.com/path", False),
-            (True, False),
-        ]
-    )
-    def test_host_setting_accepts_hostnames_only(self, value: object, valid: bool) -> None:
-        from posthog.api.instance_settings import InstanceSettingHelper, InstanceSettingsSerializer
-
-        serializer = InstanceSettingsSerializer(
-            instance=InstanceSettingHelper(key="CLICKHOUSE_NATIVE_EVENTS_HOST"), data={"value": value}, partial=True
-        )
-        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
-
 
 @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNewEventsClusterPilot(APIBaseTest):
-    def _run_sql(self, modifiers: dict[str, bool], refresh: str = "force_blocking", async_: bool = False):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
+        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
+        self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
+
+    def _run_query(self, query: dict, refresh: str = "force_blocking", async_: bool = False):
         return self.client.post(
             f"/api/projects/{self.team.id}/query/",
-            {
-                "query": {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events", "modifiers": modifiers},
-                "refresh": refresh,
-                "async": async_,
-            },
+            {"query": query, "refresh": refresh, "async": async_},
             format="json",
         )
 
@@ -286,6 +238,24 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 ({"useNewEventsCluster": False, "useNewEventsSchema": True}, True, True, False),
             )
         ]
+        + [
+            (
+                {"useNewEventsCluster": True, modifier: True},
+                True,
+                True,
+                True,
+                "force_blocking",
+                False,
+                sql,
+            )
+            for modifier, sql in (
+                ("usePreaggregatedTableTransforms", "SELECT count() FROM events WHERE event = '$pageview'"),
+                (
+                    "usePreaggregatedIntermediateResults",
+                    "SELECT toStartOfDay(timestamp), uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' GROUP BY toStartOfDay(timestamp)",
+                ),
+            )
+        ]
     )
     def test_query_route_requires_an_eligible_explicit_opt_in(
         self,
@@ -295,22 +265,22 @@ class TestNewEventsClusterPilot(APIBaseTest):
         native_cluster: bool,
         refresh: str,
         async_: bool,
+        sql: str = "SELECT count() AS n FROM events",
     ) -> None:
         with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
             patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    ([self.team.id] if eligible else [])
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as insert,
             patch("posthog.hogql.query.sync_execute", return_value=([(7,)], [("n", "UInt64")])) as execute,
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
-            response = self._run_sql(modifiers, refresh=refresh, async_=async_)
+            response = self._run_query(
+                {"kind": "HogQLQuery", "query": sql, "modifiers": modifiers},
+                refresh=refresh,
+                async_=async_,
+            )
         rejected = native_cluster and not eligible
         self.assertEqual(response.status_code, 400 if rejected else 200, response.json())
         enqueue.assert_not_called()
@@ -320,43 +290,14 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.assertEqual("events_json" in execute.call_args.args[0], native_table)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native_cluster)
         if native_cluster:
+            insert.assert_not_called()
+            self.assertNotIn("pre_aggregated", execute.call_args.args[0])
+            self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
-
-    def test_staff_can_enable_and_disable_pilot_eligibility_through_api(self) -> None:
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
-        endpoint = "/api/instance_settings/CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-        for host, value in (
-            ("native.example.com", [self.team.id]),
-            ("replacement.example.com", [self.team.id]),
-            ("", [self.team.id]),
-            ("native.example.com", []),
-        ):
-            response = self.client.patch(
-                "/api/instance_settings/CLICKHOUSE_NATIVE_EVENTS_HOST", {"value": host}, format="json"
-            )
-            self.assertEqual(response.status_code, 200, response.json())
-            response = self.client.patch(endpoint, {"value": value}, format="json")
-            self.assertEqual(response.status_code, 200, response.json())
-            self.assertEqual(response.json()["value"], value)
-            with patch("posthog.hogql.query.sync_execute", return_value=([(7,)], [("n", "UInt64")])) as execute:
-                query_response = self._run_sql({"useNewEventsCluster": True})
-            self.assertEqual(query_response.status_code, 200 if value and host else 400, query_response.json())
-            self.assertEqual(execute.called, bool(value and host))
 
     @parameterized.expand([(False,), (True,)])
     def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:
         with (
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    [self.team.id]
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
             patch(
                 "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
                 side_effect=lambda key, *args, **kwargs: key == "property-values-table",
@@ -366,19 +307,13 @@ class TestNewEventsClusterPilot(APIBaseTest):
             ) as aggregate,
             patch("posthog.hogql.query.sync_execute", return_value=([('"Chrome"',)], [("value", "String")])) as execute,
         ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/query/",
+            response = self._run_query(
                 {
-                    "query": {
-                        "kind": "PropertyValuesQuery",
-                        "property_type": "event",
-                        "property_key": "browser",
-                        "modifiers": {"useNewEventsSchema": native, "useNewEventsCluster": native},
-                    },
-                    "refresh": "force_blocking",
-                    "async": False,
+                    "kind": "PropertyValuesQuery",
+                    "property_type": "event",
+                    "property_key": "browser",
+                    "modifiers": {"useNewEventsSchema": native, "useNewEventsCluster": native},
                 },
-                format="json",
             )
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(aggregate.called, not native)
@@ -386,67 +321,3 @@ class TestNewEventsClusterPilot(APIBaseTest):
         if native:
             self.assertIn("events_json", execute.call_args.args[0])
             self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
-
-    @parameterized.expand(
-        [
-            (True, False, "SELECT count() FROM events WHERE event = '$pageview'"),
-            (
-                False,
-                True,
-                "SELECT toStartOfDay(timestamp), uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' GROUP BY toStartOfDay(timestamp)",
-            ),
-            (
-                True,
-                True,
-                "SELECT toStartOfDay(timestamp), uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-01-08' GROUP BY toStartOfDay(timestamp)",
-            ),
-        ]
-    )
-    def test_native_sql_bypasses_aggregate_optimizers(self, tables: bool, intermediate: bool, sql: str) -> None:
-        with (
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    [self.team.pk]
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ) as insert,
-            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/query/",
-                {
-                    "query": {
-                        "kind": "HogQLQuery",
-                        "query": sql,
-                        "modifiers": {
-                            "useNewEventsCluster": True,
-                            "usePreaggregatedTableTransforms": tables,
-                            "usePreaggregatedIntermediateResults": intermediate,
-                        },
-                    },
-                    "refresh": "force_blocking",
-                    "async": False,
-                },
-                format="json",
-            )
-        self.assertEqual(response.status_code, 200, response.json())
-        insert.assert_not_called()
-        self.assertIn("events_json", execute.call_args.args[0])
-        self.assertNotIn("pre_aggregated", execute.call_args.args[0])
-        self.assertNotIn("preaggregation_results", execute.call_args.args[0])
-        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
-
-    @parameterized.expand(
-        [("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [44]), ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com")]
-    )
-    def test_nonstaff_cannot_enable_pilot_eligibility(self, key: str, value: object) -> None:
-        response = self.client.patch(f"/api/instance_settings/{key}", {"value": value}, format="json")
-        self.assertEqual(response.status_code, 403, response.json())

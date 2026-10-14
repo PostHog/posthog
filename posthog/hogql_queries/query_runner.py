@@ -1928,10 +1928,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
 
-    @property
-    def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk, self.modifiers)
-
     def _should_pin_events_schema_for_async(self) -> bool:
         return True
 

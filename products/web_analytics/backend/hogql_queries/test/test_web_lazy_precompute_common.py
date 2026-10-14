@@ -35,6 +35,7 @@ from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.models.instance_setting import override_instance_config
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -152,16 +153,8 @@ class TestChannelModifiersShapeKey(BaseTest):
         query = WebOverviewQuery(properties=[], dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"))
         with (
             override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
-            mock.patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect=lambda key: (
-                    [self.team.pk]
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_TEAMS"
-                    else "native.example.com"
-                    if key == "CLICKHOUSE_NATIVE_EVENTS_HOST"
-                    else False
-                ),
-            ),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
             mock.patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
                 return_value=0,

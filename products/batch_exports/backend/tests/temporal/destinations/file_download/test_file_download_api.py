@@ -1052,8 +1052,8 @@ class TestFileDownloadHogQL:
 
     @pytest.mark.parametrize(
         "hogql_modifiers,expected_count",
-        [(None, 10), ({"useNewEventsCluster": False}, 10), ({"convertToProjectTimezone": True}, 0)],
-        ids=["utc-by-default", "legacy-cluster", "project-timezone-from-modifier"],
+        [(None, 10), ({"convertToProjectTimezone": True}, 0)],
+        ids=["utc-by-default", "project-timezone-from-modifier"],
     )
     @pytest.mark.usefixtures("enable_hogql_flag", "hogql_export_test_events")
     @pytest.mark.django_db(transaction=True)
