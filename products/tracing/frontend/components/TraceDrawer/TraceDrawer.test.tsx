@@ -78,24 +78,38 @@ describe('TraceDrawer', () => {
         expect(onRetry).toHaveBeenCalledTimes(1)
     })
 
-    it('keeps the waterfall and shows a compact warning when a failed load still has spans', () => {
-        const onRetry = jest.fn()
-        renderDrawer({
-            loading: false,
-            loadFailed: true,
-            onRetry,
-            spans: [makeSpan({ trace_id: 'abc123', span_id: 'span-1', is_root_span: true })],
-        })
+    it.each([
+        { failedLoad: 'spans', loadFailed: true, aiEventsFail: false, spanRetries: 1, aiEventsFetches: 0 },
+        { failedLoad: 'AI events', loadFailed: false, aiEventsFail: true, spanRetries: 0, aiEventsFetches: 2 },
+    ])(
+        'keeps the waterfall and shows a compact warning when the $failedLoad load fails but spans exist',
+        async ({ loadFailed, aiEventsFail, spanRetries, aiEventsFetches }) => {
+            if (aiEventsFail) {
+                mockAiEventsRetrieve.mockRejectedValueOnce(new Error('boom'))
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_AI_EVENTS]: true })
+            }
+            const onRetry = jest.fn()
+            renderDrawer({
+                loading: false,
+                loadFailed,
+                onRetry,
+                spans: [makeSpan({ trace_id: 'abc123', span_id: 'span-1', is_root_span: true })],
+            })
 
-        expect(screen.queryByText("Couldn't load trace")).toBeNull()
-        expect(screen.queryByText("Couldn't load the full trace. Showing the spans loaded so far.")).not.toBeNull()
-        expect(screen.getAllByText('GET /checkout').length).toBeGreaterThan(0)
+            expect(
+                await screen.findByText("Couldn't load the full trace. Showing the spans loaded so far.")
+            ).toBeInTheDocument()
+            expect(screen.queryByText("Couldn't load trace")).toBeNull()
+            expect(screen.getAllByText('GET /checkout').length).toBeGreaterThan(0)
 
-        // LemonBanner renders its action twice (one per responsive breakpoint), both wired to the
-        // same handler, so any one of them firing once is the behavior under test.
-        screen.getAllByText('Try again')[0].click()
-        expect(onRetry).toHaveBeenCalledTimes(1)
-    })
+            // LemonBanner renders its action twice (one per responsive breakpoint), both wired to the
+            // same handler, so any one of them firing once is the behavior under test.
+            screen.getAllByText('Try again')[0].click()
+            expect(onRetry).toHaveBeenCalledTimes(spanRetries)
+            expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(aiEventsFetches)
+        }
+    )
 
     // The spans fetch and the AI events fetch resolve independently, so a spans result that is empty
     // must not read as "trace unavailable" while AI events for the same trace are still in flight.

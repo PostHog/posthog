@@ -101,6 +101,16 @@ export function TraceDrawer({
         traceAiEventsLogic({ traceId })
     )
     const { loadAiEvents } = useActions(traceAiEventsLogic({ traceId }))
+    const anyLoadFailed = loadFailed || aiEventsLoadFailed
+    const canRetry = (loadFailed && !!onRetry) || aiEventsLoadFailed
+    const retryFailedLoads = (): void => {
+        if (loadFailed) {
+            onRetry?.()
+        }
+        if (aiEventsLoadFailed) {
+            loadAiEvents()
+        }
+    }
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
@@ -194,28 +204,19 @@ export function TraceDrawer({
         >
             <TraceIdentityChips identity={identity} timestamp={rootSpan?.timestamp ?? ts} />
             {/* A failed refetch only replaces the waterfall when there are no spans to fall back on. */}
-            {traceId && !loading && (loadFailed || aiEventsLoadFailed) && spans.length === 0 ? (
-                <TraceLoadErrorNotice
-                    onRetry={() => {
-                        if (loadFailed) {
-                            onRetry?.()
-                        }
-                        if (aiEventsLoadFailed) {
-                            loadAiEvents()
-                        }
-                    }}
-                />
+            {traceId && !loading && anyLoadFailed && spans.length === 0 ? (
+                <TraceLoadErrorNotice onRetry={canRetry ? retryFailedLoads : undefined} />
             ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
                 <TraceUnavailableNotice traceId={traceId} />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">
                     {(loading || (aiEventsResponseLoading && spans.length === 0)) && <SpinnerOverlay />}
                     <div className="flex-1 min-w-0">
-                        {loadFailed && (
+                        {anyLoadFailed && (
                             <LemonBanner
                                 type="warning"
                                 className="mb-2"
-                                action={onRetry ? { children: 'Try again', onClick: onRetry } : undefined}
+                                action={canRetry ? { children: 'Try again', onClick: retryFailedLoads } : undefined}
                                 data-attr="tracing-trace-load-error-banner"
                             >
                                 Couldn't load the full trace. Showing the spans loaded so far.
