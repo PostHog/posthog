@@ -262,6 +262,8 @@ export function filterFields(filters: CanvasFilters, followFilters = true) {
   };
 }
 
+export const CHART_COLORS = ["#1d4aff", "#f54e00", "#43827e", "#a621c8", "#f1a82c"];
+
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
