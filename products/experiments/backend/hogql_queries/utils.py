@@ -200,6 +200,21 @@ def get_variant_results(
     return [get_variant_result(row, columns) for row in rows]
 
 
+ZERO_UPPER_BOUND_WARNING_MESSAGE = (
+    "Outlier handling sets the upper bound to 0, because fewer users have this metric than the upper bound percentile excludes. "
+    "All values above 0 are capped to 0, so the results are not correct. "
+    'Select "Ignore zeros when calculating upper bound" or turn off outlier handling.'
+)
+
+
+def has_zero_upper_bound(rows: list[tuple], columns: list[str]) -> bool:
+    """True when the winsorization upper bound is 0 and clamps non-zero values to 0 in some result row."""
+    if "upper_bound_is_zero" not in columns:
+        return False
+    index = columns.index("upper_bound_is_zero")
+    return any(row[index] for row in rows)
+
+
 def aggregate_variants_across_breakdowns(
     variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
 ) -> list[ExperimentStatsBase]:
