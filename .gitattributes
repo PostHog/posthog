@@ -23,8 +23,8 @@ services/mcp/src/tools/generated/** linguist-generated
 
 packages/sdk/src/generated/** linguist-generated
 packages/sdk/src/generated/handlers.mjs -whitespace
-packages/sdk/catalog/** linguist-generated
-packages/sdk/catalog.json linguist-generated
+packages/sdk/api-index.tsv linguist-generated
+packages/sdk/domains.tsv linguist-generated
 packages/sdk/coverage.json linguist-generated
 
 packages/personhog-proto/personhog/** linguist-generated
