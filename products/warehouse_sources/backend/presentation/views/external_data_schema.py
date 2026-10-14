@@ -437,11 +437,22 @@ MASKING_KEY_IS_PUBLIC_ERROR = (
 def masked_columns_error(
     masked_columns: list[str],
     *,
+    source_type: str,
+    is_direct_query: bool,
     source_columns: Iterable[object],
     primary_key_columns: Iterable[str] | None,
     incremental_field: str | None,
+    partition_keys: Iterable[str] = (),
 ) -> str | None:
     """Why this mask cannot be saved, or None. `source_columns` is empty when discovery recorded none."""
+    # A direct query source never syncs, so a saved mask would protect nothing.
+    if is_direct_query:
+        return "Column masking is not supported for direct query sources."
+    # A managed-schema source declares fixed column types, which a string digest breaks.
+    if not source_supports_column_selection(source_type):
+        return "Column masking is not supported for this source type."
+    if masking_key_is_public():
+        return MASKING_KEY_IS_PUBLIC_ERROR
     known = [name for name in source_columns if isinstance(name, str)]
     if known:
         known_folded = {fold_column_name(name) for name in known}
@@ -457,12 +468,13 @@ def masked_columns_error(
                 f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
                 "Rename the source columns so they differ by more than case."
             )
-    protected = {fold_column_name(column) for column in (primary_key_columns or [])}
+    # A partition column is read as a date or a number to pick the partition, which a digest is not.
+    protected = {fold_column_name(column) for column in [*(primary_key_columns or []), *partition_keys]}
     if incremental_field:
         protected.add(fold_column_name(incremental_field))
     conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
     if conflicting:
-        return f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)}."
+        return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
     return None
 
 
@@ -475,14 +487,11 @@ def _validate_masked_columns(
 
     # Also checked when only the key or the cursor moves, so neither can land on a masked column.
     if masked_columns and (mask_in_request or "primary_key_columns" in data or "incremental_field" in data):
-        # A direct query source never syncs, so a saved mask would protect nothing.
-        if instance.source.is_direct_query:
-            raise ValidationError("Column masking is not supported for direct query sources.")
-        if masking_key_is_public():
-            raise ValidationError(MASKING_KEY_IS_PUBLIC_ERROR)
         metadata_columns = (instance.schema_metadata or {}).get("columns")
         error = masked_columns_error(
             masked_columns,
+            source_type=instance.source.source_type,
+            is_direct_query=instance.source.is_direct_query,
             source_columns=[
                 column.get("name")
                 for column in (metadata_columns if isinstance(metadata_columns, list) else [])
@@ -494,6 +503,7 @@ def _validate_masked_columns(
             incremental_field=(
                 data.get("incremental_field") if "incremental_field" in data else instance.incremental_field
             ),
+            partition_keys=[*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])],
         )
         if error:
             raise ValidationError(error)
@@ -1531,6 +1541,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
+        elif masked_columns_changed and not (should_sync if should_sync is not None else instance.should_sync):
+            # Capture does not read a table that does not sync, so the new snapshot is staged in this
+            # save. A self-managed publication takes no snapshot of its own when the table is turned on.
+            instance.sync_type_config["cdc_mode"] = "snapshot"
+            instance.sync_type_config["reset_pipeline"] = True
+            instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
+            instance.initial_sync_complete = False
+            validated_data["initial_sync_complete"] = False
 
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
@@ -1692,7 +1711,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Capture finishes this reset before it reads the change stream again, and it empties the change
         # buffer first: files captured before the change hold the old values and the old column type.
-        # A table that does not sync now takes a new snapshot when it is turned back on.
         cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
         if cdc_mask_reset:
             self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger))

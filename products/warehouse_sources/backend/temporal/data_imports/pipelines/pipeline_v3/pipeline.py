@@ -964,12 +964,12 @@ class PipelineV3(Generic[ResumableData]):
                 "V3 Pipeline: Dropped non-enabled columns before write",
             )
 
+        pa_table = evolve_pyarrow_schema(pa_table, None)
+        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+        # After the null-column backfill, so a masked column the batch lacked is typed as text too.
         # Capture masks a change before it writes the change buffer, so a buffered batch is masked already.
         if self._resource.cdc_write_mode is None:
             pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource, source_column_names)
-
-        pa_table = evolve_pyarrow_schema(pa_table, None)
-        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         # Converge this batch onto the column types earlier batches in this run already used,
         # and backfill columns they had that this one doesn't. The cursor column is named both

@@ -6,12 +6,14 @@ column from brute-forcing low-entropy values such as card numbers. `team_id` mak
 mask alike within a team, so they still join, and differently across teams.
 
 The value is hashed as `str(value)`. A value that two read paths render differently digests
-differently, for example `Decimal("1.10")` against `1.1`, or a timestamp that a change stream
-sends as text while a snapshot reads it as a datetime.
+differently. On a CDC table the snapshot reads Python values while the change stream keeps the
+Postgres text for numeric, date and time, JSON, bytea and array columns. A masked column of those
+types can therefore hold two digests for one value after a row changes. Text, integer, boolean,
+float8 and UUID columns render alike on both paths.
 
-The digest always uses `ENCRYPTION_SALT_KEYS[0]`. Prepending a new key changes every later digest,
-while rows already synced keep the old one. Every table with masked columns therefore needs a full
-resync after a key rotation.
+The key is derived from `ENCRYPTION_SALT_KEYS[0]`, so it never equals the Fernet key of the
+encrypted fields. Prepending a new salt key changes every later digest, while rows already synced
+keep the old one. Every table with masked columns therefore needs a full resync after a rotation.
 
 Masking does not reach data derived before the mask was set. A materialized view built earlier
 keeps its plaintext copy until it is materialized again.
@@ -29,7 +31,7 @@ from django.conf import settings
 
 import pyarrow as pa
 
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
@@ -54,7 +56,7 @@ def get_masking_key() -> bytes:
         raise NonRetryableException("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
     if masking_key_is_public():
         raise NonRetryableException("ENCRYPTION_SALT_KEYS is the public default. Set a secret value to mask columns.")
-    return keys[0].encode()
+    return hmac.new(keys[0].encode(), b"warehouse-column-masking", hashlib.sha256).digest()
 
 
 def _mask_base(team_id: int, key: bytes) -> hmac.HMAC:
@@ -72,14 +74,6 @@ def mask_value(team_id: int, value: object, *, key: bytes | None = None) -> str 
     digest = _mask_base(team_id, key if key is not None else get_masking_key()).copy()
     digest.update(str(value).encode())
     return digest.hexdigest()
-
-
-def fold_column_name(name: str) -> str:
-    """Fold a source column name the way the pipeline normalizes it, so `ID` matches `id`."""
-    try:
-        return NamingConvention.normalize_identifier(name)
-    except ValueError:
-        return name
 
 
 def ambiguous_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:

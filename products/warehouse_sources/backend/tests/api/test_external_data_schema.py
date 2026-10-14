@@ -4723,15 +4723,33 @@ class TestMaskedColumnsError(SimpleTestCase):
             ("primary_key", ["id"], "can't be masked"),
             ("primary_key_in_another_case", ["ID"], "can't be masked"),
             ("incremental_field", ["created_at"], "can't be masked"),
+            ("partition_column", ["region"], "can't be masked"),
             ("two_source_columns_fold_to_one_name", ["Email"], "collide after normalization"),
+            ("direct_query_source", ["password"], "direct query", ExternalDataSourceType.POSTGRES, True),
+            (
+                "managed_schema_source",
+                ["password"],
+                "not supported for this source type",
+                ExternalDataSourceType.STRIPE,
+            ),
         ]
     )
-    def test_masked_columns_error(self, _name: str, masked_columns: list[str], expected: str | None) -> None:
+    def test_masked_columns_error(
+        self,
+        _name: str,
+        masked_columns: list[str],
+        expected: str | None,
+        source_type: str = ExternalDataSourceType.POSTGRES,
+        is_direct_query: bool = False,
+    ) -> None:
         error = masked_columns_error(
             masked_columns,
-            source_columns=["id", "created_at", "password", "email", "Email"],
+            source_type=source_type,
+            is_direct_query=is_direct_query,
+            source_columns=["id", "created_at", "password", "email", "Email", "region"],
             primary_key_columns=["id"],
             incremental_field="created_at",
+            partition_keys=["region"],
         )
         if expected is None:
             assert error is None
@@ -4740,7 +4758,14 @@ class TestMaskedColumnsError(SimpleTestCase):
 
     def test_columns_are_not_checked_when_discovery_recorded_none(self) -> None:
         assert (
-            masked_columns_error(["anything"], source_columns=[], primary_key_columns=None, incremental_field=None)
+            masked_columns_error(
+                ["anything"],
+                source_type=ExternalDataSourceType.POSTGRES,
+                is_direct_query=False,
+                source_columns=[],
+                primary_key_columns=None,
+                incremental_field=None,
+            )
             is None
         )
 
@@ -4820,8 +4845,8 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.sync_type_config.get("reset_pipeline") is True
         mock_trigger.assert_not_called()
 
-    @parameterized.expand([("syncing", True, 1), ("disabled_waits_for_the_snapshot_on_re_enable", False, 0)])
-    def test_a_cdc_table_hands_its_reset_to_capture(self, _name: str, should_sync: bool, resets: int) -> None:
+    @parameterized.expand([("syncing", True, 1), ("disabled_stages_the_snapshot_in_the_save", False, 0)])
+    def test_a_cdc_table_resets_through_a_new_snapshot(self, _name: str, should_sync: bool, resets: int) -> None:
         schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC, should_sync=should_sync)
         with (
             mock.patch(f"{self.VIEWS}.source_type_supports_cdc", return_value=False),
@@ -4836,6 +4861,11 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert mock_hand_over.call_count == resets
         mock_resnapshot.assert_not_called()
         mock_trigger.assert_not_called()
+        if not should_sync:
+            schema.refresh_from_db()
+            assert schema.sync_type_config["cdc_mode"] == "snapshot"
+            assert schema.sync_type_config["reset_pipeline"] is True
+            assert schema.initial_sync_complete is False
 
     def test_rejected_when_the_masking_key_is_public(self) -> None:
         schema = self._create()
