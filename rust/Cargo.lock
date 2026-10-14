@@ -4689,7 +4689,6 @@ dependencies = [
  "percent-encoding",
  "personhog-common",
  "personhog-proto",
- "personhog-replica",
  "petgraph 0.8.3",
  "rand 0.8.5",
  "rayon",

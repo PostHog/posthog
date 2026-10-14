@@ -1983,11 +1983,13 @@ mod tests {
     use common_database::{get_pool_with_config, PoolConfig};
     use futures::FutureExt;
     use metrics_util::debugging::DebuggingRecorder;
+    use personhog_proto::personhog::types::v1::{
+        UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    };
     use rstest::rstest;
     use serde_json::json;
 
     use crate::{
-        api::errors::TIMEOUT_PERSONHOG,
         config::DEFAULT_TEST_CONFIG,
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
@@ -2441,18 +2443,13 @@ mod tests {
         // Set overrides
         let router = context.create_postgres_router();
         let personhog = if through_personhog {
-            let pool = get_pool_with_config(
-                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
-                PoolConfig::default(),
-            )
-            .unwrap();
-            Some(start_personhog_replica(pool, 2000).await)
+            Some(FakePersonhog::start(None).await)
         } else {
             None
         };
         let result = set_feature_flag_hash_key_overrides(
             &router,
-            personhog.as_ref(),
+            personhog.as_ref().map(|fake| &fake.client),
             team.id,
             vec!["filter_test_user".to_string()],
             "filter_hash".to_string(),
@@ -2463,10 +2460,13 @@ mod tests {
         assert!(result, "Should have written override for active flag");
 
         // Verify only the active flag with experience continuity got an override
-        let overrides = context
-            .get_feature_flag_hash_key_overrides(team.id, vec!["filter_test_user".to_string()])
-            .await
-            .expect("Failed to get overrides");
+        let overrides = match &personhog {
+            Some(fake) => fake.upserted_overrides(),
+            None => context
+                .get_feature_flag_hash_key_overrides(team.id, vec!["filter_test_user".to_string()])
+                .await
+                .expect("Failed to get overrides"),
+        };
 
         assert_eq!(overrides.len(), 1, "Should have exactly 1 override");
         assert_eq!(
@@ -3126,84 +3126,155 @@ mod tests {
         assert_eq!(non_persons_reader.calls.load(Ordering::SeqCst), 3);
     }
 
-    /// Serves the personhog service on the replica handler, as the router does, and returns a
-    /// client for it. The replica storage uses `pool` for every pool.
-    async fn start_personhog_replica(
-        pool: sqlx::PgPool,
-        hash_key_override_statement_timeout_ms: u64,
-    ) -> RouterClient {
-        use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
-        use personhog_replica::service::PersonHogReplicaService;
-        use personhog_replica::storage::postgres::PostgresStorage;
-        use tonic::body::BoxBody;
+    struct FakePersonhog {
+        client: RouterClient,
+        service: FakePersonhogService,
+    }
 
-        #[derive(Clone)]
-        struct ServiceToReplica(PersonHogReplicaServer<PersonHogReplicaService>);
-
-        impl tonic::server::NamedService for ServiceToReplica {
-            const NAME: &'static str = "personhog.service.v1.PersonHogService";
+    impl FakePersonhog {
+        async fn start(failure: Option<tonic::Code>) -> Self {
+            let service = FakePersonhogService {
+                failure,
+                requests: Default::default(),
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(
+                tonic::transport::Server::builder()
+                    .add_service(service.clone())
+                    .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
+            );
+            // The client deadline does not expire in a test, so a DEADLINE_EXCEEDED comes from
+            // the fake.
+            let client =
+                RouterClient::with_channels(&format!("http://{addr}"), Duration::from_secs(60), 1)
+                    .unwrap();
+            Self { client, service }
         }
 
-        impl tower::Service<axum::http::Request<BoxBody>> for ServiceToReplica {
-            type Response = <PersonHogReplicaServer<PersonHogReplicaService> as tower::Service<
-                axum::http::Request<BoxBody>,
-            >>::Response;
-            type Error = std::convert::Infallible;
-            type Future = <PersonHogReplicaServer<PersonHogReplicaService> as tower::Service<
-                axum::http::Request<BoxBody>,
-            >>::Future;
-
-            fn poll_ready(
-                &mut self,
-                cx: &mut std::task::Context<'_>,
-            ) -> std::task::Poll<Result<(), Self::Error>> {
-                tower::Service::<axum::http::Request<BoxBody>>::poll_ready(&mut self.0, cx)
-            }
-
-            fn call(&mut self, mut req: axum::http::Request<BoxBody>) -> Self::Future {
-                let path = req.uri().path().replacen(
-                    "/personhog.service.v1.PersonHogService/",
-                    "/personhog.replica.v1.PersonHogReplica/",
-                    1,
-                );
-                *req.uri_mut() = path.parse().unwrap();
-                self.0.call(req)
-            }
+        fn calls(&self) -> usize {
+            self.service.requests.lock().unwrap().len()
         }
 
-        let storage = std::sync::Arc::new(PostgresStorage::new(
-            pool.clone(),
-            pool.clone(),
-            pool.clone(),
-            pool,
-            50,
-            5,
-            12,
-            hash_key_override_statement_timeout_ms,
-        ));
-        let server = ServiceToReplica(PersonHogReplicaServer::new(PersonHogReplicaService::new(
-            storage,
-        )));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(
-            tonic::transport::Server::builder()
-                .add_service(server)
-                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
-        );
-        // The client deadline is longer than any test waits, so a personhog_timeout comes from
-        // the replica and not from this client.
-        RouterClient::with_channels(&format!("http://{addr}"), Duration::from_secs(60), 1).unwrap()
+        fn upserted_overrides(&self) -> HashMap<String, String> {
+            self.service
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .flat_map(|request| {
+                    request
+                        .feature_flag_keys
+                        .iter()
+                        .map(|key| (key.clone(), request.hash_key.clone()))
+                })
+                .collect()
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakePersonhogService {
+        failure: Option<tonic::Code>,
+        requests: std::sync::Arc<std::sync::Mutex<Vec<UpsertHashKeyOverridesRequest>>>,
+    }
+
+    impl tonic::server::NamedService for FakePersonhogService {
+        const NAME: &'static str = "personhog.service.v1.PersonHogService";
+    }
+
+    impl tonic::server::UnaryService<UpsertHashKeyOverridesRequest> for FakePersonhogService {
+        type Response = UpsertHashKeyOverridesResponse;
+        type Future = std::future::Ready<Result<tonic::Response<Self::Response>, tonic::Status>>;
+
+        fn call(&mut self, request: tonic::Request<UpsertHashKeyOverridesRequest>) -> Self::Future {
+            let request = request.into_inner();
+            let inserted_count = request.feature_flag_keys.len() as i64;
+            self.requests.lock().unwrap().push(request);
+            std::future::ready(match self.failure {
+                Some(code) => Err(tonic::Status::new(code, "fake personhog failure")),
+                None => Ok(tonic::Response::new(UpsertHashKeyOverridesResponse {
+                    inserted_count,
+                })),
+            })
+        }
+    }
+
+    impl tower::Service<axum::http::Request<tonic::body::BoxBody>> for FakePersonhogService {
+        type Response = axum::http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = futures::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+        fn poll_ready(
+            &mut self,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, req: axum::http::Request<tonic::body::BoxBody>) -> Self::Future {
+            let service = self.clone();
+            Box::pin(async move {
+                if req.uri().path()
+                    != "/personhog.service.v1.PersonHogService/UpsertHashKeyOverrides"
+                {
+                    return Ok(tonic::Status::unimplemented(req.uri().path()).into_http());
+                }
+                let mut grpc = tonic::server::Grpc::new(tonic::codec::ProstCodec::default());
+                Ok(grpc.unary(service, req).await)
+            })
+        }
     }
 
     #[rstest]
-    #[case::persons_db(false, "query_canceled")]
-    #[case::personhog(true, TIMEOUT_PERSONHOG)]
+    #[case::deadline_exceeded(tonic::Code::DeadlineExceeded, "timeout:personhog_timeout")]
+    #[case::unavailable(tonic::Code::Unavailable, "personhog_unavailable")]
     #[tokio::test]
-    async fn test_set_overrides_statement_timeout_covers_person_row_lock(
-        #[case] through_personhog: bool,
-        #[case] expected_timeout: &str,
+    async fn test_set_overrides_does_not_retry_a_failed_personhog_call(
+        #[case] code: tonic::Code,
+        #[case] expected_error: &str,
     ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            ensure_experience_continuity: Some(true)
+        );
+        context
+            .insert_flag(team.id, Some(mock!(FeatureFlagRow, from: flag)))
+            .await
+            .unwrap();
+        let personhog = FakePersonhog::start(Some(code)).await;
+
+        let result = set_feature_flag_hash_key_overrides(
+            &context.create_postgres_router(),
+            Some(&personhog.client),
+            team.id,
+            vec!["user".to_string()],
+            "hash".to_string(),
+        )
+        .await;
+
+        assert_eq!(
+            result.map_err(|e| e.evaluation_error_code()),
+            Err(expected_error.to_string())
+        );
+        assert_eq!(personhog.calls(), 1);
+        assert_eq!(
+            counter_total(
+                &snapshotter,
+                FLAG_HASH_KEY_RETRIES_COUNTER,
+                &[("operation", db_operations::SET_HASH_KEY_OVERRIDES)],
+            ),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_statement_timeout_covers_person_row_lock() {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
         let person_id = context
@@ -3219,20 +3290,16 @@ mod tests {
             .await
             .unwrap();
 
-        let timeout_pool = get_pool_with_config(
-            &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
-            PoolConfig {
-                statement_timeout_ms: Some(200),
-                ..PoolConfig::default()
-            },
-        )
-        .unwrap();
-        let personhog = if through_personhog {
-            Some(start_personhog_replica(timeout_pool.clone(), 200).await)
-        } else {
-            None
-        };
-        let persons_writer: PostgresWriter = std::sync::Arc::new(timeout_pool);
+        let persons_writer: PostgresWriter = std::sync::Arc::new(
+            get_pool_with_config(
+                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+                PoolConfig {
+                    statement_timeout_ms: Some(200),
+                    ..PoolConfig::default()
+                },
+            )
+            .unwrap(),
+        );
         let router = PostgresRouter::new(
             context.persons_reader.clone(),
             persons_writer,
@@ -3254,7 +3321,7 @@ mod tests {
             Duration::from_secs(10),
             set_feature_flag_hash_key_overrides(
                 &router,
-                personhog.as_ref(),
+                None,
                 team.id,
                 vec!["user".to_string()],
                 "hash".to_string(),
@@ -3265,8 +3332,8 @@ mod tests {
         lock_tx.rollback().await.unwrap();
 
         assert!(
-            matches!(&result, Err(FlagError::TimeoutError(Some(t))) if t == expected_timeout),
-            "expected a {expected_timeout} timeout, got {result:?}"
+            matches!(result, Err(FlagError::TimeoutError(_))),
+            "expected a statement timeout, got {result:?}"
         );
     }
 
