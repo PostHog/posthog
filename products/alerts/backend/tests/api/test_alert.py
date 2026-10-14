@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -2112,7 +2113,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         cache.clear()
 
 
-class TestAlertEventProperties(APIBaseTest):
+class TestAlertEventProperties(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -2219,6 +2220,7 @@ class TestAlertEventProperties(APIBaseTest):
         expected_detector_fields: dict,
     ) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition=condition,
             detector_config=detector_config,
@@ -2271,6 +2273,7 @@ class TestAlertEventProperties(APIBaseTest):
     )
     def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
         alert = AlertConfiguration(
+            id=None,
             name="test alert",
             condition={"type": "absolute_value"},
             config=config,
@@ -2279,6 +2282,18 @@ class TestAlertEventProperties(APIBaseTest):
         props = alert._get_event_properties()
         for key, value in expected.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
+
+class TestPersistedAlertEventProperties(APIBaseTest):
+    def test_event_properties_include_alert_id_and_subscriber_count(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="test alert")
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        props = alert._get_event_properties()
+
+        assert props["alert_id"] == alert.id
+        assert props["subscribed_users_count"] == 1
 
 
 class TestAlertListFilters(TrendsInsightAPITest):
