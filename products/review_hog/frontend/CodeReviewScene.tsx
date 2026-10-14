@@ -538,6 +538,7 @@ const DROP_REASON_LABEL: Record<ReviewDropDispositionEnumApi, string> = {
     dedup_anchor: 'Same spot as another finding',
     old_code: 'On unchanged code',
     cap: 'Over the limit',
+    budget: 'Over the pull request limit',
 }
 
 // Display order of the reasons: the label map's key order.
@@ -548,7 +549,9 @@ function DropReason({ finding }: { finding: ReviewDroppedFindingApi }): JSX.Elem
     return (
         <>
             <LemonTag type="muted" size="small">
-                {finding.disposition === 'cap' && finding.rank ? `${label} (#${finding.rank})` : label}
+                {(finding.disposition === 'cap' || finding.disposition === 'budget') && finding.rank
+                    ? `${label} (#${finding.rank})`
+                    : label}
             </LemonTag>
             {finding.comment_url && (
                 <Link to={finding.comment_url} target="_blank" targetBlankIcon className="text-xs">
@@ -923,20 +926,37 @@ function SettingsTab(): JSX.Element {
  */
 export function CodeReviewScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, initialLoadFailed } = useValues(reviewHogSettingsLogic)
+    const { activeTab, initialLoadFailed, featureFlagGated } = useValues(reviewHogSettingsLogic)
     const { setActiveTab, loadAll } = useActions(reviewHogSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
     }
 
+    const titleSection = (
+        <SceneTitleSection
+            name="Code review"
+            description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
+            resourceType={{ type: 'code_review' }}
+        />
+    )
+
+    // The browser flag shows the page, but the server flag gate refuses its API.
+    if (featureFlagGated) {
+        return (
+            <SceneContent>
+                {titleSection}
+                <LemonBanner type="info" data-attr="code-review-feature-flag-gated">
+                    PostHog Review is not available for this project yet. If you just turned on the feature preview,
+                    refresh the page in a moment. Otherwise, ask an admin of your PostHog instance to turn it on.
+                </LemonBanner>
+            </SceneContent>
+        )
+    }
+
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Code review"
-                description="PostHog Review reads your pull requests and posts the findings worth fixing. Start a review, see recent ones, and choose what gets reviewed."
-                resourceType={{ type: 'code_review' }}
-            />
+            {titleSection}
             <LemonTabs<CodeReviewTab>
                 activeKey={activeTab}
                 onChange={setActiveTab}

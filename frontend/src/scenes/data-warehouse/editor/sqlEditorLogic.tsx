@@ -64,7 +64,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
@@ -985,9 +985,11 @@ export interface sqlEditorLogicActions {
     }
     runQuery: (
         queryOverride?: string,
-        switchTab?: boolean
+        switchTab?: boolean,
+        reuseResults?: boolean
     ) => {
         queryOverride: string | undefined
+        reuseResults: boolean
         switchTab: boolean | undefined
     }
     runSubquery: () => {
@@ -1342,9 +1344,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             activeQueryText,
             activeQueryOffset,
         }),
-        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
+        runQuery: (queryOverride?: string, switchTab?: boolean, reuseResults: boolean = false) => ({
             queryOverride,
             switchTab,
+            reuseResults,
         }),
         createTab: (
             query?: string,
@@ -2325,7 +2328,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             },
-            runQuery: ({ queryOverride, switchTab }) => {
+            runQuery: ({ queryOverride, switchTab, reuseResults }) => {
                 // Cmd+Enter reaches this listener even while the run button is disabled
                 if (values.singleStatementDisabledReason) {
                     return
@@ -2410,17 +2413,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 actions.setSourceQuery(nextSourceQuery)
                 actions.setLastRunQuery(nextSourceQuery)
-                if (!cache.umountDataNode) {
-                    cache.umountDataNode = dataNodeLogic({
-                        key: values.dataLogicKey,
-                        query: executedSource,
-                    }).mount()
-                }
-
-                dataNodeLogic({
+                const dataProps: DataNodeLogicProps = {
                     key: values.dataLogicKey,
                     query: executedSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
+                    autoLoad: false,
+                    ...(reuseResults ? { retainResponseOnUnmount: true } : {}),
+                }
+                if (!cache.umountDataNode) {
+                    cache.umountDataNode = dataNodeLogic(dataProps).mount()
+                }
+
+                dataNodeLogic(dataProps).actions.loadData(
+                    reuseResults || switchTab ? 'async' : 'force_async',
+                    undefined,
+                    executedSource
+                )
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)

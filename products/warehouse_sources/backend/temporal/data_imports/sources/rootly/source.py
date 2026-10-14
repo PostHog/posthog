@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ROOTLY_",),
+        npm=("@rootly/pulumi",),
+        pypi=("rootly",),
+        go=(
+            "github.com/rootlyhq/rootly-go",
+            "github.com/rootlyhq/rootly-catalog-sync",
+            "github.com/rootlyhq/rootly-cli",
+            "github.com/rootlyhq/rootly-tui",
+        ),
+        swiftpm=("github.com/rootlyhq/rootly-swift",),
+    )
+
     api_docs_url = "https://docs.rootly.com/api-reference"
 
     @property

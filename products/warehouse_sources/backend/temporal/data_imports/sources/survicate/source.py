@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConfig]):
+    codebase_detection = detect(
+        env=("^SURVICATE_",),
+        script_hosts=("survey.survicate.com", "surveys-static.survicate.com"),
+        npm=("@survicate/survicate-web-surveys-wrapper", "@survicate/react-native-survicate"),
+        cocoapods=("Survicate", "survicate-uxcam-integration"),
+        pub=("survicate_sdk",),
+        swiftpm=(
+            "github.com/survicate/survicate-ios-sdk",
+            "github.com/survicate/analytics-swift-survicate",
+            "github.com/survicate/survicate-fullstory-integration-ios",
+            "github.com/survicate/survicate-uxcam-integration-ios",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

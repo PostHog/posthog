@@ -31,7 +31,15 @@ if TYPE_CHECKING:
 _REGION = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d+")
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _THROTTLE_CODES = {"Throttling", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded"}
-_TIMESTAMP_COLUMNS = {"configuration_item_capture_time", "resource_creation_time", "last_update_requested_time"}
+_TIMESTAMP_COLUMNS = {
+    "configuration_item_capture_time",
+    "resource_creation_time",
+    "last_update_requested_time",
+    "last_updated_time",
+    "result_recorded_time",
+    "config_rule_invoked_time",
+    "ordering_timestamp",
+}
 
 # Config reads use POST, so the transport must retry this method for transient HTTP failures.
 TRANSPORT_RETRY = BoundedRetry(
@@ -47,6 +55,9 @@ TRANSPORT_RETRY = BoundedRetry(
 class AwsConfigResumeConfig:
     next_token: str | None = None
     complete: bool = False
+    # Fan-out tables: the parent page to fetch again, and the parent that `next_token` continues.
+    parent_next_token: str | None = None
+    parent_key: str | None = None
 
 
 class AwsConfigError(Exception):
@@ -129,7 +140,7 @@ class AwsConfigClient:
 
 
 def request_payload(endpoint: AwsConfigEndpoint, *, probe: bool = False) -> dict[str, Any]:
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = dict(endpoint.params or {})
     if endpoint.page_size is not None:
         payload["Limit"] = 1 if probe else endpoint.page_size
     if endpoint.expression is not None:
@@ -137,8 +148,16 @@ def request_payload(endpoint: AwsConfigEndpoint, *, probe: bool = False) -> dict
     return payload
 
 
-def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
+def snake_case(key: str) -> str:
+    return _CAMEL_BOUNDARY.sub("_", key).lower()
+
+
+def normalize_row(item: dict[str, Any], region: str, flatten: tuple[str, ...] = ()) -> dict[str, Any]:
+    for key in flatten:
+        nested = item.get(key)
+        if isinstance(nested, dict):
+            item = {**nested, **{name: value for name, value in item.items() if name != key}}
+    row = {snake_case(key): value for key, value in item.items()}
     row["region"] = region
     for key in _TIMESTAMP_COLUMNS & row.keys():
         value = row[key]
@@ -147,6 +166,135 @@ def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
         elif isinstance(value, str) and value:
             row[key] = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     return row
+
+
+def parse_page(
+    endpoint: AwsConfigEndpoint, body: dict[str, Any], region: str, previous_token: str | None
+) -> tuple[list[dict[str, Any]], str | None]:
+    rows = []
+    for item in body.get(endpoint.result_key) or []:
+        if endpoint.expression is not None:
+            item = json.loads(item)
+        if not isinstance(item, dict):
+            raise ValueError("AWS Config returned an invalid resource. Try the sync again.")
+        rows.append(normalize_row(item, region, endpoint.flatten))
+    token = body.get("NextToken") or None
+    if token is not None and (not isinstance(token, str) or token == previous_token):
+        raise ValueError("AWS Config returned an invalid page token. Try the sync again.")
+    return rows, token
+
+
+def request_page(
+    client: AwsConfigClient,
+    operation: str,
+    payload: dict[str, Any],
+    manager: "ResumableSourceManager[AwsConfigResumeConfig]",
+    resumed: bool,
+) -> dict[str, Any]:
+    try:
+        return client.request(operation, payload)
+    except AwsConfigError as error:
+        if resumed and error.code == "InvalidNextTokenException":
+            # A fresh retry must restart the full-refresh destination as well as extraction.
+            manager.clear_state()
+        raise
+
+
+def get_page_rows(
+    client: AwsConfigClient,
+    endpoint: AwsConfigEndpoint,
+    manager: "ResumableSourceManager[AwsConfigResumeConfig]",
+    resume: AwsConfigResumeConfig | None,
+) -> Generator[list[dict[str, Any]]]:
+    next_token = resume.next_token if resume else None
+    restarting = next_token is not None
+    while True:
+        payload = request_payload(endpoint)
+        if next_token:
+            payload["NextToken"] = next_token
+        body = request_page(client, endpoint.operation, payload, manager, restarting)
+        restarting = False
+        rows, next_token = parse_page(endpoint, body, client.region, next_token)
+        manager.save_state(AwsConfigResumeConfig(next_token=next_token, complete=next_token is None))
+        if rows:
+            yield rows
+        manager.safe_point()
+        if next_token is None:
+            break
+
+
+def get_fan_out_rows(
+    client: AwsConfigClient,
+    endpoint: AwsConfigEndpoint,
+    manager: "ResumableSourceManager[AwsConfigResumeConfig]",
+    resume: AwsConfigResumeConfig | None,
+) -> Generator[list[dict[str, Any]]]:
+    parent, param = endpoint.parent, endpoint.parent_param
+    if parent is None or param is None:
+        raise ValueError(f"AWS Config table {endpoint.operation} has no parent.")
+    column = snake_case(param)
+    parent_token = resume.parent_next_token if resume else None
+    resume_key = resume.parent_key if resume else None
+    child_token = resume.next_token if resume else None
+    restarting_parent = parent_token is not None
+    restarting_child = child_token is not None
+    while True:
+        payload = request_payload(parent)
+        if parent_token:
+            payload["NextToken"] = parent_token
+        body = request_page(client, parent.operation, payload, manager, restarting_parent)
+        restarting_parent = False
+        names = [item.get(param) if isinstance(item, dict) else None for item in body.get(parent.result_key) or []]
+        if not all(isinstance(name, str) and name for name in names):
+            raise ValueError("AWS Config returned an invalid parent resource. Try the sync again.")
+        next_parent_token = body.get("NextToken") or None
+        if next_parent_token is not None and (
+            not isinstance(next_parent_token, str) or next_parent_token == parent_token
+        ):
+            raise ValueError("AWS Config returned an invalid page token. Try the sync again.")
+        if resume_key is not None and resume_key not in names:
+            # Replaying the page would append committed rows twice, so the retry must restart the destination.
+            manager.clear_state()
+            raise ValueError("An AWS Config parent resource changed during the sync. Try the sync again.")
+        start = names.index(resume_key) if resume_key is not None else 0
+        resume_key = None
+        if not names:
+            manager.save_state(
+                AwsConfigResumeConfig(parent_next_token=next_parent_token)
+                if next_parent_token is not None
+                else AwsConfigResumeConfig(complete=True)
+            )
+            manager.safe_point()
+        for index in range(start, len(names)):
+            name = names[index]
+            if index + 1 < len(names):
+                done = AwsConfigResumeConfig(parent_next_token=parent_token, parent_key=names[index + 1])
+            elif next_parent_token is not None:
+                done = AwsConfigResumeConfig(parent_next_token=next_parent_token)
+            else:
+                done = AwsConfigResumeConfig(complete=True)
+            while True:
+                child_payload = {**request_payload(endpoint), param: name}
+                if child_token:
+                    child_payload["NextToken"] = child_token
+                child_body = request_page(client, endpoint.operation, child_payload, manager, restarting_child)
+                restarting_child = False
+                rows, child_token = parse_page(endpoint, child_body, client.region, child_token)
+                for row in rows:
+                    row[column] = name
+                manager.save_state(
+                    AwsConfigResumeConfig(parent_next_token=parent_token, parent_key=name, next_token=child_token)
+                    if child_token is not None
+                    else done
+                )
+                if rows:
+                    yield rows
+                manager.safe_point()
+                if child_token is None:
+                    break
+        if next_parent_token is None:
+            break
+        parent_token = next_parent_token
 
 
 def get_rows(
@@ -159,39 +307,12 @@ def get_rows(
     if resume is not None and resume.complete:
         manager.clear_state()
         return
-    next_token = resume.next_token if resume else None
-    restarting = next_token is not None
     client = AwsConfigClient(config, api_version)
     try:
-        while True:
-            payload = request_payload(endpoint)
-            if next_token:
-                payload["NextToken"] = next_token
-            try:
-                body = client.request(endpoint.operation, payload)
-            except AwsConfigError as error:
-                if restarting and error.code == "InvalidNextTokenException":
-                    # A fresh retry must restart the full-refresh destination as well as extraction.
-                    manager.clear_state()
-                raise
-            restarting = False
-            rows = []
-            for item in body.get(endpoint.result_key) or []:
-                if endpoint.expression is not None:
-                    item = json.loads(item)
-                if not isinstance(item, dict):
-                    raise ValueError("AWS Config returned an invalid resource. Try the sync again.")
-                rows.append(normalize_row(item, client.region))
-            token = body.get("NextToken") or None
-            if token is not None and (not isinstance(token, str) or token == next_token):
-                raise ValueError("AWS Config returned an invalid page token. Try the sync again.")
-            next_token = token
-            manager.save_state(AwsConfigResumeConfig(next_token=next_token, complete=next_token is None))
-            if rows:
-                yield rows
-            manager.safe_point()
-            if next_token is None:
-                break
+        if endpoint.parent is None:
+            yield from get_page_rows(client, endpoint, manager, resume)
+        else:
+            yield from get_fan_out_rows(client, endpoint, manager, resume)
         manager.clear_state()
     finally:
         client.close()
@@ -207,13 +328,21 @@ def validate_credentials(
         client = AwsConfigClient(config, api_version)
     except ValueError as error:
         return False, str(error)
+    probe = endpoint.parent or endpoint
+    operation = probe.operation
     try:
-        client.request(endpoint.operation, request_payload(endpoint, probe=True))
+        body = client.request(operation, request_payload(probe, probe=True))
+        if endpoint.parent is not None and endpoint.parent_param is not None:
+            parents = body.get(endpoint.parent.result_key) or []
+            name = parents[0].get(endpoint.parent_param) if parents and isinstance(parents[0], dict) else None
+            if name:
+                operation = endpoint.operation
+                client.request(operation, {**request_payload(endpoint, probe=True), endpoint.parent_param: name})
     except AwsConfigError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
                 return True, None
-            return False, f"Grant config:{endpoint.operation} to this IAM user or role to sync this table."
+            return False, f"Grant config:{operation} to this IAM user or role to sync this table."
         return False, ERROR_MESSAGES.get(error.code, "Could not read AWS Config. Check the region and try again.")
     except (requests.RequestException, ValueError):
         return False, "Could not reach the AWS Config API. Check the region and try again."

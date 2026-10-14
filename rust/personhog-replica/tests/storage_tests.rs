@@ -4,8 +4,8 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    GroupKey, PersonVersionFloorResult, StorageError, TombstoneTarget, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -1628,7 +1628,10 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row() 
     assert!(
         matches!(
             &result,
-            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains("statement timeout")
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Statement,
+                ..
+            })
         ),
         "expected a statement timeout, got {result:?}"
     );
@@ -4275,7 +4278,13 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
     };
 
     assert!(
-        matches!(result, Err(StorageError::Query(_))),
+        matches!(
+            result,
+            Err(StorageError::Timeout {
+                kind: TimeoutKind::Lock,
+                ..
+            })
+        ),
         "expected the lock_timeout to fail the request, got {result:?}"
     );
     assert!(started.elapsed() < Duration::from_secs(20));

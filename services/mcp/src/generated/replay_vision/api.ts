@@ -928,6 +928,12 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
             ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
+            ),
         provider: zod
             .enum(['google'])
             .describe('\* `google` - Google')
@@ -1100,6 +1106,12 @@ export const VisionScannersPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -2312,6 +2324,11 @@ export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
 
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+    created_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
     date_from: zod
         .string()
         .min(1)

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/util-dynamodb", "dynamoose"),
+        pypi=("pynamodb",),
+        cargo=("aws-sdk-dynamodb",),
+        go=("github.com/aws/aws-sdk-go-v2/service/dynamodb",),
+        maven=(
+            "software.amazon.awssdk:dynamodb",
+            "software.amazon.awssdk:dynamodb-enhanced",
+            "software.amazon.awssdk:dynamodbdocument-v1",
+            "software.amazon.awssdk:dynamodbmapper-v1",
+        ),
+        rubygems=("aws-sdk-dynamodb",),
+    )
+
     supported_versions = (DYNAMODB_API_VERSION,)
     default_version = DYNAMODB_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"

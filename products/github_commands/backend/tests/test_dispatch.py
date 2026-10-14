@@ -1,8 +1,8 @@
 import hmac
 import json
 import hashlib
+from datetime import timedelta
 from itertools import count
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,13 +18,15 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.integration import Integration
+from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.github_commands.backend.logic.commands import CommandContext, PullRequestFacts
+from products.github_commands.backend.logic.commands import CommandContext, ProjectMember, PullRequestFacts
 from products.github_commands.backend.logic.dispatch import dispatch_comment_command
 from products.github_commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.github_commands.backend.logic.handlers import handle_loop, handle_qa, handle_review
@@ -43,9 +45,6 @@ INSTALLATION_ID = "31337"
 REPOSITORY = "acme/widgets"
 FLAG = "products.github_commands.backend.logic.dispatch.posthog_feature_flag_enabled"
 REQUEST_STAMPHOG_REVIEW = "products.github_commands.backend.logic.handlers.stamphog_requests.request_review"
-LIST_LOOPS = "products.github_commands.backend.logic.handlers.loops_facade.list_loops"
-FIRE_LOOP = "products.github_commands.backend.logic.handlers.loops_facade.fire_loop_api_for_user"
-HAS_LOOPS_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.has_loops_access"
 DESKTOP_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.github_commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
@@ -199,6 +198,54 @@ class TestDispatchCommentCommand(BaseTest):
         request_review.assert_not_called()
         assert "can't run commands" in github.replies[0]
 
+    def _link_github_account(self, user: User, days_ago: int) -> None:
+        link = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=INSTALLATION_ID,
+            config={"github_user": {"login": "octo", "id": self.github_id}},
+        )
+        UserIntegration.objects.filter(id=link.id).update(created_at=timezone.now() - timedelta(days=days_ago))
+
+    @parameterized.expand(
+        [
+            ("newer_account_outside_the_installation", "outside", True, False, "first"),
+            ("older_account_in_the_owning_project", "owning_project", False, False, "second"),
+            ("newer_account_in_the_same_project", "same_project", True, False, "second"),
+            ("newer_account_refused", "same_project", True, True, "first"),
+        ]
+    )
+    def test_a_github_account_linked_to_several_posthog_accounts_runs_as_the_one_in_the_project(
+        self, _name: str, second_account_in: str, second_linked_last: bool, second_refused: bool, expected: str
+    ) -> None:
+        owner_team = self.team
+        if second_account_in == "same_project":
+            second_user = User.objects.create_and_join(self.organization, "second@example.com", None)
+        else:
+            other_organization = Organization.objects.create(name="Other")
+            second_user = User.objects.create_and_join(other_organization, "second@example.com", None)
+            if second_account_in == "owning_project":
+                owner_team = Team.objects.create(organization=other_organization, name="Other")
+                Integration.objects.create(team=owner_team, kind="github", integration_id=INSTALLATION_ID, config={})
+        self._link_github_account(self.user, days_ago=10)
+        self._link_github_account(second_user, days_ago=1 if second_linked_last else 30)
+        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+
+        with (
+            patch(
+                "products.github_commands.backend.logic.identity.access_refused",
+                side_effect=lambda subject, *_args, **_kwargs: second_refused and subject.email == second_user.email,
+            ),
+            patch(OWNING_TEAM_ID, return_value=owner_team.id),
+            patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
+        ):
+            outcome = dispatch_comment_command(self._request(verb="review"), github=FakeGitHub())
+
+        assert outcome == "accepted"
+        expected_user = self.user if expected == "first" else second_user
+        assert request_pr_review.call_args.kwargs["team_id"] == owner_team.id
+        assert request_pr_review.call_args.kwargs["requester_id"] == expected_user.id
+
     def test_a_comment_runs_at_most_once(self) -> None:
         self._link_github_login()
 
@@ -283,24 +330,17 @@ class TestDispatchCommentCommand(BaseTest):
         assert github.reactions == [] and github.replies == []
         request_review.assert_not_called()
 
-    def test_loop_refuses_a_loop_the_commenter_does_not_own(self) -> None:
+    def test_loop_reports_retirement(self) -> None:
         context = CommandContext(
             request=self._request(verb="loop", argument="Triage PR"),
             pull_request=_pull_request(),
-            user_id=self.user.id,
-            team_ids=(self.team.id,),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
-        teammates_loop = SimpleNamespace(id="loop-1", name="triage pr", created_by_id=self.user.id + 1)
 
-        with (
-            patch(HAS_LOOPS_ACCESS, return_value=True),
-            patch(LIST_LOOPS, return_value=[teammates_loop]),
-            patch(FIRE_LOOP) as fire,
-        ):
-            outcome = handle_loop(context, LoopArgs(name="Triage PR"))
+        outcome = handle_loop(context, LoopArgs(name="Triage PR"))
 
         assert not outcome.accepted
-        fire.assert_not_called()
+        assert outcome.message == "Legacy loops have been retired. Use workflows instead."
 
     @parameterized.expand(
         [
@@ -314,8 +354,7 @@ class TestDispatchCommentCommand(BaseTest):
         context = CommandContext(
             request=self._request(verb="qa"),
             pull_request=_pull_request(),
-            user_id=self.user.id,
-            team_ids=(self.team.id,),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
 
         with (
@@ -382,8 +421,7 @@ class TestDispatchCommentCommand(BaseTest):
         context = CommandContext(
             request=self._request(verb="review"),
             pull_request=_pull_request(),
-            user_id=self.user.id,
-            team_ids=(self.team.id,),
+            members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
         started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
 

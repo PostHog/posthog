@@ -1296,7 +1296,9 @@ export const BICombinedMeasures: Story = {
 export const BIMeasureDisplay: Story = {
     ...BICombinedMeasures,
     play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
 
