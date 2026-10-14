@@ -1266,6 +1266,20 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
 
 
+def _replay_gate_flag_id(flag_id: object) -> int | None:
+    # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
+    # makes the flag-delete guard miss the team's row and delete a flag the team still advertises.
+    # This normalizes a numeric string instead of rejecting it, so a client that sends "123"
+    # stores a usable row rather than a broken one. It rejects bools because
+    # isinstance(True, int) is True. It rejects floats because int(12.5) would silently link flag 12.
+    if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+        return None
+    try:
+        return int(flag_id)
+    except ValueError:
+        return None
+
+
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
 
@@ -1736,18 +1750,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
             )
 
-        # jsonb containment (`__contains={"id": <int>}`) is type-sensitive, so a non-integer id
-        # makes the flag-delete guard miss this row and delete a flag the team still advertises.
-        # A numeric string is normalized instead of rejected, so a client sending "123" stores a
-        # usable row rather than a broken one. Bools and floats are excluded because
-        # isinstance(True, int) is True, and int(12.5) would silently link flag 12.
-        flag_id = value["id"]
-        if isinstance(flag_id, bool) or not isinstance(flag_id, int | str):
+        flag_id = _replay_gate_flag_id(value["id"])
+        if flag_id is None:
             raise exceptions.ValidationError("Must provide an integer 'id'.")
-        try:
-            return {**value, "id": int(flag_id)}
-        except ValueError:
-            raise exceptions.ValidationError("Must provide an integer 'id'.")
+        return {**value, "id": flag_id}
 
     @staticmethod
     def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
@@ -1803,6 +1809,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError("Field 'groups' must be an array.")
 
         # Validate each group
+        groups: list[dict[str, Any]] = []
         for idx, group in enumerate(value["groups"]):
             # Inline validation of each trigger group
             if not isinstance(group, dict):
@@ -1901,6 +1908,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     if not isinstance(flag_config["key"], str):
                         raise exceptions.ValidationError(f"Group {idx}: flag 'key' must be a string.")
                     # id and variant are optional
+                    if "id" in flag_config:
+                        flag_id = _replay_gate_flag_id(flag_config["id"])
+                        if flag_id is None:
+                            raise exceptions.ValidationError(f"Group {idx}: flag 'id' must be an integer.")
+                        group = {**group, "conditions": {**conditions, "flag": {**flag_config, "id": flag_id}}}
                 elif flag_config is not None:
                     raise exceptions.ValidationError(
                         f"Group {idx}: 'flag' must be a string (flag key), object (LinkedFeatureFlag), or null."
@@ -1909,6 +1921,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # Validate group-level property filters (shared WHERE clause for all triggers in group)
             if "properties" in conditions:
                 _validate_trigger_property_filters(conditions["properties"], f"Group {idx}")
+
+            groups.append(group)
 
         # Note: All matching groups are evaluated independently
         # If any group's sample rate hits, the session is recorded (union behavior)
@@ -1921,7 +1935,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     f"Invalid fallbackSampleRate: {rate}. Must be a number between 0 and 1."
                 )
 
-        return value
+        return {**value, "groups": groups}
 
     @staticmethod
     def validate_session_recording_retention_period(value) -> Literal["30d", "90d", "1y", "5y"] | None:
