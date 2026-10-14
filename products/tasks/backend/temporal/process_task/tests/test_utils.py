@@ -900,6 +900,64 @@ class TestGetGithubToken(TestCase):
         else:
             mint.assert_called_once_with(None, repositories=expected_mint_repositories)
 
+    @parameterized.expand(
+        [
+            ("drops_public_repo_outside_installation", {"acme/oss": True}, ["api"], "ghs_scoped"),
+            ("only_public_repos_outside_installation_get_no_token", {"acme/oss": True, "acme/web": True}, None, None),
+            ("names_unreachable_private_repo", {"acme/oss": True, "acme/web": False}, None, "acme/web"),
+        ]
+    )
+    def test_mint_rejected_for_repo_outside_installation(
+        self, _name, outside_installation, expected_retry_repositories, expected
+    ):
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.github_integration_base import GitHubIntegrationError
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        get_tasks_cache().clear()
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": "Acme"}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+        repositories = ["acme/api", *outside_installation] if expected_retry_repositories else [*outside_installation]
+
+        with (
+            patch.object(
+                GitHubIntegration,
+                "mint_scoped_installation_token",
+                side_effect=[GitHubIntegrationError("not installed", status_code=422), "ghs_scoped"],
+            ) as mint,
+            patch.object(
+                GitHubIntegration,
+                "sync_repository_cache",
+                return_value=[{"id": 1, "name": "api", "full_name": "Acme/api"}],
+            ),
+            patch.object(
+                GitHubIntegration,
+                "installation_can_access_repository",
+                side_effect=lambda repository: outside_installation[repository],
+            ),
+        ):
+            if expected == "acme/web":
+                with self.assertRaisesRegex(CredentialUnavailableError, "acme/web"):
+                    get_github_token(integration.id, repositories=repositories)
+            else:
+                assert get_github_token(integration.id, repositories=repositories) == expected
+
+        if expected_retry_repositories is None:
+            assert mint.call_count == 1
+        else:
+            mint.assert_called_with(None, repositories=expected_retry_repositories)
+
 
 class TestSlackTaskRunActorUser(TestCase):
     def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:

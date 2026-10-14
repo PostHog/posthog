@@ -477,6 +477,8 @@ def _resolve_sandbox_github_token(
             {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
             cause=e,
         )
+    except CredentialUnavailableError:
+        raise
     except Exception as e:
         raise _github_token_error(
             e,
@@ -1396,6 +1398,8 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
                     cause=e,
                 )
+            except CredentialUnavailableError:
+                raise
             except Exception as e:
                 raise _github_token_error(
                     e,
