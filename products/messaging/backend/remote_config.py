@@ -1,7 +1,7 @@
 from posthog.models.integration import Integration
 
 # Firebase identifies an app by its project_id, APNs by its bundle_id. Kept in step with
-# _find_integrations in products/messaging/backend/presentation/views/push_subscriptions.py, which resolves the same
+# nodejs/src/messaging/push-subscriptions/push-subscriptions.service.ts, which resolves the same
 # mapping in the opposite direction (app_id to integration).
 PUSH_APP_ID_CONFIG_KEYS = {"firebase": "project_id", "apns": "bundle_id"}
 

@@ -20,6 +20,7 @@ services:
             - capture
             - feature-flags
             - hypercache-server
+            - push-api
             - web
     db:
         extends:
@@ -217,6 +218,17 @@ services:
             - clickhouse
             - kafka
             - objectstorage
+
+    push-api:
+        extends:
+            file: docker-compose.base.yml
+            service: push-api
+        build:
+            context: .
+            dockerfile: Dockerfile.node
+        depends_on:
+            - db
+            - capture
 
     migrate:
         extends:

@@ -110,6 +110,9 @@ SDK that implements rule 3.
 
 ## Server-side notes
 
+- The Node `push-api` server (`nodejs/src/servers/push-api-server.ts`) serves `/api/push_subscriptions/`.
+  Django does not serve this path. Locally and in hobby deployments the Caddy proxy routes it to that
+  process.
 - `build_push_config` in `products/messaging/backend/remote_config.py` derives the list. A `post_save`
   and `post_delete` receiver on `Integration` rebuilds the team's remote config when a `firebase` or
   `apns` integration changes, so a project that configures push is published without waiting for an

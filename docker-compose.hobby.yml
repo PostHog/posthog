@@ -319,6 +319,19 @@ services:
             - clickhouse
             - seaweedfs
 
+    push-api:
+        extends:
+            file: docker-compose.base.yml
+            service: push-api
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        logging: *default-logging
+        environment:
+            SECRET_KEY: $POSTHOG_SECRET
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - capture
+
     ingestion-error-tracking:
         extends:
             file: docker-compose.base.yml
@@ -376,6 +389,7 @@ services:
         depends_on:
             - web
             - livestream
+            - push-api
     objectstorage:
         # SeaweedFS on the same objectstorage:19000 endpoint and credentials this service
         # served when it ran MinIO, so no other service in this file changes.
