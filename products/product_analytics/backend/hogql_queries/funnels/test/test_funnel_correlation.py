@@ -2541,6 +2541,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             runner.enqueue_async_calculation(
                 cache_manager=MagicMock(cache_key="example-cache", insight_id=None, dashboard_id=None), user=self.user
             )
+        self.runner_state = enqueue.call_args.kwargs.get("runner_state")
         return enqueue.call_args.kwargs["query_json"]
 
     @parameterized.expand(
@@ -2551,9 +2552,10 @@ class TestNativeEventsActorRouting(SimpleTestCase):
         + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [(kind, None, None) for kind in ("InsightActorsQuery", "ActorsQuery")]
         + [("EventsQuery", choice, None) for choice in (None, False, True)]
+        + [("InsightActorsQuery", None, None, True)]
     )
     def test_actor_queries_keep_the_selected_route_when_reconstructed_by_the_worker(
-        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None
+        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None, constructor_override: bool = False
     ) -> None:
         modifiers = self.modifiers.model_copy(update={"useNewEventsCluster": source_choice})
         source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
@@ -2584,10 +2586,30 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             query.modifiers = self.modifiers.model_copy(
                 update={"useNewEventsSchema": wrapper_choice, "useNewEventsCluster": wrapper_choice}
             )
+        if constructor_override:
+            modifiers.forceClickhouseDataSkippingIndexes = ["example_index"]
         original = query.model_dump()
-        request = get_query_runner(query, self.team, user=self.user)
-        worker = get_query_runner(self._enqueue(request), self.team, user=self.user)
-        native = source_choice if wrapper_choice is None else wrapper_choice
+        request = get_query_runner(
+            query,
+            self.team,
+            user=self.user,
+            modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": False})
+            if constructor_override
+            else None,
+        )
+        queued = self._enqueue(request)
+        old_worker = get_query_runner(queued, self.team, user=self.user)
+        worker = get_query_runner(
+            self.runner_state["query"] if self.runner_state else queued,
+            self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers.model_validate(self.runner_state["modifiers"]) if self.runner_state else None,
+        )
+        if constructor_override:
+            self.assertIsNone(request.modifiers.forceClickhouseDataSkippingIndexes)
+            self.assertEqual(old_worker.modifiers, request.modifiers)
+            self.assertEqual(worker.modifiers, request.modifiers)
+        native = False if constructor_override else source_choice if wrapper_choice is None else wrapper_choice
         self.assertEqual(worker.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
         self.assertIs(worker.modifiers.useNewEventsSchema, bool(native))
         self.assertIs(worker.modifiers.useNewEventsCluster, native)

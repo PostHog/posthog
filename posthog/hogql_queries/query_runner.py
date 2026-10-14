@@ -2117,11 +2117,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             }
 
         if self._modifiers_override_provided:
-            # Old workers execute the normal payload; new workers also restore constructor precedence.
+            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
             for source in modifier_sources:
                 if "modifiers" in source:
                     source["modifiers"] = self.modifiers.model_dump()
-                    break
 
         return enqueue_process_query_task(
             team=self.team,
