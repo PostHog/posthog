@@ -6184,6 +6184,19 @@ export namespace Schemas {
      */
     export type CookielessServerHashModeEnum = 0 | 1 | 2;
     /**
+     * * `feature_flags` - feature_flags
+     * * `experiments` - experiments
+     * * `surveys` - surveys
+     * * `early_access_features` - early_access_features
+     * * `web_experiments` - web_experiments
+     */
+    export type CreationContextEnum =
+        | "feature_flags"
+        | "experiments"
+        | "surveys"
+        | "early_access_features"
+        | "web_experiments";
+    /**
      * * `default` - Default
      * * `template` - Template
      * * `duplicate` - Duplicate
@@ -15244,21 +15257,6 @@ export namespace Schemas {
         is_running: boolean;
     };
     /**
-     * * `feature_flags` - feature_flags
-     * * `experiments` - experiments
-     * * `surveys` - surveys
-     * * `early_access_features` - early_access_features
-     * * `web_experiments` - web_experiments
-     * * `product_tours` - product_tours
-     */
-    export type FeatureFlagCreationContextEnum =
-        | "feature_flags"
-        | "experiments"
-        | "surveys"
-        | "early_access_features"
-        | "web_experiments"
-        | "product_tours";
-    /**
      * Serializer mixin that handles tags for objects.
      */
     export type FeatureFlag = {
@@ -15328,9 +15326,7 @@ export namespace Schemas {
         /**
          * Serializer mixin that handles tags for objects.
          */
-        creation_context?:
-            | (FeatureFlagCreationContextEnum & unknown)
-            | undefined;
+        creation_context?: (CreationContextEnum & unknown) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
