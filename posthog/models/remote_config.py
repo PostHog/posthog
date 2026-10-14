@@ -466,8 +466,8 @@ class RemoteConfig(UUIDTModel):
         try:
             RemoteConfig.get_hypercache().delete_cache_entry(old_token)
         except Exception as e:
-            # A failed eviction leaves the revoked token serving, but the new token
-            # still needs its durable copy, so carry on to the forced sync.
+            # A failed eviction leaves the revoked token serving. The new token still needs
+            # its durable copy, so the forced sync runs anyway.
             logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
             capture_exception(e)
 
@@ -537,27 +537,21 @@ class RemoteConfig(UUIDTModel):
         return f"RemoteConfig {self.team_id}"
 
 
-def _update_team_remote_config(team_id: int):
+def _update_team_remote_config(team_id: int, old_token: str | None = None):
     from posthog.tasks.remote_config import update_team_remote_config
 
-    update_team_remote_config.delay(team_id)
-
-
-def _sync_team_remote_config_after_token_change(team_id: int, old_token: str):
-    from posthog.tasks.remote_config import sync_team_remote_config_after_token_change
-
-    sync_team_remote_config_after_token_change.delay(team_id, old_token)
+    # The plain path omits the kwarg so that a worker still on the previous task signature
+    # accepts the message during a rolling deploy.
+    if old_token:
+        update_team_remote_config.delay(team_id, old_token=old_token)
+    else:
+        update_team_remote_config.delay(team_id)
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    # A token change needs the token-aware sync, and only one of the two: both rebuild the
-    # config, so dispatching each would run build_config() twice for the same save.
     old_token = instance.__dict__.pop(REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR, None)
-    if old_token:
-        transaction.on_commit(lambda: _sync_team_remote_config_after_token_change(instance.id, old_token))
-    else:
-        transaction.on_commit(lambda: _update_team_remote_config(instance.id))
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id, old_token))
 
 
 @receiver(post_save, sender=FeatureFlag)

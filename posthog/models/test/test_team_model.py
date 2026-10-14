@@ -424,11 +424,10 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert self.team.api_token == "phc_old_token_value"
 
     @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
-    @patch("posthog.tasks.remote_config.sync_team_remote_config_after_token_change.delay")
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     @patch("posthog.models.team.team.set_team_in_cache")
     def test_set_token_and_save_success_runs_full_side_effect_chain(
-        self, mock_set_cache, mock_push_vercel, mock_resync_remote_config, mock_plain_resync
+        self, mock_set_cache, mock_push_vercel, mock_sync_remote_config
     ) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self.team.set_token_and_save(
@@ -446,11 +445,9 @@ class TestTeamSetTokenAndSave(BaseTest):
 
         mock_push_vercel.assert_called_once_with(self.team.id)
 
-        # Without this the array/config.json entry is only rewritten in Redis, and the
-        # revoked token keeps serving, so replay, surveys and heatmaps go dark silently.
-        # It also replaces the plain sync, rather than racing a second one for the same save.
-        mock_resync_remote_config.assert_called_once_with(self.team.id, "phc_old_token_value")
-        mock_plain_resync.assert_not_called()
+        # Without the old token, the sync rewrites array/config.json in Redis only.
+        # The revoked token then keeps serving.
+        mock_sync_remote_config.assert_called_once_with(self.team.id, old_token="phc_old_token_value")
 
         log_entry = ActivityLog.objects.get(scope="Team", item_id=str(self.team.pk), activity="updated")
         assert log_entry.detail is not None
