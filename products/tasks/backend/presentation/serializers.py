@@ -1451,8 +1451,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         content_encoding = attrs.get("content_encoding", "utf-8")
 
         if content_encoding == "base64":
+            encoded = content.strip()
+            if not encoded:
+                raise serializers.ValidationError({"content": self.fields["content"].error_messages["blank"]})
             try:
-                attrs["content_bytes"] = base64.b64decode(content.strip(), validate=True)
+                attrs["content_bytes"] = base64.b64decode(encoded, validate=True)
             except (binascii.Error, ValueError) as exc:
                 raise serializers.ValidationError({"content": "Invalid base64 content"}) from exc
         else:

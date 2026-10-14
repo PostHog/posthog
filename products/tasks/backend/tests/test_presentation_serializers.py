@@ -358,6 +358,15 @@ class TestArtifactContentWhitespace(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data[field] == expected
 
+    @parameterized.expand([("empty", ""), ("whitespace_only", " \n")])
+    def test_blank_base64_content_is_rejected(self, _name: str, content: str) -> None:
+        serializer = TaskRunArtifactUploadSerializer(
+            data={"name": "main.py", "type": "output", "content": content, "content_encoding": "base64"}
+        )
+
+        assert not serializer.is_valid()
+        assert "content" in serializer.errors
+
 
 class TestCredentialResponseSerializer(SimpleTestCase):
     @parameterized.expand(
