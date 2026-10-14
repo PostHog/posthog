@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
+import { createHash } from 'node:crypto'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import type { ModifiedRequest } from '~/common/api/router'
+import { RedisClient } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -39,6 +41,9 @@ const DISALLOWED_HEADERS = [
     'x-real-ip',
     'true-client-ip',
 ]
+
+const IDEMPOTENCY_KEY_MAX_LENGTH = 255
+const IDEMPOTENCY_KEY_TTL_SECONDS = 24 * 60 * 60
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
@@ -211,11 +216,77 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         }
     }
 
+    private getIdempotencyKey(req: ModifiedRequest, hogFlow: HogFlow): string | undefined {
+        if (hogFlow.trigger?.type !== 'webhook') {
+            return undefined
+        }
+        const idempotencyKey = getFirstHeaderValue(req.headers['idempotency-key'])
+        if (!idempotencyKey) {
+            return undefined
+        }
+        if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+            throw new SourceWebhookError(
+                400,
+                `Idempotency-Key must be ${IDEMPOTENCY_KEY_MAX_LENGTH} characters or fewer`
+            )
+        }
+        return idempotencyKey
+    }
+
+    private getIdempotencyRedisKey(hogFlow: HogFlow, idempotencyKey: string): string {
+        const hash = createHash('sha256').update(idempotencyKey).digest('hex')
+        return `@posthog/hogflow-webhook-idempotency/${hogFlow.team_id}/${hogFlow.id}/${hash}`
+    }
+
+    private async claimIdempotencyKey(
+        hogFlow: HogFlow,
+        redisKey: string
+    ): Promise<'claimed' | 'duplicate' | 'unavailable'> {
+        const setNx = (client: RedisClient): Promise<'OK' | null> =>
+            client.set(redisKey, '1', 'EX', IDEMPOTENCY_KEY_TTL_SECONDS, 'NX')
+
+        try {
+            const claimed = await dualRead(
+                'hog-flow-webhook-idempotency.claim',
+                () => this.redis.useClient({ name: 'hogflow-webhook-idempotency' }, setNx),
+                () => this.valkeyShadow.writer.useClient({ name: 'hogflow-webhook-idempotency-mirror' }, setNx),
+                (primary, secondary) => primary === secondary
+            )
+            return claimed === 'OK' ? 'claimed' : 'duplicate'
+        } catch (error) {
+            logger.warn('Failed to claim hog flow webhook idempotency key, queueing anyway', {
+                team_id: hogFlow.team_id,
+                hog_flow_id: hogFlow.id,
+                error: String(error),
+            })
+            return 'unavailable'
+        }
+    }
+
+    private async releaseIdempotencyKey(hogFlow: HogFlow, redisKey: string): Promise<void> {
+        const del = (client: RedisClient): Promise<number> => client.del(redisKey)
+        try {
+            await dualWrite(
+                'hog-flow-webhook-idempotency.release',
+                () => this.redis.useClient({ name: 'hogflow-webhook-idempotency' }, del),
+                () => this.valkeyShadow.writer.useClient({ name: 'hogflow-webhook-idempotency-mirror' }, del)
+            )
+        } catch (error) {
+            logger.warn('Failed to release hog flow webhook idempotency key', {
+                team_id: hogFlow.team_id,
+                hog_flow_id: hogFlow.id,
+                error: String(error),
+            })
+        }
+    }
+
     private async executeHogFlow(
         req: ModifiedRequest,
         hogFlow: HogFlow,
         hogFunction: HogFunctionType
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const idempotencyKey = this.getIdempotencyKey(req, hogFlow)
+
         logger.info('Executing hog flow trigger', {
             id: hogFlow.id,
             template_id: hogFunction.template_id,
@@ -312,6 +383,22 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
 
+                const idempotencyRedisKey = idempotencyKey
+                    ? this.getIdempotencyRedisKey(hogFlow, idempotencyKey)
+                    : undefined
+                const idempotencyClaim = idempotencyRedisKey
+                    ? await this.claimIdempotencyKey(hogFlow, idempotencyRedisKey)
+                    : undefined
+
+                if (idempotencyClaim === 'duplicate') {
+                    addLog('info', `Skipped duplicate request for Idempotency-Key "${idempotencyKey}"`)
+                    functionResult.finished = false
+                    functionResult.execResult = {
+                        httpResponse: { status: 200, body: { status: 'duplicate' } },
+                    }
+                    return functionResult
+                }
+
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
@@ -326,7 +413,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     'running'
                 )
 
-                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                try {
+                    await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                } catch (error) {
+                    if (idempotencyClaim === 'claimed' && idempotencyRedisKey) {
+                        await this.releaseIdempotencyKey(hogFlow, idempotencyRedisKey)
+                    }
+                    throw error
+                }
             } else {
                 addMetric({
                     metric_kind: 'failure',
