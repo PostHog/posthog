@@ -61,8 +61,8 @@ export interface marketingCrossSellStateLogicActions {
         payload?: void
     }
     snooze: (surface: MarketingCrossSellSurface) => {
-        surface: MarketingCrossSellSurface
         now: number
+        surface: MarketingCrossSellSurface
     }
 }
 

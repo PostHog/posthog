@@ -152,8 +152,8 @@ export interface marketingAnalyticsCrossSellLogicActions {
         value: true
     } // marketingCrossSellStateLogic
     snooze: (surface: MarketingCrossSellSurface) => {
-        surface: MarketingCrossSellSurface
         now: number
+        surface: MarketingCrossSellSurface
     } // marketingCrossSellStateLogic
     dismissMarketingCrossSell: () => {
         value: true

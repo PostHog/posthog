@@ -12,6 +12,7 @@ import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { MarketingAnalyticsCrossSellSlot } from './MarketingAnalyticsCrossSellSlot'
+import { marketingCrossSellStateLogic } from './marketingCrossSellStateLogic'
 
 function sourceTabDataNodeProps(tiles: WebAnalyticsTile[], sourceTab: SourceTab): DataNodeLogicProps | null {
     const sources = tiles.find((tile) => tile.tileId === TileId.SOURCES)
@@ -29,11 +30,14 @@ function sourceTabDataNodeProps(tiles: WebAnalyticsTile[], sourceTab: SourceTab)
 
 export function MarketingAnalyticsCrossSell({ breakdown }: { breakdown: WebStatsBreakdown }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tiles } = useValues(webAnalyticsLogic)
+    const { tiles, marketingCrossSellDismissed } = useValues(webAnalyticsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { isSnoozed } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
     if (
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] !== true ||
+        marketingCrossSellDismissed ||
+        isSnoozed ||
         !supportsMarketingCrossSell(breakdown)
     ) {
         return null

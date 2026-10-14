@@ -1,7 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -39,9 +41,10 @@ export function MarketingAnalyticsAdSpendLink({
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam, currentTeamId } = useValues(teamLogic)
     const { hasConnectedSources } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
+    const { ensureConnectionState } = useActions(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
-    const target =
-        currentTeamId && isMarketingCrossSellTestArm(featureFlags)
+    const candidate =
+        currentTeamId && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true
             ? paidTrafficTarget(
                   breakdownBy,
                   value,
@@ -49,6 +52,15 @@ export function MarketingAnalyticsAdSpendLink({
                   getEnabledNativeMarketingSources(featureFlags)
               )
             : null
+    const target = candidate && isMarketingCrossSellTestArm(featureFlags) ? candidate : null
+    const hasTarget = !!target
+
+    useEffect(() => {
+        if (hasTarget) {
+            ensureConnectionState()
+        }
+    }, [hasTarget, ensureConnectionState])
+
     if (!currentTeamId || !target) {
         return <>{children}</>
     }

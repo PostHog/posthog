@@ -223,6 +223,10 @@ describe('Marketing analytics cross sell', () => {
             webAnalyticsLogic.actions.togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_source', 'google')
         )
         expect(await screen.findByText(/You're viewing Google Ads traffic/)).toBeTruthy()
+        expect(screen.getAllByText('Connect Google Ads')[0].closest('a')!.getAttribute('href')).toContain(
+            '/data-warehouse/new-source?kind=GoogleAds'
+        )
+        expect(sources).toHaveBeenCalledTimes(1)
         fireEvent.click(screen.getByLabelText('close'))
         expect(screen.queryByText(/You're viewing/)).toBeNull()
         expect(marketingCrossSellStateLogic({ teamId: MOCK_DEFAULT_TEAM.id }).values.isSnoozed).toBe(true)
