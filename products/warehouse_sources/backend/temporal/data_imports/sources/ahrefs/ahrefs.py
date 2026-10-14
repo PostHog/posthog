@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -135,8 +135,17 @@ def ahrefs_source(
     history = settings.get("history", False)
     row_limit = settings["params"].get("limit")
 
-    def add_project_id(row: dict[str, object]) -> dict[str, object]:
-        return {**row, "project_id": normalized_project_id}
+    def column_adder(device: str | None) -> Callable[[dict[str, object]], dict[str, object]] | None:
+        columns: dict[str, object] = {"project_id": normalized_project_id} if project_scoped else {}
+        if device:
+            columns["device"] = device
+        if not columns:
+            return None
+
+        def add_columns(row: dict[str, object]) -> dict[str, object]:
+            return {**row, **columns}
+
+        return add_columns
 
     def items() -> Iterator[list[dict[str, object]]]:
         params: dict[str, Any] = {
@@ -150,39 +159,43 @@ def ahrefs_source(
             params["date_from"] = _history_start(
                 should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
             )
-        config: RESTAPIConfig = {
-            "client": {
-                "base_url": API_BASE_URL,
-                "auth": {"type": "bearer", "token": api_key},
-                "paginator": "single_page",
-                "request_timeout": (10, 60),
-            },
-            "resources": [
-                {
-                    "name": endpoint,
-                    "write_disposition": {"disposition": "merge", "strategy": "upsert"}
-                    if history and should_use_incremental_field
-                    else "replace",
-                    "endpoint": {
-                        "path": settings["path"],
-                        "data_selector": settings["data_selector"],
-                        "data_selector_required": True,
-                        "params": params,
-                        "response_actions": RESPONSE_ACTIONS,
-                    },
-                    "data_map": add_project_id if project_scoped else None,
-                }
-            ],
-        }
-        resource = rest_api_resource(config, team_id, job_id, None)
-        for page in resource:
-            if row_limit is not None and len(page) >= int(row_limit):
-                logger.info("ahrefs_sample_limit_reached", team_id=team_id, endpoint=endpoint, limit=row_limit)
-                page = page[: int(row_limit)]
-            page = _unique_rows(page, settings["primary_keys"])
-            if history:
-                page = sorted(page, key=lambda row: str(row.get("date") or ""))
-            yield page
+        if settings.get("snapshot_date"):
+            params["date"] = datetime.now(UTC).date().isoformat()
+        devices: list[str | None] = [*settings.get("devices", [])] or [None]
+        for device in devices:
+            config: RESTAPIConfig = {
+                "client": {
+                    "base_url": API_BASE_URL,
+                    "auth": {"type": "bearer", "token": api_key},
+                    "paginator": "single_page",
+                    "request_timeout": (10, 60),
+                },
+                "resources": [
+                    {
+                        "name": endpoint,
+                        "write_disposition": {"disposition": "merge", "strategy": "upsert"}
+                        if history and should_use_incremental_field
+                        else "replace",
+                        "endpoint": {
+                            "path": settings["path"],
+                            "data_selector": settings["data_selector"],
+                            "data_selector_required": True,
+                            "params": {**params, "device": device} if device else params,
+                            "response_actions": RESPONSE_ACTIONS,
+                        },
+                        "data_map": column_adder(device),
+                    }
+                ],
+            }
+            resource = rest_api_resource(config, team_id, job_id, None)
+            for page in resource:
+                if row_limit is not None and len(page) >= int(row_limit):
+                    logger.info("ahrefs_sample_limit_reached", team_id=team_id, endpoint=endpoint, limit=row_limit)
+                    page = page[: int(row_limit)]
+                page = _unique_rows(page, settings["primary_keys"])
+                if history:
+                    page = sorted(page, key=lambda row: str(row.get("date") or ""))
+                yield page
 
     return SourceResponse(
         name=endpoint,
