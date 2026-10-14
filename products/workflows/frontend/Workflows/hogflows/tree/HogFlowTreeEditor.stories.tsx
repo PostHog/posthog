@@ -1,4 +1,5 @@
-import type { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect, type ReactNode } from 'react'
 
@@ -368,3 +369,30 @@ export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example
 export const RenewalWindowAlerts: StoryFn = () => <InteractiveWorkflow id="example-renewal-window-alerts" />
 export const PendingTicketCleanup: StoryFn = () => <InteractiveWorkflow id="example-pending-ticket-cleanup" />
 export const AddOnPromotionEmails: StoryFn = () => <InteractiveWorkflow id="example-add-on-promotion-emails" />
+
+export const InsertStepWithStepPicker: StoryObj = {
+    render: () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />,
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW,
+            FEATURE_FLAGS.WORKFLOWS_STEP_PICKER,
+            FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION,
+        ],
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr=workflow-step-picker-provider]',
+            viewport: { width: 1600, height: 1000 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const insertActions = await waitFor(() => {
+            const buttons = canvasElement.querySelectorAll<HTMLElement>('[data-attr=workflow-tree-insert-action]')
+            if (buttons.length === 0) {
+                throw new Error('The tree has not rendered its insertion points yet')
+            }
+            return buttons
+        })
+        fireEvent.click(insertActions[0])
+        await screen.findByPlaceholderText('Search steps')
+    },
+}
