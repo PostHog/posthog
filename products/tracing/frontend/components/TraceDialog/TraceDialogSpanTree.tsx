@@ -58,16 +58,15 @@ export function TraceDialogSpanTree(): JSX.Element {
     const listRef = useListRef(null)
     const openedSpanId = trace?.spanId ?? null
 
-    // Bring the span that emitted the log into view once the spans arrive.
+    // Keep the selected span in view: the one that emitted the log once the spans arrive, then each
+    // span J and K step to.
+    const selectedSpanId = missingParentSpanId ?? selectedSpan?.span_id ?? null
     useEffect(() => {
-        if (!openedSpanId) {
-            return
-        }
-        const index = flatSpans.findIndex((node) => node.span.span_id === openedSpanId)
+        const index = flatSpans.findIndex((node) => node.span.span_id === selectedSpanId)
         if (index >= 0) {
-            listRef.current?.scrollToRow({ index, align: 'center' })
+            listRef.current?.scrollToRow({ index, align: 'smart' })
         }
-    }, [flatSpans, openedSpanId, listRef])
+    }, [flatSpans, selectedSpanId, listRef])
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -103,7 +102,7 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 flatSpans,
                                 timeline,
                                 serviceColorMap,
-                                selectedSpanId: missingParentSpanId ?? selectedSpan?.span_id ?? null,
+                                selectedSpanId,
                                 openedSpanId,
                                 openedAtUs,
                                 onSelect: selectSpan,

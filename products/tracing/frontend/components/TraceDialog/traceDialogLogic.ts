@@ -9,6 +9,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import type { LogSeverityLevel } from '~/queries/schema/schema-general'
+
 import { buildSpanTree, flattenTree, parseTimestampUs, type SpanNode } from 'products/tracing/frontend/spanTree'
 import { resolveTraceLookupRange } from 'products/tracing/frontend/traceLinks'
 import { buildServiceColorMap } from 'products/tracing/frontend/TraceWaterfallView'
@@ -30,6 +32,12 @@ function inApiCase(spanId: string | null | undefined): string | null {
 export interface TraceDialogSpans {
     spans: Span[]
     truncated: boolean
+}
+
+/** The log the dialog was opened from, shown above the tree so the reason for the trace stays in view. */
+export interface TraceDialogSource {
+    body: string
+    severity: LogSeverityLevel
 }
 
 export interface TraceDialogTimeline {
@@ -55,6 +63,8 @@ export interface traceDialogLogicValues {
     isOpen: boolean
     missingParentSpanId: string | null
     openedAtUs: number | null
+    openedFrom: TraceDialogSource | null
+    openedSpan: Span | null
     selectedSpan: Span | null
     selectedSpanId: string | null
     serviceColorMap: Map<string, number>
@@ -107,12 +117,22 @@ export interface traceDialogLogicActions {
         traceSpans: TraceDialogSpans | null
         payload?: TraceLinkParams
     }
-    openTraceDialog: (trace: TraceLinkParams) => {
+    openTraceDialog: (
+        trace: TraceLinkParams,
+        openedFrom?: TraceDialogSource | null
+    ) => {
+        openedFrom: TraceDialogSource | null
         trace: {
             spanId: string | null
             traceId: string
             ts?: string | null | undefined
         }
+    }
+    selectNextSpan: () => {
+        value: true
+    }
+    selectPreviousSpan: () => {
+        value: true
     }
     selectSpan: (spanId: string) => {
         spanId: string
@@ -133,6 +153,7 @@ export interface traceDialogLogicMeta {
             summary: TraceDialogSummary
         ) => Span | null
         missingParentSpanId: (traceSpans: TraceDialogSpans | null, selectedSpanId: string | null) => string | null
+        openedSpan: (traceSpans: TraceDialogSpans | null, trace: TraceLinkParams | null) => Span | null
         activeInspectorTab: (
             chosenInspectorTab: SpanInspectorTab | null,
             selectedSpan: Span | null,
@@ -159,7 +180,12 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         values: [tracingCorrelationConfigLogic, ['sessionErrorBadgesEnabled'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        openTraceDialog: (trace: TraceLinkParams) => ({ trace: { ...trace, spanId: inApiCase(trace.spanId) } }),
+        openTraceDialog: (trace: TraceLinkParams, openedFrom?: TraceDialogSource | null) => ({
+            trace: { ...trace, spanId: inApiCase(trace.spanId) },
+            openedFrom: openedFrom ?? null,
+        }),
+        selectNextSpan: true,
+        selectPreviousSpan: true,
         closeTraceDialog: true,
         selectSpan: (spanId: string) => ({ spanId }),
         setInspectorTab: (tab: SpanInspectorTab) => ({ tab }),
@@ -209,6 +235,12 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         traceSpans: {
             openTraceDialog: () => null,
         },
+        openedFrom: [
+            null as TraceDialogSource | null,
+            {
+                openTraceDialog: (_, { openedFrom }) => openedFrom,
+            },
+        ],
         traceSpansFailed: [
             false,
             {
@@ -268,6 +300,11 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                     ? selectedSpanId
                     : null,
         ],
+        openedSpan: [
+            (s) => [s.traceSpans, s.trace],
+            (traceSpans: TraceDialogSpans | null, trace: TraceLinkParams | null): Span | null =>
+                trace?.spanId ? (traceSpans?.spans.find((span) => span.span_id === trace.spanId) ?? null) : null,
+        ],
         activeInspectorTab: [
             (s) => [s.chosenInspectorTab, s.selectedSpan, s.sessionErrorBadgesEnabled],
             // An error span leads with its exceptions. Otherwise the logs lead, since the dialog
@@ -315,6 +352,48 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
     listeners(({ values, actions, cache }) => ({
         openTraceDialog: ({ trace }) => {
             actions.loadTraceSpans(trace)
+            // Capture phase, and stopped there, so the page under the dialog does not also act on
+            // the key: with log details open, the logs list binds J and K to its own cursor.
+            cache.disposables.add(() => {
+                const onKeyDown = (event: KeyboardEvent): void => {
+                    const target = event.target as HTMLElement | null
+                    const typing =
+                        !!target &&
+                        (['input', 'textarea', 'select'].includes(target.tagName.toLowerCase()) ||
+                            target.isContentEditable)
+                    if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
+                        return
+                    }
+                    const step = { j: actions.selectNextSpan, k: actions.selectPreviousSpan }[event.key.toLowerCase()]
+                    if (step) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        step()
+                    }
+                }
+                window.addEventListener('keydown', onKeyDown, { capture: true })
+                return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+            }, 'spanKeys')
+        },
+        closeTraceDialog: () => {
+            cache.disposables.dispose('spanKeys')
+        },
+        selectNextSpan: () => {
+            // A missing-parent row is selectable too, so step from it rather than from the root fallback.
+            const currentId = values.missingParentSpanId ?? values.selectedSpan?.span_id
+            const index = values.flatSpans.findIndex((node) => node.span.span_id === currentId)
+            const next = values.flatSpans[Math.min(index + 1, values.flatSpans.length - 1)]
+            if (next) {
+                actions.selectSpan(next.span.span_id)
+            }
+        },
+        selectPreviousSpan: () => {
+            const currentId = values.missingParentSpanId ?? values.selectedSpan?.span_id
+            const index = values.flatSpans.findIndex((node) => node.span.span_id === currentId)
+            const previous = values.flatSpans[Math.max(index - 1, 0)]
+            if (previous) {
+                actions.selectSpan(previous.span.span_id)
+            }
         },
         locationChanged: ({ pathname }) => {
             // Query and hash changes fire locationChanged too, so only a new pathname closes the dialog.
