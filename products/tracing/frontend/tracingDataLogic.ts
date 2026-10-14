@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -60,6 +61,12 @@ import {
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
 import type { Span } from './types'
+
+// The default filter group editor state nests an empty AND group inside an outer AND group, so a
+// plain `values.length` check reads the default as "filters active". Walk for a real leaf condition.
+function hasFilterConditions(group: UniversalFiltersGroup): boolean {
+    return group.values.some((value) => (isUniversalGroupFilterLike(value) ? hasFilterConditions(value) : true))
+}
 
 export interface SparklineRow {
     time: string
@@ -1403,7 +1410,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     listeners(({ actions, values, cache }) => ({
         loadTraceSpansSuccess: ({ traceSpans }) => {
             if (traceSpans.length === 0) {
-                posthog.capture('tracing trace unavailable')
+                // The same filters that scope the span list also scope this single-trace lookup, so an
+                // empty result can mean "filtered out" rather than "never sent" — carry that distinction.
+                const filtersActive =
+                    values.filters.serviceNames.length > 0 || hasFilterConditions(values.queryFilterGroup)
+                posthog.capture('tracing trace unavailable', { filters_active: filtersActive })
             }
         },
         handleFilterChange: ({ filterType, extraProps }) => {

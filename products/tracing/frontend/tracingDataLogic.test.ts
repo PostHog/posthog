@@ -199,11 +199,17 @@ describe('tracingDataLogic', () => {
                 name: 'a trace with no spans',
                 dispatch: (l: typeof logic) => l.actions.loadTraceSpansSuccess([]),
                 event: 'tracing trace unavailable',
-                properties: undefined,
+                properties: { filters_active: false },
             },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
             expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
+        })
+
+        it('flags the capture when a service name filter is excluding spans', () => {
+            logic.actions.setServiceNames(['checkout-api'])
+            logic.actions.loadTraceSpansSuccess([])
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace unavailable', { filters_active: true })
         })
     })
 

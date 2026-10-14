@@ -9,9 +9,9 @@ export function TraceUnavailableNotice({ traceId }: { traceId: string }): JSX.El
         <div className="flex flex-col gap-1.5 p-4" data-attr="tracing-trace-unavailable-notice">
             <span className="font-semibold">Trace unavailable</span>
             <p className="m-0">
-                PostHog has no spans for this trace. The service may not send spans to PostHog, sampling may have
-                dropped them, or they may be older than your retention period. New spans can take a few minutes to
-                appear.
+                PostHog has no spans for this trace that match your current filters. The service may not send spans to
+                PostHog, sampling may have dropped them, active filters may be excluding them, or they may be older than
+                your retention period. New spans can take a few minutes to appear.
             </p>
             <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-muted">
                 <CopyableId label="Trace ID" value={traceId} />
