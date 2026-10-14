@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from posthog.hogql import ast
@@ -37,16 +37,13 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         # Resolved once per build: "stats"/"bounces" -> READY dimensional job_ids.
         self._dimensional_job_ids: dict[str, list[uuid.UUID]] = {}
 
-    def _dimensional_window(self) -> tuple[datetime, datetime]:
-        # Cover the compare period too, since both feed the same SELECT.
-        date_from = self.runner.query_date_range.date_from()
-        if self.runner.query_compare_to_date_range:
-            date_from = min(date_from, self.runner.query_compare_to_date_range.date_from())
-        return date_from, self.runner.query_date_range.date_to()
-
     def _job_ids_for(self, which: str) -> list[uuid.UUID]:
         if which not in self._dimensional_job_ids:
-            start, end = self._dimensional_window()
+            # Cover the compare period too, since both feed the same SELECT.
+            start = self.runner.query_date_range.date_from()
+            if self.runner.query_compare_to_date_range:
+                start = min(start, self.runner.query_compare_to_date_range.date_from())
+            end = self.runner.query_date_range.date_to()
             resolver = web_stats_dimensional_job_ids if which == "stats" else web_bounces_dimensional_job_ids
             self._dimensional_job_ids[which] = resolver(self.runner.team, start, end)
         return self._dimensional_job_ids[which]
