@@ -244,9 +244,7 @@ class TestGetTaskProcessingContextActivity:
             },
         )
         run = test_task.create_run(extra_state={"ai_stage": "research"})
-        async_to_sync(activity_environment.run)(
-            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(run.id))
-        )
+        async_to_sync(_run_context)(activity_environment, GetTaskProcessingContextInput(run_id=str(run.id)))
         run.refresh_from_db()
         assert "Use pnpm." in run.state["agent_instructions"]
         assert "Check the product intent." in run.state["agent_instructions"]
