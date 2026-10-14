@@ -179,6 +179,21 @@ def discover_queues(
             return list(dict.fromkeys(queues))
 
 
+def first_queue(client: AwsBatchClient, include: Callable[[dict[str, Any]], bool]) -> str | None:
+    token = None
+    while True:
+        payload: dict[str, Any] = {"maxResults": PAGE_SIZE}
+        if token:
+            payload["nextToken"] = token
+        body = client.request("DescribeJobQueues", payload)
+        for queue in body.get("jobQueues", []):
+            if include(queue):
+                return queue["jobQueueArn"]
+        token = next_page_token(body, token)
+        if token is None:
+            return None
+
+
 def child_prefix(summary: dict[str, Any]) -> tuple[str, int] | None:
     job_id = summary["jobId"]
     # Child IDs are derived from the parent ID because ListJobs ignores the status filter for children.
@@ -360,12 +375,16 @@ def validate_credentials(
     try:
         operation = AWS_BATCH_ENDPOINTS[schema_name].operation if schema_name else "DescribeJobQueues"
         if schema_name in ("jobs", "job_children"):
-            queues = client.request("DescribeJobQueues", {"maxResults": 1}).get("jobQueues", [])
-            if queues:
+            if schema_name == "jobs":
+                queues = client.request("DescribeJobQueues", {"maxResults": 1}).get("jobQueues", [])
+                queue = queues[0]["jobQueueArn"] if queues else None
+            else:
+                queue = first_queue(client, lambda queue: not is_service_queue(queue))
+            if queue:
                 jobs = client.request(
                     "ListJobs",
                     {
-                        "jobQueue": queues[0]["jobQueueArn"],
+                        "jobQueue": queue,
                         "maxResults": 1,
                         "filters": ALL_JOBS_FILTER,
                     },
@@ -373,10 +392,9 @@ def validate_credentials(
                 if jobs:
                     client.request("DescribeJobs", {"jobs": [jobs[0]["jobId"]]})
         elif schema_name == "service_jobs":
-            queues = client.request("DescribeJobQueues", {"maxResults": PAGE_SIZE}).get("jobQueues", [])
-            service_queues = [queue["jobQueueArn"] for queue in queues if is_service_queue(queue)]
-            if service_queues:
-                client.request(operation, {"jobQueue": service_queues[0], "maxResults": 1, "filters": ALL_JOBS_FILTER})
+            queue = first_queue(client, is_service_queue)
+            if queue:
+                client.request(operation, {"jobQueue": queue, "maxResults": 1, "filters": ALL_JOBS_FILTER})
         elif schema_name in ("scheduling_policies", "consumable_resources"):
             items = client.request(operation, {"maxResults": 1}).get(AWS_BATCH_ENDPOINTS[schema_name].result_key, [])
             describe_page(client, schema_name, items[:1])

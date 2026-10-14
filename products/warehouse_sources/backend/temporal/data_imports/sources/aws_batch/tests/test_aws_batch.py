@@ -558,7 +558,7 @@ def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception:
         ("compute_environments", ["describecomputeenvironments"]),
         ("job_definitions", ["describejobdefinitions"]),
         ("jobs", ["describejobqueues", "listjobs", "describejobs"]),
-        ("job_children", ["describejobqueues", "listjobs", "describejobs"]),
+        ("job_children", ["describejobqueues", "describejobqueues", "listjobs", "describejobs"]),
         ("service_jobs", ["describejobqueues", "listservicejobs"]),
         ("scheduling_policies", ["listschedulingpolicies", "describeschedulingpolicies"]),
         ("consumable_resources", ["listconsumableresources", "describeconsumableresource"]),
@@ -567,23 +567,38 @@ def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception:
 def test_validation_probes_only_required_operations(
     config: AwsBatchSourceConfig, schema_name: str | None, paths: list[str]
 ) -> None:
-    body = {
-        "jobQueues": [
-            {"jobQueueArn": "arn:queue", "computeEnvironmentOrder": [{"order": 1}]},
-            {"jobQueueArn": "arn:service-queue", "serviceEnvironmentOrder": [{"order": 1}]},
-        ],
-        "jobSummaryList": [{"jobId": "job-one"}],
-        "jobs": [],
-        "schedulingPolicies": [{"arn": "arn:policy"}],
-        "consumableResources": [{"consumableResourceArn": "arn:resource"}],
-    }
-    with scripted_network(always(ScriptedResponse(json=body))) as network:
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("describejobqueues"):
+            if "nextToken" not in request.json():
+                return ScriptedResponse(
+                    json={
+                        "jobQueues": [{"jobQueueArn": "arn:service-queue", "serviceEnvironmentOrder": [{"order": 1}]}],
+                        "nextToken": "queues-next",
+                    }
+                )
+            return ScriptedResponse(
+                json={"jobQueues": [{"jobQueueArn": "arn:queue", "computeEnvironmentOrder": [{"order": 1}]}]}
+            )
+        return ScriptedResponse(
+            json={
+                "jobSummaryList": [{"jobId": "job-one"}],
+                "jobs": [],
+                "schedulingPolicies": [{"arn": "arn:policy"}],
+                "consumableResources": [{"consumableResourceArn": "arn:resource"}],
+            }
+        )
+
+    with scripted_network(send) as network:
         assert validate_credentials(config, schema_name) == (True, None)
     assert [request.path.removeprefix("/v1/") for request in network.requests_log] == paths
+    probed_queues = {"job_children": "arn:queue", "service_jobs": "arn:service-queue"}
+    if schema_name in probed_queues:
+        assert (
+            network.requests_log[-1 if schema_name == "service_jobs" else -2].json()["jobQueue"]
+            == probed_queues[schema_name]
+        )
     if schema_name in ("jobs", "job_children"):
         assert network.requests_log[-1].json() == {"jobs": ["job-one"]}
-    if schema_name == "service_jobs":
-        assert network.requests_log[-1].json()["jobQueue"] == "arn:service-queue"
 
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
