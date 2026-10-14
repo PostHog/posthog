@@ -52,6 +52,9 @@ export function TimeSeriesPanel({
         }))
     }, [series, fallbackName, isArea])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
+    // `MetricsPanel` gives every series the same resolved unit, so the first series speaks for the chart.
+    const unit = series[0]?.unit ?? undefined
+    const plottedValues = useMemo(() => chartSeries.flatMap((s) => s.data), [chartSeries])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () =>
@@ -60,8 +63,10 @@ export function TimeSeriesPanel({
                 xAxis: { timezone },
                 seriesCount: chartSeries.length,
                 labelFormatter: (label: string) => dayjs(label).tz(timezone).format('D MMM YYYY HH:mm:ss'),
+                unit,
+                values: plottedValues,
             }),
-        [timezone, chartSeries.length, display]
+        [timezone, chartSeries.length, display, unit, plottedValues]
     )
 
     const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null
