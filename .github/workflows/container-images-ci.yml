@@ -118,6 +118,7 @@ jobs:
                       # The Dagster ML image is the main image plus the inbox-ranking group, so
                       # validating it needs the main image build of this PR too.
                       dagster_ml:
+                        - Dockerfile
                         - Dockerfile.dagster-ml
                         - uv.lock
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
