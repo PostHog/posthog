@@ -161,6 +161,37 @@ atomically when accepting events or completion, rejecting stale senders with HTT
 and `stream_generation_mismatch`. The sender discards its buffer and stops on this code.
 Tokens issued before generation tracking remain valid only until the stream resets.
 
+`TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED` enables an experimental Modal layout
+for default, autoresearch, and VM task templates. Task processes see `/tmp`, `/var/tmp`, and `/root` backed by
+`/tmp/workspace/.posthog/task-filesystem`, so ordinary files at those paths enter
+directory snapshots. Modal control processes keep their original filesystem view.
+Agentsh, the setup wizard, dev-stack bootstrap, and preview services enter the task view; Docker must
+start there so bind mounts resolve the same paths. Fresh credential files remain
+outside the saved directories. Claude's pinned session settings resolve to a private
+runtime directory, and the one-use Codex token is staged under `/run`.
+Base images seed the persistent home outside the workspace during build, preserving
+ownership. Custom images and dev-stack bakes refresh that seed after warming their
+caches. Activation moves the seed into the workspace without copying it; disabled
+tasks leave it out of directory snapshots, and versioned restores keep their saved
+home. Fresh tasks using older images without a home seed keep the provider view
+until those images are rebuilt. Image-bake sandboxes keep the provider view, and wizard output
+lives under `/tmp/workspace/.posthog/wizard-cloud-run`.
+Namespace entry preserves the caller's working directory. Health and capability
+checks run in the provider view, while bundled-skill cleanup runs in the task view.
+Cleanup uses a fixed system PATH and absolute system binaries. Helper uploads
+use the caller's execution timeout.
+Automatic dev-stack bootstrap uses a fresh Docker config directory under `/run`.
+Launch preparation uses a fixed system PATH and the image's absolute agentsh path.
+
+Snapshots carry a layout version. Restoring that version initializes the task view
+even when the setting is disabled, while legacy workspace snapshots stay readable.
+Unversioned restores keep their original layout even when enabled, so existing
+files remain accessible without copying a home at startup.
+Missing namespaces and unknown versions fail startup. This layout covers files;
+processes, runtime sockets, system package changes, and service data outside these
+directories still need their own recovery. Keep it disabled until the checkpoint
+handoff and required service recovery are validated together.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
