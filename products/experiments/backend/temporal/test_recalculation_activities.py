@@ -2,6 +2,7 @@ import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -38,6 +39,7 @@ from products.experiments.backend.temporal.models import (
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
+    AttemptCancellation,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
@@ -76,10 +78,11 @@ def _calculate(
     metric_type: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    cancellation: AttemptCancellation | None = None,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _calculate_raw(
-            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt, cancellation
         )
 
 
@@ -1246,29 +1249,55 @@ class TestCalculateActivity(BaseTest):
         assert row.error_message is not None
         assert len(row.error_message) <= 2000
 
-    def test_cancel_metric_query_tags_its_queries(self):
+    @parameterized.expand([("select_only", None), ("select_and_precompute_insert", UUID(int=7))])
+    def test_cancel_kills_the_attempt_queries_with_tags(self, name: str, precompute_job_id: UUID | None):
         # The kill runs in its own thread, so it inherits none of the calc body's tags. Untagged sync_execute
         # calls raise in local dev, which makes the kill fail silently there.
-        exp = self._experiment(flag_key="cancel-tags", metrics=[_mean_metric("m1")])
+        exp = self._experiment(flag_key=f"cancel-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
-        seen: dict = {}
+        cancellation = AttemptCancellation()
+        if precompute_job_id is not None:
+            cancellation.track_precompute_insert(precompute_job_id)
+        kills: list[tuple[int, str]] = []
+        tags: list = []
 
         def _capture(team_id: int, client_query_id: str) -> None:
-            seen["args"] = (team_id, client_query_id)
-            seen["tags"] = get_query_tags().model_copy()
+            kills.append((team_id, client_query_id))
+            tags.append(get_query_tags().model_copy())
 
         with (
             patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
             patch("products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster", _capture),
         ):
-            _cancel_raw(str(recalc.id), "m1", 3)
+            _cancel_raw(str(recalc.id), "m1", 3, cancellation)
 
-        assert seen["args"] == (self.team.id, f"experiment_metric_recalc_{recalc.id}_m1_attempt03")
-        assert (seen["tags"].team_id, seen["tags"].product, seen["tags"].feature) == (
-            self.team.id,
-            Product.EXPERIMENTS,
-            Feature.CACHE_WARMUP,
-        )
+        expected = [(self.team.id, f"experiment_metric_recalc_{recalc.id}_m1_attempt03")]
+        if precompute_job_id is not None:
+            expected.append((self.team.id, str(precompute_job_id)))
+        assert kills == expected
+        assert {(t.team_id, t.product, t.feature) for t in tags} == {
+            (self.team.id, Product.EXPERIMENTS, Feature.CACHE_WARMUP)
+        }
+
+    def test_cancelled_attempt_runs_no_select_and_writes_nothing(self):
+        # A write from an abandoned attempt can overwrite the result of a later attempt.
+        exp = self._experiment(flag_key="calc-cancelled", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        cancellation = AttemptCancellation()
+        cancellation.cancel()
+
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query"
+        ) as mock_select:
+            result = _calculate(
+                exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True, cancellation=cancellation
+            )
+
+        mock_select.assert_not_called()
+        assert result.success is False
+        recalc.refresh_from_db()
+        assert recalc.metric_errors == {}
+        assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1390,14 +1419,18 @@ class TestCalculateActivityCancellation:
         }
 
         async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            observed["body_cancellation"] = args[-1]
             started.set()
             await query_died.wait()
             observed["body_finished"] = True
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
-        async def _fake_cancel_query(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
+        async def _fake_cancel_query(
+            recalculation_id: str, metric_uuid: str, attempt: int, cancellation: AttemptCancellation
+        ) -> None:
             observed["cancel_calls"] += 1
             observed["cancel_args"] = (recalculation_id, metric_uuid, attempt)
+            observed["cancel_cancellation"] = cancellation
             observed["cancelled_before_body_finished"] = not observed["body_finished"]
             if observed["cancel_calls"] == kills_until_query_dies:
                 query_died.set()
@@ -1424,6 +1457,7 @@ class TestCalculateActivityCancellation:
 
         assert observed["cancel_args"] == ("r1", "m1", 1)
         assert observed["cancelled_before_body_finished"] is True
+        assert observed["cancel_cancellation"] is observed["body_cancellation"]
 
     async def test_cancellation_retries_the_kill_when_the_first_one_misses(self) -> None:
         # A cancel that lands during the body's Postgres phase kills before ClickHouse registers the query, so

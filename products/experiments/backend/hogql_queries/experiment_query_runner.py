@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Optional
@@ -106,6 +107,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        raise_if_cancelled: Optional[Callable[[], None]] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -118,6 +120,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
         # so the error boundary stays silent for them. See error_handling._emit_runner_terminal_error_event.
         self.error_event_context = error_event_context
+        self.raise_if_cancelled = raise_if_cancelled
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -441,6 +444,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings.join_algorithm = "grace_hash"
             settings.grace_hash_join_initial_buckets = 2
 
+        if self.raise_if_cancelled is not None:
+            self.raise_if_cancelled()
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,

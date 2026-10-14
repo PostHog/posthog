@@ -18,6 +18,7 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_logic import (
+    AttemptCancellation,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
@@ -35,6 +36,7 @@ async def _drain_cancelled_body(
     recalculation_id: str,
     metric_uuid: str,
     attempt: int,
+    cancellation: AttemptCancellation,
 ) -> None:
     # sync_to_async cannot stop its worker thread, and returning while it runs leaves the ClickHouse query, its
     # DB connection and the runner's result buffers alive and unsupervised. Kill the query so the thread returns
@@ -45,7 +47,7 @@ async def _drain_cancelled_body(
     loop = asyncio.get_running_loop()
     while not task.done():
         try:
-            await _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt)
+            await _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt, cancellation)
         except Exception:
             logger.warning(
                 "experiment_metric_recalculation_query_cancel_failed",
@@ -113,16 +115,19 @@ async def calculate_experiment_metric_for_recalculation(
     attempt = temporalio.activity.info().attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
     deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
+    cancellation = AttemptCancellation()
     task = asyncio.ensure_future(
         _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt, cancellation
         )
     )
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
         # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
-        drain = asyncio.create_task(_drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt))
+        drain = asyncio.create_task(
+            _drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt, cancellation)
+        )
         while True:
             try:
                 await asyncio.shield(drain)
