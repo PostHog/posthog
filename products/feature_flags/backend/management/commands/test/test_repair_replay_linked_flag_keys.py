@@ -89,7 +89,8 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             "variant": "control",
         }
 
-        assert self._run("--live-run", teams=[self.team])["outcomes"] == {"already_correct": 1}
+        # A dry run, because a live run's locked write relabels the finding whatever the scan said.
+        assert self._run(teams=[self.team])["outcomes"] == {"already_correct": 1}
 
     def test_reports_the_repair_without_writing_unless_asked(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
@@ -288,6 +289,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             "variant": "control",
         }
 
+        # A dry run, because a live run's locked write relabels the finding whatever the scan said.
+        assert self._run(teams=[self.team])["outcomes"] == {"already_correct": 1}
+
     def test_reports_a_group_that_stores_no_id_of_its_own(self) -> None:
         # `group_index: 0` and `group_id: null` are how a human finds the group in a team with
         # several. One is falsy and the other is None, so both have to survive into the row.
@@ -373,14 +377,18 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             # cases pin that the scan gives up here and does not fall back to the stored id.
             ("object_with_no_key", {"id": 1}, "malformed"),
             ("empty_key", "", "malformed"),
+            ("string_id", {"id": "123", "key": "live-gate"}, "malformed"),
             # A bare key stores no id, so nothing records which flag it meant. Guessing a rewrite
             # would move the gate onto an unrelated flag. Clearing it would record every session.
-            ("bare_key_naming_no_flag", "replay-gate", "key_unresolvable"),
+            ("bare_key_naming_no_live_flag", "replay-gate", "key_unresolvable"),
         ]
     )
     def test_reports_a_trigger_group_reference_it_cannot_resolve_without_touching_it(
         self, _name: str, stored_flag: Any, outcome: str
     ) -> None:
+        # A plain soft delete keeps the key. The SDKs cannot resolve a deleted flag.
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate", deleted=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="live-gate")
         set_trigger_groups(self.team, {"flag": stored_flag})
         stored_before = self.team.session_recording_trigger_groups
 

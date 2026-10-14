@@ -21,7 +21,7 @@ because with no id stored beside it, nothing records which flag it meant.
 import json
 from collections import Counter
 from collections.abc import Iterator
-from dataclasses import fields, replace
+from dataclasses import asdict, replace
 from enum import Enum, StrEnum, auto
 from typing import Any, TypedDict, assert_never
 
@@ -117,10 +117,7 @@ class _Finding:
         return replace(self, outcome=outcome, new_key=new_key)
 
     def as_report_row(self) -> dict[str, Any]:
-        # `fields()` rather than `asdict()`, which deep-copies and would leave the sentinel
-        # unrecognizable.
-        row = {field.name: getattr(self, field.name) for field in fields(self)}
-        return {name: value for name, value in row.items() if value is not _UNSET}
+        return {name: value for name, value in asdict(self).items() if value is not _UNSET}
 
     def describe(self) -> str:
         match self.location:
@@ -219,7 +216,8 @@ class Command(BaseCommand):
                 flag_ids.add(flag_id)
             refs = trigger_group_flag_refs(team.session_recording_trigger_groups)
             if refs:
-                # Only a team that names a flag in a trigger group widens the key probe below.
+                # Only trigger group references are checked by key. A team adds its project to the
+                # live-key query below only when it stores one.
                 project_ids.add(team.project_id)
             for ref in refs:
                 if ref.flag_id is not None:
@@ -359,6 +357,10 @@ class Command(BaseCommand):
 
         if ref.key is None:
             return Outcome.MALFORMED, resolved
+        if ref.flag_id is None and isinstance(ref.stored_flag, dict) and ref.stored_flag.get("id") is not None:
+            # The stored id names a flag, but the scan cannot read it. A match on the key alone
+            # would accept whichever flag holds that key now.
+            return Outcome.MALFORMED, resolved
         key_resolves = flags.resolves(project_id, ref.key)
         if ref.flag_id is None:
             return (Outcome.ALREADY_CORRECT if key_resolves else Outcome.KEY_UNRESOLVABLE), resolved
@@ -376,6 +378,42 @@ class Command(BaseCommand):
         # a different flag than the stale key names today. The id is the stronger reference. The
         # old_key and new_key fields below make the move visible in the report.
         return Outcome.REPAIRED, {**resolved, "old_key": ref.key, "new_key": new_key}
+
+    def _locked_linked_flag_outcome(self, locked_linked_flag: Any, *, flag_id: int, current_key: str) -> Outcome:
+        if stored_flag_id(locked_linked_flag) != flag_id:
+            return Outcome.CHANGED_MID_SCAN
+        if locked_linked_flag.get("key") == current_key:
+            # A relink wrote the current key before this run took the lock.
+            return Outcome.ALREADY_CORRECT
+        return Outcome.REPAIRED
+
+    def _locked_trigger_group_outcome(
+        self,
+        finding: _Finding,
+        ref: TriggerGroupFlagRef | None,
+        *,
+        flag_id: int,
+        current_key: str,
+        column_changed: bool,
+    ) -> Outcome:
+        """What the locked write does with a trigger group reference the scan classed as repairable.
+
+        The match checks the group id and the stored reference as well as the index, so a group
+        added, removed or reordered since the scan cannot shift a rewrite onto its neighbour.
+        Neither field is enough alone, because a group can store no id and two groups can hold the
+        same reference. A group with no id and an identical copy beside it passes both checks, so
+        the write repairs a group with no id only while the whole column still matches the scan.
+        """
+        if ref is None or ref.group_id != finding.group_id or ref.flag_id != flag_id:
+            return Outcome.CHANGED_MID_SCAN
+        if ref.key == current_key:
+            # A relink rewrites the stored reference, so this check runs before the comparison below.
+            return Outcome.ALREADY_CORRECT
+        if ref.stored_flag != finding.stored_flag:
+            return Outcome.CHANGED_MID_SCAN
+        if ref.group_id is None and column_changed:
+            return Outcome.CHANGED_MID_SCAN
+        return Outcome.REPAIRED
 
     def _write_repairs(self, team_id: int, findings: list[_Finding], *, scanned_trigger_groups: Any) -> list[_Finding]:
         """Rewrite the references the scan classed as repairable, and report what the write did.
@@ -429,38 +467,22 @@ class Command(BaseCommand):
                 # malformed trigger groups column and never rewrites it.
                 if finding.location is Location.LINKED_FLAG:
                     locked_linked_flag = locked.session_recording_linked_flag
-                    if stored_flag_id(locked_linked_flag) != flag_id:
-                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
-                        continue
-                    if locked_linked_flag.get("key") == current_key:
-                        # A relink wrote the current key before this run took the lock.
-                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
-                        continue
-                    linked_flag = rewritten_linked_flag(locked_linked_flag, flag_id=flag_id, new_key=current_key)
+                    outcome = self._locked_linked_flag_outcome(
+                        locked_linked_flag, flag_id=flag_id, current_key=current_key
+                    )
+                    if outcome is Outcome.REPAIRED:
+                        linked_flag = rewritten_linked_flag(locked_linked_flag, flag_id=flag_id, new_key=current_key)
                 else:
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
-                    # The match checks the group id and the stored reference as well as the index,
-                    # so a group added, removed or reordered since the scan cannot shift a rewrite
-                    # onto its neighbour. Neither field is enough alone, because a group can store
-                    # no id and two groups can hold the same reference. A group with no id and an
-                    # identical copy beside it passes both checks, so the write repairs a group with
-                    # no id only while the whole column still matches the scan.
-                    if ref is None or ref.group_id != finding.group_id or ref.flag_id != flag_id:
-                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
-                        continue
-                    if ref.key == current_key:
-                        # A relink rewrites the stored reference, so this check runs before the comparison below.
-                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
-                        continue
-                    if ref.stored_flag != finding.stored_flag:
-                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
-                        continue
-                    if ref.group_id is None and column_changed:
-                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
-                        continue
-                    renames[ref.group_index] = current_key
+                    outcome = self._locked_trigger_group_outcome(
+                        finding, ref, flag_id=flag_id, current_key=current_key, column_changed=column_changed
+                    )
+                    if outcome is Outcome.REPAIRED and ref is not None:
+                        renames[ref.group_index] = current_key
 
-                written[index] = finding.written(Outcome.REPAIRED, new_key=current_key)
+                written[index] = finding.written(
+                    outcome, new_key=current_key if outcome is Outcome.REPAIRED else _UNSET
+                )
 
             return ReplayGateRewrite(
                 linked_flag=linked_flag,
@@ -485,7 +507,7 @@ class Command(BaseCommand):
 
         verb = "Would repair" if report["dry_run"] else "Repaired"
         self.stdout.write(
-            f"Scanned {report['scanned_teams']} team(s) gating session replay on a flag, "
+            f"Scanned {report['scanned_teams']} team(s) with session replay gate settings, "
             f"{report['scanned_references']} reference(s)."
         )
         self.stdout.write(f"{verb} {len(repairs)} reference(s):")
