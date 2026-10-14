@@ -275,6 +275,17 @@ def delete_nodes_and_reconcile(team_id: int, nodes: QuerySet[Node]) -> None:
         maybe_reconcile_dag(dag)
 
 
+def delete_deleted_saved_query_nodes_for_teams(team_ids: Iterable[int]) -> list[int]:
+    failed_team_ids: list[int] = []
+    for team_id in team_ids:
+        try:
+            delete_nodes_and_reconcile(team_id, deleted_saved_query_nodes().filter(team_id=team_id))
+        except Exception:
+            logger.exception("Could not delete nodes of deleted saved queries", team_id=team_id)
+            failed_team_ids.append(team_id)
+    return failed_team_ids
+
+
 def replace_incoming_edges(
     target: Node,
     dependency_names: Iterable[str],

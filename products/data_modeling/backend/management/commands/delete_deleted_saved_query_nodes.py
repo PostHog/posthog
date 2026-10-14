@@ -5,15 +5,11 @@ from uuid import UUID
 from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import QuerySet
 
-import structlog
-
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
-    delete_nodes_and_reconcile,
+    delete_deleted_saved_query_nodes_for_teams,
     deleted_saved_query_nodes,
 )
 from products.data_modeling.backend.models.node import Node
-
-logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -30,13 +26,7 @@ class Command(BaseCommand):
         if not options["apply"]:
             return
 
-        failed_team_ids: list[int] = []
-        for team_id, node_ids in node_ids_by_team.items():
-            try:
-                delete_nodes_and_reconcile(team_id, self._nodes(team_id).filter(id__in=node_ids))
-            except Exception:
-                logger.exception("Could not delete nodes of deleted saved queries", team_id=team_id)
-                failed_team_ids.append(team_id)
+        failed_team_ids = delete_deleted_saved_query_nodes_for_teams(node_ids_by_team.keys())
         self.stdout.write(f"Done. {self._nodes(options['team_id']).count()} node(s) remain")
         if failed_team_ids:
             self.stderr.write(f"Failed for team(s): {', '.join(str(team_id) for team_id in failed_team_ids)}")
