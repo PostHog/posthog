@@ -27,7 +27,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
-from posthog.temporal.oauth import scout_mcp_scopes, scout_scope_posture
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
@@ -414,16 +414,18 @@ async def _arun_signals_scout(
             skill_version=skill.version,
             skip_reason="no active user to act as for team",
         )
-    if acting_user.is_team_fallback and _granted_write_scopes(config):
+    granted_write_scopes = _granted_write_scopes(config)
+    if acting_user.is_team_fallback and set(granted_write_scopes) - SCOUT_DEFAULT_WRITE_SCOPES:
         # The grant was approved for the person the runs act as. The team fallback is a member
-        # who never approved it, so this run holds only the fleet posture. Cleared in memory
-        # only: the runner never saves the config row, so the grant is back the moment the
-        # author's identity resolves again.
+        # who never approved it, so this run holds only the fleet posture and the default scopes
+        # the scout still holds. The fleet granted those, not a person, so the fallback bypasses
+        # no approval by keeping them. Cleared in memory only: the runner never saves the config
+        # row, so the grant is back the moment the author's identity resolves again.
         logger.info(
             "signals_scout: withholding write access, acting user is the team fallback",
             extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
         )
-        config.write_scopes = []
+        config.write_scopes = sorted(set(granted_write_scopes) & SCOUT_DEFAULT_WRITE_SCOPES)
     user_id = acting_user.user_id
 
     started = time.monotonic()
@@ -957,9 +959,8 @@ async def _spawn_and_run(
         repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
         # `signals_scout` is the harness's own scope posture: project reads +
-        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
-        # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.
-        # `notebook:write`) so a finding can produce a durable artifact. It reports
+        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`. User-facing writes,
+        # notebooks included, come only from the per-scout grant in `scope_posture`. It reports
         # `has_write_scopes=True` so the MCP server doesn't enable read-only-mode tool
         # filtering. Without that opt-out, the MCP layer would categorically strip every
         # tool annotated `readOnlyHint: false` — including the agent's own `remember`,
