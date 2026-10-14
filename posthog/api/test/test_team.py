@@ -28,6 +28,7 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     merge_conversations_settings,
 )
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
@@ -1422,6 +1423,37 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["modifiers"] == {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
+
+        @parameterized.expand(
+            [
+                (
+                    "environments",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                (
+                    "projects",
+                    {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30},
+                    None,
+                    {"useNewEventsSchema": True},
+                ),
+                ("environments", True, None, None),
+                ("projects", ["useNewEventsSchema"], None, None),
+                ("environments", True, {"bounceRateDurationSeconds": 30}, {"bounceRateDurationSeconds": 30}),
+            ]
+        )
+        def test_patching_modifiers_over_a_stored_value(
+            self, prefix: str, stored: object, patched: dict | None, expected: dict | None
+        ) -> None:
+            self.team.modifiers = stored
+            self.team.save()
+
+            response = self.client.patch(f"/api/{prefix}/{self.team.id}", {"modifiers": patched}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            self.team.refresh_from_db()
+            assert self.team.modifiers == expected
 
         @parameterized.expand(
             [
@@ -4259,6 +4291,41 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
         expected["widget_public_token"] = "test-generated-token" if enabling else None
         self.assertEqual(result["conversations_settings"], expected)
+
+    @parameterized.expand(
+        [
+            (serializer, scopes, allowed)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for scopes, allowed in (
+                (None, True),
+                (["project:read"], False),
+                (["query:read"], True),
+                (["query:write"], True),
+                (["*"], True),
+            )
+        ]
+    )
+    def test_live_events_token_requires_query_access(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        scopes: list[str] | None,
+        allowed: bool,
+    ) -> None:
+        authenticator = None
+        if scopes is not None:
+            authenticator = PersonalAPIKeyAuthentication()
+            authenticator.personal_api_key = PersonalAPIKey(scopes=scopes)
+        request = MagicMock(user=MagicMock(id=1, is_authenticated=True))
+        request.successful_authenticator = authenticator
+        team = Team(id=1)
+        serializer = serializer_class(context={"request": request})
+
+        with patch("posthog.api.team.get_or_mint_live_events_token", return_value="test-live-token"):
+            if isinstance(serializer, TeamSerializer):
+                token = serializer.get_live_events_token(team)
+            else:
+                token = serializer.get_live_events_token(MagicMock(passthrough_team=team))
+            self.assertEqual(token, "test-live-token" if allowed else None)
 
     @parameterized.expand(
         [

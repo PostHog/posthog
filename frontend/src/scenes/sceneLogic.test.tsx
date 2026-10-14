@@ -1,6 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_USER_UUID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_DEFAULT_USER,
+    MOCK_USER_UUID,
+} from 'lib/api.mock'
 
-import { kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -10,9 +16,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { useMocks } from '~/mocks/jest'
@@ -44,7 +52,18 @@ const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
+const failingLogic = kea<testLogicType>([
+    path(['scenes', 'sceneLogic', 'testFailingLogic']),
+    afterMount(() => {
+        throw new Error('scene logic mount failed')
+    }),
+])
+
+// Held so a test can reject a still-pending scene import after navigating somewhere else.
+let pendingImportRejection: ((error: Error) => void) | null = null
+
 const testScenes: Record<string, () => any> = {
+    [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
@@ -54,10 +73,18 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
+    MyTickets: sceneImport,
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
+    [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
+    [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
+    [Scene.Experiments]: (): any =>
+        new Promise((_resolve, reject) => {
+            pendingImportRejection = reject
+        }),
 }
 
 describe('sceneLogic', () => {
@@ -85,6 +112,57 @@ describe('sceneLogic', () => {
                 (obj: Record<string, any>) =>
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
+        })
+    })
+
+    // A scene that never mounts must not leave the address bar on it with the previous scene still
+    // rendered, and must leave something error tracking can count.
+    describe('a scene that fails to load', () => {
+        const exceptionEvent = { uuid: 'scene-load-exception', event: '$exception' }
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            pendingImportRejection = null
+            captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => exceptionEvent as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it.each([
+            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import'],
+            ['its logic throws while mounting', urls.cohorts(), Scene.Cohorts, 'logic_mount'],
+        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage) => {
+            router.actions.push(url)
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
+            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), {
+                extra: expect.objectContaining({ sceneId, stage }),
+            })
+            // The support form needs this event, or a non-entitled organization cannot report the failure.
+            expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
+        })
+
+        // An import can reject long after the person gave up and went somewhere else. The error
+        // scene must not then replace whatever they are reading now.
+        it('leaves a newer scene alone when a stale import rejects', async () => {
+            router.actions.push(urls.experiments())
+            await expectLogic(logic).delay(1)
+
+            router.actions.push(urls.settings('user'))
+            await expectLogic(logic).delay(1)
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+            // Without this the rejection below is a no-op and the assertion passes vacuously.
+            expect(pendingImportRejection).not.toBeNull()
+            pendingImportRejection!(new Error('scene import failed'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
         })
     })
 
@@ -221,11 +299,14 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
     })
 
-    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
-        router.actions.push('/data-warehouse/new')
-        await expectLogic(logic).delay(1)
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
-    })
+    it.each(['/data-warehouse/new', '/data-management/sources/new'])(
+        'redirects %s to the new-source wizard instead of a 404',
+        async (path) => {
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+        }
+    )
 
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
@@ -257,9 +338,22 @@ describe('sceneLogic', () => {
     // ?review=<report id> is a permanent public contract baked into GitHub PR comments, and saved
     // dashboard tiles and digest emails link to /activity/explore#q=<query>. The redirect must carry
     // both across. The hash also carries global side-panel state, so it has to survive too.
+    // Visual review PR comments, commit statuses and digests link to the old /visual_review paths.
     it.each([
         ['/code_review', () => urls.codeReview(), { review: 'r-9' }, { panel: 'max:inspect' }],
         ['/activity/explore', () => urls.activity(ActivityTab.ExploreEvents), {}, { q: '{"kind":"DataTableNode"}' }],
+        [
+            '/visual_review/repos/PostHog/posthog/runs/run-1',
+            () => urls.visualReviewRepoRun('PostHog', 'posthog', 'run-1'),
+            {},
+            { snapshot: 'snap-1' },
+        ],
+        [
+            '/visual_review/repos/PostHog/posthog/storybook/snapshots/scenes%2FButton--dark',
+            () => urls.visualReviewSnapshotHistory('PostHog', 'posthog', 'storybook', 'scenes/Button--dark'),
+            {},
+            { panel: 'max:inspect' },
+        ],
     ])('redirects the old %s path, preserving search and hash params', async (from, to, search, hash) => {
         router.actions.push(from, search, hash)
         await expectLogic(logic).delay(1)
@@ -310,6 +404,34 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
+    })
+
+    it.each([
+        ['without an organization', (): void => organizationLogic.actions.loadCurrentOrganizationSuccess(null)],
+        [
+            'whose organization has no projects',
+            (): void => {
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [] },
+                })
+                teamLogic.actions.loadCurrentTeamSuccess(null)
+            },
+        ],
+    ])('keeps a signed-in user %s on the agentic consent page', async (_label, setUpUser) => {
+        setUpUser()
+        const originalPath = window.location.pathname
+        // openScene reads window.location, which the test router's memory history never moves.
+        window.history.replaceState(null, '', urls.agenticAuthorize())
+        try {
+            router.actions.push(urls.agenticAuthorize())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.agenticAuthorize())
+            expect(logic.values.sceneId).toEqual(Scene.AgenticAuthorize)
+        } finally {
+            window.history.replaceState(null, '', originalPath)
+        }
     })
 
     it('persists the loaded scenes', async () => {
@@ -408,6 +530,37 @@ describe('sceneLogic', () => {
             }
         }
     )
+
+    it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                },
+                MOCK_DEFAULT_PROJECT,
+                { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM] } as OrganizationType
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            window.POSTHOG_APP_CONTEXT = { ...window.POSTHOG_APP_CONTEXT, project_access_denied: '12345' } as AppContext
+            const refusedLink = `/project/12345${removeProjectIdIfPresent(urls.eventDefinitions())}`
+            router.actions.push(refusedLink)
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+
+            expect(router.values.location.pathname).toEqual(refusedLink)
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
@@ -698,6 +851,48 @@ describe('sceneLogic', () => {
                 expect(router.values.hashParams).toEqual(expectedHash)
             }
         )
+    })
+
+    describe('a project pending deletion', () => {
+        it.each([
+            [
+                'locks out a page reached by a client-side link',
+                urls.eventDefinitions(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            [
+                'locks out an unknown path reached by a client-side link',
+                '/no-such-page',
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['keeps my tickets open', urls.myTickets(), urls.myTickets(), 'MyTickets'],
+            [
+                'keeps my tickets open when the project has not finished onboarding',
+                urls.myTickets(),
+                urls.myTickets(),
+                'MyTickets',
+                { ingested_event: false, completed_snippet_onboarding: false, has_completed_onboarding_for: {} },
+            ],
+        ])('%s', async (_name, target, expectedRoute, expectedScene, team: Partial<TeamType> = {}) => {
+            logic.unmount()
+            initKeaTests(
+                true,
+                { ...MOCK_DEFAULT_TEAM, ...team },
+                { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true }
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
+        })
     })
 
     describe('a blocked organization', () => {

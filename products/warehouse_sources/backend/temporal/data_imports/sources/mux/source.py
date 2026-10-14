@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
+    codebase_detection = detect(
+        env=("^MUX_",),
+        script_hosts=("src.litix.io",),
+        npm=("@mux/mux-node", "@mux/mux-player", "@mux/mux-player-react", "@mux/upchunk", "mux-embed"),
+        pypi=("mux-python",),
+        cocoapods=("Mux-Stats-AVPlayer",),
+        composer=("muxinc/mux-php",),
+        go=("github.com/muxinc/mux-go",),
+        hex=("mux",),
+        maven=("com.mux:mux-sdk-java",),
+        rubygems=("mux_ruby",),
+        swiftpm=("github.com/muxinc/mux-stats-sdk-avplayer",),
+    )
+
     api_docs_url = "https://www.mux.com/docs/api-reference"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in the public docs without credentials.
@@ -54,7 +69,7 @@ Create an access token under [Settings → Access Tokens](https://dashboard.mux.
 
 Grant the following read permissions:
 - **Mux Video** (read) — required for assets, live streams, uploads, playback restrictions and transcription vocabularies
-- **Mux Data** (read) — required for video views, errors and aggregate metrics (watch time, plays, viewer experience)
+- **Mux Data** (read) — required for video views, errors, aggregate metrics (watch time, plays, viewer experience), metric timeseries and breakdowns, and dimensions
 - **Mux System** (read) — required for signing keys
 """,
             iconPath="/static/services/mux.png",
@@ -105,6 +120,17 @@ Grant the following read permissions:
                 "Mux rejected the time range this sync requested as invalid. This usually means the range "
                 "reaches further back than your Mux plan keeps. Check your Mux Data retention window, or "
                 "contact PostHog support if this keeps happening."
+            ),
+            # Some Mux Data accounts reject `max_request_latency` timeseries queries with a 400 and
+            # the generic `code=bad_request` (no specific sub-code), regardless of the timeframe —
+            # every request/credential/scope here is otherwise valid, so retrying replays the same
+            # rejection. Matched on the path plus the query prefix (not just `code=bad_request`,
+            # which Mux also returns for genuinely malformed requests on other endpoints) so a 5xx/
+            # timeout for this same URL — whose message carries no query string — stays retryable.
+            "metrics/max_request_latency/timeseries?timeframe": (
+                "Mux rejected the request-latency metric sync for this account. This can happen when "
+                "the account's Mux Data plan doesn't include request-latency metrics. Contact PostHog "
+                "support if this keeps happening."
             ),
         }
 

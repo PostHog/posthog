@@ -1,17 +1,25 @@
+import io
+import sys
 import json
 import datetime
+import subprocess
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import xgboost as xgb
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -22,19 +30,22 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import model_store, scorer
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
-    REPORT_EMBEDDINGS_EXTRA,
+    MIN_PROJECT_HISTORY_REPORTS,
+    PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.model_store import ModelLoadError, load_serving_set
 from products.signals.backend.ranking.overrides import RankingOverrides
-from products.signals.backend.ranking.scorer import NO_VECTOR, score_reports
+from products.signals.backend.ranking.scorer import NO_PROJECT_VECTORS, NO_VECTOR, ScoringError, score_reports
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
     SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
@@ -43,6 +54,7 @@ from products.signals.backend.ranking.serving_manifest import (
     model_key,
     serving_manifest_key,
     serving_model_prefix,
+    serving_project_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT, classification_properties
 from products.signals.backend.report_embedding_reader import (
@@ -51,7 +63,6 @@ from products.signals.backend.report_embedding_reader import (
     latest_report_vectors,
 )
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
-from products.signals.dags.inbox_ranking.training.unseen import UnseenModel, score_pool
 
 PREFIX = "inbox_ranking_test"
 VERSION = "2026-09-01"
@@ -59,6 +70,10 @@ OLDER_VERSION = "2026-08-25"
 NOW = datetime.datetime(2026, 9, 2, 12, 0, tzinfo=datetime.UTC)
 LANDED = datetime.datetime(2026, 9, 2, 9, 0, tzinfo=datetime.UTC)
 HEADS = ("open", "thumbs_up")
+ONNX_FIXTURES = Path(__file__).parent / "fixtures" / "onnx"
+# The column order of the fixture's `probabilities` output. Reversed from HEADS, so a model that
+# reads columns in manifest order gives each head the other head's probability.
+ONNX_OUTPUT_HEADS = ("thumbs_up", "open")
 
 _BOOSTERS: dict[tuple[str, ...], bytes] = {}
 
@@ -102,10 +117,13 @@ class FakeObjectStore:
         booster_feature_names: tuple[str, ...] | None = None,
         missing_heads: Sequence[str] = (),
         thresholds: Mapping[str, float] | None = None,
+        onnx_fixture: str = "report.onnx",
+        project_vector_kinds: Sequence[str] = (),
     ) -> ServingManifestEntry:
         key = model_key(model_name, version)
         prefix = serving_model_prefix(PREFIX, key)
-        metadata = {
+        onnx = model_kind == ONNX_MODEL_KIND
+        metadata: dict[str, Any] = {
             "model_name": model_name,
             "model_version": version,
             "model_kind": model_kind,
@@ -115,7 +133,7 @@ class FakeObjectStore:
             "heads": [
                 {
                     "head": head,
-                    "file": f"{head}.ubj",
+                    "file": ONNX_MODEL_FILE if onnx else f"{head}.ubj",
                     "readable": head == "open",
                     **(
                         {"refit_classification_threshold": thresholds[head]}
@@ -126,11 +144,17 @@ class FakeObjectStore:
                 for head in HEADS
             ],
         }
+        if project_vector_kinds:
+            metadata["project_vector_kinds"] = list(project_vector_kinds)
+        if onnx:
+            metadata["output_heads"] = list(ONNX_OUTPUT_HEADS)
+            self.objects[f"{prefix}/{ONNX_MODEL_FILE}"] = (ONNX_FIXTURES / onnx_fixture).read_bytes()
+        else:
+            booster = _booster_ubj(booster_feature_names or feature_set.feature_names)
+            for head in HEADS:
+                if head not in missing_heads:
+                    self.objects[f"{prefix}/{head}.ubj"] = booster
         self.objects[f"{prefix}/{METADATA_FILE}"] = json.dumps(metadata).encode()
-        booster = _booster_ubj(booster_feature_names or feature_set.feature_names)
-        for head in HEADS:
-            if head not in missing_heads:
-                self.objects[f"{prefix}/{head}.ubj"] = booster
         return ServingManifestEntry(
             key=key,
             model_name=model_name,
@@ -139,10 +163,34 @@ class FakeObjectStore:
             roles=list(roles),
             prefix=prefix,
             heads=list(HEADS),
+            model_file=ONNX_MODEL_FILE if onnx else None,
+            reads_project_vectors=bool(project_vector_kinds),
         )
 
-    def publish_manifest(self, entries: Sequence[ServingManifestEntry]) -> ServingManifest:
-        manifest = ServingManifest(manifest_version=NOW.isoformat(), models=list(entries))
+    def publish_project_vectors(self, team_id: int, vectors: np.ndarray, has_history: np.ndarray) -> str:
+        key = serving_project_vectors_key(PREFIX, VERSION)
+        table = pa.Table.from_pylist(
+            [
+                {
+                    "team_id": team_id,
+                    "kind": kind,
+                    "vector": vectors[index].tolist(),
+                    "n_reports": MIN_PROJECT_HISTORY_REPORTS if has_history[index] else 1,
+                }
+                for index, kind in enumerate(PROJECT_VECTOR_KINDS)
+            ]
+        )
+        buffer = io.BytesIO()
+        pq.write_table(table, buffer)
+        self.objects[key] = buffer.getvalue()
+        return key
+
+    def publish_manifest(
+        self, entries: Sequence[ServingManifestEntry], project_vectors: str | None = None
+    ) -> ServingManifest:
+        manifest = ServingManifest(
+            manifest_version=NOW.isoformat(), models=list(entries), project_vectors=project_vectors
+        )
         self.objects[serving_manifest_key(PREFIX)] = manifest.model_dump_json().encode()
         return manifest
 
@@ -189,6 +237,35 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
             ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
+            (
+                "onnx_input_width",
+                {"model_kind": ONNX_MODEL_KIND, "onnx_fixture": "narrow_report.onnx"},
+                "input report is tensor(float) ['batch', 8], not float (batch, 1536)",
+            ),
+            (
+                "onnx_input_name",
+                {"model_kind": ONNX_MODEL_KIND, "onnx_fixture": "unknown_input.onnx"},
+                "inputs ['vector'] are not ['report']",
+            ),
+            (
+                "onnx_graph_without_project_inputs",
+                {"model_kind": ONNX_MODEL_KIND, "project_vector_kinds": PROJECT_VECTOR_KINDS},
+                "inputs ['report'] are not ['has_history', 'project', 'report']",
+            ),
+            (
+                "onnx_project_inputs_without_kinds",
+                {"model_kind": ONNX_MODEL_KIND, "onnx_fixture": "project_report.onnx"},
+                "inputs ['has_history', 'project', 'report'] are not ['report']",
+            ),
+            (
+                "onnx_project_kinds_in_another_order",
+                {
+                    "model_kind": ONNX_MODEL_KIND,
+                    "onnx_fixture": "project_report.onnx",
+                    "project_vector_kinds": ("open", "typical", "action", "dismiss"),
+                },
+                "project_vector_kinds ['open', 'typical', 'action', 'dismiss']",
+            ),
         ]
     )
     def test_a_challenger_that_cannot_load_is_skipped(self, _name: str, kwargs: dict, reason: str) -> None:
@@ -322,51 +399,6 @@ class _ScorerTestMixin(_StoreTestMixin):
 
 
 class TestScorer(_ScorerTestMixin, SimpleTestCase):
-    def test_a_served_score_equals_the_dags_unseen_score_for_the_same_model_and_vector(self) -> None:
-        served = self._served()
-        self.store.publish_manifest([served])
-        vector = _vector(1)
-
-        (outcome,), _, _ = self._score(
-            ["r1"],
-            {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": ReportVector(embedding=vector, inserted_at=LANDED)}},
-            persist=False,
-        )
-
-        pool = pd.DataFrame(
-            {
-                "report_created_at": [pd.Timestamp(LANDED)],
-                "report_age_hours": [3.0],
-                "signal_count": [2],
-            },
-            index=pd.Index(["r1"], name="report_id"),
-        )
-        extras = {
-            REPORT_EMBEDDINGS_EXTRA: pd.DataFrame(
-                {"embedding_small": [list(vector)], "embedding_inserted_at": [LANDED]},
-                index=pd.Index(["r1"], name="report_id"),
-            )
-        }
-        booster = self.store.objects[f"{served.prefix}/open.ubj"]
-        dag_scores = score_pool(
-            pool,
-            pd.DataFrame({"open_count": [0], "impression_unit_count": [1]}, index=pool.index),
-            [
-                UnseenModel(
-                    model_name=served.model_name,
-                    model_version=served.model_version,
-                    model_role="champion",
-                    feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
-                    boosters={"open": booster},
-                )
-            ],
-            snapshot_date=LANDED.date(),
-            extras=extras,
-        )
-
-        assert outcome.score is not None
-        assert outcome.score.results[served.key].scores["open"] == float(dag_scores["score"].iloc[0])
-
     def test_a_missing_served_vector_is_no_score(self) -> None:
         self.store.publish_manifest([self._served()])
 
@@ -407,6 +439,105 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert outcome.score.served_key == manifest.served.key
         assert outcome.score.embedding_inserted_at == LANDED
         assert captured.events == []
+
+    def test_xgboost_and_onnx_models_score_in_one_pass(self) -> None:
+        served = self._served()
+        onnx = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
+        self.store.publish_manifest([served, onnx])
+        expected = np.load(ONNX_FIXTURES / "report.expected.npz")
+        report_ids = [f"r{index}" for index in range(len(expected["report"]))]
+        vectors = {
+            rendering: {
+                report_id: ReportVector(embedding=vector, inserted_at=LANDED)
+                for report_id, vector in zip(report_ids, expected["report"])
+            }
+            for rendering in (EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE)
+        }
+
+        outcomes, _, _ = self._score(report_ids, vectors, persist=False)
+
+        for outcome, probabilities in zip(outcomes, expected["probabilities"]):
+            assert outcome.score is not None
+            results = outcome.score.results
+            assert (results[served.key].status, set(results[served.key].scores)) == ("scored", set(HEADS))
+            assert results[onnx.key].status == "scored"
+            expected_scores = dict(zip(ONNX_OUTPUT_HEADS, probabilities.tolist()))
+            assert results[onnx.key].scores == pytest.approx(expected_scores, abs=1e-6)
+
+    def _project_model(self, roles: Sequence[str]) -> ServingManifestEntry:
+        return self.store.publish_model(
+            "nn",
+            REPORT_EMBEDDINGS_FEATURE_SET,
+            roles=roles,
+            model_kind=ONNX_MODEL_KIND,
+            onnx_fixture="project_report.onnx",
+            project_vector_kinds=PROJECT_VECTOR_KINDS,
+        )
+
+    def test_an_onnx_model_reads_the_team_project_vectors(self) -> None:
+        served = self._served()
+        nn = self._project_model([CROSS_FAMILY_ROLE])
+        expected = np.load(ONNX_FIXTURES / "project_report.expected.npz")
+        key = self.store.publish_project_vectors(self.team_id, expected["project"], expected["has_history"])
+        self.store.publish_manifest([served, nn], project_vectors=key)
+        report_ids = [f"r{index}" for index in range(len(expected["report"]))]
+        vectors = {
+            EMBEDDING_RENDERING_TITLE_SUMMARY: {
+                report_id: ReportVector(embedding=vector, inserted_at=LANDED)
+                for report_id, vector in zip(report_ids, expected["report"])
+            }
+        }
+
+        outcomes, _, _ = self._score(report_ids, vectors, persist=False)
+
+        for outcome, probabilities in zip(outcomes, expected["probabilities"]):
+            assert outcome.score is not None
+            result = outcome.score.results[nn.key]
+            assert result.status == "scored"
+            assert result.scores == pytest.approx(dict(zip(ONNX_OUTPUT_HEADS, probabilities.tolist())), abs=1e-6)
+
+    @parameterized.expand(
+        [("manifest_names_none", False, None), ("object_missing", True, None), ("object_unreadable", True, b"oops")]
+    )
+    def test_a_model_without_project_vectors_is_skipped_or_stops_the_served_score(
+        self, _name: str, names_a_key: bool, body: bytes | None
+    ) -> None:
+        key = serving_project_vectors_key(PREFIX, VERSION) if names_a_key else None
+        if key is not None and body is not None:
+            self.store.objects[key] = body
+        report = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+        vectors = {EMBEDDING_RENDERING_TITLE_SUMMARY: {"r1": report}}
+        served = self._served()
+        nn = self._project_model([CROSS_FAMILY_ROLE])
+        self.store.publish_manifest([served, nn], project_vectors=key)
+
+        (outcome,), _, _ = self._score(["r1"], vectors, persist=False)
+
+        assert outcome.score is not None
+        result = outcome.score.results[nn.key]
+        assert (result.status, result.skip_reason) == ("skipped", NO_PROJECT_VECTORS)
+
+        model_store.clear_model_cache()
+        self.store.publish_manifest([self._project_model([SERVED_ROLE])], project_vectors=key)
+        with self.assertRaisesRegex(ScoringError, "reads project vectors"):
+            self._score(["r1"], vectors, persist=False)
+
+
+def test_importing_the_scoring_sweep_loads_no_model_runtime() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, django; django.setup(); import products.signals.backend.ranking.sweep; "
+            "print(sorted({'onnxruntime', 'xgboost'} & set(sys.modules)))",
+        ],
+        cwd=settings.BASE_DIR,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == "[]"
 
 
 class TestClassificationProperties(SimpleTestCase):

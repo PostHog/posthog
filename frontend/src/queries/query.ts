@@ -1,6 +1,8 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { ApiError, NetworkError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils/async'
+import { delay, retryWithBackoff } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -62,11 +64,93 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     })
 }
 
+function waitForPollingReady(signal?: AbortSignal): Promise<void> {
+    const isReady = (): boolean =>
+        (typeof navigator === 'undefined' || navigator.onLine !== false) &&
+        (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+
+    if (signal?.aborted) {
+        return Promise.reject(new DOMException('Aborted', 'AbortError'))
+    }
+    if (isReady()) {
+        return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+            window.removeEventListener('online', onReady)
+            document.removeEventListener('visibilitychange', onReady)
+            signal?.removeEventListener('abort', onAbort)
+        }
+        const onReady = (): void => {
+            if (isReady()) {
+                cleanup()
+                resolve()
+            }
+        }
+        const onAbort = (): void => {
+            cleanup()
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+
+        window.addEventListener('online', onReady)
+        document.addEventListener('visibilitychange', onReady)
+        signal?.addEventListener('abort', onAbort)
+    })
+}
+
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
+
+const TRANSIENT_SUBMIT_ATTEMPTS = 3
+const TRANSIENT_SUBMIT_DELAY_MS = 600
+const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
+
+type QuerySubmitTelemetry = {
+    client_query_id?: string
+    submit_attempts: number
+    retry_wait_ms: number
+    retry_status: number | null
+    retry_recovered: boolean
+}
+
+function capacityWaitMs(error: unknown): number | undefined {
+    if (!(error instanceof ApiError) || error.status !== 503) {
+        return undefined
+    }
+    const seconds = error.retryAfterSeconds
+    return seconds !== null ? seconds * 1000 : undefined
+}
+
+/**
+ * Treat eligible 502/503 responses as potentially transient and retry within a bounded budget.
+ * A 502 does not establish whether the original query started (RFC 9110, section 15.6.3).
+ * Do not resubmit forced refreshes after a 502, since they bypass completed result caches.
+ * Only retry a 503 with a numeric `Retry-After` that fits the total retry-start budget.
+ * Without a fitting numeric hint the error goes to the caller at once, because an early
+ * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
+ * running the query, so a resubmit can compute it a second time.
+ */
+function isRetryableSubmitFailure(error: unknown, refresh: RefreshType): boolean {
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    if (error.status === 502) {
+        return refresh !== 'force_blocking' && refresh !== 'force_async' && !error.headers?.has('Retry-After')
+    }
+    return capacityWaitMs(error) !== undefined
+}
+
+/**
+ * A missing query status can be recovered by submitting again. An unavailable managed
+ * warehouse also answers 404, but resubmitting cannot fix that.
+ */
+export function isExpiredQueryStatusError(e: any): boolean {
+    return e?.status === 404 && e?.code !== MANAGED_WAREHOUSE_UNAVAILABLE_CODE
+}
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -120,18 +204,17 @@ export async function pollForResults(
     methodOptions?: ApiMethodOptions,
     onPoll?: (response: QueryStatus) => void
 ): Promise<QueryStatus> {
-    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
-    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
-    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await waitForPageVisible(methodOptions?.signal)
+        await waitForPollingReady(methodOptions?.signal)
         const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
         activeElapsedMs += performance.now() - iterationStart
+        await waitForPollingReady(methodOptions?.signal)
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
@@ -142,6 +225,9 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            if (e instanceof NetworkError && e.reason === 'offline') {
+                continue
+            }
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
@@ -167,6 +253,7 @@ export async function pollForResults(
  */
 async function executeQuery<N extends DataNode>(
     queryNode: N,
+    submitTelemetry: QuerySubmitTelemetry,
     methodOptions?: ApiMethodOptions,
     refresh?: RefreshType,
     queryId?: string,
@@ -190,14 +277,51 @@ async function executeQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
+        // Share a client ID for tracing and cancellation; it does not guarantee a single execution.
+        const clientQueryId = queryId || uuid()
+        const submitStartedAt = performance.now()
+        let requestDurationMs = 0
+        let retryStatus: number | null = retriedAfterExpiry ? 404 : null
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
+        const response = await retryWithBackoff(
+            async () => {
+                submitTelemetry.client_query_id = clientQueryId
+                submitTelemetry.submit_attempts++
+                if (retryStatus !== null) {
+                    submitTelemetry.retry_status = retryStatus
+                }
+                const requestStartedAt = performance.now()
+                try {
+                    return await api.query(queryNode, {
+                        requestOptions: methodOptions,
+                        clientQueryId,
+                        refresh: refreshParam,
+                        filtersOverride,
+                        variablesOverride,
+                        limitContext,
+                    })
+                } catch (error) {
+                    retryStatus = error instanceof ApiError ? (error.status ?? null) : null
+                    throw error
+                } finally {
+                    requestDurationMs += performance.now() - requestStartedAt
+                }
+            },
+            {
+                maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
+                initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
+                backoffMultiplier: 2,
+                signal: methodOptions?.signal,
+                shouldRetry: (error) => isRetryableSubmitFailure(error, refreshParam),
+                getDelayMs: capacityWaitMs,
+                maxRetryTimeMs: TRANSIENT_SUBMIT_RETRY_BUDGET_MS,
+            }
+        ).finally(() => {
+            // Exclude request time so slow responses do not look like long retry waits.
+            submitTelemetry.retry_wait_ms += Math.max(
+                0,
+                Math.round(performance.now() - submitStartedAt - requestDurationMs)
+            )
         })
 
         if (response.detail) {
@@ -206,12 +330,19 @@ async function executeQuery<N extends DataNode>(
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
+            submitTelemetry.retry_recovered =
+                submitTelemetry.submit_attempts > 1 && (!('results' in response) || response.results != null)
             return response
         }
 
         if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
             // Cached results are already present alongside a background recompute, so use them
             // now rather than discarding them to poll a job that may take a while (or be stuck).
+            submitTelemetry.retry_recovered =
+                submitTelemetry.submit_attempts > 1 &&
+                'results' in response &&
+                response.results != null &&
+                !response.query_status.error
             return response
         }
 
@@ -229,9 +360,7 @@ async function executeQuery<N extends DataNode>(
     try {
         statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     } catch (e: any) {
-        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
-        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
-        // query the server has forgotten. That query most likely finished and cached its result.
+        // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
         // So run it again, once. force_async becomes async, to read the cached result instead of
         // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
@@ -240,16 +369,12 @@ async function executeQuery<N extends DataNode>(
         // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
         // view may only read, so it cannot submit at all; report the expired status rather than
         // the permission error the server would answer with.
-        if (
-            retriedAfterExpiry ||
-            e?.status !== 404 ||
-            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
-            isSharedView()
-        ) {
+        if (retriedAfterExpiry || !isExpiredQueryStatusError(e) || isSharedView()) {
             throw e
         }
         return await executeQuery(
             queryNode,
+            submitTelemetry,
             methodOptions,
             refresh === 'force_async' ? 'async' : refresh,
             queryId,
@@ -262,6 +387,8 @@ async function executeQuery<N extends DataNode>(
             true
         )
     }
+    submitTelemetry.retry_recovered =
+        submitTelemetry.submit_attempts > 1 && statusResponse.results != null && !statusResponse.error
     return statusResponse.results
 }
 
@@ -280,6 +407,13 @@ export async function performQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
+    const submitTelemetry: QuerySubmitTelemetry = {
+        client_query_id: queryId,
+        submit_attempts: 0,
+        retry_wait_ms: 0,
+        retry_status: null,
+        retry_recovered: false,
+    }
     const startTime = performance.now()
 
     try {
@@ -289,6 +423,7 @@ export async function performQuery<N extends DataNode>(
         } else {
             response = await executeQuery(
                 queryNode,
+                submitTelemetry,
                 methodOptions,
                 refresh,
                 queryId,
@@ -329,6 +464,7 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_ids: warehouseSources.map((s) => s.id),
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
+            ...submitTelemetry,
         })
         return response
     } catch (e) {
@@ -345,6 +481,8 @@ export async function performQuery<N extends DataNode>(
                 error_code: error?.code ?? null,
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
+                ...submitTelemetry,
+                retry_recovered: false,
             })
         }
         throw e

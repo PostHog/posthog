@@ -19,10 +19,11 @@ import { userLogic } from './userLogic'
 
 /** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
 const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
-    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/', '/agentic/authorize'],
     '/organization-deactivated': [
         '/organization-deactivated',
         '/signup/',
+        '/agentic/authorize',
         '/organization/billing',
         '/billing/authorization_status',
     ],
@@ -79,6 +80,7 @@ export interface organizationLogicValues {
     currentOrganizationBlockPage: string | null
     currentOrganizationId: string
     currentOrganizationLoading: boolean
+    currentOrganizationProjectCount: number
     isAdminOrOwner: boolean | null
     isCurrentOrganizationNew: boolean
     isCurrentOrganizationUnavailable: boolean
@@ -190,6 +192,7 @@ export interface organizationLogicMeta {
             currentOrganization: OrganizationType | null,
             currentOrganizationLoading: boolean
         ) => boolean
+        currentOrganizationProjectCount: (currentOrganization: OrganizationType | null) => number
         projectCreationForbiddenReason: (
             currentOrganization: OrganizationType | null,
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
@@ -317,6 +320,14 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization: OrganizationType | null, currentOrganizationLoading: boolean): boolean =>
                 !currentOrganization?.membership_level && !currentOrganizationLoading,
+        ],
+        // Mirrors PremiumMultiProjectPermission, which counts distinct non-demo projects, not environments
+        currentOrganizationProjectCount: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): number =>
+                new Set(
+                    (currentOrganization?.teams ?? []).filter((team) => !team.is_demo).map((team) => team.project_id)
+                ).size,
         ],
         projectCreationForbiddenReason: [
             (s) => [s.currentOrganization, s.hasAvailableFeature],

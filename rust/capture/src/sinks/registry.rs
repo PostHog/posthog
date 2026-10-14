@@ -1,13 +1,10 @@
 //! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
-//! the named producer that carries it. Adding an output is a one-place change:
-//! the `target_for` and `is_required` matches are compiler-forced exhaustive,
-//! a test pins `REGISTERED` to the required set, and
-//! [`OutputTable::check_complete`] catches an unwired output at boot instead
-//! of at first produce.
+//! the named producer that carries it.
 
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -46,6 +43,29 @@ impl Destination {
         Destination::ErrorTrackingMain,
         Destination::AiMain,
     ];
+
+    pub(crate) fn for_lane(lane: PipelineLane) -> Destination {
+        match lane {
+            PipelineLane::Analytics(AnalyticsLane::Main) => Destination::AnalyticsMain,
+            PipelineLane::Analytics(AnalyticsLane::Overflow) => Destination::AnalyticsOverflow,
+            PipelineLane::Analytics(AnalyticsLane::Historical) => Destination::AnalyticsHistorical,
+            PipelineLane::Ai(AiLane::Main) => Destination::AiMain,
+            PipelineLane::Ai(AiLane::Overflow) => Destination::AiOverflow,
+            PipelineLane::Warnings(BasicLane::Main) => Destination::ClientWarningsMain,
+            PipelineLane::Heatmaps(BasicLane::Main) => Destination::HeatmapsMain,
+            PipelineLane::ErrorTracking(BasicLane::Main) => Destination::ErrorTrackingMain,
+            PipelineLane::Replay(SessionReplayLane::Main) => Destination::SessionReplayMain,
+            PipelineLane::Replay(SessionReplayLane::Overflow) => Destination::SessionReplayOverflow,
+        }
+    }
+
+    pub(crate) fn for_address(address: Address) -> Destination {
+        match address {
+            Address::Lane(lane) => Self::for_lane(lane),
+            Address::Dlq => Destination::Dlq,
+            Address::Custom(topic) => Destination::Custom(topic),
+        }
+    }
 
     /// Whether this output participates in the boot completeness check.
     /// Deliberately exhaustive: a new variant cannot compile without
@@ -132,8 +152,8 @@ impl<R> OutputTable<R> {
             Destination::AiMain => Some(&self.ai_main),
             Destination::AiOverflow => match &self.ai_overflow {
                 Some(target) if !target.topic.is_empty() => Some(target),
-                // Unreachable: routing only selects this output when the
-                // valve is armed, i.e. exactly when the topic is set.
+                // Callers select this output only when the valve is armed,
+                // i.e. exactly when the topic is set.
                 _ => Some(&self.ai_main),
             },
             Destination::Custom(_) => None,
@@ -158,7 +178,7 @@ impl<R> OutputTable<R> {
         }
     }
 
-    pub(crate) fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
+    pub fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
         let custom_producer = f(&self.custom_producer);
         let mut target = |t: &OutputTarget<R>| OutputTarget {
             topic: Arc::clone(&t.topic),
@@ -344,11 +364,7 @@ mod tests {
         assert!(test_outputs().check_complete().is_ok());
     }
 
-    /// `REGISTERED` is a hand-maintained array while `is_required` is
-    /// compiler-exhaustive; this pins them together. A new variant cannot
-    /// compile without an `is_required` arm, and putting it on the wrong
-    /// side of `REGISTERED` fails here. The all-variants list below is the
-    /// one hand-maintained enumeration left — grow it with the enum.
+    /// The all-variants list below is hand-maintained: grow it with the enum.
     #[test]
     fn registered_is_exactly_the_required_outputs() {
         let all = [

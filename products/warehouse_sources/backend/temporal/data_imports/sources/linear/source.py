@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.models.integration import OauthIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^LINEAR_API_KEY$",
+            "^LINEAR_WEBHOOK_SECRET$",
+            "^LINEAR_CLIENT_ID$",
+            "^LINEAR_CLIENT_SECRET$",
+            "^LINEAR_ACCESS_KEY$",
+            "^LINEAR_WEBHOOK_SIGNING_SECRET$",
+        ),
+        npm=("@linear/sdk", "@linear/import", "@linear/cli"),
+    )
+
     api_docs_url = "https://developers.linear.app/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

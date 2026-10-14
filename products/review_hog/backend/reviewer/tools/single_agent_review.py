@@ -1,11 +1,11 @@
 """The single-agent Flash review: a main Codex session reviews the whole PR, and lens sessions add breadth.
 
-The main session's prompt has three parts. `core.md` is the DevEx-owned review rubric and goes in as
-the system prompt. `prompt.jinja` carries the PR (title, description, numbered diff), the findings of
-earlier turns, and the finding format. `schema.json` is generated from `SingleAgentReview`. A lens
-session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only its part of the PR, and
-gets `lens_priority.md` after the finding format. Every file lives in `prompts/single_agent_review/`,
-so a prompt iteration edits files and no code.
+The main session's prompt is one `prompt.jinja` render. It starts with the PR (title, description,
+numbered diff) and the findings of earlier turns, then `PROMPT_CACHE_MARKER`, then `core.md`, the
+DevEx-owned review rubric, then the finding format. `schema.json` is generated from
+`SingleAgentReview`. A lens session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only
+its part of the PR, and gets `lens_priority.md` after the finding format. Every file lives in
+`prompts/single_agent_review/`, so a prompt iteration edits files and no code.
 """
 
 import re
@@ -15,21 +15,26 @@ import logging
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
+    FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
+    REPORTED_LEVELS,
     SINGLE_AGENT_SOURCE,
+    STORED_PRIORITY_BY_REPORTED,
     flash_max_findings,
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
     DroppedIssue,
@@ -40,7 +45,11 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
-from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    PROMPT_CACHE_MARKER,
+    load_template_and_schema,
+    without_cache_marker,
+)
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
 logger = logging.getLogger(__name__)
@@ -56,13 +65,6 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # A full SHA-1 or SHA-256 commit id. The prompt puts the merge base into a shell command the session
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-
-_STORED_PRIORITY = {
-    "P0": IssuePriority.MUST_FIX,
-    "P1": IssuePriority.MUST_FIX,
-    "P2": IssuePriority.SHOULD_FIX,
-    "P3": IssuePriority.CONSIDER,
-}
 
 
 def load_prompt_file(path: Path) -> str:
@@ -80,7 +82,7 @@ def load_core_prompt() -> str:
 
 
 class SingleAgentPrompt:
-    """The task prompt of one single-agent session: the PR or its part, earlier findings, format.
+    """The prompt of one single-agent session: the PR or its part, earlier findings, guidelines, format.
 
     `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
     to the reviewable files, and then to none: the file list marks each file it leaves out, and the
@@ -94,11 +96,13 @@ class SingleAgentPrompt:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         prior_findings: list[ReviewIssueFinding],
+        guidelines: str,
         merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
     ) -> None:
         self.repository = repository
+        self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
         self.pr_files = pr_files
@@ -180,18 +184,21 @@ class SingleAgentPrompt:
         not_shown = {f.filename for f in in_scope} - {f.filename for f in shown}
         # A part that covers the whole PR needs no scope section, because no other session reviews its files.
         scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
+        covered = self._covered_findings()
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
-            PR_TITLE=self.pr_metadata.title,
-            PR_DESCRIPTION=self.pr_metadata.body.strip() or "(no description provided)",
-            FILE_LIST=self._file_list(not_shown),
-            SCOPE=", ".join(f"`{path}`" for path in scope) if scope else None,
-            DIFF=self._diff(shown),
+            PR_TITLE=without_cache_marker(self.pr_metadata.title),
+            PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
+            FILE_LIST=without_cache_marker(self._file_list(not_shown)),
+            SCOPE=without_cache_marker(", ".join(f"`{path}`" for path in scope)) if scope else None,
+            DIFF=without_cache_marker(self._diff(shown)),
             DIFF_NOT_SHOWN=bool(not_shown),
-            COVERED_FINDINGS=self._covered_findings(),
+            COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
+            CACHE_MARKER=PROMPT_CACHE_MARKER,
+            GUIDELINES=self.guidelines,
             OUTPUT_SCHEMA=output_schema,
             LENS_PRIORITY=load_prompt_file(LENS_PRIORITY_FILE) if self.for_lens else None,
         )
@@ -220,7 +227,7 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
                 suggestion="",
                 # A reversed range does not say which lines the suggestion replaces, so it would post on the wrong ones.
                 suggestion_code=None if reversed_range else finding.suggestion_code or None,
-                priority=_STORED_PRIORITY[finding.priority],
+                priority=STORED_PRIORITY_BY_REPORTED[finding.priority],
                 reported_priority=finding.priority,
                 is_directly_related_to_changes=True,
                 source_perspective=source,
@@ -240,23 +247,26 @@ class FlashSelection:
     lens_part_count: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool = False
-
-
-# Most severe first. Storage folds P0 and P1 into `must_fix`, so the reported level ranks them apart.
-_REPORTED_LEVELS: tuple[ReportedPriority, ...] = ("P0", "P1", "P2", "P3")
+    # How many more findings the pull request could post before this turn, None outside the finding budget.
+    budget_left: int | None = None
 
 
 def _reported_level(issue: Issue) -> int:
     """The reviewer's P level as a number that grows with severity, 0 for a finding without one."""
     reported = issue.reported_priority
-    return len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
+    return len(REPORTED_LEVELS) - REPORTED_LEVELS.index(reported) if reported is not None else 0
+
+
+def _level_priority(level: int) -> ReportedPriority | None:
+    """The P level that `_reported_level` encodes as `level`, None for 0."""
+    return REPORTED_LEVELS[len(REPORTED_LEVELS) - level] if level else None
 
 
 def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str, int] | None = None) -> list[Issue]:
     """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order.
 
     `group_levels` gives a dedup survivor the highest P level of its duplicate group, so a survivor that
-    absorbed a P0 ranks as a P0 although its own `reported_priority` stays what its session reported.
+    absorbed a P0 ranks as a P0 even when its `reported_priority` keeps its session's level.
     """
     levels = group_levels or {}
     return sorted(
@@ -267,7 +277,13 @@ def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str
 
 
 def compose_flash_findings(
-    main: list[Issue], lens: list[Issue], *, lens_part_count: int, group_levels: Mapping[str, int] | None = None
+    main: list[Issue],
+    lens: list[Issue],
+    *,
+    lens_part_count: int,
+    group_levels: Mapping[str, int] | None = None,
+    budget_left: int | None = None,
+    first_review: bool = False,
 ) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
@@ -275,24 +291,33 @@ def compose_flash_findings(
     `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix
     findings leave under the cap. The rest drop with their rank.
 
+    `budget_left` is how many more findings the pull request may post (`finding_budget.py`), None when no
+    budget applies. Must-fix findings count toward it but always post. A finding that fits under the cap
+    but not under the budget drops as `budget`, the rest as `cap`. A first review gets
+    `FLASH_FIRST_REVIEW_CAP_MULTIPLIER` times the cap.
+
     The caller persists only the kept findings. A persisted finding that never posts counts as already
     raised, so every later turn would keep it off the PR too.
     """
-    cap = flash_max_findings(lens_part_count)
+    cap = flash_max_findings(lens_part_count) * (FLASH_FIRST_REVIEW_CAP_MULTIPLIER if first_review else 1)
     ranked = _flash_order(main, lens, group_levels)
     must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
     must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
-    kept_ids = {issue.id for issue in [*must_fix, *others[: max(cap - len(must_fix), 0)]]}
+    under_cap = others[: max(cap - len(must_fix), 0)]
+    kept = under_cap if budget_left is None else under_cap[: max(budget_left - len(must_fix), 0)]
+    kept_ids = {issue.id for issue in [*must_fix, *kept]}
+    over_budget_ids = {issue.id for issue in under_cap} - kept_ids
     return FlashSelection(
         kept=[issue for issue in ranked if issue.id in kept_ids],
         dropped=[
-            DroppedIssue(issue=issue, disposition="cap", rank=rank)
+            DroppedIssue(issue=issue, disposition="budget" if issue.id in over_budget_ids else "cap", rank=rank)
             for rank, issue in enumerate(ranked, start=1)
             if issue.id not in kept_ids
         ],
         cap=cap,
         lens_part_count=lens_part_count,
+        budget_left=budget_left,
     )
 
 
@@ -319,6 +344,7 @@ class FlashTurnStats:
     kept: int
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool
+    budget_left: int | None = None
 
 
 def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
@@ -334,7 +360,7 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         per_session[session] = per_session.get(session, 0) + 1
         if issue.reported_priority in ("P0", "P1"):
             must_fix[session] = must_fix.get(session, 0) + 1
-    cut = sum(1 for drop in selection.dropped if drop.disposition == "cap")
+    cut = sum(1 for drop in selection.dropped if drop.disposition in ("cap", "budget"))
     return FlashTurnStats(
         cap=selection.cap,
         lens_part_count=selection.lens_part_count,
@@ -345,6 +371,7 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
+        budget_left=selection.budget_left,
     )
 
 
@@ -353,9 +380,8 @@ def _dropped_duplicate(
     *,
     dedup_fallback: bool,
     turn_issues: dict[str, Issue],
-    prior_keys: set[str],
 ) -> DroppedIssue:
-    """Record a dedup drop with the survivor it repeats: a finding of this turn, an earlier turn's finding, or a comment."""
+    """Record a dedup drop with the survivor it repeats: a finding of this turn or an earlier turn's finding."""
     named = duplicate.duplicate_of
     target = turn_issues.get(named) if named is not None else None
     disposition: DropDisposition
@@ -367,11 +393,8 @@ def _dropped_duplicate(
         )
         disposition = "dedup_anchor" if repeats_anchor else "dedup_sibling"
         duplicate_of = target
-    elif named in prior_keys:
-        disposition = "dedup_prior"
     else:
-        disposition = "dedup_comment"
-        duplicate_of = f"comment:{named}"
+        disposition = "dedup_prior"
     return DroppedIssue(
         issue=duplicate.issue, disposition=disposition, duplicate_of=duplicate_of, dedup_fallback=dedup_fallback
     )
@@ -457,8 +480,10 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     Dedup keeps the most complete statement of a problem, not the most severe one, so a lens P1 that
     repeats a main P3 would otherwise post as the P3, or not at all once the cap cuts it.
 
-    Returns the highest P level of each survivor's duplicate group, for `_flash_order`. The survivor's
-    `reported_priority` keeps its own session's level, which the turn stats count.
+    Returns the highest P level of each survivor's duplicate group, for `_flash_order`. A survivor whose
+    duplicate reported a more severe level of the same stored priority, such as a P0 merged into a P1,
+    takes that level, so its comment leads with it; the turn stats count both levels as must-fix.
+    Across stored priorities the survivor keeps its session's level, which the turn stats count.
     """
     kept_by_id = {issue.id: issue for issue in kept}
     group_levels: dict[str, int] = {}
@@ -477,7 +502,123 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
                 duplicate.issue.id,
             )
             survivor.priority = duplicate.issue.priority
+    for survivor_id, level in group_levels.items():
+        survivor = kept_by_id[survivor_id]
+        best = _level_priority(level)
+        own = survivor.reported_priority
+        if (
+            best is not None
+            and own is not None
+            and level > _reported_level(survivor)
+            and STORED_PRIORITY_BY_REPORTED[best] == STORED_PRIORITY_BY_REPORTED[own]
+        ):
+            survivor.reported_priority = best
     return group_levels
+
+
+def _patch_missing(pr_file: PRFile) -> bool:
+    return not pr_file.changes and bool(pr_file.additions or pr_file.deletions)
+
+
+@frozen
+class _DiffLine:
+    kind: str
+    code: str
+    # The head line it sits on. A removed line has none, so it takes the head line where it used to be.
+    head_line: int
+
+
+def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
+    sequence: list[_DiffLine] = []
+    removal_point = 1
+    for change in pr_file.changes:
+        code_lines = change.code.split("\n")
+        if change.type == "deletion":
+            sequence.extend(_DiffLine(kind=change.type, code=code, head_line=removal_point) for code in code_lines)
+            continue
+        start = change.new_start_line
+        if start is None:
+            continue
+        sequence.extend(
+            _DiffLine(kind=change.type, code=code, head_line=start + offset) for offset, code in enumerate(code_lines)
+        )
+        removal_point = start + len(code_lines)
+    return sequence
+
+
+def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
+    """The head lines of the file's changes that the earlier diff did not have.
+
+    The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
+    only moved stays old, and a repeated line matches the occurrence in the same place.
+    """
+    current = _diff_sequence(pr_file)
+    before = _diff_sequence(earlier) if earlier is not None else []
+    # The default junk heuristic keeps a repetitive patch from making the match quadratic. It can only
+    # leave lines unmatched, which marks them as changed.
+    matcher = SequenceMatcher(
+        None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
+    )
+    new_lines: set[int] = set()
+    for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        # Context lines count too, so a statement moved into new surroundings is changed code.
+        new_lines.update(line.head_line for line in current[current_start:current_end])
+        # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
+        if any(line.kind != "context" for line in before[before_start:before_end]):
+            new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
+    return new_lines
+
+
+@frozen
+class ChangedSinceReview:
+    """The lines of the head that changed since an earlier reviewed head, per file."""
+
+    lines: dict[str, set[int]]
+    files_without_patch: set[str]
+
+    @classmethod
+    def between(cls, earlier_files: list[PRFile], current_files: list[PRFile]) -> "ChangedSinceReview":
+        earlier_by_name = {pr_file.filename: pr_file for pr_file in earlier_files}
+        lines: dict[str, set[int]] = {}
+        files_without_patch: set[str] = set()
+        for pr_file in current_files:
+            earlier = earlier_by_name.get(pr_file.filename)
+            if _patch_missing(pr_file) or (earlier is not None and _patch_missing(earlier)):
+                files_without_patch.add(pr_file.filename)
+            else:
+                lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
+        return cls(lines=lines, files_without_patch=files_without_patch)
+
+    def touches(self, issue: Issue) -> bool:
+        """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""
+        if not issue.lines or issue.file in self.files_without_patch:
+            return True
+        changed = self.lines.get(issue.file, set())
+        margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+        # The range comes from the model, so it is compared, never expanded line by line.
+        return any(
+            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
+            for line_range in issue.lines
+            for line in changed
+        )
+
+
+def _old_code_findings(
+    issues: list[Issue], changed_since: ChangedSinceReview | None, *, changed_code_only: bool
+) -> list[Issue]:
+    """A follow-up turn's findings on code that did not change since the last reviewed head.
+
+    With `changed_code_only` the turn only comments on what the push changed, so a fix does not draw a new
+    opinion on code earlier turns already covered. It still posts a must-fix anywhere. Otherwise only P3
+    findings drop there: a P2 still goes through dedup, because the earlier review may have missed it, and
+    dedup against earlier turns' findings already removes one that a turn posted before.
+    """
+    if changed_since is None:
+        return []
+    dropped = {IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER} if changed_code_only else {IssuePriority.CONSIDER}
+    return [issue for issue in issues if issue.priority in dropped and not changed_since.touches(issue)]
 
 
 async def dedupe_flash_findings(
@@ -486,32 +627,41 @@ async def dedupe_flash_findings(
     user_id: int,
     issues: list[Issue],
     pr_metadata: PRMetadata,
-    pr_comments: list[PRComment],
     prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
     branch: str,
     repository: str,
     lens_part_count: int,
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
+    changed_since: ChangedSinceReview | None = None,
+    budget_left: int | None = None,
+    changed_code_only: bool = False,
+    first_review: bool = False,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
-    Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
-    The lens findings dedup against those too and against the main findings as anchors, so a lens
+    Two dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
+    finds whatever other comments on the PR say. The lens findings dedup against those too and against the
+    main findings as anchors, so a lens
     finding can lose to a main finding but never the other way around. A removal holds only when what
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
+    On a follow-up turn, `changed_since` drops findings on unchanged code before dedup: every finding below
+    must-fix with `changed_code_only`, otherwise only P3 findings.
     """
-    main = [issue for issue in issues if issue.source_perspective == SINGLE_AGENT_SOURCE]
-    lens = [issue for issue in issues if issue.source_perspective != SINGLE_AGENT_SOURCE]
+    old_code = _old_code_findings(issues, changed_since, changed_code_only=changed_code_only)
+    old_code_ids = {issue.id for issue in old_code}
+    reviewed = [issue for issue in issues if issue.id not in old_code_ids]
+    main = [issue for issue in reviewed if issue.source_perspective == SINGLE_AGENT_SOURCE]
+    lens = [issue for issue in reviewed if issue.source_perspective != SINGLE_AGENT_SOURCE]
     main_outcome, lens_outcome = await asyncio.gather(
         deduplicate_issues(
             team_id=team_id,
             user_id=user_id,
             issues=main,
             pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
+            pr_comments=[],
             prior_findings=prior_findings,
             branch=branch,
             repository=repository,
@@ -524,7 +674,7 @@ async def dedupe_flash_findings(
             user_id=user_id,
             issues=lens,
             pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
+            pr_comments=[],
             prior_findings=prior_findings,
             branch=branch,
             repository=repository,
@@ -535,28 +685,34 @@ async def dedupe_flash_findings(
         ),
     )
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
-    comment_ids = {str(comment.id) for comment in pr_comments if comment.id is not None}
-    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys | comment_ids)
+    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys)
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
     group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
-    composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels)
+    composed = compose_flash_findings(
+        kept_main,
+        kept_lens,
+        lens_part_count=lens_part_count,
+        group_levels=group_levels,
+        budget_left=budget_left,
+        first_review=first_review,
+    )
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
-        _dropped_duplicate(
-            removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues, prior_keys=prior_keys
-        )
+        _dropped_duplicate(removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues)
         for removal in held
     ]
     logger.info(
-        "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
+        "Flash keeps %s of %s main and %s lens finding(s) left after dedup, after %s on unchanged code",
         len(composed.kept),
         len(kept_main),
         len(kept_lens),
+        len(old_code),
     )
+    old_code_drops = [DroppedIssue(issue=issue, disposition="old_code") for issue in old_code]
     return replace(
         composed,
-        dropped=[*dedup_drops, *composed.dropped],
+        dropped=[*old_code_drops, *dedup_drops, *composed.dropped],
         dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
     )

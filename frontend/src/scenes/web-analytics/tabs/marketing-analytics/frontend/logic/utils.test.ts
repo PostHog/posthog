@@ -1,4 +1,5 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     ConversionGoalFilter,
@@ -10,10 +11,18 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, PropertyMathType } from '~/types'
+import {
+    AccessControlLevel,
+    BaseMathType,
+    PropertyMathType,
+    ExternalDataSource,
+    ExternalDataSchemaStatus,
+    ExternalDataJobStatus,
+} from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
+    conversionGoalToSeries,
     createMarketingTile,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
@@ -21,8 +30,11 @@ import {
     goalSumsAProperty,
     getSortedColumnsByArray,
     orderArrayByPreference,
+    nativeSourceConnectionStatus,
+    NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     rowMatchesSearch,
     sanitizeIntegrationFilter,
+    seriesToConversionGoal,
     validColumnsForTiles,
 } from './utils'
 
@@ -686,6 +698,43 @@ describe('marketing analytics utils', () => {
         })
     })
 
+    it.each([ExternalDataSchemaStatus.Failed, ExternalDataSchemaStatus.Paused, ExternalDataSchemaStatus.Cancelled])(
+        'reports a required %s schema as needing attention before the first sync',
+        (status) => {
+            const source: ExternalDataSource = {
+                id: 'source',
+                source_id: 'source',
+                connection_id: 'connection',
+                prefix: null,
+                description: null,
+                created_via: 'web',
+                latest_error: null,
+                sync_frequency: '24hour',
+                job_inputs: {},
+                revenue_analytics_config: { enabled: false, include_invoiceless_charges: false },
+                user_access_level: AccessControlLevel.Admin,
+                source_type: 'GoogleAds',
+                status: ExternalDataJobStatus.Completed,
+                schemas: NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.GoogleAds.map((name) => ({
+                    id: name,
+                    name,
+                    label: null,
+                    should_sync: true,
+                    status,
+                    incremental: false,
+                    sync_type: 'full_refresh',
+                    sync_time_of_day: null,
+                    latest_error: null,
+                    incremental_field: null,
+                    incremental_field_type: null,
+                    sync_frequency: '24hour',
+                    primary_key_columns: null,
+                })),
+            }
+            expect(nativeSourceConnectionStatus(source).status).toBe('Needs attention')
+        }
+    )
+
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {
             const stored = { integrationSourceIds: ['abc'], removedOption: true }
@@ -707,6 +756,106 @@ describe('marketing analytics utils', () => {
             ['non-string entries', { integrationSourceIds: ['a', 3, null] }, ['a']],
         ])('%s', (_name, stored, expected) => {
             expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: expected })
+        })
+    })
+
+    describe('conversion goal series', () => {
+        const goalFields = {
+            conversion_goal_id: 'goal-1',
+            conversion_goal_name: 'Purchases',
+            counts_as_customer: true,
+        }
+        const schemaMap = {
+            utm_campaign_name: 'utm_campaign',
+            utm_source_name: 'utm_source',
+            timestamp_field: 'timestamp',
+            distinct_id_field: 'distinct_id',
+        }
+        const warehouseGoal: ConversionGoalFilter = {
+            ...goalFields,
+            kind: NodeKind.DataWarehouseNode,
+            id: 'charges',
+            table_name: 'charges',
+            name: 'charges',
+            timestamp_field: 'created',
+            id_field: 'id',
+            distinct_id_field: 'email',
+            dw_source_type: 'Stripe',
+            math: BaseMathType.TotalCount,
+            schema_map: { ...schemaMap, timestamp_field: 'created', distinct_id_field: 'email' },
+        }
+
+        it.each([
+            {
+                name: 'moves the picked UTM columns from the table into the schema map',
+                goal: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    schema_map: schemaMap,
+                } as ConversionGoalFilter,
+                series: [
+                    {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: 'invoices',
+                        table_name: 'invoices',
+                        name: 'invoices',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                    },
+                ],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'invoices',
+                    table_name: 'invoices',
+                    name: 'invoices',
+                    timestamp_field: 'paid_at',
+                    id_field: 'customer',
+                    distinct_id_field: 'customer',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: {
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                    },
+                },
+            },
+            {
+                name: 'keeps no table column when a table goal becomes an event',
+                goal: warehouseGoal,
+                series: [{ kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' }],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: warehouseGoal.schema_map,
+                },
+            },
+        ])('$name', ({ goal, series, expected }) => {
+            expect(seriesToConversionGoal(goal, series as SeriesNode[])).toStrictEqual(expected)
+        })
+
+        it('reads a goal stored with the legacy warehouse type as a table', () => {
+            const legacyGoal = {
+                ...goalFields,
+                kind: NodeKind.EventsNode,
+                type: 'data_warehouse',
+                table_name: 'charges',
+                timestamp_field: 'created',
+                schema_map: schemaMap,
+            } as unknown as ConversionGoalFilter
+
+            expect(conversionGoalToSeries(legacyGoal)).toStrictEqual([
+                { kind: NodeKind.DataWarehouseNode, id: 'charges', table_name: 'charges', timestamp_field: 'created' },
+            ])
         })
     })
 })

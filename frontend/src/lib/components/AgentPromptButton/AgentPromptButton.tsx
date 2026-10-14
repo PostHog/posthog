@@ -59,6 +59,14 @@ export type AgentPromptDestination =
 /** Quill button sizes, minus the icon-only variants (the dropdown trigger derives those automatically). */
 type AgentPromptButtonSize = Exclude<NonNullable<QuillButtonProps['size']>, 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg'>
 
+const ICON_SIZE: Record<AgentPromptButtonSize, QuillButtonProps['size']> = {
+    default: 'icon',
+    xs: 'icon-xs',
+    sm: 'icon-sm',
+    lg: 'icon-lg',
+    row: 'icon',
+}
+
 export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /** Agent always shown on the main button, in place of the one the user last picked. */
@@ -359,7 +367,7 @@ export function AgentPromptButton({
                 <DropdownMenuTrigger asChild>
                     <QuillButton
                         variant={variant}
-                        size={size === 'default' ? 'icon' : `icon-${size}`}
+                        size={ICON_SIZE[size]}
                         className="border-0"
                         aria-label={actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent'}
                     >

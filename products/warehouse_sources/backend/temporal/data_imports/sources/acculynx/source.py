@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]):
+    codebase_detection = detect(env=("^ACCULYNX_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -103,8 +106,16 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            should_sync_default={"calendar_appointments": False},
-            descriptions={"calendar_appointments": "Appointments within the configured date range."},
+            should_sync_default={
+                "calendar_appointments": False,
+                "financial_amendments": False,
+                "estimate_section_items": False,
+            },
+            descriptions={
+                "calendar_appointments": "Appointments within the configured date range.",
+                "financial_amendments": "Off by default because it makes extra requests for every job.",
+                "estimate_section_items": "Off by default because it makes extra requests for every estimate.",
+            },
         )
 
     def validate_credentials(

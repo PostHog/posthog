@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,15 +39,56 @@ CAPTION = """Connect your Adyen account to sync payments data into the PostHog D
 
 Create an API credential in your Adyen Customer Area under **Developers > API credentials**, then paste its API key below. Which tables you can sync depends on what that credential can reach:
 
-- **Transactions, transfers, account holders and balance accounts** need an Adyen for Platforms or Adyen Issuing integration. Add your balance platform ID too.
+- **Transactions, transfers, account holders, balance accounts and payment instruments** need an Adyen for Platforms or Adyen Issuing integration. Add your balance platform ID too.
+- **Legal entities** also need the balance platform ID, plus a Legal Entity Management API role on the credential.
 - **Settlement detail reports** need a merchant account and the **Merchant Report Download** role. Adyen only creates these files once you turn on the settlement details report in your Customer Area.
-- **Companies and merchant accounts** come from the Management API and need an account read role.
+- **Companies, merchant accounts and stores** come from the Management API and need an account read role.
 
 Pick the environment that matches where you created the API key — a test key won't work against live."""
 
 
 @SourceRegistry.register
 class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
+    codebase_detection = detect(
+        env=("^ADYEN_",),
+        script_hosts=(
+            "checkoutshopper-live.cdn.adyen.com",
+            "checkoutshopper-test.cdn.adyen.com",
+            "checkoutshopper-live-us.cdn.adyen.com",
+            "checkoutshopper-live-au.cdn.adyen.com",
+            "checkoutshopper-live-nea.cdn.adyen.com",
+            "checkoutshopper-live-in.cdn.adyen.com",
+            "checkoutshopper-live.adyen.com",
+            "checkoutshopper-test.adyen.com",
+        ),
+        npm=("@adyen/api-library", "@adyen/adyen-web", "@adyen/react-native"),
+        pypi=("adyen",),
+        cocoapods=("Adyen", "Adyen3DS2", "Adyen3DS2_Swift", "AdyenAuthentication", "AdyenNetworking"),
+        composer=(
+            "adyen/php-api-library",
+            "adyen/adyen-magento2-expresscheckout",
+            "adyen/adyen-shopware5",
+            "adyen/adyen-shopware6",
+        ),
+        go=("github.com/adyen/adyen-go-api-library",),
+        maven=("com.adyen:adyen-java-api-library", "com.adyen.checkout:drop-in"),
+        pub=("adyen_checkout",),
+        rubygems=("adyen-ruby-api-library",),
+        swiftpm=(
+            "github.com/adyen/adyen-ios",
+            "github.com/adyen/adyen-3ds2-ios",
+            "github.com/adyen/adyen-3ds2-ios-swift",
+            "github.com/adyen/adyen-apple-pay-provisioning-ios",
+            "github.com/adyen/adyen-authentication-ios",
+            "github.com/adyen/adyen-card-reveal-ios",
+            "github.com/adyen/adyen-networking-ios",
+            "github.com/adyen/adyen-pos-mobile-ios",
+            "github.com/adyen/adyen-swift-public-api-diff",
+            "github.com/adyen/adyen-terminal-api-ios",
+            "github.com/adyen/adyen-wechatpay-ios",
+        ),
+    )
+
     # Adyen versions each of its APIs separately (Transfers v4, Configuration v2, Management v3),
     # so there is no single version token to pin for the source as a whole.
     api_docs_url = "https://docs.adyen.com/api-explorer/"
@@ -91,7 +133,8 @@ class AdyenSource(ResumableSource[AdyenSourceConfig, AdyenResumeConfig]):
         has_platform = bool((config.balance_platform or "").strip())
         has_merchant = bool((config.merchant_account or "").strip())
         should_sync_default = {
-            name: (has_platform or not endpoint.requires_balance_platform)
+            name: endpoint.sync_by_default
+            and (has_platform or not endpoint.requires_balance_platform)
             and (has_merchant or not endpoint.requires_merchant_account)
             for name, endpoint in ADYEN_ENDPOINTS.items()
         }

@@ -7,6 +7,8 @@ import {
     MessagingNavTabKey,
     MessagingSetupTabKey,
 } from './messagingTabs'
+import { MessagingSetupGuide } from './setupGuide/MessagingSetupGuide'
+import { MessagingSetupMenuStatus } from './setupGuide/MessagingSetupMenuStatus'
 
 export interface MessagingSetupProps {
     tab: MessagingSetupTabKey
@@ -17,6 +19,7 @@ export interface MessagingSetupProps {
 export function MessagingSetup({ tab, linkFor }: MessagingSetupProps): JSX.Element {
     return (
         <>
+            <MessagingSetupGuide linkFor={linkFor} />
             <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row">
                 <nav
                     className="flex flex-row flex-wrap gap-1 shrink-0 @min-[48rem]/main-content:flex-col @min-[48rem]/main-content:w-52"
@@ -28,6 +31,7 @@ export function MessagingSetup({ tab, linkFor }: MessagingSetupProps): JSX.Eleme
                             size="small"
                             to={linkFor(key)}
                             active={key === tab}
+                            sideIcon={<MessagingSetupMenuStatus tab={key} />}
                             data-attr={`messaging-setup-menu-${key}`}
                         >
                             {MESSAGING_TAB_LABELS[key]}

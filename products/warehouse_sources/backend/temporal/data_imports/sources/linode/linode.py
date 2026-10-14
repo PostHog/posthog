@@ -1,26 +1,34 @@
 import json
 import dataclasses
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.settings import LINODE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.linode.settings import (
+    LINODE_ENDPOINTS,
+    PAGE_SIZE,
+    LinodeEndpointConfig,
+)
 
 LINODE_BASE_URL = "https://api.linode.com/v4"
-
-# Max allowed page_size is 500 (min 25). Using the max minimizes request count against the 200 req/min
-# paginated-GET rate limit.
-PAGE_SIZE = 500
 
 
 @dataclasses.dataclass
@@ -100,25 +108,26 @@ def linode_source(
         cursor_field = incremental_field or config.incremental_field
         headers["X-Filter"] = json.dumps(_build_x_filter(cursor_field, db_incremental_field_last_value))
 
+    client_config: ClientConfig = {
+        "base_url": LINODE_BASE_URL,
+        "headers": headers,
+        "auth": {"type": "bearer", "token": api_token},
+        # Linode returns {data, page, pages, results}; `pages` is the total page count, so the
+        # paginator stops after the last page rather than paying an extra empty-page request.
+        "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="pages"),
+    }
+
+    if config.fanout is not None:
+        return _fanout_source(config, endpoint, client_config, team_id, job_id)
+
+    endpoint_config: Endpoint = (
+        {"path": config.path, "data_selector": "$", "paginator": "single_page"}
+        if config.single_object
+        else {"path": config.path, "params": {"page_size": PAGE_SIZE}, "data_selector": "data"}
+    )
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": LINODE_BASE_URL,
-            "headers": headers,
-            "auth": {"type": "bearer", "token": api_token},
-            # Linode returns {data, page, pages, results}; `pages` is the total page count, so the
-            # paginator stops after the last page rather than paying an extra empty-page request.
-            "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="pages"),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"page_size": PAGE_SIZE},
-                    "data_selector": "data",
-                },
-            }
-        ],
+        "client": client_config,
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -143,9 +152,44 @@ def linode_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _make_source_response(config, endpoint, lambda: resource)
+
+
+def _fanout_source(
+    config: LinodeEndpointConfig,
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+    # No resume state: the parent invoice list is small (one invoice per billing period), so a
+    # restarted run re-walks it cheaply.
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=LINODE_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+            page_size_param="page_size",
+        ),
+    )
+    return _make_source_response(config, endpoint, lambda: dependent_resource)
+
+
+def _make_source_response(
+    config: LinodeEndpointConfig, endpoint: str, items: Callable[[], Iterable[Any]]
+) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         # The X-Filter header orders results ascending on the cursor field, so rows arrive oldest-first
         # and the watermark advances safely after each batch.

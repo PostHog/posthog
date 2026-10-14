@@ -16,7 +16,10 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, Generation, LLMResult
 from parameterized import parameterized
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.llm.gateway_client import AIGatewayConfig
+from posthog.models import Organization, Team, User
 from posthog.settings import BASE_DIR
 from posthog.temporal.ai.chat_agent import CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT
 
@@ -30,6 +33,43 @@ from ee.hogai.llm import (
     MaxChatOpenAI,
     is_ai_gateway_served,
 )
+
+
+@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
+class TestMaxChatContextVariables(SimpleTestCase):
+    def test_initialization_and_context_variables(self):
+        """Test initialization and context variable extraction."""
+        organization = Organization(name="Test Organization")
+        team = Team(
+            organization=organization,
+            name="Test Project",
+            timezone="America/New_York",
+            modifiers={"personsOnEventsMode": PersonsOnEventsMode.DISABLED},
+        )
+        user = User(first_name="John", last_name="Doe", email="john@example.com")
+
+        with patch("datetime.datetime") as mock_datetime:
+            for llm in (
+                MaxChatOpenAI(user=user, team=team),
+                MaxChatAnthropic(user=user, team=team, model="claude"),
+            ):
+                # Test initialization
+                self.assertEqual(llm.user, user)
+                self.assertEqual(llm.team, team)
+                self.assertIsNotNone(llm.max_retries)
+
+                # Test context variables
+                mock_now = datetime(2024, 1, 15, 10, 30, 45)
+                mock_datetime.now.return_value = mock_now
+
+                variables = llm._get_project_org_user_variables()
+
+                self.assertEqual(variables["project_name"], "Test Project")
+                self.assertEqual(variables["project_timezone"], "America/New_York")
+                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
+                self.assertEqual(variables["organization_name"], "Test Organization")
+                self.assertEqual(variables["user_full_name"], "John Doe")
+                self.assertEqual(variables["user_email"], "john@example.com")
 
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
@@ -56,31 +96,6 @@ class TestMaxChatOpenAI(BaseTest):
         self.user.first_name = "John"
         self.user.last_name = "Doe"
         self.user.email = "john@example.com"
-
-    def test_initialization_and_context_variables(self):
-        """Test initialization and context variable extraction."""
-        with patch("datetime.datetime") as mock_datetime:
-            for llm in (
-                MaxChatOpenAI(user=self.user, team=self.team),
-                MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
-            ):
-                # Test initialization
-                self.assertEqual(llm.user, self.user)
-                self.assertEqual(llm.team, self.team)
-                self.assertIsNotNone(llm.max_retries)
-
-                # Test context variables
-                mock_now = datetime(2024, 1, 15, 10, 30, 45)
-                mock_datetime.now.return_value = mock_now
-
-                variables = llm._get_project_org_user_variables()
-
-                self.assertEqual(variables["project_name"], "Test Project")
-                self.assertEqual(variables["project_timezone"], "America/New_York")
-                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
-                self.assertEqual(variables["organization_name"], "Test Organization")
-                self.assertEqual(variables["user_full_name"], "John Doe")
-                self.assertEqual(variables["user_email"], "john@example.com")
 
     def test_message_enrichment_with_context(self):
         """Test that context is properly injected into messages."""

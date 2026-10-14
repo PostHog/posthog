@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,6 +19,7 @@ import { experimentWizardLogic } from '../experimentWizardLogic'
 export function AnalyticsStep(): JSX.Element {
     const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
     const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     return (
         <div className="space-y-6">
@@ -93,7 +94,7 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
             </div>
 
-            <ReplayVisionScannerCheckbox />
+            {experimentScanners && <ReplayVisionScannerCheckbox />}
         </div>
     )
 }
@@ -106,7 +107,6 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
     const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
-    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     const checkbox = (
         <LemonCheckbox
@@ -124,11 +124,14 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
             data-attr="experiment-create-replay-vision-scanner"
             label={
                 <div className="py-3">
-                    <div className="font-semibold">Watch participant behavior with Replay Vision</div>
+                    <div className="flex items-center gap-2 font-semibold">
+                        <IconSparkles className="text-ai" />
+                        Compare what users do in each variant
+                    </div>
                     <div className="mt-1 font-normal text-sm text-muted">
-                        {experimentScanners
-                            ? 'Set up a scanner that summarizes what participants do in each variant after exposure. It turns on when you launch the experiment and stops when the experiment ends. Until launch, nothing is scanned and no credits are used, and you can adjust its prompt, filters, and sampling.'
-                            : 'Set up a scanner that classifies what participants do after experiment exposure. It is created turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so turn it off when you are done.'}
+                        Set up an experiment scanner. It uses Replay vision to summarize the recordings of exposed users
+                        and shows each variant side by side. It turns on when you launch the experiment and stops when
+                        the experiment ends. Until launch, nothing is scanned and no credits are used.
                     </div>
                     {/* Per-session price only: a monthly projection needs the 30-day recording history the
                      * estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so

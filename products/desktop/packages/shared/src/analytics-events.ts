@@ -997,6 +997,22 @@ export interface InboxReportActionResultProperties {
 }
 
 /**
+ * A report's product suggestion was rendered under its evidence, or its link
+ * to the product was followed. Mirrors cloud's `Inbox report source
+ * suggestion shown` / `clicked`, so the clients are comparable in one PostHog
+ * project.
+ */
+export interface InboxReportSourceSuggestionProperties {
+  report_id: string;
+  report_age_hours: number;
+  priority: string | null;
+  actionability: string | null;
+  /** Whether the report already has an implementation PR. */
+  has_pr: boolean;
+  product: string;
+}
+
+/**
  * Thumbs-up/down verdict on a report's usefulness, fired from the feedback
  * footer at the end of the report body. Feedback-only: unlike a dismiss, the
  * report keeps its state. The sentiment is the label ranking work trains
@@ -1506,16 +1522,6 @@ export interface AutoresearchRunStartedProperties {
 
 // Loops events
 type LoopReasoningEffort = EffortLevel;
-type LoopOverlapPolicy = "skip" | "allow" | "cancel_previous";
-type LoopRunBlockedReason =
-  | "deduped"
-  | "overlap_skipped"
-  | "rate_capped"
-  | "team_rate_capped"
-  | "disabled"
-  | "gate_blocked"
-  | "owner_inactive"
-  | "owner_changed";
 type LoopRunStatus =
   | "not_started"
   | "queued"
@@ -1526,86 +1532,54 @@ type LoopRunStatus =
 
 export interface LoopListViewedProperties {
   loop_count: number;
-  personal_loop_count: number;
-  team_loop_count: number;
   global_loop_count: number;
   space_count: number;
-  is_at_limit: boolean;
-  /** Backend-enforced per-project cap; omitted while the limit is still loading. */
-  loop_limit?: number;
   builder_session_count: number;
 }
 
 export interface LoopViewedProperties {
   loop_id: string;
-  visibility: "personal" | "team";
   enabled: boolean;
-  /** Backend-open string; null when enabled or manually paused with no reason given. */
-  disabled_reason: string | null;
-  runtime_adapter: "claude" | "codex";
   model?: string;
   reasoning_effort: LoopReasoningEffort | null;
   repository_count: number;
   trigger_count: number;
   has_schedule_trigger: boolean;
   has_github_trigger: boolean;
-  has_api_trigger: boolean;
   /** Backend-open string, not a closed enum. */
   last_run_status: string | null;
-  consecutive_failures: number;
   recent_run_count: number;
 }
 
 export interface LoopSavedProperties {
   loop_id: string;
-  visibility: "personal" | "team";
-  runtime_adapter: "claude" | "codex";
   model?: string;
   reasoning_effort: LoopReasoningEffort | null;
   repository_count: number;
   trigger_count: number;
   has_schedule_trigger: boolean;
   has_github_trigger: boolean;
-  has_api_trigger: boolean;
-  is_pr_creation_enabled: boolean;
-  is_auto_fix_enabled: boolean;
-  /** Count of notifications.{push,email,slack} that are enabled. */
+  /** Count of notifications.{email,slack} that are enabled. */
   notification_channel_count: number;
   has_context_target: boolean;
 }
 
 export interface LoopDeletedProperties {
   loop_id: string;
-  visibility: "personal" | "team";
   enabled: boolean;
   trigger_count: number;
-  /** State at time of deletion, distinguishes deleting a healthy loop from abandoning a failing one. */
-  consecutive_failures: number;
 }
 
 export interface LoopEnabledToggledProperties {
   loop_id: string;
   /** The new value the loop is being switched to. */
   enabled: boolean;
-  visibility: "personal" | "team";
-  /** True when this toggle clears or reinstates a backend auto-pause rather than a routine manual pause/resume. */
-  was_auto_paused: boolean;
   success: boolean;
 }
 
 export interface LoopRunStartedProperties {
   loop_id: string;
-  task_id: string | null;
-  task_run_id: string | null;
-  runtime_adapter: "claude" | "codex";
   model?: string;
-  trigger_count: number;
-}
-
-export interface LoopRunBlockedProperties {
-  loop_id: string;
-  reason: LoopRunBlockedReason;
-  overlap_policy: LoopOverlapPolicy;
   trigger_count: number;
 }
 
@@ -1615,13 +1589,10 @@ export interface LoopRunViewedProperties {
   task_id: string;
   status: LoopRunStatus;
   environment: "local" | "cloud";
-  /** True when the run wasn't triggered by a schedule/github/api trigger. */
-  is_manual_run: boolean;
 }
 
 export interface LoopLinkCopiedProperties {
   loop_id: string;
-  visibility: "personal" | "team";
 }
 
 export interface AnnouncementProperties {
@@ -1823,6 +1794,9 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_REPORT_SOURCE_SUGGESTION_SHOWN: "Inbox report source suggestion shown",
+  INBOX_REPORT_SOURCE_SUGGESTION_CLICKED:
+    "Inbox report source suggestion clicked",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
@@ -1889,7 +1863,6 @@ export const ANALYTICS_EVENTS = {
   LOOP_DELETED: "Loop deleted",
   LOOP_ENABLED_TOGGLED: "Loop enabled toggled",
   LOOP_RUN_STARTED: "Loop run started",
-  LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
   COMMENT_SENT_TO_AGENT: "Comment sent to agent",
@@ -2048,6 +2021,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN]: InboxReportSourceSuggestionProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED]: InboxReportSourceSuggestionProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
@@ -2118,7 +2093,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_DELETED]: LoopDeletedProperties;
   [ANALYTICS_EVENTS.LOOP_ENABLED_TOGGLED]: LoopEnabledToggledProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_STARTED]: LoopRunStartedProperties;
-  [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
   [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
@@ -2141,6 +2115,8 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_SHOWN,
+  ANALYTICS_EVENTS.INBOX_REPORT_SOURCE_SUGGESTION_CLICKED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,

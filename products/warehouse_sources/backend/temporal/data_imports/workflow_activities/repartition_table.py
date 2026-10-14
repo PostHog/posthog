@@ -100,6 +100,18 @@ def _is_cancellation(error: BaseException) -> bool:
     return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
 
 
+def _activity_cancelled() -> bool:
+    """Whether Temporal cancelled this activity, which includes an attempt that ran past its timeout.
+
+    A sync activity keeps its thread after a timeout, and learns of it only from the next heartbeat.
+    False outside an activity context (direct calls from tests).
+    """
+    try:
+        return activity.is_cancelled()
+    except RuntimeError:
+        return False
+
+
 def _is_native_panic(error: BaseException) -> bool:
     """Whether `error` is a panic that escaped the native Delta/Arrow stack.
 
@@ -516,8 +528,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
         # so Temporal does not time the activity out. The shutdown monitor lets the rewrite stop at
-        # its next commit when the worker shuts down, so a rewrite does not hold a draining worker
-        # for hours.
+        # its next commit, and the swap after its current group of files, when the worker shuts
+        # down, so neither holds a draining worker for hours. A cancelled attempt stops the same
+        # way, so an attempt that Temporal already timed out does not keep working beside its retry.
         # The workload reporter makes the rewrite visible to pod co-tenant accounting (see
         # `workload_report.py`): without it a rewrite-heavy pod looks idle to the OOM classifier's
         # culprit rule. The run_id is prefixed because the sync's import activity reports under the
@@ -542,14 +555,18 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 logger=logger,
                 claim_token=claim_token,
                 deadline=_rewrite_deadline(activity_started),
-                should_stop=shutdown_monitor.is_worker_shutdown,
+                should_stop=lambda: shutdown_monitor.is_worker_shutdown() or _activity_cancelled(),
             )
     except RepartitionStoppedError as e:
-        # The worker is shutting down and the rewrite stopped at a commit. Temp and its checkpoint
-        # stay, so the retry that Temporal starts on another worker copies only the source files that
-        # are left. This is not a failed attempt, so it must not count toward the give-up cap.
+        # The rewrite stopped at a commit, or the swap between two groups of files. Temp and its
+        # checkpoint or swap marker stay, so the next attempt copies only what is left. This is not
+        # a failed attempt, so it must not count toward the give-up cap.
+        if _activity_cancelled() and not shutdown_monitor.is_worker_shutdown():
+            logger.info(f"repartition: stopped for activity cancellation: {e}")
+            _refund_attempt(schema, charged_attempts, logger)
+            raise asyncio.CancelledError() from e
         logger.info(
-            f"repartition: stopped at a commit for worker shutdown, handing off rows_written={e.rows_written}",
+            f"repartition: stopped at a commit for worker shutdown, handing off rows_written={e.rows_written}: {e}",
             rows_written=e.rows_written,
         )
         DELTA_REPARTITION_TOTAL.labels(outcome="handed_off").inc()

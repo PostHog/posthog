@@ -220,6 +220,10 @@ def build_billing_token(
     if service_action:
         payload["service_action"] = service_action
 
+    paying_partner = get_billing_lock_partner(organization)
+    if paying_partner:
+        payload["payer_partner_id"] = str(paying_partner.id)
+
     encoded_jwt = jwt.encode(
         payload,
         license_secret,

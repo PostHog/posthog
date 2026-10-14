@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.exports.backend.temporal.subscriptions.llm_change_summary import (
     _attach_images_to_user_message,
     build_initial_prompt_messages,
@@ -729,6 +731,48 @@ class TestGenerateChangeSummary:
         assert captured["properties"]["team_id"] == 42
         assert captured["properties"]["ai_product"] == "subscriptions"
         assert captured["groups"] == {"project": "42", "instance": "https://us.posthog.com"}
+
+    @parameterized.expand(
+        [
+            (
+                "overlapping_insight_survives_the_filter",
+                [
+                    _make_state(99, "Revenue", "total $999"),
+                    _make_state(1, "Pageviews", "avg 100/day"),
+                ],
+                [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")],
+            ),
+            (
+                "no_overlap_falls_back_to_the_initial_prompt",
+                [_make_state(99, "Revenue", "total $999")],
+                [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")],
+            ),
+        ]
+    )
+    def test_previous_only_insights_stay_out_of_the_prompt(self, name, previous_states, current_states):
+        with patch(
+            "products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client"
+        ) as mock_get_client:
+            mock_client = mock_get_client.return_value
+            mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+            generate_change_summary(previous_states, current_states, team=None)
+
+            messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+
+        system_content = messages[0]["content"]
+        user_content = messages[1]["content"]
+
+        assert "Revenue" not in system_content
+        assert "Revenue" not in user_content
+        assert "$999" not in user_content
+
+        if name == "overlapping_insight_survives_the_filter":
+            assert "avg 100/day" in user_content
+            assert "avg 150/day" in user_content
+        else:
+            assert "current state" in system_content
+            assert "No previous data" not in user_content
 
 
 class TestAnnotationsSection:

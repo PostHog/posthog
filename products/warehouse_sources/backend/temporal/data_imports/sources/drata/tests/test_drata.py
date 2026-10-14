@@ -1,176 +1,91 @@
-import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from datetime import date
-from typing import Any, Optional, cast
-
-import pytest
-from unittest import mock
+from typing import Any, Literal
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.drata import (
     REGION_BASE_URLS,
     DrataResumeConfig,
     base_url_for_region,
-    drata_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.settings import DRATA_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 
 US_BASE_URL = REGION_BASE_URLS["US"]
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the drata module.
-DRATA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.drata.drata.make_tracked_session"
-)
-# The client backs off with tenacity between retries; neutralize the sleep so failure-path tests are fast.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
-Route = Callable[[str, dict[str, Any]], Response]
+def _driver(region: Literal["US", "EU", "APAC"] = "US") -> SourceDriver:
+    return SourceDriver(DrataSource(), DrataSourceConfig(api_key="drata_key", region=region))
 
 
-def _resp(
-    body: Any = None,
-    *,
-    status: int = 200,
-    reason: str = "OK",
-    url: Optional[str] = None,
-    raw: Optional[bytes] = None,
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = reason
-    if url is not None:
-        resp.url = url
-    resp._content = raw if raw is not None else json.dumps(body if body is not None else {}).encode()
-    return resp
-
-
-class _FakeManager:
-    def __init__(self, state: DrataResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[DrataResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> DrataResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: DrataResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _wire(session: mock.MagicMock, route: Route) -> list[dict[str, Any]]:
-    """Wire a mock session to a URL+params router, snapshotting each request AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages (the paginator injects the cursor),
-    so a copy must be taken when each request is prepared rather than read after the run.
-    """
-    session.headers = {}
-    calls: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshot = {"url": request.url, "params": dict(request.params or {})}
-        calls.append(snapshot)
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        prepared.params = snapshot["params"]
-        return prepared
-
-    def _send(prepared: Any, **kwargs: Any) -> Response:
-        return route(prepared.url, prepared.params)
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return calls
-
-
-def _run(
-    mock_session: mock.MagicMock,
-    route: Route,
-    endpoint: str,
-    manager: _FakeManager,
-    region: str = "US",
-    **kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    session = mock_session.return_value
-    calls = _wire(session, route)
-    source = drata_source(
-        api_key="drata_key",
-        region=region,
-        endpoint=endpoint,
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    )
-    rows = [row for page in cast("Iterable[Any]", source.items()) for row in page]
-    return rows, calls
+def _page(rows: list[dict[str, Any]], cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": rows, "pagination": {"cursor": cursor}})
 
 
 class TestTopLevelCursorPagination:
-    def _pages(self, url: str, params: dict[str, Any]) -> Response:
-        cursor = params.get("cursor")
-        if cursor is None:
-            return _resp({"data": [{"id": 1}], "pagination": {"cursor": "c2", "totalCount": 2}})
-        if cursor == "c2":
-            return _resp({"data": [{"id": 2}], "pagination": {"cursor": None, "totalCount": 2}})
-        raise AssertionError(f"unexpected cursor {cursor}")
+    @staticmethod
+    def _pages(request: RecordedRequest) -> ScriptedResponse:
+        if request.param("cursor") == "c2":
+            return _page([{"id": 2}])
+        return _page([{"id": 1}], "c2")
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager(DrataResumeConfig(cursor="c2"))
-        rows, calls = _run(mock_session, self._pages, "users", manager)
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run("users", self._pages, resume_state=DrataResumeConfig(cursor="c2"))
+        assert result.raised is None
         # The first page must never be re-fetched on resume.
-        assert rows == [{"id": 2}]
-        assert calls[0]["params"]["cursor"] == "c2"
+        assert result.rows == [{"id": 2}]
+        assert result.requests[0].param("cursor") == "c2"
 
     @parameterized.expand([("US",), ("EU",), ("APAC",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_hit_the_selected_region_host(self, region: str, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        _, calls = _run(mock_session, lambda url, params: _resp({"data": []}), "users", manager, region=region)
-        assert calls[0]["url"] == f"{REGION_BASE_URLS[region]}/users"
+    def test_requests_hit_the_selected_region_host(self, region: Literal["US", "EU", "APAC"]) -> None:
+        result = _driver(region).run("users", [_page([])])
+        assert result.raised is None
+        request = result.requests[0]
+        assert request.origin + request.path == f"{REGION_BASE_URLS[region]}/users"
 
 
 class TestEventsIncremental:
-    def _pages(self, url: str, params: dict[str, Any]) -> Response:
-        cursor = params.get("cursor")
-        if cursor is None:
-            return _resp({"data": [{"id": "e1"}], "pagination": {"cursor": "c2"}})
-        return _resp({"data": [{"id": "e2"}], "pagination": {"cursor": None}})
+    @staticmethod
+    def _pages(request: RecordedRequest) -> ScriptedResponse:
+        if request.param("cursor") is None:
+            return _page([{"id": "e1"}], "c2")
+        return _page([{"id": "e2"}])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_date_watermark_formatted_as_utc_datetime(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager()
-        _, calls = _run(
-            mock_session,
-            self._pages,
+    def test_date_watermark_formatted_as_utc_datetime(self) -> None:
+        result = _driver().run(
             "events",
-            manager,
-            should_use_incremental_field=True,
+            self._pages,
             db_incremental_field_last_value=date(2026, 1, 2),
             incremental_field="createdAt",
         )
-        assert calls[0]["params"]["createdAtStartDate"] == "2026-01-02T00:00:00.000Z"
+        assert result.raised is None
+        assert result.requests[0].param("createdAtStartDate") == "2026-01-02T00:00:00.000Z"
 
     def test_unknown_incremental_field_raises(self) -> None:
-        with pytest.raises(ValueError, match="no server-side filter"):
-            drata_source(
-                api_key="drata_key",
-                region="US",
-                endpoint="events",
-                resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-01-01",
-                incremental_field="updatedAt",
-            )
+        result = _driver().run(
+            "events",
+            [],
+            db_incremental_field_last_value="2026-01-01",
+            incremental_field="updatedAt",
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "no server-side filter" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -178,69 +93,63 @@ class TestEventsIncremental:
             ("no_last_value", True, None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_filter_param_without_watermark(
-        self, _name: str, should_use: bool, last_value: Any, mock_session: mock.MagicMock
-    ) -> None:
-        manager = _FakeManager()
-        _, calls = _run(
-            mock_session,
-            self._pages,
+    def test_no_filter_param_without_watermark(self, _name: str, should_use: bool, last_value: Any) -> None:
+        result = _driver().run(
             "events",
-            manager,
+            self._pages,
             should_use_incremental_field=should_use,
             db_incremental_field_last_value=last_value,
-            incremental_field="createdAt",
+            incremental_field="createdAt" if should_use else None,
         )
-        assert "createdAtStartDate" not in calls[0]["params"]
+        assert result.raised is None
+        assert result.requests[0].param("createdAtStartDate") is None
 
 
 class TestWorkspaceFanOut:
-    def _pages(self, url: str, params: dict[str, Any]) -> Response:
-        if url.endswith("/workspaces"):
-            return _resp({"data": [{"id": 10}, {"id": 20}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/10/controls"):
-            if params.get("cursor") is None:
-                return _resp({"data": [{"id": 1}], "pagination": {"cursor": "w10c2"}})
-            return _resp({"data": [{"id": 2}], "pagination": {"cursor": None}})
-        if url.endswith("/workspaces/20/controls"):
-            return _resp({"data": [{"id": 1}], "pagination": {"cursor": None}})
-        raise AssertionError(f"unexpected url {url}")
+    @staticmethod
+    def _pages(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/workspaces"):
+            return _page([{"id": 10}, {"id": 20}])
+        if request.path.endswith("/workspaces/10/controls"):
+            if request.param("cursor") is None:
+                return _page([{"id": 1}], "w10c2")
+            return _page([{"id": 2}])
+        if request.path.endswith("/workspaces/20/controls"):
+            return _page([{"id": 1}])
+        raise AssertionError(f"unexpected path {request.path}")
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_every_workspace_and_injects_workspace_id(self, mock_session: mock.MagicMock) -> None:
-        rows, _ = _run(mock_session, self._pages, "controls", _FakeManager())
+    def test_walks_every_workspace_and_injects_workspace_id(self) -> None:
+        result = _driver().run("controls", self._pages)
+        assert result.raised is None
         # Control id 1 appears in both workspaces; the injected workspaceId keeps the
         # ["workspaceId", "id"] primary key unique table-wide.
-        assert rows == [
+        assert result.rows == [
             {"id": 1, "workspaceId": 10},
             {"id": 2, "workspaceId": 10},
             {"id": 1, "workspaceId": 20},
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_deleted_bookmark_parent_starts_over(self, mock_session: mock.MagicMock) -> None:
-        manager = _FakeManager(
-            DrataResumeConfig(
+    def test_deleted_bookmark_parent_starts_over(self) -> None:
+        result = _driver().run(
+            "controls",
+            self._pages,
+            resume_state=DrataResumeConfig(
                 fanout_state={
                     "completed": ["/workspaces/999/controls"],
                     "current": None,
                     "child_state": None,
                 }
-            )
+            ),
         )
-        rows, _ = _run(mock_session, self._pages, "controls", manager)
-        assert len(rows) == 3
+        assert result.raised is None
+        assert len(result.rows) == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_parent_403_fails_the_sync(self, mock_session: mock.MagicMock) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            if url.endswith("/workspaces"):
-                return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
-            return _resp({}, status=403, reason="Forbidden", url=url)
-
-        with pytest.raises(requests.HTTPError):
-            _run(mock_session, route, "controls", _FakeManager())
+    def test_parent_403_fails_the_sync(self) -> None:
+        result = _driver().run(
+            "controls",
+            route({"/workspaces": [_page([{"id": 10}])], "/workspaces/10/controls": [ScriptedResponse(status=403)]}),
+        )
+        assert isinstance(result.raised, requests.HTTPError)
 
     @parameterized.expand(
         [
@@ -248,7 +157,6 @@ class TestWorkspaceFanOut:
             ("assigned_policies", "user_assigned_policies", "/users", "/users/5/assigned-policies", "userId"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_children_of_other_parents_inject_their_own_parent_column(
         self,
         _name: str,
@@ -256,33 +164,27 @@ class TestWorkspaceFanOut:
         parent_path: str,
         child_path: str,
         parent_column: str,
-        mock_session: mock.MagicMock,
     ) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            if url.endswith(parent_path):
-                return _resp({"data": [{"id": 5}], "pagination": {"cursor": None}})
-            if url.endswith(child_path):
-                return _resp({"data": [{"id": 1}], "pagination": {"cursor": None}})
-            raise AssertionError(f"unexpected url {url}")
-
-        rows, _ = _run(mock_session, route, endpoint, _FakeManager())
-        assert rows == [{"id": 1, parent_column: 5}]
+        result = _driver().run(
+            endpoint,
+            route({parent_path: [_page([{"id": 5}])], child_path: [_page([{"id": 1}])]}),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 1, parent_column: 5}]
 
 
 class TestControlJunctionFanOut:
     """Control junctions hang two fan-out levels deep: workspaces -> controls -> junction."""
 
-    def _route(self, child_segment: str) -> Route:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            if url.endswith("/workspaces"):
-                return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
-            if url.endswith("/workspaces/10/controls"):
-                return _resp({"data": [{"id": 88}], "pagination": {"cursor": None}})
-            if url.endswith(f"/workspaces/10/controls/88/{child_segment}"):
-                return _resp({"data": [{"id": 4}], "pagination": {"cursor": None}})
-            raise AssertionError(f"unexpected url {url}")
-
-        return route
+    @staticmethod
+    def _route(child_segment: str) -> Callable[[RecordedRequest], ScriptedResponse]:
+        return route(
+            {
+                "/workspaces": [_page([{"id": 10}])],
+                "/workspaces/10/controls": [_page([{"id": 88}])],
+                f"/workspaces/10/controls/88/{child_segment}": [_page([{"id": 4}])],
+            }
+        )
 
     @parameterized.expand(
         [
@@ -290,29 +192,22 @@ class TestControlJunctionFanOut:
             ("owners", "control_owners", "owners"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_binds_control_id_and_carries_both_ancestor_ids(
-        self, _name: str, endpoint: str, segment: str, mock_session: mock.MagicMock
-    ) -> None:
-        rows, calls = _run(mock_session, self._route(segment), endpoint, _FakeManager())
-        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/controls/88/{segment}"
+    def test_binds_control_id_and_carries_both_ancestor_ids(self, _name: str, endpoint: str, segment: str) -> None:
+        result = _driver().run(endpoint, self._route(segment))
+        assert result.raised is None
+        assert result.requests[-1].origin + result.requests[-1].path == (
+            f"{US_BASE_URL}/workspaces/10/controls/88/{segment}"
+        )
         # Both junctions repeat their `id` across controls — a requirement is mapped by many
         # controls, an owner owns many — so the control id has to be part of the key.
-        assert rows == [{"id": 4, "controlId": 88, "workspaceId": 10}]
+        assert result.rows == [{"id": 4, "controlId": 88, "workspaceId": 10}]
 
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_raise_retryable_error(
-        self, _name: str, status: int, mock_session: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp({}, status=status, reason="Server Error", url=url)
-
-        with pytest.raises(RESTClientRetryableError):
-            _run(mock_session, route, "users", _FakeManager())
+    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
+        result = _driver().run("users", always(ScriptedResponse(status=status, json={})))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
     @parameterized.expand(
         [
@@ -321,19 +216,13 @@ class TestErrorHandling:
             ("terms", 412, "Precondition Failed"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_errors_raise_http_error_matchable_by_host_prefix(
-        self, _name: str, status: int, reason: str, mock_session: mock.MagicMock
+        self, _name: str, status: int, _reason: str
     ) -> None:
-        request_url = f"{US_BASE_URL}/users?cursor=abc&size=250"
-
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp({}, status=status, reason=reason, url=request_url)
-
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _run(mock_session, route, "users", _FakeManager())
+        result = _driver().run("users", [ScriptedResponse(status=status, json={})])
+        assert isinstance(result.raised, requests.HTTPError)
         # The base host prefix stays intact so `get_non_retryable_errors()` can still match it.
-        assert "for url: https://public-api" in str(exc_info.value)
+        assert "for url: https://public-api" in str(result.raised)
 
     @parameterized.expand(
         [
@@ -342,32 +231,12 @@ class TestErrorHandling:
             ("data_is_object", b'{"data": {"id": 1}}'),
         ]
     )
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_payload_is_retryable(
-        self, _name: str, raw: bytes, mock_session: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        def route(url: str, params: dict[str, Any]) -> Response:
-            return _resp(raw=raw, url=url)
-
-        with pytest.raises(RESTClientRetryableError):
-            _run(mock_session, route, "users", _FakeManager())
+    def test_unexpected_payload_is_retryable(self, _name: str, raw: bytes) -> None:
+        result = _driver().run("users", always(ScriptedResponse(body=raw)))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
 
 class TestCredentialValidation:
-    def _session(self, response: Any) -> mock.MagicMock:
-        session = mock.MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
-    def _http(self, status: int) -> mock.MagicMock:
-        response = mock.MagicMock()
-        response.status_code = status
-        return response
-
     @parameterized.expand(
         [
             ("ok", 200, True, None),
@@ -387,12 +256,12 @@ class TestCredentialValidation:
     def test_validate_credentials_status_mapping(
         self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        with mock.patch(DRATA_SESSION_PATCH, return_value=self._session(self._http(status))):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials("drata_key", "US") == (expected_valid, expected_message)
+        assert network.requests_log[0].path == "/public/v2/workspaces"
 
     def test_connection_error_reports_message(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with mock.patch(DRATA_SESSION_PATCH, return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             valid, message = validate_credentials("drata_key", "US")
         assert valid is False
         assert message is not None
@@ -405,13 +274,12 @@ class TestCredentialValidation:
 
 
 class TestDrataSourceResponse:
-    def _response(self, endpoint: str):
-        return drata_source(
-            api_key="drata_key",
-            region="US",
-            endpoint=endpoint,
-            resumable_source_manager=_FakeManager(),  # type: ignore[arg-type]
-        )
+    @staticmethod
+    def _response(endpoint: str) -> SourceResponse:
+        result = _driver().run(endpoint, always(_page([])))
+        assert result.raised is None
+        assert result.response is not None
+        return result.response
 
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_primary_keys_match_endpoint_config(self, endpoint: str) -> None:

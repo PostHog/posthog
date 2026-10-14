@@ -134,7 +134,7 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
 # worker can roll out ahead of the migration completing, so this is a self-healing race, not a
 # bug — the sweep already retries every interval, and the query succeeds once the migration
 # lands. Mirrors the schema-lag handling in posthog/tasks/alerts/utils.py and
-# products/tasks/backend/loop_retention.py.
+# products/tasks/backend/task_auto_archive.py.
 def _is_schema_lag_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
 
@@ -199,6 +199,20 @@ def _is_pooler_login_retry_cached_error(error: BaseException) -> bool:
     if not isinstance(error, psycopg.errors.ProtocolViolation):
         return False
     return _POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER in str(error).lower()
+
+
+# asyncio's default executor (what ``loop.run_in_executor(None, ...)`` submits to -- psycopg
+# uses it for DNS resolution while connecting) is shut down once the running event loop winds
+# down. ``_unlock_group``'s retry-connect runs in a group task's ``finally`` block: that task
+# can still be executing it after ``_close()``'s drain window elapsed and gave up waiting,
+# because the task's own cancellation left the shared per-group connection mid-protocol and
+# triggered the retry in the first place. By then the pod is already exiting, so there is
+# nothing a redial could reach; the lease simply expires and a surviving pod reclaims it.
+_EXECUTOR_SHUTDOWN_ERROR_MARKER = "cannot schedule new futures after shutdown"
+
+
+def _is_executor_shutdown_error(error: BaseException) -> bool:
+    return isinstance(error, RuntimeError) and _EXECUTOR_SHUTDOWN_ERROR_MARKER in str(error).lower()
 
 
 def _is_transient_queue_db_error(error: BaseException) -> bool:
@@ -340,6 +354,7 @@ class BatchConsumerAdapter(Protocol):
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None: ...
 
     async def release_all_owned(
@@ -544,6 +559,14 @@ class BatchConsumer:
             autocommit=True,
             connect_timeout=self._config.connect_timeout_seconds,
         )
+        # The queue DB sits behind a transaction pooler, which can hand consecutive
+        # statements on the same client connection to different backends. psycopg's default
+        # prepare_threshold server-prepares a statement after 5 identical executions, and a
+        # later Bind against that name can land on a backend that never saw the Parse,
+        # raising "unable to bind ... cannot get parse message". Disabling it keeps every
+        # statement unnamed, which the pooler always replays correctly. Same setting the
+        # Redshift batch export uses for its own pooler/compatibility reasons.
+        conn.prepare_threshold = None
         # Session-scoped SET, not a libpq startup option: PgBouncer rejects
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
@@ -558,6 +581,31 @@ class BatchConsumer:
             await conn.close()
             raise
         return conn
+
+    async def _connect_with_startup_retry(
+        self, *, statement_timeout_seconds: float | None, event: str
+    ) -> psycopg.AsyncConnection[Any]:
+        """Dial the queue DB at startup, retrying a self-healing blip indefinitely.
+
+        `_connect` only retries QUEUE_RETRY_MAX_ATTEMPTS times before raising -- enough for a
+        blip mid-run, where the poll and recovery loops simply redial on the next cycle, but
+        not for the queue DB still being unreachable the moment this process starts. Raising
+        here crashes the whole consumer before `_poll_conn`/`_recovery_conn` even exist, for
+        the same DNS, server-not-ready, connect-timeout, and admin-shutdown shapes the running
+        consumer already treats as self-healing everywhere else.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._connect(statement_timeout_seconds=statement_timeout_seconds)
+            except Exception as error:
+                if not _is_transient_queue_db_error(error):
+                    raise
+                logger.warning(self._event(event), attempt=attempt, error=str(error))
+                await self._wait_or_shutdown(_queue_retry_delay(min(attempt, QUEUE_RETRY_MAX_ATTEMPTS)))
+                if self._shutdown.is_set():
+                    raise
 
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
@@ -665,7 +713,7 @@ class BatchConsumer:
         through the poll-failure liveness trip and the queue-freshness gauge, which measure
         the outage rather than counting its exceptions.
         """
-        if _is_transient_queue_db_error(error):
+        if _is_transient_queue_db_error(error) or _is_executor_shutdown_error(error):
             logger.warning(event, error=str(error), **context)
             return
         logger.exception(event, **context)
@@ -692,8 +740,14 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
-        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
+        self._poll_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.poll_timeout_seconds,
+            event="startup_poll_connect_retrying",
+        )
+        self._recovery_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.sweep_timeout_seconds,
+            event="startup_recovery_connect_retrying",
+        )
 
         logger.info(
             self._event("batch_consumer_started"),
@@ -864,7 +918,9 @@ class BatchConsumer:
                 batch_count=len(undispatched),
             )
             try:
-                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token)
+                # Best effort: a lease row locked elsewhere expires after its TTL, so waiting on it
+                # only risks the poll connection's statement timeout.
+                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token, skip_locked=True)
             except Exception as e:
                 self._report_queue_failure(self._event("release_undispatched_failed"), e)
 

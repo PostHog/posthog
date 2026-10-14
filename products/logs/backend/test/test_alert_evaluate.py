@@ -133,6 +133,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
+    def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
+        same_a = self._configuration(name="A")
+        same_b = self._configuration(name="B")
+        longer_window = self._configuration(name="C", source_config={"condition": {**CONDITION, "window_minutes": 60}})
+        more_periods = self._configuration(name="D", evaluation_periods=3, datapoints_to_alarm=1)
+
+        evaluation, _ = self._run(same_a, same_b, longer_window, more_periods)
+
+        group = {o.configuration_id: o.schedule_group for o in evaluation.outcomes}
+        assert group[same_a.id] == group[same_b.id]
+        assert len({group[same_a.id], group[longer_window.id], group[more_periods.id]}) == 3
+
     @parameterized.expand([("below_a_high_bound", 1000, "below"), ("above_zero", 0, "above")])
     def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(
         self, _name: str, threshold_count: int, threshold_operator: str
@@ -274,15 +286,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
+            ("null_filter_values", {"condition": CONDITION, "filterGroup": {"type": "AND", "values": None}}),
         ]
     )
     def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
         configuration = self._configuration(source_config=source_config)
+        healthy = self._configuration(name="Healthy")
 
-        evaluation, query = self._run(configuration)
+        evaluation, query = self._run(configuration, healthy)
         self._record(evaluation)
 
-        query.assert_not_called()
+        queried = {check.id for call in query.call_args_list for check in call.kwargs["alerts"]}
+        assert queried == {healthy.id}
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None

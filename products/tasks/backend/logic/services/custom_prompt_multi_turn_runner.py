@@ -3,13 +3,15 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel, JsonValue, ValidationError
 
+from products.tasks.backend.facade.api import record_run_failure_cause
+from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
@@ -20,6 +22,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
+    TurnPollTimeout,
     _create_task_and_trigger as create_task_and_trigger,
     extract_json_from_text,
     poll_for_turn,
@@ -45,6 +48,14 @@ def _required_model_keys(model: type[BaseModel]) -> set[str]:
     return {key for key, required in keys.items() if required} or set(keys)
 
 
+def turn_failure_error_type(error: BaseException) -> str | None:
+    if isinstance(error, TurnPollTimeout):
+        return "poll_timeout"
+    if isinstance(error, (EmptyAgentTurnError, ValidationError, ValueError)):
+        return "output_parse_failed"
+    return None
+
+
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
 @dataclass(frozen=False)
 class MultiTurnSession:
@@ -63,6 +74,7 @@ class MultiTurnSession:
     # Set this below the caller's Temporal activity `start_to_close_timeout` so the
     # dropped-finalization salvage can fire before the activity is cancelled.
     max_poll_seconds: int | None = None
+    poll_deadline: float | None = None
     _workflow_handle: WorkflowHandle | None = field(default=None, repr=False)
 
     @classmethod
@@ -93,6 +105,7 @@ class MultiTurnSession:
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        files: Sequence[SessionFile] = (),
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -137,6 +150,7 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            files=files,
         )
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
@@ -187,7 +201,7 @@ class MultiTurnSession:
             # own teardown. End it here so a first-turn parse failure (or a Temporal timeout,
             # which raises CancelledError — a BaseException) doesn't leave the run wedged in
             # IN_PROGRESS. Shield so the failure signal still lands if the cancel re-fires.
-            await asyncio.shield(session.end(status="failed", error=str(e)))
+            await asyncio.shield(session.end(status="failed", error=str(e), error_type=turn_failure_error_type(e)))
             raise
         return session, parsed
 
@@ -210,12 +224,14 @@ class MultiTurnSession:
         before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
         origin_key: str | None = None,
         max_poll_seconds: int | None = None,
+        poll_deadline: float | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
+        files: Sequence[SessionFile] = (),
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -231,7 +247,13 @@ class MultiTurnSession:
         `mcp_gateway_server_ids` narrows the run's mounts to the listed gateway servers
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
+
+        `files` go into the sandbox before the first turn, and the first prompt lists
+        their paths. Use them for text too long for the agent to pass on itself, such as
+        the task of a sub-agent.
         """
+        if poll_deadline is not None and time.monotonic() >= poll_deadline:
+            raise TimeoutError("The case time budget expired before the initial turn")
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
@@ -250,6 +272,7 @@ class MultiTurnSession:
             origin_key=origin_key,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
+            files=files,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
@@ -264,6 +287,7 @@ class MultiTurnSession:
             verbose=verbose,
             output_fn=output_fn,
             max_poll_seconds=max_poll_seconds,
+            poll_deadline=poll_deadline,
             _workflow_handle=workflow_handle,
         )
         if on_task_run_created is not None:
@@ -286,6 +310,7 @@ class MultiTurnSession:
                 output_fn=output_fn,
                 workflow_handle=workflow_handle,
                 max_poll_seconds=max_poll_seconds,
+                poll_deadline=poll_deadline,
             )
             session.log_lines_seen = turn.total_lines
             session.printed_lines = turn.printed_lines
@@ -301,7 +326,7 @@ class MultiTurnSession:
             # here so a first-turn poll failure (or a Temporal timeout, which raises
             # CancelledError — a BaseException) doesn't leave the run wedged in IN_PROGRESS.
             # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
-            await asyncio.shield(session.end(status="failed", error=str(e)))
+            await asyncio.shield(session.end(status="failed", error=str(e), error_type=turn_failure_error_type(e)))
             raise
         return session, turn.last_message
 
@@ -353,6 +378,8 @@ class MultiTurnSession:
     async def _send_and_poll(self, message: str, *, label: str, attempt: int) -> str | None:
         """Signal the followup and poll for the next turn. Returns None on empty end_turn."""
         assert self._workflow_handle is not None
+        if self.poll_deadline is not None and time.monotonic() >= self.poll_deadline:
+            raise TimeoutError("The case time budget expired before the next turn")
         await self._workflow_handle.signal(ProcessTaskWorkflow.send_followup_message, message)
         logger.info(
             "multi_turn: sent followup run=%s label=%s attempt=%d",
@@ -369,6 +396,7 @@ class MultiTurnSession:
                 output_fn=self.output_fn,
                 workflow_handle=self._workflow_handle,
                 max_poll_seconds=self.max_poll_seconds,
+                poll_deadline=self.poll_deadline,
             )
             self.log_lines_seen = turn.total_lines
             self.printed_lines = turn.printed_lines
@@ -406,7 +434,7 @@ class MultiTurnSession:
         json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
         return model.model_validate(json_data, context=validation_context)
 
-    async def end(self, *, status: str = "completed", error: str | None = None) -> None:
+    async def end(self, *, status: str = "completed", error: str | None = None, error_type: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.
 
         Pass `status="failed"` (with an `error` message) when ending because of an error, so
@@ -416,6 +444,8 @@ class MultiTurnSession:
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
         try:
+            if error_type is not None:
+                await asyncio.to_thread(record_run_failure_cause, self.task_run.id, error_type)
             await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error])
             logger.info("multi_turn: ended session run=%s status=%s", self.task_run.id, status)
         except Exception:

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
+    codebase_detection = detect(env=("^DEEL_",))
+
     supported_versions = (DEEL_API_VERSION_V2, DEEL_API_VERSION_2026_01_01)
     default_version = DEEL_API_VERSION_2026_01_01
     api_docs_url = "https://developer.deel.com/api/api-versioning"

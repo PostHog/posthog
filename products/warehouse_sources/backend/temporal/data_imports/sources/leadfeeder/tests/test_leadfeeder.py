@@ -4,12 +4,20 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
+    LeadfeederSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
     LEADFEEDER_BASE_URL,
     LeadfeederResumeConfig,
@@ -17,100 +25,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     _is_offset_exceeded,
     _split_window,
     _to_date_str,
-    leadfeeder_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
     LEADFEEDER_API_2026_08_07,
+    LEADFEEDER_API_LEGACY,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the leadfeeder module.
-LEADFEEDER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.source import LeadfeederSource
 
 
 def _item(id_: str, type_: str, **attributes: Any) -> dict[str, Any]:
     return {"id": id_, "type": type_, "attributes": attributes}
 
 
-def _response(items: list[dict[str, Any]], next_url: str | None = None) -> Response:
+def _response(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"data": items, "links": {"next": next_url} if next_url else {}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json=body)
 
 
-def _make_manager(resume_state: LeadfeederResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver(start_date: str | None = None) -> SourceDriver:
+    return SourceDriver(LeadfeederSource(), LeadfeederSourceConfig(api_token="token", start_date=start_date))
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session, capturing the URL and params of each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared; the prepared mock also needs a real ``.url`` for the host-pinning check.
-    """
-    session.headers = {}
-    urls: list[str] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        urls.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return urls, param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return leadfeeder_source("token", endpoint, manager, team_id=1, job_id="j", **kwargs)
-
-
-def _unified_response(items: list[dict[str, Any]], page_count: int = 1) -> Response:
+def _unified_response(items: list[dict[str, Any]], page_count: int = 1) -> ScriptedResponse:
     # The unified API reports the last page under `meta.page_count`; a single page stops pagination.
-    body: dict[str, Any] = {"data": items, "meta": {"page_num": 1, "page_count": page_count, "total_count": len(items)}}
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wire_full(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, snapshotting each request's method, url, params, and json body."""
-    session.headers = {}
-    requests: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        requests.append(
-            {
-                "method": request.method,
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "json": request.json,
-            }
-        )
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return requests
+    body: dict[str, Any] = {
+        "data": items,
+        "meta": {"page_num": 1, "page_count": page_count, "total_count": len(items)},
+    }
+    return ScriptedResponse(json=body)
 
 
 class TestFlattenItem:
@@ -139,83 +82,141 @@ class TestToDateStr:
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_link_and_saves_state_after_batch(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_follows_next_link_and_saves_state_after_batch(self) -> None:
         page2_url = f"{LEADFEEDER_BASE_URL}/accounts?page[number]=2&page[size]=100"
-        urls, _ = _wire(
-            session,
+        result = _driver().run(
+            "accounts",
             [
                 _response([_item("1", "accounts", name="A")], next_url=page2_url),
                 _response([_item("2", "accounts", name="B")]),
             ],
+            api_version=LEADFEEDER_API_LEGACY,
         )
-        manager = _make_manager()
-        rows = _rows(_source("accounts", manager))
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "1", "type": "accounts", "name": "A"},
             {"id": "2", "type": "accounts", "name": "B"},
         ]
         # State is saved once, pointing at the next page, only while a next link remains.
-        manager.save_state.assert_called_once_with(LeadfeederResumeConfig(next_url=page2_url))
+        assert result.saved_states == [LeadfeederResumeConfig(next_url=page2_url)]
         # The second page is fetched from the URL the API handed back.
-        assert urls[1] == page2_url
+        assert result.requests[1].origin == LEADFEEDER_BASE_URL
+        assert result.requests[1].path == "/accounts"
+        assert result.requests[1].param("page[number]") == "2"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_next_url(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_resumes_from_saved_next_url(self) -> None:
         resume_url = f"{LEADFEEDER_BASE_URL}/accounts?page[number]=5&page[size]=100"
-        urls, _ = _wire(session, [_response([_item("7", "accounts")])])
-        manager = _make_manager(LeadfeederResumeConfig(next_url=resume_url))
+        result = _driver().run(
+            "accounts",
+            [_response([_item("7", "accounts")])],
+            resume_state=LeadfeederResumeConfig(next_url=resume_url),
+            api_version=LEADFEEDER_API_LEGACY,
+        )
 
-        _rows(_source("accounts", manager))
-        assert urls[0] == resume_url
+        assert result.raised is None
+        assert result.requests[0].origin == LEADFEEDER_BASE_URL
+        assert result.requests[0].path == "/accounts"
+        assert result.requests[0].param("page[number]") == "5"
 
 
 class TestFanOut:
-    def _accounts_response(self, *ids: str, next_url: str | None = None) -> Response:
+    def _accounts_response(self, *ids: str, next_url: str | None = None) -> ScriptedResponse:
         return _response([_item(i, "accounts") for i in ids], next_url=next_url)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_iterates_every_account_and_injects_account_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(
-            session,
+    def test_iterates_every_account_and_injects_account_id(self) -> None:
+        result = _driver("2024-01-01").run(
+            "leads",
             [
                 self._accounts_response("1", "2"),
                 _response([_item("100", "leads", name="Acme")]),
                 _response([_item("200", "leads", name="Globex")]),
             ],
+            api_version=LEADFEEDER_API_LEGACY,
         )
-        rows = _rows(_source("leads", _make_manager(), start_date_config="2024-01-01"))
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "100", "type": "leads", "name": "Acme", "account_id": "1"},
             {"id": "200", "type": "leads", "name": "Globex", "account_id": "2"},
         ]
         # Each account is fetched at its own fan-out path.
-        assert any("/accounts/1/leads" in u for u in urls)
-        assert any("/accounts/2/leads" in u for u in urls)
+        assert "/accounts/1/leads" in result.paths
+        assert "/accounts/2/leads" in result.paths
         # The lead request carries the server-side date-range filter.
-        lead_params = next(p for p in params if "start_date" in p)
-        assert lead_params["start_date"] == "2024-01-01"
-        assert lead_params["end_date"] == "2026-07-02"
+        lead_request = next(request for request in result.requests if request.param("start_date") is not None)
+        assert lead_request.param("start_date") == "2024-01-01"
+        assert lead_request.param("end_date") == "2026-07-02"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_old_shape_resume_starts_fresh(self, MockSession) -> None:
+    def test_old_shape_resume_starts_fresh(self) -> None:
         # A pre-migration state (account_id/next_url, no fanout_state) still parses and starts fresh.
-        session = MockSession.return_value
-        urls, _ = _wire(
-            session,
-            [self._accounts_response("1", "2"), _response([_item("100", "leads")]), _response([_item("200", "leads")])],
+        result = _driver().run(
+            "leads",
+            [
+                self._accounts_response("1", "2"),
+                _response([_item("100", "leads")]),
+                _response([_item("200", "leads")]),
+            ],
+            resume_state=LeadfeederResumeConfig(account_id="2", next_url=None),
+            api_version=LEADFEEDER_API_LEGACY,
         )
-        manager = _make_manager(LeadfeederResumeConfig(account_id="2", next_url=None))
-        rows = _rows(_source("leads", manager))
 
-        assert {r["account_id"] for r in rows} == {"1", "2"}
-        assert any("/accounts/1/leads" in u for u in urls)
+        assert result.raised is None
+        assert {row["account_id"] for row in result.rows} == {"1", "2"}
+        assert "/accounts/1/leads" in result.paths
+
+
+def _unpaginated_unified_response(items: list[dict[str, Any]]) -> ScriptedResponse:
+    # The unified custom-feeds list carries no `meta.page_count`, so only a single-page paginator stops it.
+    return ScriptedResponse(json={"data": items, "meta": {"request_id": "req-1"}})
+
+
+class TestCustomFeeds:
+    @parameterized.expand(
+        [
+            (
+                "legacy",
+                LEADFEEDER_API_LEGACY,
+                _response,
+                ["/accounts", "/accounts/1/custom-feeds", "/accounts/2/custom-feeds"],
+            ),
+            (
+                "unified",
+                LEADFEEDER_API_2026_08_07,
+                _unpaginated_unified_response,
+                ["/v1/accounts", "/v1/web-visits/custom-feeds", "/v1/web-visits/custom-feeds"],
+            ),
+        ]
+    )
+    def test_reads_one_unwindowed_page_per_account(
+        self, _name: str, api_version: str, feeds_response: Any, expected_paths: list[str]
+    ) -> None:
+        result = _driver("2024-01-01").run(
+            "custom_feeds",
+            [
+                feeds_response([_item("1", "accounts"), _item("2", "accounts")]),
+                feeds_response([_item("all_leads", "custom_feeds", name="All leads")]),
+                feeds_response([_item("all_leads", "custom_feeds", name="All leads"), _item("77", "custom_feeds")]),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "all_leads", "type": "custom_feeds", "name": "All leads", "account_id": "1"},
+            {"id": "all_leads", "type": "custom_feeds", "name": "All leads", "account_id": "2"},
+            {"id": "77", "type": "custom_feeds", "account_id": "2"},
+        ]
+        assert result.paths == expected_paths
+        feed_requests = result.requests[1:]
+        if api_version == LEADFEEDER_API_2026_08_07:
+            assert [request.param("account_id") for request in feed_requests] == ["1", "2"]
+        for request in feed_requests:
+            for param in ("start_date", "end_date", "page[number]", "page[num]", "page[size]"):
+                assert request.param(param) is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["account_id", "id"]
 
 
 class TestSourceResponse:
@@ -228,7 +229,8 @@ class TestSourceResponse:
     def test_fan_out_endpoints_have_composite_key_and_partition(
         self, endpoint: str, primary_keys: list[str], partition_key: str
     ) -> None:
-        response = _source(endpoint, _make_manager())
+        response = _driver().run(endpoint, [_response([])], api_version=LEADFEEDER_API_LEGACY).response
+        assert response is not None
         assert response.primary_keys == primary_keys
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
@@ -236,38 +238,32 @@ class TestSourceResponse:
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("token") is expected
+    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))):
+            assert validate_credentials("token") is expected
 
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_session_redacts_token_and_blocks_redirects(self, mock_session: mock.MagicMock) -> None:
+    def test_session_redacts_token_and_blocks_redirects(self) -> None:
         # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
         # so it must be registered for value-based redaction; redirects must not be followed or the
         # credentialed request could resend the token off-origin.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("secret") is True
+        assert network.session_options[0]["redact_values"] == ("secret",)
+        assert network.session_options[0]["allow_redirects"] is False
 
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_unified_probe_uses_api_key_header_on_v1_accounts(self, mock_session: mock.MagicMock) -> None:
+    def test_unified_probe_uses_api_key_header_on_v1_accounts(self) -> None:
         # A source pinned to the unified API must probe `/v1/accounts` with an `X-Api-Key` header,
         # not the legacy `Authorization: Token` header on `/accounts`.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret", LEADFEEDER_API_2026_08_07)
-        call = mock_session.return_value.get.call_args
-        assert (call.args[0] if call.args else call.kwargs["url"]) == f"{LEADFEEDER_BASE_URL}/v1/accounts"
-        assert call.kwargs["headers"]["X-Api-Key"] == "secret"
-        assert "Authorization" not in call.kwargs["headers"]
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("secret", LEADFEEDER_API_2026_08_07) is True
+        request = network.requests_log[0]
+        assert request.url == f"{LEADFEEDER_BASE_URL}/v1/accounts"
+        assert request.headers["x-api-key"] == "secret"
+        assert "authorization" not in request.headers
 
 
-def _offset_exceeded_response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 416
-    resp._content = json.dumps(body).encode()
-    return resp
+def _offset_exceeded_response(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(status=416, json=body)
 
 
 def _http_error(status_code: int, body: dict[str, Any] | None) -> HTTPError:
@@ -346,48 +342,42 @@ class TestSplitWindow:
 
 
 class TestUnifiedRequests:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accounts_hits_v1_path_with_page_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        requests = _wire_full(session, [_unified_response([_item("1", "account", name="A")])])
-        rows = _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_2026_08_07))
+    def test_accounts_hits_v1_path_with_page_params(self) -> None:
+        result = _driver().run("accounts", [_unified_response([_item("1", "account", name="A")])])
 
-        assert rows == [{"id": "1", "type": "account", "name": "A"}]
-        assert requests[0]["url"] == f"{LEADFEEDER_BASE_URL}/v1/accounts"
-        assert requests[0]["params"]["page[num]"] == 1
-        assert requests[0]["params"]["page[size]"] == 100
+        assert result.raised is None
+        assert result.rows == [{"id": "1", "type": "account", "name": "A"}]
+        assert result.paths == ["/v1/accounts"]
+        assert result.requests[0].param("page[num]") == "1"
+        assert result.requests[0].param("page[size]") == "100"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_visits_fan_out_posts_web_visits_with_date_body(self, MockSession) -> None:
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
+    def test_visits_fan_out_posts_web_visits_with_date_body(self) -> None:
+        result = _driver("2024-01-01").run(
+            "visits",
             [
                 _unified_response([_item("1", "account")]),
                 _unified_response([], page_count=1),
                 _unified_response([_item("100", "web_visit", started_at="2026-06-01T10:00:00Z")]),
             ],
         )
-        _rows(_source("visits", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
-        visit_reqs = [r for r in requests if r["url"].endswith("/v1/web-visits")]
+        assert result.raised is None
+        visit_reqs = [request for request in result.requests if request.path == "/v1/web-visits"]
         assert visit_reqs, "expected a request to the unified web-visits search"
         # The web-visits search is a POST carrying its date window in the body, not the query string.
-        assert visit_reqs[0]["method"] == "POST"
-        assert visit_reqs[0]["json"] == {"start_date": "2024-01-01", "end_date": "2026-07-02"}
-        assert visit_reqs[0]["params"]["account_id"] == "1"
+        assert visit_reqs[0].method == "POST"
+        assert visit_reqs[0].json() == {"start_date": "2024-01-01", "end_date": "2026-07-02"}
+        assert visit_reqs[0].param("account_id") == "1"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_window_reporting_more_pages_than_the_vendor_serves_is_split(self, MockSession) -> None:
+    def test_window_reporting_more_pages_than_the_vendor_serves_is_split(self) -> None:
         # A busy account can hold more rows in the sync window than the vendor will page through:
         # past 100 pages of 100 it answers 416 `offset_exceeded` instead of the next page. The rows
         # past that point are only reachable through a narrower date window, so a window reporting
         # more pages than that must be split before any of it is read.
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
+        result = _driver("2026-01-01").run(
+            "leads",
             [
                 _unified_response([_item("1", "account")]),
                 _unified_response([], page_count=200),
@@ -398,32 +388,27 @@ class TestUnifiedRequests:
             ],
         )
 
-        rows = _rows(
-            _source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07)
-        )
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "100", "type": "company_location", "account_id": "1"},
             {"id": "200", "type": "company_location", "account_id": "1"},
         ]
         windows = [
-            (r["params"]["start_date"], r["params"]["end_date"])
-            for r in requests
-            if "/v1/web-visits/companies" in r["url"]
+            (request.param("start_date"), request.param("end_date"))
+            for request in result.requests
+            if request.path == "/v1/web-visits/companies"
         ]
         # The whole window is covered by halves, each read end to end, with no gap or overlap.
         assert windows[0] == ("2026-01-01", "2026-07-02")
         assert set(windows[1:]) == {("2026-01-01", "2026-04-02"), ("2026-04-03", "2026-07-02")}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_offset_exceeded_mid_window_re_reads_the_window_narrower(self, MockSession) -> None:
+    def test_offset_exceeded_mid_window_re_reads_the_window_narrower(self) -> None:
         # The page count the vendor reports can understate what it will serve, so a window can still
         # run into the 416 half way through. The rest of that window must be re-read as narrower
         # windows; stopping there would silently drop every row past the limit.
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
+        result = _driver("2026-07-01").run(
+            "leads",
             [
                 _unified_response([_item("1", "account")]),
                 _unified_response([], page_count=1),
@@ -436,28 +421,23 @@ class TestUnifiedRequests:
             ],
         )
 
-        rows = _rows(
-            _source("leads", _make_manager(), start_date_config="2026-07-01", api_version=LEADFEEDER_API_2026_08_07)
-        )
-
-        assert [row["id"] for row in rows] == ["100", "200", "300"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["100", "200", "300"]
         windows = {
-            (r["params"]["start_date"], r["params"]["end_date"])
-            for r in requests
-            if "/v1/web-visits/companies" in r["url"]
+            (request.param("start_date"), request.param("end_date"))
+            for request in result.requests
+            if request.path == "/v1/web-visits/companies"
         }
         assert ("2026-07-01", "2026-07-01") in windows
         assert ("2026-07-02", "2026-07-02") in windows
 
-    @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_single_day_over_the_limit_keeps_the_rows_it_can_read(self, MockSession) -> None:
+    def test_single_day_over_the_limit_keeps_the_rows_it_can_read(self) -> None:
         # A single day can hold more rows than the vendor will page through, and there is no
         # narrower window to ask for. Keep the rows that were read and finish the table instead of
         # splitting forever or failing the sync.
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
+        result = _driver("2026-07-02").run(
+            "leads",
             [
                 _unified_response([_item("1", "account")]),
                 _unified_response([], page_count=150),
@@ -466,9 +446,6 @@ class TestUnifiedRequests:
             ],
         )
 
-        rows = _rows(
-            _source("leads", _make_manager(), start_date_config="2026-07-02", api_version=LEADFEEDER_API_2026_08_07)
-        )
-
-        assert rows == [{"id": "100", "type": "company_location", "account_id": "1"}]
-        assert len(requests) == 4
+        assert result.raised is None
+        assert result.rows == [{"id": "100", "type": "company_location", "account_id": "1"}]
+        assert len(result.requests) == 4

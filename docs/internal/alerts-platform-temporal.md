@@ -230,6 +230,11 @@ Flooring to the minute loses nothing that load spreading provides: `compute_shar
 whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
 than within one.
 
+A source can set `schedule_group` on an outcome to spread by team and group instead of by configuration, through `compute_team_shard_offset_seconds`.
+A team's alerts with one group and one cadence then share a batch key.
+Logs sets the group to the query shape (window, evaluation periods, projection eligibility), so alerts that can share a cohort query land in one batch, and alerts that cannot spread across slots.
+That keeps a batch under `MAX_COHORTS_PER_CYCLE` in the common case, where one slot per team would push a team with many shapes over it.
+
 ## Source evaluation bindings
 
 `products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
@@ -468,7 +473,7 @@ Insight alerts are copied the same way:
 python manage.py backfill_platform_insight_alert_configurations
 ```
 
-It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
+It copies threshold alerts on a 15-minute or slower cadence only, and skips detector alerts and the real-time cadence.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.

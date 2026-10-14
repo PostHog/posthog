@@ -11,7 +11,7 @@ import datetime
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
-from itertools import batched
+from itertools import batched, zip_longest
 from operator import or_
 from typing import Literal
 from urllib.parse import urlsplit
@@ -1996,6 +1996,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     - Existing URL that vanished from discovery → mark tombstoned_at,
       delete chunks (keep the doc row so a later re-appearance can reuse
       the id).
+    - No live page confirmed and none left → `last_refresh_status=error`.
+      Live documents stay when the fetches fail. A source with none left is
+      `status=error`, including when a vanished page was tombstoned and its
+      replacement failed to fetch.
     """
 
     try:
@@ -2045,6 +2049,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     # Each URL is written once. A second outcome for a new URL would insert the same chunk ids again.
     safe_urls = list(dict.fromkeys(safe_urls))
 
+    new_urls = [u for u in safe_urls if u not in existing_by_url]
+    stored_urls = [u for u in safe_urls if u in existing_by_url]
+    safe_urls = [u for pair in zip_longest(new_urls, stored_urls) for u in pair if u is not None]
+
     def _etag_for(u: str) -> str | None:
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
@@ -2060,9 +2068,12 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             discovered_set.add(url_fetch.normalize_url(u))
         except url_fetch.UrlFetchError:
             pass
-    vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set]
+    # An empty discovery is a failed read, not proof every stored page is gone.
+    vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set] if discovered else []
 
     any_changes = False
+    first_error = ""
+    retained_page = False
     # Tombstone docs whose URL vanished from discovery before any batch, so the
     # chunk cap check below does not count their chunks. Chunks go away now; the
     # sweep hard-deletes the doc row after a grace period (preserves the id in
@@ -2084,6 +2095,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             for outcome in batch:
                 existing = existing_by_url.pop(outcome.url, None)
                 if outcome.status == "not_modified":
+                    if existing is not None:
+                        retained_page = True
                     # Still touch the etag so a rotation stays fresh.
                     if existing and outcome.etag and existing.etag != outcome.etag:
                         existing.etag = outcome.etag
@@ -2092,6 +2105,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
                 if outcome.status == "error":
                     # Keep the old doc intact — partial failures shouldn't
                     # knock out a previously-working page.
+                    if not first_error:
+                        first_error = outcome.error
                     logger.info(
                         "business_knowledge.crawl.refresh_page_error",
                         source_id=str(source.id),
@@ -2101,6 +2116,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
                     continue
                 assert outcome.status == "ok"
                 if existing is not None and existing.content_hash == outcome.content_hash:
+                    retained_page = True
                     # No re-chunk needed. Still bump etag if we got a new one.
                     if outcome.etag and existing.etag != outcome.etag:
                         existing.etag = outcome.etag
@@ -2120,6 +2136,41 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
             if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
                 raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    has_live_document = KnowledgeDocument.objects.filter(
+        team_id=team_id, source_id=source.id, tombstoned_at__isnull=True
+    ).exists()
+    # A tombstone sets any_changes, so it must not count as a stored page.
+    if not retained_page and (not any_changes or not has_live_document):
+        if not discovered:
+            error_msg = "Crawl discovered no URLs. Check the entry URL and globs."
+        elif not safe_urls:
+            error_msg = "Crawl discovered no safe URLs to fetch."
+        else:
+            error_msg = first_error or "All pages failed to fetch."
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+            now = timezone.now()
+            fresh.last_refresh_at = now
+            fresh.last_refresh_status = RefreshStatus.ERROR
+            fresh.last_refresh_error = error_msg
+            if has_live_document:
+                fresh.status = SourceStatus.READY
+                fresh.error_message = ""
+            else:
+                fresh.status = SourceStatus.ERROR
+                fresh.error_message = error_msg
+            fresh.save(
+                update_fields=[
+                    "status",
+                    "error_message",
+                    "last_refresh_at",
+                    "last_refresh_status",
+                    "last_refresh_error",
+                    "updated_at",
+                ]
+            )
+        return get_for_team(source.id, team_id) or fresh
 
     with transaction.atomic():
         fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
@@ -2914,6 +2965,7 @@ def list_due_refresh_sources(
 def list_documents_pending_classification(
     *,
     limit: int = PENDING_CLASSIFICATION_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
 ) -> list[PendingDocument]:
     """
     Return documents whose ``safety_verdict`` is still ``unknown``.
@@ -2936,15 +2988,18 @@ def list_documents_pending_classification(
     # into memory per doc at CLASSIFY_MAX_TOTAL_CHARS + 1 — the classifier
     # fails closed on anything longer than the cap, and the +1 lets it detect
     # that the content was truncated here without a second Length() round-trip.
+    pending = KnowledgeDocument.objects.unscoped().filter(
+        safety_verdict=SafetyVerdict.UNKNOWN,
+        tombstoned_at__isnull=True,
+        classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS,
+        team__organization__is_ai_data_processing_approved=True,
+    )
+    # Empty NOT IN is invalid SQL. Skip the clause when this run has tried nothing yet.
+    if exclude_ids:
+        pending = pending.exclude(id__in=exclude_ids)
     rows = (
-        KnowledgeDocument.objects.unscoped()
-        .filter(
-            safety_verdict=SafetyVerdict.UNKNOWN,
-            tombstoned_at__isnull=True,
-            classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS,
-            team__organization__is_ai_data_processing_approved=True,
-        )
-        .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+        pending.annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+        .order_by("classification_attempts", "id")
         .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
     )
     return [
@@ -3134,6 +3189,9 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
+        # Stable id order so a doc stamped by this chunk is not selected again,
+        # and the next chunk continues past it.
+        .order_by("id")
         .values_list("team_id", "id", "source_id", "source__source_type", "created_at")[:limit]
     )
     chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])

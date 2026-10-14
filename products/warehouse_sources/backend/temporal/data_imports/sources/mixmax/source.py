@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,10 +32,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # endpoint carries incremental fields.
 MIXMAX_INCREMENTAL_FIELDS: dict[str, list] = {}
 MIXMAX_DESCRIPTIONS = {name: config.description for name, config in MIXMAX_ENDPOINTS.items() if config.description}
+MIXMAX_SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config in MIXMAX_ENDPOINTS.items()}
 
 
 @SourceRegistry.register
 class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
+    codebase_detection = detect(env=("^(MIX_MAX|MIXMAX)_",))
+
     api_docs_url = "https://developer.mixmax.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -105,6 +109,7 @@ API access requires a Growth+ or Enterprise plan with the API feature enabled on
             MIXMAX_INCREMENTAL_FIELDS,
             names,
             descriptions=MIXMAX_DESCRIPTIONS,
+            should_sync_default=MIXMAX_SHOULD_SYNC_DEFAULT,
         )
 
     def validate_credentials(
