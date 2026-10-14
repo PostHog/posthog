@@ -340,10 +340,8 @@ class TestTrackReviewCompleted(BaseTest):
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
             patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
-            patch("products.review_hog.backend.temporal.activities.github_api_request") as live,
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
-            live.return_value.json.return_value = {"draft": True}
             gate.return_value.decide.return_value = decision
             for head_sha in ("sha1", "sha2"):
                 assert (

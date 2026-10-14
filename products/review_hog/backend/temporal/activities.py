@@ -2306,21 +2306,29 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
         token, installation_id = _installation_auth(input.team_id, input.repository)
-        if draft:
-            # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR
-            # marked ready before this turn reads as ready. One marked ready while this turn runs does
-            # not: the queue drops the ready request for the head this turn gates, so read it again.
-            draft = _pr_is_draft_now(
-                input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
-            )
-        decision = PushGate(
+        gate = PushGate(
             team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
-        ).decide(
+        )
+        decision = gate.decide(
             previous_head_sha=input.previous_head_sha,
             head_sha=input.head_sha,
             base_branch=current.pr_metadata.base_branch,
             draft=bool(draft),
         )
+        # Every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked
+        # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
+        # drops the ready request for the head this turn gates. So a draft skip reads GitHub again as its
+        # last step, which leaves only the moment between this read and the end of the turn.
+        if decision.reason == "draft" and not _pr_is_draft_now(
+            input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+        ):
+            draft = False
+            decision = gate.decide(
+                previous_head_sha=input.previous_head_sha,
+                head_sha=input.head_sha,
+                base_branch=current.pr_metadata.base_branch,
+                draft=False,
+            )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
     try:
