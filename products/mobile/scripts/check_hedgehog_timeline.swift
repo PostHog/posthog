@@ -6,6 +6,19 @@ struct CheckHedgehogTimeline {
         let choreography = FallbackChoreography.value
         let now = choreography.startsAt.addingTimeInterval(120)
         let plan = HedgehogTimelineProvider.plan(for: choreography, now: now)
+        precondition(plan.entries.contains { $0.spin != 0 })
+        precondition(plan.entries.allSatisfy {
+            $0.tick.y == 0 && $0.tick.bubble == nil && ($0.spin == 0 || $0.spin == 360)
+                && ($0.orbit == 0 || $0.orbit == 360)
+        })
+        for (from, to) in zip(plan.entries, plan.entries.dropFirst()) {
+            precondition(abs(to.tick.x - from.tick.x) <= 0.060001)
+            if to.tick.facing != from.tick.facing {
+                precondition(to.tick.x == from.tick.x)
+            }
+            precondition(abs(to.spin - from.spin) <= 360)
+            precondition(abs(to.orbit! - from.orbit!) <= 360)
+        }
         let encoded = try JSONEncoder().encode(plan.entries)
         let saved = try JSONDecoder().decode([HedgehogEntry].self, from: encoded)
 
@@ -40,11 +53,24 @@ struct CheckHedgehogTimeline {
             let next = HedgehogTimelineProvider.plan(for: choreography, now: last.date.addingTimeInterval(delay), previous: saved)
             precondition(next.entries.first!.tick.x == last.tick.x)
             for (from, to) in zip(next.entries, next.entries.dropFirst()) {
-                precondition(abs(to.tick.x - from.tick.x) <= 0.120001)
+                precondition(abs(to.tick.x - from.tick.x) <= 0.060001)
                 precondition(to.date.timeIntervalSince(from.date) == Double(choreography.keyframeSec))
                 precondition(to.tick.hoggie == nil)
             }
         }
-        print("Passed: persistent selection, tap/reload continuity, delayed refresh and bounded travel")
+        let airborne = HedgehogEntry(
+            date: now, tick: Tick(pose: .jump, frame: 4, x: 0.73, y: 0.8, facing: .left, bubble: "Hello", turn: 0.5),
+            spin: 180, motion: .rise(1.5)
+        )
+        let legacy = [airborne, HedgehogEntry(date: now.addingTimeInterval(20), tick: airborne.tick, spin: 180, motion: .settle)]
+        let migrated = HedgehogTimelineProvider.plan(for: choreography, now: now.addingTimeInterval(0.5), previous: legacy)
+        precondition(migrated.entries[0].tick.x == airborne.tick.x)
+        precondition(migrated.entries.allSatisfy { $0.tick.y == 0 && $0.tick.bubble == nil && $0.spin.truncatingRemainder(dividingBy: 360) == 0 })
+        for elapsed in [2.0, 8.0, 60.0, 600.0, 86400.0] {
+            let resumed = HedgehogTimelineProvider.plan(for: choreography, now: now.addingTimeInterval(elapsed), previous: saved)
+            precondition(resumed.entries[0].tick.y == 0)
+            precondition(resumed.entries[0].spin.truncatingRemainder(dividingBy: 360) == 0)
+        }
+        print("Passed: persistent selection, tap/reload continuity, delayed/skipped updates, legacy flip recovery, silent snapshots and bounded travel")
     }
 }

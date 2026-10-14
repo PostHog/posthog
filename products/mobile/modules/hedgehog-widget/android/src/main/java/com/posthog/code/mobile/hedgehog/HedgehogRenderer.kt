@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.Parcel
 import android.util.Log
 import android.util.TypedValue
-import android.view.View
 import android.widget.RemoteViews
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -100,7 +99,15 @@ object HedgehogRenderer {
             listOf(tick, tick.copy(x = (tick.x + next.x) / 2, y = (tick.y + next.y) / 2))
         } else loop
         val character = HedgehogStore.selected(context, id)
-        val ticks = movement.map { it.copy(hoggie = character) }
+        var facing = movement.first().facing
+        val ticks = movement.mapIndexed { index, tick ->
+            val previous = movement[(index + movement.size - 1) % movement.size]
+            val distance = tick.x - previous.x
+            if (tick.pose == "walk" && kotlin.math.abs(distance) > 0.001f) {
+                facing = if (distance < 0) Facing.LEFT else Facing.RIGHT
+            }
+            tick.copy(hoggie = character, facing = facing, bubble = null)
+        }
         val root = RemoteViews(pkg, R.layout.hedgehog_widget)
         root.removeAllViews(R.id.hedgehog_flipper)
         for ((index, tick) in ticks.withIndex()) {
@@ -135,7 +142,6 @@ object HedgehogRenderer {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && frameIndex != null) {
             root.setDisplayedChild(R.id.hedgehog_flipper, Math.floorMod(frameIndex, ticks.size))
         }
-        root.setViewVisibility(R.id.hedgehog_caption, View.GONE)
         // A tap that misses the sprite falls through the frames, which are not clickable, to the root.
         openAppIntent(context)?.let { root.setOnClickPendingIntent(R.id.hedgehog_root, it) }
 

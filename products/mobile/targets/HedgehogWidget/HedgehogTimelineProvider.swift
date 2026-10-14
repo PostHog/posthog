@@ -14,18 +14,19 @@ struct HedgehogEntry: TimelineEntry, Codable {
     let tick: Tick
     let spin: Double
     let motion: Motion
+    var orbit: Double? = nil
 
     func wearing(_ character: String?) -> HedgehogEntry {
         HedgehogEntry(date: date, tick: Tick(
             pose: tick.pose, frame: tick.frame, x: tick.x, y: tick.y, facing: tick.facing,
-            bubble: tick.bubble, turn: tick.turn, hoggie: character
-        ), spin: spin, motion: motion)
+            hoggie: character
+        ), spin: spin, motion: motion, orbit: orbit)
     }
 }
 
 struct HedgehogTimelineProvider: TimelineProvider {
     private static let entryLimit = 270
-    private static let longestAnimation: TimeInterval = 2
+    private static let longestAnimation: TimeInterval = 1.6
 
     struct Plan {
         let entries: [HedgehogEntry]
@@ -58,60 +59,61 @@ struct HedgehogTimelineProvider: TimelineProvider {
     }
 
     static func plan(for choreography: Choreography, now: Date, previous: [HedgehogEntry] = []) -> Plan {
-        if let end = previous.last?.date, end > now {
+        if let end = previous.last?.date, end > now, previous.allSatisfy({ ($0.orbit == 0 || $0.orbit == 360) && ($0.spin == 0 || $0.spin == 360) }) {
             let current = previous.lastIndex { $0.date <= now } ?? 0
             return Plan(entries: Array(previous[current...]), reloadAt: end)
         }
 
-        let step = TimeInterval(choreography.keyframeSec)
+        let step = TimeInterval(max(choreography.keyframeSec, 2))
         let keyframes = choreography.keyframes
-        let angles = spins(for: keyframes)
-        let index = Int(floor(now.timeIntervalSince(choreography.startsAt) / step))
+        var index = Int(floor(now.timeIntervalSince(choreography.startsAt) / step))
         func wrapped(_ index: Int) -> Int { ((index % keyframes.count) + keyframes.count) % keyframes.count }
-        let start = previous.last?.tick.grounded ?? keyframes[wrapped(index)].grounded
-        var entries = [HedgehogEntry(date: now, tick: start, spin: 0, motion: .settle)]
-        for offset in 1..<(entryLimit - 1) {
-            let target = keyframes[wrapped(index + offset)]
-            let prior = entries[entries.count - 1].tick
-            let x = prior.x + min(max(target.x - prior.x, -0.12), 0.12)
-            let tick = Tick(
-                pose: target.pose, frame: target.frame,
-                x: x, y: target.y, facing: target.pose == .walk && x != prior.x ? (x < prior.x ? .left : .right) : target.facing,
-                bubble: target.bubble, turn: target.turn
-            )
+        let anchor = previous.last { $0.date <= now }
+        let start = (anchor?.tick ?? keyframes[wrapped(index)]).grounded
+        // Bounded endpoints prevent skipped updates from combining several flips into one rapid spin.
+        var spin = abs(((anchor?.spin ?? 0) / 360).rounded().truncatingRemainder(dividingBy: 2)) * 360
+        var orbit = abs(((anchor?.orbit ?? 0) / 360).rounded().truncatingRemainder(dividingBy: 2)) * 360
+        var entries = [HedgehogEntry(
+            date: now, tick: Tick(pose: .idle, frame: 0, x: start.x, y: 0, facing: start.facing),
+            spin: spin, motion: .settle, orbit: orbit
+        )]
+
+        func append(_ tick: Tick) {
             entries.append(HedgehogEntry(
-                date: now.addingTimeInterval(Double(offset) * step), tick: tick,
-                spin: angles[wrapped(index + offset)],
-                motion: motion(from: prior, to: tick, gap: step)
+                date: now.addingTimeInterval(Double(entries.count) * step), tick: tick,
+                spin: spin, motion: .glide(min(step, longestAnimation)), orbit: orbit
             ))
         }
-        let last = entries[entries.count - 1]
-        let finishingFlip = last.spin.truncatingRemainder(dividingBy: 360) != 0
-        let landedSpin = finishingFlip ? (last.spin > 0 ? ceil(last.spin / 360) : floor(last.spin / 360)) * 360 : last.spin
-        let resting = Tick(
-            pose: .idle, frame: 0, x: last.tick.x, y: 0, facing: last.tick.facing,
-            turn: finishingFlip ? (landedSpin - last.spin) / 360 : nil
-        )
-        entries.append(HedgehogEntry(
-            date: last.date.addingTimeInterval(step), tick: resting, spin: landedSpin,
-            motion: motion(from: last.tick, to: resting, gap: step)
-        ))
-        return Plan(entries: entries, reloadAt: entries[entries.count - 1].date)
-    }
 
-    static func spins(for ticks: [Tick]) -> [Double] {
-        var turns = 0.0
-        return ticks.map { tick in
-            turns = (tick.turn ?? 0) == 0 ? 0 : turns + (tick.turn ?? 0)
-            return turns * 360
+        while entries.count < entryLimit {
+            index += 1
+            let target = keyframes[wrapped(index)]
+            let prior = entries[entries.count - 1].tick
+            if target.pose == .walk && abs(target.x - prior.x) > 0.025 {
+                let facing: Facing = target.x < prior.x ? .left : .right
+                if facing != prior.facing {
+                    append(Tick(pose: .idle, frame: 0, x: prior.x, y: 0, facing: facing))
+                }
+                let distance = target.x - prior.x
+                let steps = Int(ceil(abs(distance) / 0.06))
+                for part in 1...steps where entries.count < entryLimit {
+                    append(Tick(
+                        pose: .walk, frame: target.frame, x: prior.x + distance * Double(part) / Double(steps),
+                        y: 0, facing: facing
+                    ))
+                }
+            } else {
+                let jumping = target.y > 0 && keyframes[wrapped(index - 1)].y == 0
+                if jumping {
+                    orbit = orbit == 0 ? 360 : 0
+                    if let turn = target.turn, turn != 0 {
+                        spin = spin == 0 ? 360 : 0
+                    }
+                }
+                append(Tick(pose: jumping ? .idle : target.pose, frame: jumping ? 0 : target.frame,
+                            x: prior.x, y: 0, facing: prior.facing))
+            }
         }
-    }
-
-    static func motion(from previous: Tick?, to tick: Tick, gap: TimeInterval) -> Motion {
-        guard let previous else { return .settle }
-        if tick.y > previous.y { return .rise(min(gap * 0.75, 1.5)) }
-        if tick.y < previous.y { return .drop(min(gap * 0.5, 1)) }
-        if abs(tick.x - previous.x) > 0.001 { return .glide(min(gap, longestAnimation)) }
-        return .settle
+        return Plan(entries: entries, reloadAt: entries[entries.count - 1].date)
     }
 }

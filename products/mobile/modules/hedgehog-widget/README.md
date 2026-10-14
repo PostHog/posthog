@@ -17,9 +17,12 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 3. Each platform plays the script with what the OS allows:
    - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one per 2-second beat.
      From iOS 17 WidgetKit animates the change between entries, so the hedgehog glides, hops, flips and turns to its next spot.
-     Travel is limited to small steps. A timeline ends on the ground and holds that position if iOS delays its reload.
+     Walking follows each destination in steps of at most 6% of the travel area, with a stationary turn before reversing.
+     Hops and flips use built-in rotations that complete a full turn in 1.6 seconds. Every entry ends upright on the ground,
+     so a delayed or skipped update cannot leave the hog upside down. Image changes and facing changes do not crossfade or spring.
      The widget saves its scheduled entries per family: tapping changes only the character, and a refresh resumes the
      existing timeline. After it expires, the new routine starts at the last position instead of a distant wall-clock sample.
+     Dialogue is not rendered on either platform, including when reading an older script.
      The hedgehog is an interactive `Button(intent:)`; a tap anywhere else opens the app.
    - **Android (RemoteViews)** uses `ViewFlipper` to play a closed loop, interpolating halfway positions every 60 ms for the standard 120 ms script.
      A placed widget keeps its loop across daily script syncs. Android 12+ reuses stable frame views so taps, refreshes
@@ -41,8 +44,8 @@ interface Tick {
     x: number // 0..1, centre of the hedgehog across the widget width (0 = left edge, 1 = right edge; renderers clamp so it stays inside)
     y: number // 0..1, height above the floor: 0 = feet on the floor, 1 = top of the widget
     facing: Facing
-    bubble?: string // at most 24 characters; iOS speech bubbles only on ticks with y 0, Android captions use the first loop tick
-    turn?: number // iOS only: turns added on the way into this tick, clockwise on screen. A flip is two ticks of 0.5 each (up, then down).
+    bubble?: string // legacy dialogue; ignored by the native renderers
+    turn?: number // legacy half-turn markers; iOS plays one complete flip when entering an airborne sequence
     hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'asleep' | 'superhero' | 'reading' | 'float'
     // A bundled illustration replaces the pixel sprite. Missing/unknown artwork falls back to the pixel sprite.
     // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
@@ -61,7 +64,6 @@ interface Choreography {
     reaction: { keyframes: Tick[]; ticks: Tick[] } // legacy tap reaction, retained for compatibility with older native builds.
     surprises?: { keyframes: Tick[]; ticks: Tick[] }[] // legacy illustrated reactions, retained for older native builds
     // Reaction ticks are authored at x 0.5 facing right. A renderer shifts every x by (current x - 0.5), clamps, and keeps the current facing, so the hedgehog reacts where it stands.
-    // When the current facing is left, the renderer also negates `turn`, so a flip still goes forwards.
 }
 ```
 
