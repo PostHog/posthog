@@ -91,9 +91,15 @@ def is_builtin_agent_enforcement_enabled(team_id: int) -> bool:
     minter both key off this check — they must agree, or a legacy-resolved
     task gets a token the member proxy rejects. Fails closed to legacy so a
     flag-evaluation hiccup behaves like a not-yet-rolled-out team.
+    """
+    return is_mcp_gateway_enabled(team_id)
+
+
+def is_mcp_gateway_enabled(team_id: int) -> bool:
+    """Is the team's organization on the `mcp-gateway` rollout?
 
     DEBUG bypasses the flag: the analytics SDK is disabled in local dev, where
-    gateway work needs enforcement on to be exercisable at all.
+    gateway work needs the rollout on to be exercisable at all.
     """
     if settings.DEBUG:
         return True
