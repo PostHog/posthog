@@ -624,3 +624,15 @@ A `schema.json` integration into the codegen pipeline is planned.
   Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
   flow correctly through the type pipeline.
   See [`.agents/skills/improving-drf-endpoints/SKILL.md`](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
+
+## MCP event subscriptions
+
+Captured-event subscriptions use `posthog.event_captured` with an explicit `project_id` and the existing real-time destination filters. The `mcp-events` feature flag gates the project subscription API. Its preview endpoint validates filters and returns up to five matching events from the past seven days.
+
+Each subscription creates one managed Hog Function from the existing webhook template, with its fetch call routed through the reserved `mcpEventFetch` operation. Older workers fail without sending. Subscription identity includes the authenticated principal, callback URL, event name, and canonical filter arguments. OAuth token refresh keeps the same principal when the user and application are unchanged. Ordinary destination APIs cannot inspect or change these managed functions; subscription reads are scoped to the owner.
+
+Django verifies the HTTPS callback challenge before activation and encrypts the callback configuration and subscribing credential at rest. The CDP worker calls the subscription's delivery-authorization endpoint before sending, using that credential. Django rechecks membership, scopes, filter access, lifecycle generation, and expiry, removes restricted event properties, and returns the exact body and fresh Standard Webhooks signing headers. This adds one internal API call per delivery attempt. The granted lifetime is at most 24 hours and is bounded by OAuth access-token expiry; clients refresh through the subscription API.
+
+Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends one event per callback request, and rejects bodies larger than 256 KiB. Retries use bounded exponential backoff; each attempt rejects revoked, unsubscribed, expired, and stale-generation work. Requests already in flight can complete. A periodic sweep disables expired destinations. Signing-key rotation briefly signs with both keys. Replay is unavailable: subscription results and event envelopes return `cursor: null`.
+
+The backend implementation lives under `products/cdp/backend/`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).

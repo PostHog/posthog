@@ -113,6 +113,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `loop` - loop
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
+ * * `mcp_event_subscription` - mcp_event_subscription
  * * `mcp_registry` - mcp_registry
  * * `metrics` - metrics
  * * `notebook` - notebook
@@ -233,6 +234,7 @@ export const ScopeObjectEnumApi = {
     Loop: 'loop',
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
+    McpEventSubscription: 'mcp_event_subscription',
     McpRegistry: 'mcp_registry',
     Metrics: 'metrics',
     Notebook: 'notebook',
@@ -376,6 +378,7 @@ export interface ProjectAccessSourceApi {
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
+     * * `mcp_event_subscription` - mcp_event_subscription
      * * `mcp_registry` - mcp_registry
      * * `metrics` - metrics
      * * `notebook` - notebook
@@ -539,6 +542,7 @@ export interface AccessControlObjectRuleApi {
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
+     * * `mcp_event_subscription` - mcp_event_subscription
      * * `mcp_registry` - mcp_registry
      * * `metrics` - metrics
      * * `notebook` - notebook
@@ -927,6 +931,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
+     * * `mcp_event_subscription` - mcp_event_subscription
      * * `mcp_registry` - mcp_registry
      * * `metrics` - metrics
      * * `notebook` - notebook
@@ -1212,6 +1217,7 @@ export interface ResolvedAccessApi {
      * * `loop` - loop
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
+     * * `mcp_event_subscription` - mcp_event_subscription
      * * `mcp_registry` - mcp_registry
      * * `metrics` - metrics
      * * `notebook` - notebook

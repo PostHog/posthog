@@ -129,7 +129,7 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
 // differ between two deliveries, including two in the same invocation.
 export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.object({
     secret_input: z.string(),
-    webhook_id: z.string(),
+    webhook_id: z.string().min(1),
 })
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
@@ -141,6 +141,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    mcp_event_subscription: z.object({ id: z.string().uuid(), generation: z.string().uuid() }).optional(),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10

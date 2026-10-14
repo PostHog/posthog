@@ -96,6 +96,7 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
+    "mcp_event_subscription",
     "mcp_registry",
     "metrics",
     "notebook",
