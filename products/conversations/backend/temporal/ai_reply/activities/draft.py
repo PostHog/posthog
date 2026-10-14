@@ -17,7 +17,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.business_knowledge.backend.constants import MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import get_chunks_by_ids
-from products.conversations.backend.playbook import compose_support_playbook, is_posthog_docs_source
+from products.conversations.backend.playbook import compose_support_playbook, has_docs_search
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
@@ -198,13 +198,14 @@ def tools_you_have_block(
     docs_source: str | None,
     auto_publishable: bool,
     grants_customer_data: bool,
+    docs_search_disabled: bool = False,
 ) -> str:
     """Structured tool list generated from this run's actual grants so prompt and MCP never drift."""
     lines = [
         "TOOLS YOU HAVE ON THIS RUN (generated from this run's MCP grants; you cannot call a tool that is not listed):",
         "- business-knowledge-documents-search: this team's own business knowledge for team-specific answers.",
     ]
-    if is_posthog_docs_source(docs_source):
+    if has_docs_search(docs_source, docs_search_disabled=docs_search_disabled):
         lines.append(
             "- docs-search: searches the official PostHog documentation (https://posthog.com/docs) via Inkeep. "
             "Best for product features, billing, setup, SDKs, APIs, etc."
@@ -256,6 +257,7 @@ async def _draft_async(input: DraftInput) -> DraftOutput:
     playbook = compose_support_playbook(
         docs_source=input.docs_source or None,
         custom_instructions=input.custom_instructions or None,
+        docs_search_disabled=input.docs_search_disabled,
     )
     if playbook.warnings:
         logger.warning(
@@ -360,6 +362,7 @@ FOLLOW-UP: You already asked a clarifying question. The customer's answer is in 
         docs_source=input.docs_source or None,
         auto_publishable=input.auto_publishable,
         grants_customer_data=grants_customer_data,
+        docs_search_disabled=input.docs_search_disabled,
     )
 
     prompt = f"""You are a support agent drafting a reply to a customer ticket.

@@ -21,6 +21,7 @@ from ee.hogai.tools.search import (
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_NO_RESULTS_TEMPLATE,
     DOCS_SEARCH_RESULTS_TEMPLATE,
+    DOCS_SEARCH_UNAVAILABLE,
     InkeepDocsSearchTool,
     SearchTool,
     format_inkeep_docs_response,
@@ -143,6 +144,14 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
         self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
+
+    @patch("ee.hogai.tools.search.is_inkeep_docs_search_disabled", return_value=True)
+    @patch("ee.hogai.tools.search.ChatOpenAI")
+    async def test_disabled_flag_skips_inkeep_without_asking_for_retries(self, mock_llm_class, _flag):
+        result, _ = await self.tool.execute("how to use feature", "test-tool-call-id")
+
+        self.assertEqual(result, DOCS_SEARCH_UNAVAILABLE)
+        mock_llm_class.assert_not_called()
 
 
 class TestFormatInkeepDocsResponse(SimpleTestCase):

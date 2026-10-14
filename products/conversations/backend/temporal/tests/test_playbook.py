@@ -51,6 +51,12 @@ class TestComposeSupportPlaybook(SimpleTestCase):
         assert posthog.mcp_exclude_tools == ()
         assert posthog.posthog_overlay_version == 1
 
+        flagged = compose_support_playbook(docs_source="posthog", docs_search_disabled=True)
+        assert flagged.layers == (LAYER_DEFAULT, LAYER_POSTHOG)
+        assert "diagnosing-missing-recordings" in flagged.text
+        assert "docs-search" not in flagged.text
+        assert flagged.mcp_exclude_tools == (DOCS_SEARCH_TOOL_NAME,)
+
     def test_custom_layer_order(self):
         playbook = compose_support_playbook(docs_source="posthog", custom_instructions="  Always greet first.  ")
         assert playbook.layers == (LAYER_DEFAULT, LAYER_POSTHOG, LAYER_CUSTOM)
@@ -178,12 +184,15 @@ class TestDraftPlaybookHelpers(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("generic", None, False, False, False),
-            ("posthog", "posthog", False, False, True),
+            ("generic", None, False, False, False, False),
+            ("posthog", "posthog", False, False, False, True),
+            ("posthog_docs_search_disabled", "posthog", False, False, True, False),
         ]
     )
-    def test_docs_search_advertised_only_in_posthog_mode(self, _name, docs_source, auto, data, expect_docs):
-        block = tools_you_have_block(docs_source=docs_source, auto_publishable=auto, grants_customer_data=data)
+    def test_docs_search_advertised_only_in_posthog_mode(self, _name, docs_source, auto, data, disabled, expect_docs):
+        block = tools_you_have_block(
+            docs_source=docs_source, auto_publishable=auto, grants_customer_data=data, docs_search_disabled=disabled
+        )
         advertised = "docs-search: searches the official PostHog" in block
         assert advertised is expect_docs
         assert ("You do not have docs-search" in block) is (not expect_docs)

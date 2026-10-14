@@ -20,7 +20,7 @@ from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool
-from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
+from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, is_inkeep_docs_search_disabled
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 
 logger = structlog.get_logger(__name__)
@@ -325,8 +325,14 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
     return f"Found {len(docs)} relevant documentation page(s):\n\n{formatted_docs}"
 
 
+DOCS_SEARCH_UNAVAILABLE = "Documentation search is not available. Do not call it again. Answer without it."
+
+
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        if await database_sync_to_async(is_inkeep_docs_search_disabled)(self._team, str(self._user.distinct_id)):
+            # Not the no-results template: that one tells the agent to retry and not to answer.
+            return DOCS_SEARCH_UNAVAILABLE, None
         return await perform_inkeep_docs_search(query, team=self._team), None
 
 

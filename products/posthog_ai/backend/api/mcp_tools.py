@@ -30,7 +30,8 @@ from posthog.renderers import SafeJSONRenderer
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
 from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
-from ee.hogai.tools.search import format_inkeep_docs_response
+from ee.hogai.tools.search import DOCS_SEARCH_UNAVAILABLE, format_inkeep_docs_response
+from ee.hogai.utils.feature_flags import is_inkeep_docs_search_disabled
 
 logger = get_logger(__name__)
 
@@ -111,6 +112,9 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def docs_search(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         if not settings.INKEEP_API_KEY:
             raise _DocsSearchUnavailable()
+
+        if is_inkeep_docs_search_disabled(self.team, str(cast(User, request.user).distinct_id)):
+            return Response(DocsSearchResponseSerializer({"content": DOCS_SEARCH_UNAVAILABLE}).data)
 
         query = cast(dict, request.validated_data)["query"]
         client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)

@@ -193,6 +193,7 @@ class SupportReplyWorkflow:
             {
                 "status": "in_progress",
                 "started_at": run_started_at,
+                "docs_search_disabled": ctx_output.docs_search_disabled,
             }
         )
 
@@ -385,6 +386,7 @@ class SupportReplyWorkflow:
                             clarification_round=input.clarification_round,
                             docs_source=ctx_output.docs_source,
                             custom_instructions=ctx_output.custom_instructions,
+                            docs_search_disabled=ctx_output.docs_search_disabled,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
                         retry_policy=RetryPolicy(maximum_attempts=DRAFT_ACTIVITY_MAX_ATTEMPTS),
