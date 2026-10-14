@@ -196,8 +196,19 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
+
+    A domain property entered where only the site's root URL-prefix property is registered
+    gets that URL-prefix property suggested.
     """
     if site_url.startswith("sc-domain:"):
+        domain = site_url.removeprefix("sc-domain:").strip().strip("/").lower()
+        if not domain:
+            return None
+        registered_set = set(registered)
+        for scheme in ("https", "http"):
+            for host in (domain, f"www.{domain}"):
+                if f"{scheme}://{host}/" in registered_set:
+                    return f"{scheme}://{host}/"
         return None
     parsed = urlparse(site_url)
     if parsed.scheme:
