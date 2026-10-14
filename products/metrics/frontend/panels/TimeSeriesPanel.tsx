@@ -49,7 +49,7 @@ export function TimeSeriesPanel({
     const isArea = display?.type === 'area'
 
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
-    const partialFraction = useMemo(() => (isBar ? null : partialBucketFraction(labels)), [labels, isBar])
+    const partialFraction = useMemo(() => (isBar ? null : partialBucketFraction(labels, query)), [labels, isBar, query])
 
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(

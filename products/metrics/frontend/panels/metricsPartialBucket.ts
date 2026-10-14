@@ -1,56 +1,118 @@
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
-import type { MetricsAggregation, MetricsQuery } from '~/queries/schema/schema-general'
+import type { MetricsAggregation, MetricsQuery, MetricsQueryClause } from '~/queries/schema/schema-general'
 
 import type { MetricsChartSeries } from '../components/metricsSeries'
 
-export type MetricsPartialBucketQuery = Pick<MetricsQuery, 'clauses' | 'formula' | 'language'>
+export type MetricsPartialBucketQuery = Pick<
+    MetricsQuery,
+    'clauses' | 'formula' | 'language' | 'dateRange' | 'interval'
+>
 
 /** Below this share of the bucket, scaling up a few samples is mostly noise, so the real value stays. */
 export const MIN_EXTRAPOLATION_FRACTION = 0.1
 
-const COUNTER_FUNCTIONS: ReadonlySet<MetricsAggregation> = new Set(['rate', 'increase'])
-const ADDITIVE_FORMULA = /^[\w\s.+\-()]*$/
+const DEFAULT_DATE_FROM = '-24h'
+const MINUTE_MS = 60_000
+/** Mirrors `_INTERVAL_LADDER`, `_TARGET_BUCKET_COUNT` and `_MAX_BUCKET_COUNT` in backend/metric_query_runner.py. */
+const INTERVAL_LADDER: [string, number][] = [
+    ['second_15', 15_000],
+    ['second_30', 30_000],
+    ['minute', MINUTE_MS],
+    ['minute_5', 5 * MINUTE_MS],
+    ['minute_15', 15 * MINUTE_MS],
+    ['minute_30', 30 * MINUTE_MS],
+    ['hour', 60 * MINUTE_MS],
+    ['hour_6', 360 * MINUTE_MS],
+    ['day', 1440 * MINUTE_MS],
+    ['week', 10080 * MINUTE_MS],
+]
+const TARGET_BUCKET_COUNT = 60
+const MAX_BUCKET_COUNT = 500
 
-/** How much of the last bucket has elapsed, when that bucket is still in progress. The backend
- * reads data up to "now", so the last bucket of a range ending now holds only part of its window.
- * The bucket length comes from the spacing of the last two buckets: the response does not carry
- * the resolved interval. */
-export function partialBucketFraction(times: string[], now: dayjs.Dayjs = dayjs()): number | null {
-    if (times.length < 2) {
+const COUNTER_FUNCTIONS: ReadonlySet<MetricsAggregation> = new Set(['rate', 'increase'])
+const FORMULA_OPERATORS = /[\s()+-]+/
+const IDENTIFIER = /^[A-Za-z_]\w*$/
+
+// Only a sum or difference of aliases scales linearly. A constant term does not grow with elapsed time.
+function isAdditiveFormula(formula: string): boolean {
+    return formula
+        .split(FORMULA_OPERATORS)
+        .filter(Boolean)
+        .every((token) => IDENTIFIER.test(token))
+}
+
+function resolvedIntervalMs(query: MetricsPartialBucketQuery, now: dayjs.Dayjs): number | null {
+    const from = dateStringToDayJs(query.dateRange?.date_from ?? DEFAULT_DATE_FROM)
+    if (!from) {
         return null
     }
-    const last = dayjs(times[times.length - 1])
-    const length = last.diff(dayjs(times[times.length - 2]))
-    const elapsed = now.diff(last)
-    if (length <= 0 || elapsed <= 0 || elapsed >= length) {
+    const span = now.diff(from)
+    let index: number
+    if (query.interval) {
+        index = INTERVAL_LADDER.findIndex(([name]) => name === query.interval)
+        if (index === -1) {
+            return null
+        }
+    } else {
+        const pick = INTERVAL_LADDER.findIndex(([, step]) => span / step <= TARGET_BUCKET_COUNT)
+        index = pick === -1 ? INTERVAL_LADDER.length - 1 : pick
+    }
+    while (index < INTERVAL_LADDER.length - 1 && span / INTERVAL_LADDER[index][1] > MAX_BUCKET_COUNT) {
+        index++
+    }
+    return INTERVAL_LADDER[index][1]
+}
+
+/** How much of the last bucket has elapsed, when the range ends now and that bucket is still in progress. */
+export function partialBucketFraction(
+    times: string[],
+    query: MetricsPartialBucketQuery | undefined,
+    now: dayjs.Dayjs = dayjs()
+): number | null {
+    if (!query || query.dateRange?.date_to || times.length === 0) {
+        return null
+    }
+    const length = resolvedIntervalMs(query, now)
+    if (!length) {
+        return null
+    }
+    const starts = times.map((time) => dayjs(time))
+    // Closer buckets mean the chart's range differs from the query's, e.g. a dashboard date override.
+    if (starts.some((start, i) => i > 0 && start.diff(starts[i - 1]) < length)) {
+        return null
+    }
+    const elapsed = now.diff(starts[starts.length - 1])
+    if (elapsed <= 0 || elapsed >= length) {
         return null
     }
     return elapsed / length
 }
 
-/** Whether a series' partial bucket grows with elapsed time, so scaling it to the full bucket is
- * correct. True for counter clauses (`rate`, `increase`); `rate` divides by the full bucket length,
- * so it is understated by the same fraction. Point-in-time values (gauges, avg, quantiles) and
- * PromQL/SQL results, whose semantics are unknown here, are not. */
+function isCounterClause(clause: MetricsQueryClause): boolean {
+    if (clause.aggregation && COUNTER_FUNCTIONS.has(clause.aggregation)) {
+        return true
+    }
+    // `count` counts reporting series, which does not grow with elapsed time.
+    return !!clause.rangeFunction && COUNTER_FUNCTIONS.has(clause.rangeFunction) && clause.aggregation !== 'count'
+}
+
+/** Whether a series' partial bucket grows with elapsed time, so scaling it to the full bucket is correct. */
 export function isExtrapolatable(series: MetricsChartSeries, query: MetricsPartialBucketQuery | undefined): boolean {
     if (!query || (query.language && query.language !== 'builder')) {
         return false
     }
-    const isCounter = (clause: MetricsPartialBucketQuery['clauses'][number]): boolean =>
-        (!!clause.rangeFunction && COUNTER_FUNCTIONS.has(clause.rangeFunction)) ||
-        (!!clause.aggregation && COUNTER_FUNCTIONS.has(clause.aggregation))
     if (series.clause === 'formula') {
-        // Only a sum or difference of counters scales linearly; a ratio of two partial counters does not.
         return (
             !!query.formula &&
-            ADDITIVE_FORMULA.test(query.formula) &&
+            isAdditiveFormula(query.formula) &&
             query.clauses.length > 0 &&
-            query.clauses.every(isCounter)
+            query.clauses.every(isCounterClause)
         )
     }
     const clause = query.clauses.find((c) => c.name === series.clause)
-    return !!clause && isCounter(clause)
+    return !!clause && isCounterClause(clause)
 }
 
 export function extrapolatePartialValue(value: number, fraction: number): number {

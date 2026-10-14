@@ -27,17 +27,34 @@ const query = (
 })
 
 describe('partialBucketFraction', () => {
+    const hourly = query([], { interval: 'hour' })
+
     it.each([
         ['quarter into the last bucket', '2026-08-01T12:15:00Z', 0.25],
         ['last bucket complete', '2026-08-01T13:00:00Z', null],
-        ['range ended in the past', '2026-08-02T00:00:00Z', null],
         ['now before the last bucket', '2026-08-01T11:30:00Z', null],
     ])('%s', (_, now, expected) => {
-        expect(partialBucketFraction(BUCKETS, dayjs(now))).toBe(expected)
+        expect(partialBucketFraction(BUCKETS, hourly, dayjs(now))).toBe(expected)
     })
 
-    it('needs two buckets to know the bucket length', () => {
-        expect(partialBucketFraction(BUCKETS.slice(0, 1), dayjs('2026-08-01T10:15:00Z'))).toBeNull()
+    it('uses the query interval, not the spacing of sparse buckets', () => {
+        const sparse = ['2026-08-01T10:00:00Z', '2026-08-01T12:00:00Z']
+        expect(partialBucketFraction(sparse, hourly, dayjs('2026-08-01T13:00:00Z'))).toBeNull()
+        expect(partialBucketFraction(sparse, hourly, dayjs('2026-08-01T12:30:00Z'))).toBe(0.5)
+    })
+
+    it('picks the interval from the range when the query does not set one', () => {
+        const fifteenMinutes = ['2026-08-01T11:45:00Z', '2026-08-01T12:00:00Z']
+        const auto = query([], { dateRange: { date_from: '2026-08-01T00:00:00Z' } })
+        expect(partialBucketFraction(fifteenMinutes, auto, dayjs('2026-08-01T12:05:00Z'))).toBeCloseTo(1 / 3)
+    })
+
+    it.each([
+        ['a fixed range end', query([], { interval: 'hour', dateRange: { date_to: '2026-08-01T12:15:00Z' } })],
+        ['buckets closer than the query interval', query([], { interval: 'day' })],
+        ['no query', undefined],
+    ])('stays solid for %s', (_, q) => {
+        expect(partialBucketFraction(BUCKETS, q, dayjs('2026-08-01T12:15:00Z'))).toBeNull()
     })
 })
 
@@ -47,15 +64,17 @@ describe('isExtrapolatable', () => {
         ['increase aggregation', clause('a', { aggregation: 'increase' }), true],
         ['gauge average', clause('a', { aggregation: 'avg' }), false],
         ['sum of latest values', clause('a', { aggregation: 'sum' }), false],
+        ['count of series reporting a rate', clause('a', { rangeFunction: 'rate', aggregation: 'count' }), false],
     ])('%s', (_, c, expected) => {
         expect(isExtrapolatable(series('a'), query([c]))).toBe(expected)
     })
 
     it.each([
         ['a + b', true],
-        ['(a - b) + 2', true],
+        ['(a - b) + a', true],
         ['a / b', false],
         ['a * 100', false],
+        ['a + 100', false],
     ])('formula %s', (formula, expected) => {
         const counters = [clause('a', { rangeFunction: 'increase' }), clause('b', { rangeFunction: 'increase' })]
         expect(isExtrapolatable(series('formula'), query(counters, { formula }))).toBe(expected)
