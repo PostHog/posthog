@@ -26,10 +26,10 @@ Pins are the web's starred rows (`FileSystemShortcut`, default surface), so a ph
 `shortcutInputFor()` writes the exact `path`, `type`, `ref` and `href` the web writes, so the server dedupes the row.
 Rows for one view (a sibling environment, a rename) collapse into one pin, and unpin deletes all of them.
 
-Order and display mode stay on the phone, in the `views-pin-prefs:v1` store (AsyncStorage).
+Order and display mode stay on the phone, per project, in the `views-pin-prefs:v2` store (AsyncStorage).
 The app never writes the server's `order`: `reorder` is closed to OAuth, and a PATCH would move a sibling-environment pin into this environment.
 A new pin, made on the web or the phone, goes after the ranked pins.
-Signing out clears the prefs.
+A complete pin list read forgets the prefs of that project's pins that are gone. Other projects keep theirs, and signing out clears all of them.
 
 Recent merges the last 20 views opened on this phone (`views-recent:v1`, per project) with the dashboards this user viewed on the web.
 Insights viewed on the web do not appear: no per-user source is open to OAuth without a new scope.

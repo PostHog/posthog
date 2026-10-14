@@ -39,7 +39,7 @@ import {
 import { READ_FLOOR_MS } from './freshness'
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
 import { listRead, retryListRead } from './listReads'
-import { movedOrder, usePinPrefs } from './pinPrefsStore'
+import { movedOrder, usePinPrefs, useProjectPinPrefs } from './pinPrefsStore'
 import { rangeLabel } from './rangePresets'
 import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
@@ -90,7 +90,8 @@ export function usePins(): PinsState {
         staleTime: READ_FLOOR_MS,
         retry: retryListRead,
     })
-    const livePrefs = usePinPrefs(useShallow((state) => ({ rank: state.rank, display: state.display })))
+    const prefsKey = context.scope ? projectKey(context.scope) : null
+    const livePrefs = useProjectPinPrefs(prefsKey)
     const demoState = useDemoViews(
         useShallow((state) => ({ rows: state.shortcuts, rank: state.rank, display: state.display }))
     )
@@ -100,15 +101,16 @@ export function usePins(): PinsState {
 
     const page = query.data
     useEffect(() => {
-        if (!page || demo) {
+        if (!page || demo || !prefsKey) {
             return
         }
         const complete = !page.next && page.results.length < SHORTCUT_PAGE_SIZE
         usePinPrefs.getState().prune(
+            prefsKey,
             page.results.map((row) => row.id),
             complete
         )
-    }, [page, demo])
+    }, [page, demo, prefsKey])
 
     const { refetch, dataUpdatedAt } = query
     const list = useMemo<RefreshList>(
@@ -174,18 +176,27 @@ export function usePinActions(): PinActions {
     const { pins } = usePins()
     const pinnedKeys = usePinnedKeys()
     const listKey = viewsKeys.shortcuts(scope)
+    const prefsKey = scope ? projectKey(scope) : null
 
     const setDisplay = useCallback(
-        (shortcutId: string, display: PinDisplay) =>
-            demo
-                ? useDemoViews.getState().setDisplay(shortcutId, display)
-                : usePinPrefs.getState().setDisplay(shortcutId, display),
-        [demo]
+        (shortcutId: string, display: PinDisplay) => {
+            if (demo) {
+                useDemoViews.getState().setDisplay(shortcutId, display)
+            } else if (prefsKey) {
+                usePinPrefs.getState().setDisplay(prefsKey, shortcutId, display)
+            }
+        },
+        [demo, prefsKey]
     )
     const setOrder = useCallback(
-        (ids: readonly string[]) =>
-            demo ? useDemoViews.getState().setOrder(ids) : usePinPrefs.getState().setOrder(ids),
-        [demo]
+        (ids: readonly string[]) => {
+            if (demo) {
+                useDemoViews.getState().setOrder(ids)
+            } else if (prefsKey) {
+                usePinPrefs.getState().setOrder(prefsKey, ids)
+            }
+        },
+        [demo, prefsKey]
     )
 
     const pinAction = useAsyncAction(async (target: PinTarget, from: PinSource) => {

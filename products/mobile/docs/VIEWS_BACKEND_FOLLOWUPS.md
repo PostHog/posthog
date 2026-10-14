@@ -125,7 +125,7 @@ The person must then set up each pin again.
 
 **What the app does today:**
 
-- `src/features/views/pinPrefsStore.ts` keeps `display: Record<shortcutId, { mode, tileId?, insightId? }>` in AsyncStorage (store `views-pin-prefs:v1`).
+- `src/features/views/pinPrefsStore.ts` keeps `display: Record<shortcutId, { mode, tileId?, insightId? }>` per project in AsyncStorage (store `views-pin-prefs:v2`).
   It clears on sign-out.
 - No server field fits.
   `FileSystemShortcut` exposes only `path`, `type`, `ref`, `href` and `order` (`posthog/api/file_system/file_system_shortcut.py:29-38`), and a PATCH with other keys is a silent no-op.

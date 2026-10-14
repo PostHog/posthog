@@ -1,4 +1,4 @@
-import { denseRanks, movedOrder, prunedPrefs } from './pinPrefsStore'
+import { denseRanks, movedOrder, prunedPrefs, usePinPrefs } from './pinPrefsStore'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -22,5 +22,21 @@ describe('pin prefs', () => {
 
         expect(prunedPrefs(prefs, ['a'], false)).toBe(prefs)
         expect(prunedPrefs(prefs, ['a'], true)).toEqual({ rank: { a: 0 }, display: {} })
+        // A read that removes nothing keeps the same prefs, so no pin card re-renders.
+        expect(prunedPrefs(prefs, ['a', 'gone', 'new'], true)).toBe(prefs)
+    })
+
+    test('a complete pin list of one project keeps the order and modes of another', () => {
+        const store = usePinPrefs.getState()
+        store.setOrder('us|1', ['a2', 'a1'])
+        store.setDisplay('us|1', 'a1', { mode: 'chart' })
+
+        store.prune('us|2', ['b1'], true)
+
+        expect(usePinPrefs.getState().projects['us|1']).toEqual({
+            rank: { a2: 0, a1: 1 },
+            display: { a1: { mode: 'chart' } },
+        })
+        usePinPrefs.getState().clear()
     })
 })
