@@ -98,6 +98,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the finalizer lookup of a run's own job by workflow_run_id. Without it the
+            # FK index walks the team's whole job history, and a run that never created a job
+            # reads all of it to find no row.
+            models.Index(
+                fields=["team", "workflow_run_id"],
+                condition=Q(workflow_run_id__isnull=False),
+                name="idx_extdatajob_team_run",
+            ),
         ]
 
     def folder_path(self) -> str:
