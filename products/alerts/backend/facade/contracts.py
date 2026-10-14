@@ -38,7 +38,7 @@ class DestinationHoldBack(StrEnum):
     WEBHOOK_BODY = "webhook_body"
     WEBHOOK_METHOD = "webhook_method"
     WEBHOOK_TEMPLATED_HEADER = "webhook_templated_header"
-    # Native delivery sends only its own headers until stored headers pass through.
+    # An added header native delivery cannot send, such as an invalid name or a control character.
     WEBHOOK_HEADERS = "webhook_headers"
     # Native delivery refuses the destination, such as a plain-HTTP webhook URL or an unknown
     # PagerDuty severity, so it would send nothing.

@@ -16,7 +16,13 @@ from typing import Any, Final
 from uuid import UUID
 
 from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
-from products.alerts.backend.logic.destination_configs import SPEC_BY_TEMPLATE_ID, WebhookDestination, input_value
+from products.alerts.backend.logic.destination_configs import (
+    SPEC_BY_TEMPLATE_ID,
+    WEBHOOK_HEADERS,
+    WebhookDestination,
+    added_webhook_headers,
+    input_value,
+)
 from products.alerts.backend.logic.destinations import _allowed_event_filter, owned_alert_destinations_qs
 from products.alerts_platform.backend.facade.delivery import refused_destination
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -155,12 +161,14 @@ def _input_hold_backs(
             continue
         value, first_value = input_value(inputs, key), input_value(first_inputs, key)
         if is_webhook and key == "headers":
+            # Native delivery sends the added headers that `added_webhook_headers` keeps, so only one
+            # it drops changes what reaches the receiver.
             if value != first_value:
-                found.append(
-                    DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER
-                    if _has_template(value)
-                    else DestinationHoldBack.WEBHOOK_HEADERS
-                )
+                dropped = _dropped_headers(value)
+                if any(_has_template(header_value) for header_value in dropped.values()):
+                    found.append(DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER)
+                elif dropped:
+                    found.append(DestinationHoldBack.WEBHOOK_HEADERS)
             continue
         if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
@@ -177,6 +185,18 @@ def _templating(inputs: dict[str, Any], key: str) -> Any:
     # The renderer reads an omitted mode as Hog, and the editor writes `hog` explicitly on save.
     templating = entry.get("templating") if isinstance(entry, dict) else None
     return templating or "hog"
+
+
+def _dropped_headers(headers: Any) -> dict[str, Any]:
+    if not isinstance(headers, dict):
+        return {}
+    kept = {name.lower() for name in added_webhook_headers(headers)}
+    owned = {name.lower() for name in WEBHOOK_HEADERS}
+    return {
+        name: value
+        for name, value in headers.items()
+        if not isinstance(name, str) or (name.strip().lower() not in kept and name.strip().lower() not in owned)
+    }
 
 
 def _has_template(value: Any) -> bool:
