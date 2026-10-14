@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models import EventProperty
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.persons import create_person
 
@@ -90,7 +91,7 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
                 event="$feature_flag_called",
                 distinct_id=distinct_id,
                 timestamp=exposure_at,
-                properties={"$feature_flag": flag_key, "$feature_flag_response": variant},
+                properties={"$feature_flag": flag_key, "$feature_flag_response": variant, "$session_id": session_id},
             )
         return session_id
 
@@ -222,6 +223,22 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         ):
             _resolve(self._inputs(scanner, session_id))
         assert excinfo.value.kind == FailureKind.INFRA_TRANSIENT
+
+    def test_an_in_session_exposure_the_population_read_missed_is_retryable(self) -> None:
+        experiment = _launched_experiment(self, "checkout-flag", ["control", "test"])
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        session_id = self._session("missed-user", "test")
+        flush_persons_and_events()
+
+        # Stands in for an incomplete population read: the person is exposed, but the read misses them.
+        with patch("products.experiments.backend.facade.replay.session_attribution", return_value=None):
+            with pytest.raises(ScannerFailureError) as missed:
+                _resolve(self._inputs(self._scanner(experiment.pk), session_id))
+            assert missed.value.kind == FailureKind.INFRA_TRANSIENT
+
+            with pytest.raises(IneligibleSessionError) as outside_variants:
+                _resolve(self._inputs(self._scanner(experiment.pk, variants=["control"]), session_id))
+            assert outside_variants.value.kind == IneligibleSessionKind.NOT_EXPOSED
 
     def test_a_deleted_experiment_is_ineligible_with_experiment_unresolved(self) -> None:
         # Its own distinct id: ClickHouse rows outlive each test's transaction, so reusing another

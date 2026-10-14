@@ -50,6 +50,7 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
         experiment_status,
         resolve_exposure_linkage,
         session_attribution,
+        session_has_exposure_evidence,
         validate_experiment_exposure_access,
     )
 
@@ -113,6 +114,20 @@ def _resolve(inputs: ResolveExperimentVariantInputs) -> ResolveExperimentVariant
     distinct_id = metadata.get("distinct_id")
     attribution = session_attribution(linkage, distinct_id) if distinct_id else None
     if attribution is None:
+        # The population read can come back incomplete under ClickHouse load. When the session's own
+        # events show the exposure it missed, the retry policy gets another attempt, so a session
+        # that was exposed is never refused for good.
+        if session_has_exposure_evidence(
+            linkage,
+            experiment_id=experiment_id,
+            session_id=inputs.session_id,
+            date_from=metadata["start_time"],
+            date_to=metadata["end_time"],
+        ):
+            raise ScannerFailureError(
+                "The session shows an exposure that the experiment's population read missed",
+                kind=FailureKind.INFRA_TRANSIENT,
+            )
         raise IneligibleSessionError(
             "This session's user is not attributed to a watched variant of the experiment",
             kind=IneligibleSessionKind.NOT_EXPOSED,

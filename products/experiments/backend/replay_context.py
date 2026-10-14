@@ -8,7 +8,9 @@ experiment, and the lifecycle read. Everything here is reachable through
 the Experiment model.
 """
 
+import dataclasses
 from collections.abc import Collection
+from datetime import datetime
 
 from rest_framework.exceptions import ValidationError
 
@@ -33,6 +35,8 @@ from products.experiments.backend.replay_linkage import (
     ExperimentExposureLinkage,
     _requestable_variant_keys,
     exposed_persons_select,
+    exposed_session_ids_select,
+    resolve_in_session_exposure_semantics,
 )
 
 
@@ -102,6 +106,44 @@ def session_attribution(linkage: ExperimentExposureLinkage, distinct_id: str) ->
     if variant is None:
         return None
     return SessionAttribution(variant=str(variant), first_exposure_time=rows[0][columns.index("first_exposure_time")])
+
+
+def session_has_exposure_evidence(
+    linkage: ExperimentExposureLinkage,
+    *,
+    experiment_id: int,
+    session_id: str,
+    date_from: datetime,
+    date_to: datetime,
+) -> bool:
+    """Whether this session's own events show an exposure to one of the linkage's variants.
+
+    A second read for a person :func:`session_attribution` returns None for. That read goes through
+    the population, which can come back incomplete, while this one reads only the session's window.
+    False when in-session evidence can't answer for the experiment, so the caller keeps its verdict.
+
+    Runs a ClickHouse query, so call it from a run path, never while building an AST.
+    """
+    team = linkage.context.team
+    experiment = (
+        Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
+    )
+    if experiment is None:
+        return False
+    semantics = resolve_in_session_exposure_semantics(team, experiment)
+    if semantics.session_exposure is None:
+        return False
+    exposed_sessions = exposed_session_ids_select(
+        dataclasses.replace(linkage, session_exposure=semantics.session_exposure),
+        clamp_date_from=date_from,
+        clamp_date_to=date_to,
+    )
+    query = parse_select(
+        "SELECT 1 FROM {exposed_sessions} AS exposed WHERE exposed.session_id = {session_id} LIMIT 1",
+        placeholders={"exposed_sessions": exposed_sessions, "session_id": ast.Constant(value=session_id)},
+    )
+    response = execute_hogql_query(query, team=team, settings=HogQLGlobalSettings(timeout_overflow_mode="throw"))
+    return bool(response.results)
 
 
 def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str | None:

@@ -6,6 +6,7 @@ from products.experiments.backend.replay_context import (
     experiment_status,
     launched_experiment_ids,
     session_attribution,
+    session_has_exposure_evidence,
     session_variant,
     variant_rollout_shares,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "resolve_exposure_linkage",
     "resolve_in_session_exposure_semantics",
     "session_attribution",
+    "session_has_exposure_evidence",
     "session_variant",
     "targetable_experiments",
     "validate_draft_experiment_scope",
