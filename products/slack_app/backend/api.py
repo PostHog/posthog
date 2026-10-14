@@ -99,6 +99,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_opened as _handle_app_home_opened,
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
+from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
 from products.slack_app.backend.services.slack_fork_context import clear_pending_fork, get_pending_fork
 from products.slack_app.backend.services.slack_messages import (
     FORK_THREAD_ACTION_ID,
@@ -3862,10 +3863,12 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
 
 
 def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.ClickedSuggestion) -> HttpResponse:
-    """Send the clicked reply to the agent as the clicker's thread reply, then show the choice in place of the buttons.
+    """Post the clicked reply in the thread and send it to the agent as the clicker's reply.
 
     The click already says the message is for the agent, so it takes the confirmed untagged
     follow-up path: no classifier, no creator prompt, and no new task in a thread without one.
+    The follow-up removes the buttons once the reply reaches the agent, which keeps that
+    Slack call out of the three seconds Slack gives this request.
     """
     slack_team_id = payload.get("team", {}).get("id", "")
     clicker_slack_user_id = payload.get("user", {}).get("id", "")
@@ -3916,18 +3919,32 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         )
         return HttpResponse(status=200)
 
-    # Two people can click before the buttons disappear, and only the first click may reach the agent.
-    if not cache.add(claim_key, clicker_slack_user_id, timeout=60 * 60 * 24):
+    # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
+    # channel can become shared after the buttons were posted.
+    if not _channel_is_approved(slack_team_id, channel) and channel_is_ext_shared(slack, channel):
+        logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id)
+        _post_slack_user_ephemeral(
+            slack,
+            channel,
+            clicker_slack_user_id,
+            thread_ts,
+            "This channel is shared with another organization, so PostHog needs approval here first. "
+            "Mention @PostHog in the channel to approve it.",
+        )
         return HttpResponse(status=200)
 
-    # Forgotten first, so the follow-up does not clear the buttons this click is about to replace.
-    reply_suggestions.forget_open_suggestions(integration.id, channel, thread_ts, message_ts)
+    # Two people can click before the buttons disappear, and only the first click may reach the agent.
+    # The claim lasts as long as the buttons are tracked, in case removing them fails.
+    if not cache.add(claim_key, clicker_slack_user_id, timeout=reply_suggestions.OPEN_SUGGESTIONS_TTL_SECONDS):
+        return HttpResponse(status=200)
+
     client = slack.client
     client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
 
     # A message of its own keeps the thread in order: the question, the reply, the next answer.
     # Its ts carries the progress reactions and keys the follow-up's idempotent message id.
     reply_ts = message_ts
+    posted_reply_ts: str | None = None
     try:
         posted = post_slack_thread_reply(
             client,
@@ -3936,7 +3953,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             text=f"<@{clicker_slack_user_id}> picked a suggested reply: *{clicked.text}*",
         )
         if posted is not None and isinstance(posted.get("ts"), str):
-            reply_ts = posted["ts"]
+            reply_ts = posted_reply_ts = posted["ts"]
     except Exception:
         logger.warning("slack_app_reply_suggestion_post_failed", integration_id=integration.id, exc_info=True)
 
@@ -3948,20 +3965,25 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         "thread_ts": thread_ts,
         "text": clicked.text,
     }
-    _start_mention_workflow(
-        event,
-        integration,
-        slack_team_id,
-        None,
-        posthog_user=posthog_user,
-        untagged_followup=True,
-        untagged_followup_confirmed=True,
-    )
-
     try:
-        reply_suggestions.strip_reply_suggestions(client, channel, message_ts, message)
+        _start_mention_workflow(
+            event,
+            integration,
+            slack_team_id,
+            None,
+            posthog_user=posthog_user,
+            untagged_followup=True,
+            untagged_followup_confirmed=True,
+        )
     except Exception:
-        logger.warning("slack_app_reply_suggestion_update_failed", integration_id=integration.id, exc_info=True)
+        # Nothing reached the agent, so the buttons stay usable and the reply does not stand in the thread.
+        cache.delete(claim_key)
+        if posted_reply_ts:
+            try:
+                client.chat_delete(channel=channel, ts=posted_reply_ts)
+            except Exception:
+                logger.warning("slack_app_reply_suggestion_delete_failed", integration_id=integration.id)
+        raise
 
     capture_slack_event(
         integration,

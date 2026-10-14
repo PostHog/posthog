@@ -179,6 +179,7 @@ class TestReplySuggestionClick(TestCase):
     def test_click_sends_the_reply_to_the_agent_once(self, mock_slack_cls: MagicMock) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         slack_client = mock_slack_cls.return_value.client
+        slack_client.conversations_info.return_value = {"channel": {"is_ext_shared": False}}
         slack_client.chat_postMessage.return_value = {"ts": "1006.0000"}
 
         with (
@@ -209,24 +210,51 @@ class TestReplySuggestionClick(TestCase):
         posted = slack_client.chat_postMessage.call_args.kwargs
         assert posted["thread_ts"] == self.thread_ts
         assert KEEP_LOCAL.reply in posted["text"]
-        # The buttons live in the answer, so the rewrite must keep the answer and its footer.
-        update = slack_client.chat_update.call_args.kwargs
-        assert update["ts"] == self.message_ts
-        assert update["text"] == "Should I open a pull request?"
-        assert update["blocks"] == [ANSWER_BLOCK, FOOTER_BLOCK]
 
-    def test_click_from_someone_outside_the_project_sends_nothing(self, mock_slack_cls: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("someone_outside_the_project", "stranger@example.com", False),
+            # A typed reply here is dropped, so a click must not become the way around the approval.
+            ("unapproved_slack_connect_channel", "member@example.com", True),
+        ]
+    )
+    def test_click_that_must_not_reach_the_agent(
+        self, mock_slack_cls: MagicMock, _name: str, email: str, ext_shared: bool
+    ) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        slack_client = mock_slack_cls.return_value.client
+        slack_client.conversations_info.return_value = {"channel": {"is_ext_shared": ext_shared}}
 
         with (
-            self._as_slack_user("stranger@example.com"),
+            self._as_slack_user(email),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
-            response = self._click("U_STRANGER")
+            response = self._click("U_CLICKER")
 
         assert response.status_code == 200
         mock_start.assert_not_called()
-        mock_slack_cls.return_value.client.chat_update.assert_not_called()
+        slack_client.chat_postMessage.assert_not_called()
+        slack_client.chat_postEphemeral.assert_called_once()
+
+    def test_a_failed_dispatch_leaves_the_buttons_usable(self, mock_slack_cls: MagicMock) -> None:
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        slack_client = mock_slack_cls.return_value.client
+        slack_client.conversations_info.return_value = {"channel": {"is_ext_shared": False}}
+        slack_client.chat_postMessage.return_value = {"ts": "1006.0000"}
+
+        with (
+            self._as_slack_user(self.member_user.email),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", side_effect=[RuntimeError("temporal"), None]
+            ) as mock_start,
+        ):
+            with self.assertRaises(RuntimeError):
+                self._click("U_BOB")
+            self._click("U_BOB")
+
+        assert mock_start.call_count == 2
+        # The reply that never reached the agent does not stay in the thread.
+        slack_client.chat_delete.assert_called_once_with(channel=self.channel, ts="1006.0000")
 
 
 class TestReplySuggestionPlacement(SimpleTestCase):

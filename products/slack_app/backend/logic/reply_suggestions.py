@@ -247,21 +247,6 @@ def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
     )
 
 
-def strip_reply_suggestions(client: WebClient, channel: str, message_ts: str, message: dict[str, Any]) -> None:
-    """Send the message back without its buttons, because Slack can only replace a message whole.
-
-    A message that held nothing but the buttons is deleted.
-    """
-    blocks = message.get("blocks") or []
-    kept = [block for block in blocks if block.get("block_id") != REPLY_SUGGESTIONS_BLOCK_ID]
-    if len(kept) == len(blocks):
-        return
-    if kept:
-        client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or "", blocks=kept)
-    else:
-        client.chat_delete(channel=channel, ts=message_ts)
-
-
 def _open_suggestions_key(integration_id: int, channel: str, thread_ts: str) -> str:
     return f"slack_app_reply_suggestions_open:{integration_id}:{channel}:{thread_ts}"
 
@@ -270,16 +255,12 @@ def remember_open_suggestions(integration_id: int, channel: str, thread_ts: str,
     cache.set(_open_suggestions_key(integration_id, channel, thread_ts), message_ts, OPEN_SUGGESTIONS_TTL_SECONDS)
 
 
-def forget_open_suggestions(integration_id: int, channel: str, thread_ts: str, message_ts: str) -> None:
-    key = _open_suggestions_key(integration_id, channel, thread_ts)
-    if cache.get(key) == message_ts:
-        cache.delete(key)
-
-
 def clear_open_suggestions(client: WebClient, integration_id: int, channel: str, thread_ts: str) -> None:
     """Remove buttons that a newer message in the thread made stale, so nobody answers an old question.
 
-    The message is read back from Slack because a streamed answer's blocks exist only there.
+    The message is read back from Slack because a streamed answer's blocks exist only there. Slack
+    can only replace a message whole, so it is sent back without the buttons, or deleted when the
+    buttons were all it held.
     """
     key = _open_suggestions_key(integration_id, channel, thread_ts)
     message_ts = cache.get(key)
@@ -291,8 +272,16 @@ def clear_open_suggestions(client: WebClient, integration_id: int, channel: str,
             channel=channel, ts=message_ts, oldest=message_ts, latest=message_ts, inclusive=True, limit=1
         )
         message = next((m for m in response.get("messages") or [] if m.get("ts") == message_ts), None)
-        if message is not None:
-            strip_reply_suggestions(client, channel, message_ts, message)
+        if message is None:
+            return
+        blocks = message.get("blocks") or []
+        kept = [block for block in blocks if block.get("block_id") != REPLY_SUGGESTIONS_BLOCK_ID]
+        if len(kept) == len(blocks):
+            return
+        if kept:
+            client.chat_update(channel=channel, ts=message_ts, text=message.get("text") or "", blocks=kept)
+        else:
+            client.chat_delete(channel=channel, ts=message_ts)
     except Exception:
         logger.warning(
             "slack_app_reply_suggestions_clear_failed", channel=channel, message_ts=message_ts, exc_info=True
