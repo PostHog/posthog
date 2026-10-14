@@ -490,6 +490,19 @@ class SignalReport(UUIDModel):
         repository = data.get("repository") if isinstance(data, dict) else None
         return repository.strip() if isinstance(repository, str) and repository.strip() else None
 
+    def _monitoring_enabled(self) -> bool:
+        from products.signals.backend.report_content_gates import (
+            team_report_monitoring_enabled,  # noqa: PLC0415 - keeps the flag client off model startup
+        )
+
+        return team_report_monitoring_enabled(self.team_id)
+
+    @property
+    def effective_status(self) -> "SignalReport.Status":
+        if self.status == self.Status.MONITORING and not self._monitoring_enabled():
+            return self.Status.RESOLVED
+        return self.Status(self.status)
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -500,6 +513,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        monitoring_started_at: datetime | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -510,8 +524,31 @@ class SignalReport(UUIDModel):
         """
         S = self.Status
         updated_fields: set[str] = set()
+        current_status = self.effective_status
+        if new_status == S.MONITORING and not self._monitoring_enabled():
+            raise InvalidStatusTransition(self.status, new_status)
 
-        match (self.status, new_status):
+        match (current_status, new_status):
+            case (S.READY | S.PENDING_INPUT | S.FAILED, S.MONITORING):
+                if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
+                    raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
+                self.monitoring_started_at = monitoring_started_at
+                updated_fields.add("monitoring_started_at")
+
+            case (S.MONITORING, S.MONITORING):
+                if self.monitoring_started_at is None:
+                    raise ValueError("The current Monitoring period has no implementation-complete timestamp.")
+                return []
+
+            case (S.SUPPRESSED, S.MONITORING):
+                if self.status_before_suppression != S.MONITORING or self.monitoring_started_at is None:
+                    raise InvalidStatusTransition(self.status, new_status)
+                self.status_before_suppression = None
+                updated_fields.add("status_before_suppression")
+
+            case (S.MONITORING, S.RESOLVED | S.READY):
+                pass
+
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
@@ -561,7 +598,10 @@ class SignalReport(UUIDModel):
                 updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
-            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
+            case (
+                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.POTENTIAL,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -594,11 +634,18 @@ class SignalReport(UUIDModel):
 
             # Any non-deleted status can be suppressed
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.FAILED,
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
-                self.status_before_suppression = self.status
+                self.status_before_suppression = current_status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
 
@@ -609,6 +656,7 @@ class SignalReport(UUIDModel):
                 | S.IN_PROGRESS
                 | S.PENDING_INPUT
                 | S.READY
+                | S.MONITORING
                 | S.RESOLVED
                 | S.FAILED
                 | S.SUPPRESSED,
@@ -639,6 +687,9 @@ class SignalReport(UUIDModel):
             updated_fields.add("first_visible_at")
 
         self.status = new_status
+        if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
+            self.monitoring_started_at = None
+            updated_fields.add("monitoring_started_at")
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -685,6 +736,8 @@ class SignalReport(UUIDModel):
         S = self.Status
         researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
+        if prior == S.MONITORING:
+            return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
         if prior in {s.value for s in researched}:
             return S(prior)
         return S.POTENTIAL
@@ -1037,7 +1090,7 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status == SignalReport.Status.RESOLVED:
+        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -1918,13 +1971,16 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend.plan_rollup import roll_up_plan_parents
 
             try:
-                status = (
+                report = (
                     SignalReport.objects.using("default")
                     .filter(team_id=artefact.team_id, id=artefact.report_id)
-                    .values_list("status", flat=True)
+                    .only("status", "team_id")
                     .first()
                 )
-                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                if report is None or report.effective_status not in (
+                    SignalReport.Status.RESOLVED,
+                    SignalReport.Status.SUPPRESSED,
+                ):
                     return
                 roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
             except Exception:

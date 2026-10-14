@@ -22,8 +22,9 @@ import { TriageDeck } from "@/components/TriageDeck";
 import { REPORT_FILTERS, type ReportFilter } from "@/lib/reportFilters";
 import {
   useDismissReport,
+  useMarkReportRead,
+  useReportReadStates,
   useReports,
-  useSeenReports,
   useStartReportTask,
 } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -42,9 +43,7 @@ export default function SelfDrivingScreen() {
   // The deck always works on the reports that need attention.
   const reports = useReports();
   const listed = useReports("", filter);
-  const seen = useSeenReports((s) => s.seen);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
-  const markSeen = useSeenReports((s) => s.markSeen);
+  const markRead = useMarkReportRead();
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
   // Locally swiped ids, so a card leaves the deck before the server catches up.
@@ -63,23 +62,23 @@ export default function SelfDrivingScreen() {
   );
   const rows = filter === "attention" ? all : (listed.data ?? []);
   const listFailed = listed.isError && !listed.data;
-  const unseen = useMemo(
-    () => all.filter((report) => !seen.has(report.id)),
-    [all, seen],
-  );
+  const allIds = useMemo(() => all.map((report) => report.id), [all]);
+  const rowIds = useMemo(() => rows.map((report) => report.id), [rows]);
+  const readStates = useReportReadStates(allIds);
+  const rowReadStates = useReportReadStates(rowIds);
 
-  // New reports since the last visit open the deck on their own.
+  // Unread reports open the deck on their own.
   useEffect(() => {
     if (
       deck === null &&
       filter === "attention" &&
-      seenHydrated &&
       reports.data &&
-      unseen.length > 0
+      readStates.settled
     ) {
-      setDeck(unseen.map((report) => report.id));
+      const unread = allIds.filter((id) => readStates.unread.has(id));
+      if (unread.length > 0) setDeck(unread);
     }
-  }, [deck, filter, seenHydrated, reports.data, unseen]);
+  }, [deck, filter, reports.data, readStates, allIds]);
 
   const deckReports = useMemo(
     () =>
@@ -89,15 +88,14 @@ export default function SelfDrivingScreen() {
     [deck, all],
   );
 
-  // Whatever surfaces at the top of the deck counts as seen.
+  // Whatever surfaces at the top of the deck counts as read.
   const topId = deckReports[0]?.id;
   useEffect(() => {
-    if (topId && !seen.has(topId)) markSeen([topId]);
-  }, [topId, seen, markSeen]);
+    if (topId) markRead(topId);
+  }, [topId, markRead]);
 
   const finish = (report: SignalReport): void => {
     setHandled((current) => new Set(current).add(report.id));
-    markSeen([report.id]);
   };
 
   // A failed action leaves the report open on the server, so put the card back
@@ -221,7 +219,7 @@ export default function SelfDrivingScreen() {
                   {formatRelativeAge(report.updated_at)}
                 </Text>
               </View>
-              {filter === "attention" && !seen.has(report.id) ? (
+              {rowReadStates.unread.has(report.id) ? (
                 <View style={styles.newDot} />
               ) : null}
             </Pressable>

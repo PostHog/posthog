@@ -8,6 +8,7 @@ from django.db.models import TextChoices
 from django.utils import timezone
 
 import structlog
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -49,6 +50,9 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
+
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
@@ -1227,7 +1231,26 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.signals.backend.serializers.SignalReportSerializer"
+    match_subclasses = True
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            # The disabled rollout omits this timestamp, so responses cannot require it.
+            schema["required"] = [name for name in required if name != "monitoring_started_at"]
+        return schema
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
+    monitoring_started_at = serializers.DateTimeField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.",
+    )
     status = serializers.SerializerMethodField(
         help_text="Current report status. Monitoring reads as resolved when its rollout is disabled.",
     )
@@ -1397,6 +1420,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "summary",
             "summary_lead",
             "status",
+            "monitoring_started_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
@@ -1445,14 +1469,23 @@ class SignalReportSerializer(serializers.ModelSerializer):
             },
         }
 
-    @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
-    def get_status(self, obj: SignalReport) -> str:
-        if obj.status != SignalReport.Status.MONITORING:
-            return obj.status
+    def _monitoring_enabled(self, obj: SignalReport) -> bool:
         enabled_by_team = cast(dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {}))
         if obj.team_id not in enabled_by_team:
             enabled_by_team[obj.team_id] = team_report_monitoring_enabled(obj.team_id)
-        return obj.status if enabled_by_team[obj.team_id] else SignalReport.Status.RESOLVED
+        return enabled_by_team[obj.team_id]
+
+    def to_representation(self, instance: SignalReport) -> dict[str, object]:
+        representation = super().to_representation(instance)
+        if not self._monitoring_enabled(instance):
+            representation.pop("monitoring_started_at", None)
+        return representation
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
+    def get_status(self, obj: SignalReport) -> str:
+        if obj.status == SignalReport.Status.MONITORING and not self._monitoring_enabled(obj):
+            return SignalReport.Status.RESOLVED
+        return obj.status
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -1744,7 +1777,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
-        if self.get_status(obj) == SignalReport.Status.RESOLVED:
+        if obj.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return "done"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
