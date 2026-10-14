@@ -291,6 +291,7 @@ The transcript itself ends with the same path, and `logs/harness/latest.log` poi
 Suite listing (`--list`) and argument errors do not create transcripts.
 
 Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 

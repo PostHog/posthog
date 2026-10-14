@@ -18,6 +18,12 @@ def _slugify(name: str) -> str:
     return slug or "unnamed"
 
 
+def _case_log_slug(case_name: str, trial_id: str | None) -> str:
+    trial_suffix = f".trial-{_slugify(trial_id)}" if trial_id else ""
+    case_name_limit = 255 - len(trial_suffix) - len(".artifacts.json")
+    return _slugify(case_name)[:case_name_limit] + trial_suffix
+
+
 @dataclass(frozen=True)
 class CaseLogPaths:
     case_dir: Path
@@ -115,9 +121,7 @@ def write_case_logs(
     trial_id: str | None = None,
     trace_id: str | None = None,
 ) -> CaseLogPaths:
-    slug = _slugify(case_name)
-    if trial_id:
-        slug += f".trial-{_slugify(trial_id)}"
+    slug = _case_log_slug(case_name, trial_id)
     paths = CaseLogPaths(
         case_dir=case_dir,
         raw_log=case_dir / f"{slug}.jsonl",
@@ -137,9 +141,7 @@ def write_case_logs(
 
 
 def append_case_scores(case_dir: Path, case_name: str, scores: dict[str, Any], *, trial_id: str | None = None) -> None:
-    slug = _slugify(case_name)
-    if trial_id:
-        slug += f".trial-{_slugify(trial_id)}"
+    slug = _case_log_slug(case_name, trial_id)
     summary_path = case_dir / f"{slug}.summary.txt"
     if not summary_path.exists():
         return
