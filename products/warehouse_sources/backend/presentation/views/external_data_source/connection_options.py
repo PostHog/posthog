@@ -41,10 +41,28 @@ from . import base, helpers
 tracer = trace.get_tracer(__name__)
 
 
+MAX_EXCLUDED_PRODUCT_IDS = 100
+
+
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+    excluded_product_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Stripe product IDs whose invoice lines are left out of revenue analytics, for example a prepaid credit "
+            f"product that pays for other invoices. Charges without an invoice are not affected. Blank and duplicate IDs are dropped. At most {MAX_EXCLUDED_PRODUCT_IDS} IDs."
+        ),
+    )
+
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
-        fields = ["enabled", "include_invoiceless_charges"]
+        fields = ["enabled", "include_invoiceless_charges", "excluded_product_ids"]
+
+    def validate_excluded_product_ids(self, value: list[str]) -> list[str]:
+        product_ids = list(dict.fromkeys(product_id for product_id in value if product_id))
+        if len(product_ids) > MAX_EXCLUDED_PRODUCT_IDS:
+            raise serializers.ValidationError(f"Exclude at most {MAX_EXCLUDED_PRODUCT_IDS} products.")
+        return product_ids
 
 
 class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):

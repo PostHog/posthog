@@ -1564,6 +1564,13 @@ export interface eventUsageLogicActions {
     reportRevenueAnalyticsEventEdited: (eventName: string) => {
         eventName: string
     }
+    reportRevenueAnalyticsExcludedProductsUpdated: (
+        sourceType: string,
+        excludedProductCount: number
+    ) => {
+        excludedProductCount: number
+        sourceType: string
+    }
     reportRevenueAnalyticsSettingsViewed: () => {}
     reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
@@ -2215,6 +2222,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsDataSourceEnabled: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        reportRevenueAnalyticsExcludedProductsUpdated: (sourceType: string, excludedProductCount: number) => ({
+            sourceType,
+            excludedProductCount,
+        }),
         // marketing analytics
         reportMarketingAnalyticsOnboardingViewed: () => ({}),
         reportMarketingAnalyticsOnboardingCompleted: (hasSources: boolean) => ({
@@ -3157,6 +3168,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsTestAccountFilterUpdated: ({ filterTestAccounts }) => {
             posthog.capture('revenue analytics test account filter updated', {
                 filter_test_accounts: filterTestAccounts,
+            })
+        },
+        reportRevenueAnalyticsExcludedProductsUpdated: ({ sourceType, excludedProductCount }) => {
+            posthog.capture('revenue analytics excluded products updated', {
+                source_type: sourceType,
+                excluded_product_count: excludedProductCount,
             })
         },
         reportMarketingAnalyticsOnboardingViewed: () => {

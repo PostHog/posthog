@@ -128,7 +128,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -793,7 +794,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -1455,7 +1457,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -2114,7 +2117,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -2773,7 +2777,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -3435,7 +3440,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -4097,7 +4103,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -4898,7 +4905,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -5578,7 +5586,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -6321,7 +6330,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -7173,7 +7183,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -7898,7 +7909,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -8424,7 +8436,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -9125,7 +9138,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -9850,7 +9864,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -10566,7 +10581,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -11285,7 +11301,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999
@@ -11395,7 +11412,8 @@
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."excluded_product_ids"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
   WHERE ("posthog_externaldatasource"."team_id" = 99999

@@ -1,5 +1,6 @@
 import logging
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -21,6 +22,11 @@ class ExternalDataSourceRevenueAnalyticsConfig(models.Model):
 
     enabled = field_access_control(models.BooleanField(default=True), "revenue_analytics", "editor")
     include_invoiceless_charges = field_access_control(models.BooleanField(default=True), "revenue_analytics", "editor")
+    excluded_product_ids = field_access_control(
+        ArrayField(models.CharField(max_length=255), default=list, db_default=[], blank=True),
+        "revenue_analytics",
+        "editor",
+    )
 
     class Meta:
         db_table = "posthog_externaldatasourcerevenueanalyticsconfig"

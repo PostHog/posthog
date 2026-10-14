@@ -21,7 +21,9 @@ import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/component
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
+import { ExcludedProductsInput } from './ExcludedProductsInput'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+import { revenueViewName } from './revenueViewName'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
@@ -75,7 +77,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
     return (
         <SceneSection
             title="Data warehouse sources configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
+            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields. Expand a source to exclude Stripe products from revenue."
         >
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
@@ -100,6 +102,30 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 loading={dataWarehouseSources === null}
                 dataSource={revenueSources}
                 emptyState="No DWH revenue sources configured yet"
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (source: ExternalDataSource) => (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.RevenueAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            {({ disabledReason }) => (
+                                <ExcludedProductsInput
+                                    source={source}
+                                    disabledReason={
+                                        disabledReasonForRevenueAnalyticsConfig(source) ?? disabledReason ?? undefined
+                                    }
+                                    onChange={(excludedProductIds) =>
+                                        updateSourceRevenueAnalyticsConfig({
+                                            source,
+                                            config: { excluded_product_ids: excludedProductIds },
+                                        })
+                                    }
+                                />
+                            )}
+                        </AccessControlAction>
+                    ),
+                }}
                 columns={[
                     {
                         key: 'source',
@@ -159,10 +185,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                             </span>
                         ),
                         render: (_, source: ExternalDataSource) => {
-                            const sourcePrefix = source.prefix
-                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
-                                : source.source_type.toLowerCase()
-                            const joinName = `${sourcePrefix}.customer_revenue_view`
+                            const joinName = revenueViewName(source, 'customer_revenue_view')
                             const join = joins.find(
                                 (join) => join.source_table_name === joinName && join.joining_table_name === 'persons'
                             )
@@ -243,10 +266,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                             </span>
                         ),
                         render: (_, source: ExternalDataSource) => {
-                            const sourcePrefix = source.prefix
-                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
-                                : source.source_type.toLowerCase()
-                            const joinName = `${sourcePrefix}.customer_revenue_view`
+                            const joinName = revenueViewName(source, 'customer_revenue_view')
                             const join = joins.find(
                                 (join) => join.source_table_name === joinName && join.joining_table_name === 'groups'
                             )

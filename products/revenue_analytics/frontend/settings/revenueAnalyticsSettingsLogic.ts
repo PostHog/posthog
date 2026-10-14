@@ -86,6 +86,13 @@ export interface revenueAnalyticsSettingsLogicActions {
     reportRevenueAnalyticsEventDeleted: (eventName: string) => {
         eventName: string
     } // eventUsageLogic
+    reportRevenueAnalyticsExcludedProductsUpdated: (
+        sourceType: string,
+        excludedProductCount: number
+    ) => {
+        excludedProductCount: number
+        sourceType: string
+    } // eventUsageLogic
     reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     } // eventUsageLogic
@@ -241,6 +248,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 'reportRevenueAnalyticsDataSourceEnabled',
                 'reportRevenueAnalyticsDataSourceDisabled',
                 'reportRevenueAnalyticsTestAccountFilterUpdated',
+                'reportRevenueAnalyticsExcludedProductsUpdated',
             ],
         ],
     })),
@@ -425,11 +433,18 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             },
             deleteEvent: ({ eventName }) => actions.reportRevenueAnalyticsEventDeleted(eventName),
             updateSourceRevenueAnalyticsConfig: ({ source, config }) => {
-                const func = config.enabled
-                    ? actions.reportRevenueAnalyticsDataSourceEnabled
-                    : actions.reportRevenueAnalyticsDataSourceDisabled
-
-                return func(source.source_type)
+                if (config.enabled !== undefined) {
+                    const func = config.enabled
+                        ? actions.reportRevenueAnalyticsDataSourceEnabled
+                        : actions.reportRevenueAnalyticsDataSourceDisabled
+                    func(source.source_type)
+                }
+                if (config.excluded_product_ids) {
+                    actions.reportRevenueAnalyticsExcludedProductsUpdated(
+                        source.source_type,
+                        config.excluded_product_ids.length
+                    )
+                }
             },
         }
     }),

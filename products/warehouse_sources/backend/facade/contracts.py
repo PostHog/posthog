@@ -55,6 +55,7 @@ class RevenueSource:
     enabled: bool
     include_invoiceless_charges: bool
     schemas: tuple[RevenueSourceSchema, ...]
+    excluded_product_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
