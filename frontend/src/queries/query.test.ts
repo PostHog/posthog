@@ -419,7 +419,8 @@ describe('query', () => {
                 controller.abort()
             }
             const promise = pollForResults('test-query-id', { signal: controller.signal })
-            const rejected = await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+            // oxlint-disable-next-line jest/valid-expect -- awaited after the abort below; awaiting here hangs the test
+            const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
             await jest.advanceTimersByTimeAsync(0)
             controller.abort()
             await rejected
