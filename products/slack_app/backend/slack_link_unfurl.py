@@ -81,6 +81,8 @@ _MAX_GRID_TILES = 6
 _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
 
+ADHOC_INSIGHT_KIND = "adhoc_insight"
+
 _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
     "dashboard": OBJECT_URL_TEMPLATES["dashboard"],
@@ -109,7 +111,7 @@ _KIND_EMOJI: dict[str, str] = {
     "cohort": "👥",
     "error": "🐞",
     "report": "📥",
-    "adhoc_insight": "📈",
+    ADHOC_INSIGHT_KIND: "📈",
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
@@ -213,7 +215,7 @@ def parse_posthog_resource_link(url: str) -> ObjectRef | None:
     if "false" in parse_qs(urlparse(url).query).get(UNFURL_OPT_OUT_PARAM, []):
         return None
     if _is_adhoc_insight_url(url):
-        return ObjectRef(kind="adhoc_insight", id="new")
+        return ObjectRef(kind=ADHOC_INSIGHT_KIND, id="new")
     return object_ref_for_url(url, _UNFURL_TEMPLATES)
 
 
@@ -967,7 +969,7 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
 
 _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _SkipReason]] = {
     "insight": _insight_card,
-    "adhoc_insight": _adhoc_insight_card,
+    ADHOC_INSIGHT_KIND: _adhoc_insight_card,
     "dashboard": _dashboard_card,
     "ticket": _ticket_card,
     "task": _task_card,
