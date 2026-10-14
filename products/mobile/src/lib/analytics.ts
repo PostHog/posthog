@@ -50,6 +50,7 @@ export type AnalyticsEvent =
     | 'mobile_chart_recordings_opened'
     | 'mobile_chart_people_opened'
     | 'mobile_chart_legend_toggled'
+    | 'mobile_chart_fullscreen_opened'
     | 'mobile_views_reauth_shown'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>

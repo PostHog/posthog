@@ -1,3 +1,4 @@
+import type { QueryKey } from '@tanstack/react-query'
 import type { Href } from 'expo-router'
 
 import type { PinDisplayMode, ViewEntry } from '@/model/views'
@@ -42,6 +43,31 @@ export function insightHref(shortId: string, params: InsightRouteParams = {}): H
 
 export function webAnalyticsHref(open: ViewOpenParams = {}): Href {
     return { pathname: '/views/web-analytics', params: openParams(open) }
+}
+
+/**
+ * The full-screen chart of an insight the phone already shows. `queryKey` names the snapshot's cache entry, so the
+ * screen shows the same range, compare and tile layers. Without it the screen reads the insight's own entry.
+ */
+export function chartHref(shortId: string, queryKey: QueryKey | null): Href {
+    return {
+        pathname: '/views/chart/[shortId]',
+        params: { shortId, ...(queryKey ? { key: JSON.stringify(queryKey) } : {}) },
+    }
+}
+
+/** The cache key from `chartHref`, or null when the param is missing or is not a Views key. */
+export function queryKeyParam(value: string | string[] | undefined): QueryKey | null {
+    const first = Array.isArray(value) ? value[0] : value
+    if (!first) {
+        return null
+    }
+    try {
+        const parsed: unknown = JSON.parse(first)
+        return Array.isArray(parsed) && parsed[0] === 'views' ? parsed : null
+    } catch {
+        return null
+    }
 }
 
 /** A deep link names no entry, so a missing or unknown `from` counts as `deep_link`. */
