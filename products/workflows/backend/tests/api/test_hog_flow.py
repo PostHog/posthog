@@ -7483,6 +7483,49 @@ class TestReplayVisionActionValidation(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand([("can_view_recordings", "viewer", status.HTTP_200_OK), ("cannot", "none", 400)])
+    def test_changing_only_the_variables_of_a_step_needs_the_editors_recording_access(
+        self, _name: str, recording_access: str, expected: int
+    ) -> None:
+        self._enable_access_control()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Scan flow",
+            status="active",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            variables=[{"key": "session", "type": "string", "label": "Session", "default": "s1"}],
+            actions=[
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-replay-vision",
+                        "inputs": {"session_id": {"value": "{variables.session}"}},
+                    },
+                },
+            ],
+        )
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"variables": [{"key": "session", "type": "string", "label": "Session", "default": "another-session"}]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+
     @parameterized.expand([("live", False, status.HTTP_403_FORBIDDEN), ("mocked", True, status.HTTP_200_OK)])
     def test_a_live_test_run_needs_the_testers_recording_access(
         self, _name: str, mock_async_functions: bool, expected: int

@@ -603,6 +603,19 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
     return workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
 
 
+def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
+    get_team = context.get("get_team")
+    if get_team is None:
+        return
+    for step in actions if isinstance(actions, list) else []:
+        config = (step.get("config") or {}) if isinstance(step, dict) else {}
+        if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
+            continue
+        error = _replay_vision_step_error(request, get_team(), config.get("inputs"))
+        if error is not None:
+            raise serializers.ValidationError({"variables": error})
+
+
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
@@ -3134,6 +3147,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {"actions": submitted_actions, "conversion": data.get("conversion")},
             {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
         )
+
+        # A Replay Vision step can read its session from a variable, so changing variables alone changes what
+        # it scans. Submitted actions get this check through HogFlowActionSerializer.
+        if instance and "variables" in data and "actions" not in data:
+            _require_replay_vision_editor_access(self.context.get("request"), self.context, instance.actions)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
         status = data.get("status", instance.status if instance else "draft")
