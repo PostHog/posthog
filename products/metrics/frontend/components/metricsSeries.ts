@@ -21,15 +21,7 @@ type NamableSeries = Pick<_MetricSeriesApi, 'labels' | 'metric_name'> & { clause
 
 export type SeriesLabel = [key: string, value: string]
 
-export interface SeriesLabelSplit {
-    /** Labels that every series has with the same value. */
-    shared: SeriesLabel[]
-    /** Per series, index-aligned with the input: the labels that tell it apart. */
-    distinct: SeriesLabel[][]
-}
-
-/** The clause alias prefix ("a · ") of each series, index-aligned with the input. It is empty unless
- * the list plots more than one clause, which is when two ungrouped series would otherwise collide. */
+/** Clause alias prefix ("a · ") per series. Empty unless the list plots more than one clause. */
 export const seriesNamePrefixes = (seriesList: NamableSeries[]): string[] => {
     const showClause = new Set(seriesList.map((s) => s.clause).filter(Boolean)).size > 1
     return seriesList.map((series) => (showClause && series.clause ? `${series.clause} · ` : ''))
@@ -54,19 +46,16 @@ export const formatSeriesNames = (seriesList: NamableSeries[], fallback: string)
     return seriesList.map((series, index) => formatSeriesName(series, fallback, prefixes[index]))
 }
 
-/** Splits the labels into the ones every series has with the same value (often deployment
- * labels such as the Kubernetes app name) and, per series, the ones that tell it apart.
- * All labels of a single series count as shared. */
-export const splitSharedSeriesLabels = (seriesList: Pick<NamableSeries, 'labels'>[]): SeriesLabelSplit => {
+/** Per series, the labels that differ between series. Labels with the same value on every series
+ * (e.g. Kubernetes app labels) are dropped. A single series keeps all its labels. */
+export const distinctSeriesLabels = (seriesList: Pick<NamableSeries, 'labels'>[]): SeriesLabel[][] => {
     const [first, ...rest] = seriesList
-    const shared: SeriesLabel[] = Object.entries(first?.labels ?? {}).filter(([key, value]) =>
-        rest.every((series) => series.labels?.[key] === value)
+    const sharedKeys = new Set(
+        rest.length > 0
+            ? Object.entries(first.labels ?? {})
+                  .filter(([key, value]) => rest.every((series) => series.labels?.[key] === value))
+                  .map(([key]) => key)
+            : []
     )
-    const sharedKeys = new Set(shared.map(([key]) => key))
-    return {
-        shared,
-        distinct: seriesList.map((series) =>
-            Object.entries(series.labels ?? {}).filter(([key]) => !sharedKeys.has(key))
-        ),
-    }
+    return seriesList.map((series) => Object.entries(series.labels ?? {}).filter(([key]) => !sharedKeys.has(key)))
 }
