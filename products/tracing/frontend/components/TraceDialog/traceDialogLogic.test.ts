@@ -108,6 +108,34 @@ describe('traceDialogLogic', () => {
         expect(getTraceSpy).toHaveBeenCalledTimes(expectedCalls)
     })
 
+    it('stops paging once the dialog closes', async () => {
+        let resolveFirstPage: (p: TracePage) => void = () => {}
+        getTraceSpy.mockReturnValueOnce(new Promise<TracePage>((resolve) => (resolveFirstPage = resolve)))
+
+        logic.actions.openTraceDialog({ traceId: 'abc123' })
+        logic.actions.closeTraceDialog()
+        await expectLogic(logic, () => {
+            resolveFirstPage(page(['a'], 1))
+        }).toDispatchActions(['loadTraceSpansSuccess'])
+
+        expect(getTraceSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores a failure from a trace that a newer one replaced', async () => {
+        let rejectFirstTrace: (error: Error) => void = () => {}
+        getTraceSpy.mockReturnValueOnce(new Promise<TracePage>((_, reject) => (rejectFirstTrace = reject)))
+
+        logic.actions.openTraceDialog({ traceId: 'first' })
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'second' })
+        }).toDispatchActions(['loadTraceSpansSuccess'])
+
+        rejectFirstTrace(new Error('boom'))
+        await expectLogic(logic)
+            .toNotHaveDispatchedActions(['loadTraceSpansFailure'])
+            .toMatchValues({ traceSpansFailed: false })
+    })
+
     it('clears the failure once a retry succeeds', async () => {
         getTraceSpy.mockRejectedValueOnce(new Error('boom'))
         await expectLogic(logic, () => {

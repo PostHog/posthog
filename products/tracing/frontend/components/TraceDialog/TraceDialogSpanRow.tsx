@@ -9,6 +9,8 @@ import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 import type { TraceDialogTimeline } from './traceDialogLogic'
 
 const INDENT_PX = 16
+// Deeper spans stop indenting, so the name keeps room in the fixed-width span column.
+const MAX_INDENT_DEPTH = 10
 const ERROR_COLOR = 'var(--danger)'
 
 export interface TraceDialogSpanRowProps {
@@ -67,7 +69,7 @@ export function TraceDialogSpanRow({
             <span
                 className="w-80 shrink-0 flex items-center gap-1.5 min-w-0 pr-2"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ paddingLeft: node.depth * INDENT_PX }}
+                style={{ paddingLeft: Math.min(node.depth, MAX_INDENT_DEPTH) * INDENT_PX }}
             >
                 {!isMissingParent && (
                     <span

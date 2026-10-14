@@ -31,7 +31,7 @@ export interface SpanNode {
     children: SpanNode[]
     depth: number
     isLastChild: boolean
-    connectorLines: boolean[]
+    parent: SpanNode | null
     /** A placeholder for a parent span that is not in the trace. Its children are the spans that point to it. */
     isMissingParent?: boolean
 }
@@ -60,7 +60,7 @@ function missingParentNode(parentSpanId: string, child: Span): SpanNode {
         children: [],
         depth: 0,
         isLastChild: false,
-        connectorLines: [],
+        parent: null,
         isMissingParent: true,
     }
 }
@@ -79,7 +79,7 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
     const roots: SpanNode[] = []
 
     for (const span of spans) {
-        byId.set(span.span_id, { span, children: [], depth: 0, isLastChild: false, connectorLines: [] })
+        byId.set(span.span_id, { span, children: [], depth: 0, isLastChild: false, parent: null })
     }
 
     for (const node of byId.values()) {
@@ -87,6 +87,7 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
         if (parentSpanId && byId.has(parentSpanId)) {
             const parent = byId.get(parentSpanId)!
             parent.children.push(node)
+            node.parent = parent
         } else if (parentSpanId) {
             let placeholder = missingParents.get(parentSpanId)
             if (!placeholder) {
@@ -95,6 +96,7 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
                 roots.push(placeholder)
             }
             placeholder.children.push(node)
+            node.parent = placeholder
             // The placeholder sorts with the other roots by its earliest child.
             if (parseTimestampUs(node.span.timestamp) < parseTimestampUs(placeholder.span.timestamp)) {
                 placeholder.span.timestamp = node.span.timestamp
@@ -105,19 +107,36 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
         }
     }
 
-    function setDepths(nodes: SpanNode[], depth: number, parentConnectors: boolean[]): void {
+    // Iterative so a deep parent/child chain cannot overflow the call stack.
+    const groups: { nodes: SpanNode[]; depth: number }[] = [{ nodes: roots, depth: 0 }]
+    while (groups.length > 0) {
+        const { nodes, depth } = groups.pop()!
         for (let i = 0; i < nodes.length; i++) {
             const node = nodes[i]
             node.depth = depth
             node.isLastChild = i === nodes.length - 1
-            node.connectorLines = [...parentConnectors]
-            node.children.sort((a, b) => new Date(a.span.timestamp).getTime() - new Date(b.span.timestamp).getTime())
-            setDepths(node.children, depth + 1, [...parentConnectors, !node.isLastChild])
+            if (node.children.length > 0) {
+                node.children.sort(
+                    (a, b) => new Date(a.span.timestamp).getTime() - new Date(b.span.timestamp).getTime()
+                )
+                groups.push({ nodes: node.children, depth: depth + 1 })
+            }
         }
     }
-    setDepths(roots, 0, [])
 
     return roots
+}
+
+/**
+ * Whether each ancestor level, root first, continues below this node, so the waterfall can draw its tree
+ * lines. Derived on demand for the rows on screen: storing it on every node costs memory quadratic in depth.
+ */
+export function connectorLinesOf(node: SpanNode): boolean[] {
+    const lines: boolean[] = []
+    for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+        lines.push(!ancestor.isLastChild)
+    }
+    return lines.reverse()
 }
 
 function sortChildren(nodes: SpanNode[]): SpanNode[] {
@@ -126,8 +145,13 @@ function sortChildren(nodes: SpanNode[]): SpanNode[] {
 
 export function countDescendants(node: SpanNode): number {
     let total = 0
-    for (const child of node.children) {
-        total += 1 + countDescendants(child)
+    const stack = [...node.children]
+    while (stack.length > 0) {
+        const current = stack.pop()!
+        total += 1
+        for (const child of current.children) {
+            stack.push(child)
+        }
     }
     return total
 }
@@ -135,17 +159,17 @@ export function countDescendants(node: SpanNode): number {
 /** Depth-first flatten for rendering, skipping the subtree of any collapsed span. */
 export function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): SpanNode[] {
     const result: SpanNode[] = []
-    function walk(node: SpanNode): void {
+    // An explicit stack, in reverse so the earliest child pops first, keeps deep traces off the call stack.
+    const stack = sortChildren(nodes).reverse()
+    while (stack.length > 0) {
+        const node = stack.pop()!
         result.push(node)
-        if (collapsedSpanIds.has(node.span.span_id)) {
-            return
+        if (!collapsedSpanIds.has(node.span.span_id)) {
+            const children = sortChildren(node.children)
+            for (let i = children.length - 1; i >= 0; i--) {
+                stack.push(children[i])
+            }
         }
-        for (const child of sortChildren(node.children)) {
-            walk(child)
-        }
-    }
-    for (const root of sortChildren(nodes)) {
-        walk(root)
     }
     return result
 }
@@ -153,16 +177,15 @@ export function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): S
 /** span_ids of every node that has children — the set of spans that can be collapsed. */
 export function collectCollapsibleSpanIds(nodes: SpanNode[]): Set<string> {
     const ids = new Set<string>()
-    function walk(node: SpanNode): void {
+    const stack = [...nodes]
+    while (stack.length > 0) {
+        const node = stack.pop()!
         if (node.children.length > 0) {
             ids.add(node.span.span_id)
         }
         for (const child of node.children) {
-            walk(child)
+            stack.push(child)
         }
-    }
-    for (const root of nodes) {
-        walk(root)
     }
     return ids
 }

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useEffect } from 'react'
+import { CSSProperties, useCallback, useMemo, useRef } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -57,16 +57,27 @@ export function TraceDialogSpanTree(): JSX.Element {
     const listRef = useListRef(null)
     const openedSpanId = trace?.spanId ?? null
 
-    // Bring the span that emitted the log into view once the spans arrive.
-    useEffect(() => {
-        if (!openedSpanId) {
-            return
-        }
-        const index = flatSpans.findIndex((node) => node.span.span_id === openedSpanId)
-        if (index >= 0) {
-            listRef.current?.scrollToRow({ index, align: 'center' })
-        }
-    }, [flatSpans, openedSpanId, listRef])
+    const openedIndex = useMemo(
+        () => (openedSpanId ? flatSpans.findIndex((node) => node.span.span_id === openedSpanId) : -1),
+        [flatSpans, openedSpanId]
+    )
+    // Bring the span that emitted the log into view. The list measures itself only after it mounts, so
+    // an early scroll is lost: retry each time the rendered rows change until the span is visible, then
+    // leave scrolling to the user.
+    const revealedIndexRef = useRef<number | null>(null)
+    const revealOpenedSpan = useCallback(
+        (visibleRows: { startIndex: number; stopIndex: number }): void => {
+            if (openedIndex < 0 || revealedIndexRef.current === openedIndex) {
+                return
+            }
+            if (openedIndex >= visibleRows.startIndex && openedIndex <= visibleRows.stopIndex) {
+                revealedIndexRef.current = openedIndex
+                return
+            }
+            listRef.current?.scrollToRow({ index: openedIndex, align: 'center' })
+        },
+        [openedIndex, listRef]
+    )
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -108,6 +119,7 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 onSelect: selectSpan,
                             }}
                             listRef={listRef}
+                            onRowsRendered={revealOpenedSpan}
                         />
                     )}
                 />

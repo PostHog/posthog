@@ -143,7 +143,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
         closeTraceDialog: true,
         selectSpan: (spanId: string) => ({ spanId }),
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         traceSpans: [
             null as TraceDialogSpans | null,
             {
@@ -152,17 +152,27 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                     const seen = new Set<string>()
                     const spans: Span[] = []
                     let offset: number | undefined = undefined
-                    for (let page = 0; page < TRACE_DIALOG_MAX_PAGES; page++) {
-                        const response = await api.tracing.getTrace(trace.traceId, { dateRange, offset })
-                        breakpoint()
-                        // A page that adds no new span means the pages overlap, so paging further only repeats them.
-                        const fresh = (response.results as Span[]).filter((span) => !seen.has(span.span_id))
-                        fresh.forEach((span) => seen.add(span.span_id))
-                        spans.push(...fresh)
-                        if (!response.hasMore || response.nextOffset == null || fresh.length === 0) {
-                            return { spans, truncated: false }
+                    try {
+                        for (let page = 0; page < TRACE_DIALOG_MAX_PAGES; page++) {
+                            const response = await api.tracing.getTrace(trace.traceId, { dateRange, offset })
+                            breakpoint()
+                            // A page that adds no new span means the pages overlap, so paging further only repeats them.
+                            const fresh = (response.results as Span[]).filter((span) => !seen.has(span.span_id))
+                            fresh.forEach((span) => seen.add(span.span_id))
+                            spans.push(...fresh)
+                            if (!response.hasMore || response.nextOffset == null || fresh.length === 0) {
+                                return { spans, truncated: false }
+                            }
+                            // Nobody is looking any more, so stop querying for further pages.
+                            if (!values.isOpen) {
+                                return { spans, truncated: true }
+                            }
+                            offset = response.nextOffset
                         }
-                        offset = response.nextOffset
+                    } catch (error) {
+                        // A failure from a load that a newer one replaced must not mark the newer trace as failed.
+                        breakpoint()
+                        throw error
                     }
                     return { spans, truncated: true }
                 },
@@ -245,11 +255,11 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             },
         ],
         // When the record that opened the dialog was written: a log's timestamp, so its span can show
-        // when the log fired. Millisecond precision is enough to place a tick on a bar.
+        // when the log fired. Parsed to microseconds, like the timeline, so sub-millisecond spans place it right.
         openedAtUs: [
             (s) => [s.trace],
             (trace: TraceLinkParams | null): number | null =>
-                trace?.ts && dayjs(trace.ts).isValid() ? dayjs(trace.ts).valueOf() * 1_000 : null,
+                trace?.ts && dayjs(trace.ts).isValid() ? parseTimestampUs(trace.ts) : null,
         ],
     }),
     listeners(({ values, actions, cache }) => ({

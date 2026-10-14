@@ -13,6 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import {
     buildSpanTree,
     collectCollapsibleSpanIds,
+    connectorLinesOf,
     countDescendants,
     flattenTree,
     getTimelineTicks,
@@ -102,11 +103,12 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     }
 
     const mid = INDENT_PX / 2
+    const connectorLines = connectorLinesOf(node)
 
     return (
         <span className="flex shrink-0 items-stretch self-stretch overflow-visible">
             {/* Continuation lines for ancestor levels */}
-            {node.connectorLines.slice(0, -1).map((hasContinuation, i) => (
+            {connectorLines.slice(0, -1).map((hasContinuation, i) => (
                 <span
                     key={i}
                     className="shrink-0 relative overflow-visible"
