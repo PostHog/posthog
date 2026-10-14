@@ -69,24 +69,39 @@ class TestNodeViewSet(APIBaseTest):
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
 
-    def test_deleted_saved_query_nodes_are_hidden_from_the_graph(self):
-        self.saved_query.soft_delete()
+    @parameterized.expand(["saved_query", "warehouse_table", "posthog_table", "metric"])
+    def test_retrieve_node_by_backing_resource(self, lookup):
+        if lookup == "saved_query":
+            resource_id = self.saved_query.id
+            expected_node = self.view_node
+        elif lookup == "metric":
+            resource_id = uuid4()
+            expected_node = Node.objects.create(
+                team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=resource_id
+            )
+        elif lookup == "warehouse_table":
+            resource_id = uuid4()
+            self.table_node.properties = {"origin": "warehouse", "warehouse_table_id": str(resource_id)}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
+        else:
+            resource_id = self.table_node.name
+            self.table_node.properties = {"origin": "posthog"}
+            self.table_node.save(update_fields=["properties"])
+            expected_node = self.table_node
 
-        nodes_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-        edges_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
-        lineage_response = self.client.get(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.table_node.id}"
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/{resource_id}/?lookup={lookup}"
         )
 
-        self.assertEqual(nodes_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(nodes_response.json()["count"], 1)
-        self.assertEqual(nodes_response.json()["results"][0]["name"], "events")
-        self.assertEqual(nodes_response.json()["results"][0]["downstream_count"], 0)
-        self.assertEqual(edges_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(edges_response.json()["count"], 0)
-        self.assertEqual(lineage_response.status_code, status.HTTP_200_OK)
-        self.assertEqual([node["name"] for node in lineage_response.json()["nodes"]], ["events"])
-        self.assertEqual(lineage_response.json()["edges"], [])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(expected_node.id))
+
+    def test_soft_deleting_a_saved_query_deletes_its_node_and_unread_parents(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.saved_query.soft_delete()
+
+        self.assertFalse(Node.objects.filter(id__in=[self.view_node.id, self.table_node.id]).exists())
 
     def _node_payload(self) -> dict:
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
@@ -256,7 +271,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "test_view")
         self.assertEqual(response.json()["type"], "view")
-        self.assertEqual(response.json()["dag"], str(self.dag.id))
 
     @parameterized.expand(
         [
@@ -288,35 +302,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["upstream_count"], 0)
         self.assertEqual(response.json()["downstream_count"], 0)
 
-    def test_list_nodes_with_dag_filter(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/?dag={another_dag.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "another_table")
-
-    def test_list_nodes_without_dag_filter_returns_all(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-
     @parameterized.expand(
         [
             # node target wins even when the saved-query interval disagrees (tiered v2 teams
@@ -342,12 +327,6 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["sync_interval"], expected)
-
-    def test_node_response_includes_dag_name(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["dag_name"], self.dag_id)
 
     def test_run_requires_direction(self):
         response = self.client.post(
@@ -663,36 +642,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
 
-    @parameterized.expand(["post", "put", "patch"])
-    def test_dag_field_rejects_other_teams_dag(self, method):
-        other_team = Team.objects.create(organization=self.organization)
-        foreign_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
-
-        if method == "post":
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/data_modeling_nodes/",
-                data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
-            return
-
-        original_dag_id = self.view_node.dag_id
-        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
-        if method == "patch":
-            response = self.client.patch(url, data={"dag": str(foreign_dag.id)}, format="json")
-        else:
-            response = self.client.put(
-                url,
-                data={"name": "test_view", "type": NodeType.VIEW, "dag": str(foreign_dag.id)},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, original_dag_id)
-
     @parameterized.expand(["put", "patch"])
     def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
         other_team = Team.objects.create(organization=self.organization)
@@ -712,7 +661,6 @@ class TestNodeViewSet(APIBaseTest):
                 data={
                     "name": "test_view",
                     "type": NodeType.VIEW,
-                    "dag": str(self.dag.id),
                     "saved_query_id": str(foreign_sq.id),
                 },
                 format="json",
@@ -731,6 +679,19 @@ class TestNodeViewSet(APIBaseTest):
         return Node.objects.create(
             team=self.team, dag=managed_dag, saved_query=sq, type=NodeType.VIEW, description="orig"
         )
+
+    @parameterized.expand(["node", "edge"])
+    def test_deleting_the_last_reader_of_a_table_deletes_the_table_node(self, deleted):
+        if deleted == "node":
+            url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        else:
+            edge = Edge.objects.get(source=self.table_node, target=self.view_node)
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Node.objects.filter(id=self.table_node.id).exists())
 
     def test_cannot_delete_node_in_managed_dag(self):
         node = self._create_managed_node()
@@ -752,29 +713,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         node.refresh_from_db()
         self.assertEqual(node.description, "orig")
-
-    @parameterized.expand(["post", "patch"])
-    def test_cannot_add_or_move_node_into_managed_dag(self, method):
-        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-
-        if method == "post":
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/data_modeling_nodes/",
-                data={"name": "sneaky", "type": NodeType.TABLE, "dag": str(managed_dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="sneaky", dag=managed_dag).exists())
-            return
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/",
-            data={"dag": str(managed_dag.id)},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, self.dag.id)
 
 
 class TestMetricNodeAPI(APIBaseTest):
@@ -853,16 +791,11 @@ class TestMetricNodeAPI(APIBaseTest):
         self.metric_node.refresh_from_db()
         self.assertEqual(self.metric_node.type, NodeType.METRIC)
 
-    @parameterized.expand(["name", "description", "dag_id"])
+    @parameterized.expand(["name", "description"])
     def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
-        payload = (
-            {"dag": str(DAG.objects.create(team=self.team, name="other").id)}
-            if field == "dag_id"
-            else {field: "changed"}
-        )
         before = getattr(self.metric_node, field)
 
-        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data=payload, format="json")
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={field: "changed"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.metric_node.refresh_from_db()
@@ -876,18 +809,21 @@ class TestMetricNodeAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Edge.objects.filter(id=edge.id).exists())
 
-    @parameterized.expand(["post", "patch"])
-    def test_only_table_nodes_can_be_written_through_the_api(self, method):
-        if method == "post":
-            response = self.client.post(
-                self.url,
-                data={"name": "sneaky", "type": NodeType.METRIC, "dag": str(self.dag.id)},
-                format="json",
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="sneaky").exists())
-            return
+    @parameterized.expand(
+        [
+            ("node", "data_modeling_nodes", {"name": "sneaky", "type": NodeType.TABLE}),
+            ("edge", "data_modeling_edges", {"properties": {}}),
+        ]
+    )
+    def test_nodes_and_edges_cannot_be_created_through_the_api(self, _name, endpoint, payload):
+        nodes_before, edges_before = Node.objects.count(), Edge.objects.count()
 
+        response = self.client.post(f"/api/environments/{self.team.id}/{endpoint}/", data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual((Node.objects.count(), Edge.objects.count()), (nodes_before, edges_before))
+
+    def test_a_node_cannot_be_retyped_through_the_api(self):
         response = self.client.patch(f"{self.url}{self.table_node.id}/", data={"type": NodeType.VIEW}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.table_node.refresh_from_db()
@@ -1031,6 +967,33 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
+            ("node_viewer", "node", "viewer", status.HTTP_403_FORBIDDEN),
+            ("node_editor", "node", "editor", status.HTTP_204_NO_CONTENT),
+            ("edge_viewer", "edge", "viewer", status.HTTP_403_FORBIDDEN),
+            ("edge_editor", "edge", "editor", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_deleting_requires_warehouse_write_access(self, _name, deleted, access_level, expected_status):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        user = self.viewer_user if access_level == "viewer" else self.editor_user
+        self._create_access_control(user, access_level=access_level)
+        self.client.force_login(user)
+        target: Node | Edge = self.node if deleted == "node" else edge
+        if deleted == "node":
+            url = f"{self._list_url()}{self.node.id}/"
+        else:
+            url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
+        )
+
+    @parameterized.expand(
+        [
             ("list_granted", False, "viewer", status.HTTP_200_OK),
             ("list_denied", False, None, status.HTTP_403_FORBIDDEN),
             ("retrieve_granted", True, "viewer", status.HTTP_200_OK),
@@ -1093,7 +1056,6 @@ class TestEdgeViewSet(APIBaseTest):
         edge = response.json()["results"][0]
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
-        self.assertEqual(edge["dag"], str(self.dag.id))
 
     def test_list_edges_query_count_does_not_grow_with_edges(self):
         url = f"/api/environments/{self.team.id}/data_modeling_edges/"
@@ -1110,39 +1072,6 @@ class TestEdgeViewSet(APIBaseTest):
 
         self.assertEqual(response.json()["count"], 6)
         self.assertEqual(len(grown.captured_queries), len(baseline.captured_queries))
-
-    def test_list_edges_with_dag_filter(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        another_source = Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_events",
-            type=NodeType.TABLE,
-        )
-        another_target = Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_view",
-            type=NodeType.TABLE,
-        )
-        Edge.objects.create(
-            team=self.team,
-            dag=another_dag,
-            source=another_source,
-            target=another_target,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/?dag={another_dag.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["source_id"], str(another_source.id))
-
-    def test_edge_response_includes_dag_name(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0]["dag_name"], self.dag_id)
 
     def test_list_edges_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)

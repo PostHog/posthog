@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
@@ -29,6 +30,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
+    codebase_detection = detect(
+        env=("^POLAR_",),
+        npm=("@polar-sh/sdk", "@polar-sh/nextjs", "@polar-sh/better-auth", "@polar-sh/checkout", "@polar-sh/ui"),
+        pypi=("polar-sdk",),
+        composer=("polar-sh/sdk",),
+        go=("github.com/polarsource/polar-go",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.polar.sh/api-reference"

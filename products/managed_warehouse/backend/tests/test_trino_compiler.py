@@ -10,6 +10,7 @@ from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -262,8 +263,9 @@ class TestCompileHogQLToTrinoSQL:
             (" LIMIT 75000 OFFSET 3", " OFFSET 3 ROWS LIMIT 75000"),
         ],
     )
+    @pytest.mark.parametrize("interactive", [False, True])
     def test_populates_core_table_locators_from_control_plane_state(
-        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str
+        self, include_hogql: bool, limit_clause: str, trino_limit_clause: str, interactive: bool
     ) -> None:
         organization = Organization.objects.create(name="trino-core-locators")
         team = Team.objects.create(organization=organization)
@@ -286,13 +288,22 @@ class TestCompileHogQLToTrinoSQL:
                 team=team,
                 include_hogql=include_hogql,
                 expansion_mode=TrinoExpansionMode.DJANGO,
+                limit_top_select=interactive,
+                limit_context=LimitContext.QUERY,
             )
+
+        if interactive:
+            if not limit_clause:
+                trino_limit_clause = " LIMIT 50000"
+            trino_limit_clause = trino_limit_clause.replace("75000", "50000")
 
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production"' + trino_limit_clause
         )
         assert compiled.values == {}
+        if interactive:
+            limit_clause = (limit_clause or " LIMIT 50000").replace("75000", "50000")
         assert compiled.hogql == ("SELECT event FROM events" + limit_clause if include_hogql else None)
 
     @pytest.mark.django_db

@@ -110,9 +110,13 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
-function isErrorSelfHandledByLogic(actionKey: string, logicPath: string): boolean {
-    const ownerPath = ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH[actionKey]
+function isOwnedByLogic(owners: Record<string, string>, actionKey: string, logicPath: string): boolean {
+    const ownerPath = owners[actionKey]
     return !!ownerPath && (logicPath === ownerPath || logicPath.startsWith(`${ownerPath}.`))
+}
+
+function isErrorSelfHandledByLogic(actionKey: string, logicPath: string): boolean {
+    return isOwnedByLogic(ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH, actionKey, logicPath)
 }
 
 /*
@@ -149,6 +153,16 @@ const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
 }
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
+
+/*
+Write actions whose owning logic toasts the server message of a validation 400. The 400 is a
+response to user input, such as a malformed CSV, so it is not reported as an exception.
+Every other failure on these actions still toasts and reports.
+*/
+const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createTable: 'products.dataWarehouse.selfManagedSourceLogic',
+    updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
+}
 
 /*
 Write actions whose own logic marks the form row when the backend rejects an existing member
@@ -242,6 +256,9 @@ export function initKea({
                 // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                const isSelfHandledValidationError =
+                    error?.status === 400 &&
+                    isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
@@ -286,7 +303,8 @@ export function initKea({
                         isReadOnlyImpersonationError ||
                         isFeatureFlagDuplicateKey ||
                         isHasDependentsError ||
-                        isSelfHandledFieldError
+                        isSelfHandledFieldError ||
+                        isSelfHandledValidationError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
@@ -312,7 +330,12 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
+                if (
+                    shouldReportApiFailure(error) &&
+                    !isSelfHandledNotFound &&
+                    !isSelfHandledExistingMember &&
+                    !isSelfHandledValidationError
+                ) {
                     posthog.captureException(error)
                 }
             },

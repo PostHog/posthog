@@ -7,6 +7,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -156,6 +157,75 @@ ClickHouseErrors: dict[str, str] = {
 
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^CLICKHOUSE_", "^CHDB_ENABLED$", "^CHDB_DATA_PATH$"),
+        npm=(
+            "@clickhouse/client",
+            "@clickhouse/client-web",
+            "@clickhouse/client-common",
+            "chdb",
+            "clickhousectl",
+            "clickhouse",
+            "@apla/clickhouse",
+        ),
+        pypi=(
+            "clickhouse-connect",
+            "clickhouse-driver",
+            "chdb",
+            "chdb-core",
+            "dbt-clickhouse",
+            "mcp-clickhouse",
+            "clickhousectl",
+            "clickhouse-sqlalchemy",
+            "asynch",
+        ),
+        cargo=("clickhouse", "clickhousectl", "chdb-rust", "adbc_clickhouse", "clickhouse-c-rs", "clickhouse-rs"),
+        composer=("smi2/phpclickhouse", "glushkovds/phpclickhouse-laravel", "the-tinderbox/clickhouse-php-client"),
+        go=(
+            "github.com/ClickHouse/clickhouse-go",
+            "github.com/ClickHouse/ch-go",
+            "github.com/chdb-io/chdb-go",
+            "github.com/kshvakov/clickhouse",
+            "github.com/mailru/go-clickhouse",
+        ),
+        hex=("ch", "ecto_ch", "pillar"),
+        maven=(
+            "com.clickhouse:clickhouse-jdbc",
+            "com.clickhouse:client-v2",
+            "com.clickhouse:jdbc-v2",
+            "com.clickhouse:clickhouse-jdbc-all",
+            "com.clickhouse:clickhouse-http-client",
+            "com.clickhouse:clickhouse-client",
+            "com.clickhouse:clickhouse-data",
+            "com.clickhouse:clickhouse-r2dbc",
+            "com.clickhouse:clickhouse-r2dbc_0.9.1",
+            "com.clickhouse:clickhouse-grpc-client",
+            "com.clickhouse:clickhouse-tcp-client",
+            "com.clickhouse:clickhouse-cli-client",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.3_2.12",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.3_2.13",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.4_2.12",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.4_2.13",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.5_2.12",
+            "com.clickhouse.spark:clickhouse-spark-runtime-3.5_2.13",
+            "com.clickhouse.spark:clickhouse-spark-runtime-4.0_2.13",
+            "com.clickhouse.flink:flink-connector-clickhouse",
+            "com.clickhouse.flink:flink-connector-clickhouse-1.17",
+            "com.clickhouse.flink:flink-connector-clickhouse-2.0.0",
+            "ru.yandex.clickhouse:clickhouse-jdbc",
+            "com.github.housepower:clickhouse-spark-runtime-3.2_2.12",
+            "com.github.housepower:clickhouse-spark-runtime-3.2_2.13",
+            "com.github.housepower:clickhouse-spark-runtime-3.3_2.12",
+            "com.github.housepower:clickhouse-spark-runtime-3.3_2.13",
+            "com.github.housepower:clickhouse-spark-runtime-3.4_2.12",
+            "com.github.housepower:clickhouse-spark-runtime-3.4_2.13",
+            "com.github.housepower:clickhouse-native-jdbc",
+            "com.github.housepower:clickhouse-native-jdbc-shaded",
+        ),
+        rubygems=("click_house", "clickhouse-activerecord", "clickhouse"),
+        swiftpm=("github.com/patrick-zippenfenig/clickhousenio",),
+    )
+
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
@@ -659,6 +729,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             stored_primary_keys=inputs.primary_keys,
             bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
             server_hostname=config.host,
+            sync_type=inputs.sync_type,
         )
 
     def reconcile_schema_metadata(

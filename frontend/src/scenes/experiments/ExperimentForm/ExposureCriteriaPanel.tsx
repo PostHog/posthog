@@ -6,12 +6,12 @@ import { LemonButton, LemonCollapse, LemonSelect, LemonTag, Tooltip } from '@pos
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
-import type { Experiment, FilterType } from '~/types'
+import { ChartDisplayCategory, type Experiment } from '~/types'
 
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 
@@ -23,7 +23,7 @@ import {
     resolvedExposureEvent,
 } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureConfigToSeries, seriesToExposureConfig } from '../utils'
 
 const DEFAULT_EXPOSURE_CONFIG: ExperimentEventExposureConfig = {
     kind: NodeKind.ExperimentEventExposureConfig,
@@ -51,13 +51,14 @@ function InclusionActionFilter({
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <ActionFilter
+        <SeriesActionFilter
             bordered
-            filters={exposureConfigToFilter(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
-            setFilters={({ events, actions }: Partial<FilterType>): void => {
-                const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ exposure_config: filterToExposureConfig(entity) })
+            series={exposureConfigToSeries(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
+            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+            onChange={(series) => {
+                const exposureConfig = seriesToExposureConfig(series)
+                if (exposureConfig) {
+                    onChange({ exposure_config: exposureConfig })
                 }
             }}
             typeKey="experiment-exposure-config"
@@ -81,15 +82,16 @@ function ActivationActionFilter({
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <ActionFilter
+        <SeriesActionFilter
             bordered
-            filters={exposureConfigToFilter(
+            series={exposureConfigToSeries(
                 experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
             )}
-            setFilters={({ events, actions }: Partial<FilterType>): void => {
-                const entity = events?.[0] || actions?.[0]
-                if (entity) {
-                    onChange({ activation_config: filterToExposureConfig(entity) })
+            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+            onChange={(series) => {
+                const activationConfig = seriesToExposureConfig(series)
+                if (activationConfig) {
+                    onChange({ activation_config: activationConfig })
                 }
             }}
             typeKey="experiment-activation-config"

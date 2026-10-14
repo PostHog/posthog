@@ -26,7 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 
-from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
+from ..logic import delivery_destinations, destination_configs, destinations, insight_alert_destinations
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -214,7 +214,8 @@ def alert_internal_event_delivered(
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
-    """Everything the shared platform delivers one alert's events to, including subscriber email."""
-    return alert_email.list_delivery_destination_groups(
+    """Everything the shared platform delivers one alert's events to, including subscriber email and
+    in-app notifications."""
+    return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )

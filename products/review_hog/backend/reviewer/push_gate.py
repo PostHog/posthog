@@ -13,6 +13,18 @@ The rules, in order. The first rule that matches gives the reason:
    rebase). A merge that changes the PR's own lines runs the review.
 4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
 5. `system_one_below_threshold`: System One rates the new own commits below a threshold.
+6. `draft`: the PR is a draft and no rule above skips the push. A draft cannot merge, and marking it
+   ready starts a turn that reviews everything since the last reviewed head. The rules above still run,
+   so a draft decision keeps the System One answer and the push size for calibration.
+7. `next_push_likely`: on a PR that is not a draft, when no rule above matched, another automatic
+   follow-up is likely to come. Skipped changes add up and the next review covers them. The chance
+   comes from a table fitted offline on the follow-up number and the PR size. Every decision on a
+   PR that is not a draft records the chance, also when another rule decided.
+8. `throttled`: the PR spent its review budget. Each PR has a token bucket (Turner 1986) that holds
+   `PUSH_BUDGET.burst` reviews and gets one back every `3600 / PUSH_BUDGET.per_hour` seconds. A push
+   that every rule above lets through takes a token, and a push that finds the bucket empty waits:
+   the next turn that runs reviews everything since the last reviewed head. This caps bursts of
+   pushes, and it never schedules a review on its own.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
@@ -24,14 +36,18 @@ in `review-eval/production/push-gate`. The threshold is only valid for the state
 
 import re
 import logging
+from dataclasses import replace
 from typing import Any, Literal
 
 import requests
+from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
+from posthog.redis import get_client
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
@@ -45,6 +61,17 @@ SKIP_REVIEWHOG_COMMITS_ONLY = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
+SKIP_DRAFT = True
+# Before this goes on, `next_push_likely` must defer only once per reviewed head. A skip does not
+# advance run_index, so the same chance would match every later push and no review would run.
+SKIP_NEXT_PUSH = False
+SKIP_THROTTLED = True
+
+NEXT_PUSH_SKIP_AT = 0.85
+# Picked by the replay in `review-eval/experiments/2026-10-14-review-throttle`.
+PUSH_BUDGET = Budget(burst=2, per_hour=2)
+# Longer than a turn and its retry take, so a retried turn finds that its head paid already.
+_PAID_HEAD_TTL_SECONDS = 6 * 3600
 
 # The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
 # `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
@@ -57,6 +84,57 @@ SYSTEM_ONE_TIMEOUT_SECONDS = 15.0
 MAX_OWN_COMMITS = 20
 # GitHub's compare endpoint pages its commit list at this size.
 _COMPARE_COMMITS_PER_PAGE = 100
+
+SizeBand = Literal["<=200", "201-1000", ">1000"]
+
+
+@frozen
+class _NextPushCell:
+    probability: float
+    prs: int
+
+
+# The chance that another automatic follow-up comes after follow-up number k, from review-eval
+# experiments/2026-10-14-draft-deferral (NextPushLookup), fitted on closed PostHog/posthog PRs from
+# Oct 8-14 2026. A refit updates these tables by hand. Key 8 holds every follow-up from the eighth on.
+_NEXT_PUSH_LAST_FOLLOW_UP = 8
+_NEXT_PUSH_MIN_CELL_PRS = 10
+_NEXT_PUSH_BY_FOLLOW_UP: dict[int, float] = {
+    1: 0.629,
+    2: 0.625,
+    3: 0.740,
+    4: 0.812,
+    5: 0.710,
+    6: 0.731,
+    7: 0.842,
+    8: 0.783,
+}
+_NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE: dict[tuple[int, SizeBand], _NextPushCell] = {
+    (1, "<=200"): _NextPushCell(probability=0.559, prs=111),
+    (1, "201-1000"): _NextPushCell(probability=0.652, prs=69),
+    (1, ">1000"): _NextPushCell(probability=1.000, prs=17),
+    (2, "<=200"): _NextPushCell(probability=0.542, prs=72),
+    (2, "201-1000"): _NextPushCell(probability=0.667, prs=60),
+    (2, ">1000"): _NextPushCell(probability=0.800, prs=20),
+    (3, "<=200"): _NextPushCell(probability=0.722, prs=36),
+    (3, "201-1000"): _NextPushCell(probability=0.735, prs=49),
+    (3, ">1000"): _NextPushCell(probability=0.800, prs=15),
+    (4, "<=200"): _NextPushCell(probability=0.667, prs=27),
+    (4, "201-1000"): _NextPushCell(probability=0.824, prs=34),
+    (4, ">1000"): _NextPushCell(probability=1.000, prs=19),
+    (5, "<=200"): _NextPushCell(probability=0.706, prs=17),
+    (5, "201-1000"): _NextPushCell(probability=0.606, prs=33),
+    (5, ">1000"): _NextPushCell(probability=0.895, prs=19),
+    (6, "<=200"): _NextPushCell(probability=0.833, prs=12),
+    (6, "201-1000"): _NextPushCell(probability=0.524, prs=21),
+    (6, ">1000"): _NextPushCell(probability=0.895, prs=19),
+    (7, "<=200"): _NextPushCell(probability=0.900, prs=10),
+    (7, "201-1000"): _NextPushCell(probability=0.909, prs=11),
+    (7, ">1000"): _NextPushCell(probability=0.765, prs=17),
+    (8, "<=200"): _NextPushCell(probability=0.643, prs=28),
+    (8, "201-1000"): _NextPushCell(probability=0.719, prs=32),
+    (8, ">1000"): _NextPushCell(probability=0.842, prs=101),
+}
 
 _QUESTION_ID = "alters"
 # The commits stay in the state, so text from the pull request can never become an instruction.
@@ -90,7 +168,14 @@ _NON_CODE_FILE = re.compile(
 )
 
 SkipReason = Literal[
-    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold"
+    "no_new_commits",
+    "reviewhog_commits_only",
+    "merge_only",
+    "docs_only",
+    "system_one_below_threshold",
+    "draft",
+    "next_push_likely",
+    "throttled",
 ]
 RunReason = Literal[
     "commits_removed",
@@ -111,6 +196,9 @@ class PushGateDecision:
     probability: float | None = None
     model: str | None = None
     own_commits: int | None = None
+    # Lines the new own commits change in code files, summed per commit. Set only when the gate read every file.
+    own_code_lines: int | None = None
+    next_push_probability: float | None = None
 
 
 @frozen
@@ -118,6 +206,13 @@ class _ChangedFile:
     filename: str
     changes: int
     patch: str | None
+
+
+@frozen
+class _CommitFiles:
+    files: list[_ChangedFile]
+    # GitHub lists at most one page of files per commit, so a full page may hide more files.
+    complete: bool
 
 
 @frozen
@@ -145,11 +240,44 @@ def _rule_enabled(reason: SkipReason) -> bool:
         return SKIP_MERGE_ONLY
     if reason == "docs_only":
         return SKIP_DOCS_ONLY
+    if reason == "draft":
+        return SKIP_DRAFT
+    if reason == "next_push_likely":
+        return SKIP_NEXT_PUSH
+    if reason == "throttled":
+        return SKIP_THROTTLED
     return SKIP_SYSTEM_ONE
 
 
+def _size_band(pr_lines: int) -> SizeBand:
+    if pr_lines <= 200:
+        return "<=200"
+    if pr_lines <= 1000:
+        return "201-1000"
+    return ">1000"
+
+
+def next_push_probability(*, follow_up: int, pr_lines: int) -> float | None:
+    """The chance that another automatic follow-up comes after follow-up number `follow_up` (1-based).
+
+    `pr_lines` is the PR's additions plus deletions.
+    """
+    if follow_up < 1:
+        return None
+    follow_up = min(follow_up, _NEXT_PUSH_LAST_FOLLOW_UP)
+    cell = _NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE.get((follow_up, _size_band(pr_lines)))
+    if cell is not None and cell.prs >= _NEXT_PUSH_MIN_CELL_PRS:
+        return cell.probability
+    return _NEXT_PUSH_BY_FOLLOW_UP[follow_up]
+
+
 def _matched(
-    reason: SkipReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: SkipReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=_rule_enabled(reason),
@@ -158,11 +286,17 @@ def _matched(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
 def _runs(
-    reason: RunReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: RunReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    own_code_lines: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=False,
@@ -171,6 +305,7 @@ def _runs(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        own_code_lines=own_code_lines,
     )
 
 
@@ -253,21 +388,25 @@ class PushGate:
             reviewhog_shas={commit["sha"] for commit in commits if _is_own_commit(commit, app_login)},
         )
 
-    def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
+    def _commit_files(self, shas: list[str]) -> _CommitFiles | None:
         files: list[_ChangedFile] = []
+        complete = True
         for sha in shas:
             commit = self._get(f"/commits/{sha}", endpoint="/commits/{ref}")
             if commit is None:
                 return None
-            files.extend(_changed_files(commit))
-        return files
+            commit_files = _changed_files(commit)
+            complete = complete and len(commit_files) < GITHUB_COMPARE_FILES_CAP
+            files.extend(commit_files)
+        return _CommitFiles(files=files, complete=complete)
 
-    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int) -> PushGateDecision:
+    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int, lines_known: bool) -> PushGateDecision:
+        lines = sum(file.changes for file in code_files) if lines_known else None
         if any(file.patch is None for file in code_files):
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         state = "\n\n".join(f"--- {file.filename}\n{file.patch}" for file in code_files)
         if len(state) > MAX_STATE_CHARS:
-            return _runs("interdiff_too_large", own_commits=own_commits)
+            return _runs("interdiff_too_large", own_commits=own_commits, own_code_lines=lines)
         try:
             client = build_system_one_client(
                 model=PUSH_GATE_MODEL,
@@ -278,23 +417,31 @@ class PushGate:
             result = client.decide(state=state, questions={_QUESTION_ID: _ALTERS_QUESTION})
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("Push gate could not reach System One: %s", type(error).__name__)
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         answer = result.answers[_QUESTION_ID]
         if not isinstance(answer, NoulAnswer):
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, own_code_lines=lines)
         if answer.probability < SYSTEM_ONE_SKIP_BELOW:
             return _matched(
                 "system_one_below_threshold",
                 own_commits=own_commits,
                 probability=answer.probability,
                 model=result.model,
+                own_code_lines=lines,
             )
         return _runs(
-            "system_one_above_threshold", own_commits=own_commits, probability=answer.probability, model=result.model
+            "system_one_above_threshold",
+            own_commits=own_commits,
+            probability=answer.probability,
+            model=result.model,
+            own_code_lines=lines,
         )
 
     def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
-        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`."""
+        """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`.
+
+        Rules 1 to 5 only: `apply_draft_rule` adds rule 6 on top of the result.
+        """
         previous = self._pr_diff(base_branch, previous_head_sha)
         current = self._pr_diff(base_branch, head_sha)
         if previous is None or current is None:
@@ -321,7 +468,65 @@ class PushGate:
         own_files = self._commit_files(own_shas)
         if own_files is None:
             return _runs("compare_unavailable", own_commits=len(own_shas))
-        code_files = [file for file in own_files if not _NON_CODE_FILE.search(file.filename)]
+        code_files = [file for file in own_files.files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
-            return _matched("docs_only", own_commits=len(own_shas))
-        return self._ask_system_one(code_files, own_commits=len(own_shas))
+            return _matched("docs_only", own_commits=len(own_shas), own_code_lines=0 if own_files.complete else None)
+        return self._ask_system_one(code_files, own_commits=len(own_shas), lines_known=own_files.complete)
+
+
+def apply_draft_rule(decision: PushGateDecision, *, draft: bool) -> PushGateDecision:
+    """Rule 6, on top of `PushGate.decide`. A caller that finds the PR ready after all uses the decision it got."""
+    if not draft or decision.skip:
+        return decision
+    return _matched(
+        "draft",
+        own_commits=decision.own_commits,
+        probability=decision.probability,
+        model=decision.model,
+        own_code_lines=decision.own_code_lines,
+    )
+
+
+def apply_next_push_rule(
+    decision: PushGateDecision, *, follow_up: int | None, pr_lines: int | None
+) -> PushGateDecision:
+    """Rule 7, only for a PR that is not a draft. It records the chance also when another rule decided.
+
+    `follow_up` is the number of this automatic follow-up (1-based) and `pr_lines` is the PR's
+    additions plus deletions. Both are None when they are unknown.
+    """
+    probability = None
+    if follow_up is not None and pr_lines is not None:
+        probability = next_push_probability(follow_up=follow_up, pr_lines=pr_lines)
+    if probability is not None and probability >= NEXT_PUSH_SKIP_AT and not decision.would_skip:
+        decision = _matched(
+            "next_push_likely",
+            own_commits=decision.own_commits,
+            probability=decision.probability,
+            model=decision.model,
+            own_code_lines=decision.own_code_lines,
+        )
+    return replace(decision, next_push_probability=probability)
+
+
+def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str) -> PushGateDecision:
+    """Rule 8, last: a push that the rules before it skip takes no token. Without Redis the push runs.
+
+    A head pays once. A failed turn runs again as a new activity or a new child workflow, and a
+    retry that charged again could find the bucket empty and drop a review that passed the budget.
+    """
+    if decision.skip:
+        return decision
+    paid_key = f"reviewhog_push_budget_paid:{report_id}:{head_sha}"
+    client = get_client()
+    try:
+        first_charge = client.set(paid_key, 1, nx=True, ex=_PAID_HEAD_TTL_SECONDS)
+    except RedisError:
+        return decision
+    if not first_charge:
+        return decision
+    bucket = consume(f"reviewhog_push_budget:{report_id}", PUSH_BUDGET)
+    if isinstance(bucket, BucketUnavailable) or bucket.allowed:
+        return decision
+    client.delete(paid_key)
+    return replace(decision, skip=_rule_enabled("throttled"), would_skip=True, reason="throttled")

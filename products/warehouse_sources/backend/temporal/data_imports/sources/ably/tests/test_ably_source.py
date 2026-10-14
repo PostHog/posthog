@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
@@ -7,7 +6,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.source import AblySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ably import AblySourceConfig
 
 
@@ -40,13 +43,9 @@ class TestAblySource:
             (403, (False, "Ably authentication failed. Please check your API key.")),
         ],
     )
-    def test_validate_credentials(self, status_code, expected):
+    def test_validate_credentials(self, status_code: int, expected: tuple[bool, str | None]) -> None:
         config = AblySourceConfig(api_key="app.key:secret", unit="hour")
-        mock_response = MagicMock(status_code=status_code)
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = mock_response
+        with scripted_network([ScriptedResponse(status=status_code)]):
             assert self.source.validate_credentials(config, self.team_id) == expected
 
     def test_validate_credentials_rejects_malformed_key(self):
@@ -66,22 +65,15 @@ class TestAblySource:
             ("Presence", ["channel_id", "id"], None),
         ],
     )
-    def test_source_for_pipeline_shapes_the_response_per_schema(self, schema_name, primary_keys, partition_keys):
+    def test_source_for_pipeline_shapes_the_response_per_schema(
+        self, schema_name: str, primary_keys: list[str], partition_keys: list[str] | None
+    ) -> None:
         config = AblySourceConfig(api_key="app.key:secret", unit="day")
-        inputs = MagicMock(
-            team_id=self.team_id,
-            job_id="job-1",
-            schema_name=schema_name,
-            api_version="2",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = SourceDriver(self.source, config).run(schema_name, [ScriptedResponse(json=[])], api_version="2")
+        response = result.response
 
-        response = self.source.source_for_pipeline(config, manager, inputs)
-
+        assert result.raised is None
+        assert response is not None
         assert response.name == schema_name
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
@@ -98,50 +90,26 @@ class TestAblySource:
             ("2", "2"),
         ],
     )
-    def test_source_for_pipeline_resolves_and_threads_api_version(self, pinned, resolved):
+    def test_source_for_pipeline_resolves_and_threads_api_version(self, pinned: str | None, resolved: str) -> None:
         config = AblySourceConfig(api_key="app.key:secret", unit="hour")
-        inputs = MagicMock(
-            team_id=self.team_id,
-            job_id="job-1",
-            schema_name="Stats",
-            api_version=pinned,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, config).run("Stats", [ScriptedResponse(json=[])], api_version=pinned)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.source.ably_source"
-        ) as mock_ably_source:
-            mock_resource = MagicMock(column_hints=None)
-            mock_resource.name = "Stats"
-            mock_ably_source.return_value = mock_resource
-
-            self.source.source_for_pipeline(config, manager, inputs)
-
-            assert mock_ably_source.call_args.kwargs["api_version"] == resolved
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.requests[0].headers.get("x-ably-version") == (resolved if resolved == "2" else None)
 
     def test_source_for_pipeline_ignores_last_value_on_full_refresh(self):
         config = AblySourceConfig(api_key="app.key:secret", unit="hour")
-        inputs = MagicMock(
-            team_id=self.team_id,
-            job_id="job-1",
-            schema_name="Stats",
+        result = SourceDriver(self.source, config).run(
+            "Stats",
+            [ScriptedResponse(json=[])],
             should_use_incremental_field=False,
             db_incremental_field_last_value=1700000000000,
         )
-        manager = MagicMock(spec=ResumableSourceManager)
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.ably.source.ably_source"
-        ) as mock_ably_source:
-            mock_resource = MagicMock(name="Stats", column_hints=None)
-            mock_resource.name = "Stats"
-            mock_ably_source.return_value = mock_resource
-
-            self.source.source_for_pipeline(config, manager, inputs)
-
-            assert mock_ably_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("start") is None
+        assert result.requests[0].param("end") is None
 
     @pytest.mark.parametrize(
         "error_message",

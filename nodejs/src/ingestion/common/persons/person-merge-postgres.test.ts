@@ -10,7 +10,7 @@ import {
     PostgresPersonMerge,
     personMergeEventProducedCounter,
 } from './person-merge-postgres'
-import { createDefaultSyncMergeMode } from './person-merge-types'
+import { MergeOutcomeOversizedError, createDefaultSyncMergeMode } from './person-merge-types'
 import { MergePersonsRequest } from './persons-store'
 
 describe('PostgresPersonMerge merge events', () => {
@@ -152,7 +152,9 @@ describe('PostgresPersonMerge merge events', () => {
         const tx = {
             claimLifecycleMarks: jest.fn(),
             isPersonLive: jest.fn().mockResolvedValue(true),
+            readMergeRows: jest.fn().mockResolvedValue([existingPerson]),
             addDistinctId: jest.fn().mockResolvedValue([mappingMessage]),
+            updatePersonForMerge: jest.fn().mockResolvedValue([existingPerson, [], false]),
             releaseLifecycleMarks: jest.fn(),
         }
         const store = {
@@ -180,6 +182,127 @@ describe('PostgresPersonMerge merge events', () => {
         )
         expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
         await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
+    // The identified flag must commit with the mapping so another pod cannot attach a second user, and the
+    // committed row decides it: the batch's view can already show the flag pending.
+    it.each([
+        { name: 'writes the flag from the committed row and caches it', locked: true, cached: false, row: false },
+        { name: 'writes the flag when only the batch view shows it pending', locked: true, cached: true, row: false },
+        { name: 'leaves the row and cache alone when the row is identified', locked: true, cached: false, row: true },
+        { name: 'defers the flag to the flush for a deferred-outcome team', locked: false, cached: false, row: false },
+    ])('a one-exists merge $name', async ({ locked, cached, row }) => {
+        const order: string[] = []
+        const existingPerson = {
+            id: 'p1',
+            uuid: targetPerson.uuid,
+            team_id: 2,
+            is_identified: cached,
+        } as unknown as InternalPerson
+        const committedRow = { ...existingPerson, is_identified: row, version: 1 } as InternalPerson
+        const writtenRow = { ...committedRow, is_identified: true, version: 2 } as InternalPerson
+        const cachedRow = { ...writtenRow, properties: { pending: true } } as InternalPerson
+        const flagMessage = { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"flag":true}') }
+        const tx = {
+            claimLifecycleMarks: jest.fn(),
+            isPersonLive: jest.fn().mockResolvedValue(true),
+            readMergeRows: jest.fn().mockImplementation(() => {
+                order.push('readMergeRows')
+                return Promise.resolve([committedRow])
+            }),
+            addDistinctId: jest.fn().mockImplementation(() => {
+                order.push('addDistinctId')
+                return Promise.resolve([])
+            }),
+            updatePersonForMerge: jest.fn().mockImplementation(() => {
+                order.push('updatePersonForMerge')
+                return Promise.resolve([writtenRow, [flagMessage], true])
+            }),
+            releaseLifecycleMarks: jest.fn().mockImplementation(() => {
+                order.push('releaseLifecycleMarks')
+                return Promise.resolve()
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? existingPerson : null)
+                ),
+            inTransaction: jest
+                .fn()
+                .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                    const result = await body(tx)
+                    order.push('commit')
+                    return result
+                }),
+            takeMergedRow: jest.fn().mockImplementation(() => {
+                order.push('takeMergedRow')
+                return cachedRow
+            }),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString(), { isLockedOutcomeTeam: () => locked })
+
+        const result = await merge.execute()
+
+        expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
+        if (locked && !row) {
+            expect(order).toEqual([
+                'readMergeRows',
+                'addDistinctId',
+                'updatePersonForMerge',
+                'releaseLifecycleMarks',
+                'commit',
+                'takeMergedRow',
+            ])
+            expect(tx.updatePersonForMerge).toHaveBeenCalledWith(committedRow, { is_identified: true }, 'd')
+            expect(store.takeMergedRow).toHaveBeenCalledWith(writtenRow, 'd', { is_identified: true }, null, 0)
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                expect.objectContaining({ value: flagMessage.value })
+            )
+            expect(result.survivor).toBe(cachedRow)
+        } else {
+            expect(tx.readMergeRows).toHaveBeenCalledTimes(locked ? 1 : 0)
+            expect(tx.updatePersonForMerge).not.toHaveBeenCalled()
+            expect(store.takeMergedRow).not.toHaveBeenCalled()
+            expect(result.survivor).toBe(existingPerson)
+        }
+    })
+
+    it('a one-exists merge on a row over the size limit commits the mapping without the flag', async () => {
+        const existingPerson = { id: 'p1', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const mappingMessage = { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{}') }
+        const tx = {
+            claimLifecycleMarks: jest.fn(),
+            isPersonLive: jest.fn().mockResolvedValue(true),
+            readMergeRows: jest.fn().mockResolvedValue([existingPerson]),
+            addDistinctId: jest.fn().mockResolvedValue([mappingMessage]),
+            updatePersonForMerge: jest.fn().mockRejectedValue(new MergeOutcomeOversizedError('over the limit')),
+            releaseLifecycleMarks: jest.fn(),
+        }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? existingPerson : null)
+                ),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+            takeMergedRow: jest.fn(),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(store.inTransaction).toHaveBeenCalledTimes(2)
+        expect(tx.updatePersonForMerge).toHaveBeenCalledTimes(1)
+        expect(tx.addDistinctId).toHaveBeenCalledTimes(2)
+        expect(store.takeMergedRow).not.toHaveBeenCalled()
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+        expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
+        expect(result.survivor).toBe(existingPerson)
     })
 
     // Same contract as the one-exists case: createPerson returns its messages and the
@@ -263,6 +386,35 @@ describe('PostgresPersonMerge merge events', () => {
 
         expect(store.fetchPersonDistinctIdMappings).toHaveBeenCalledTimes(1)
         expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    })
+
+    it('a replayed refusal of an identified source re-emits the target mapping its first attempt committed', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const target = { id: 'p-target', uuid: targetPerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const source = { id: 'p-source', uuid: sourcePerson.uuid, team_id: 2, is_identified: true } as InternalPerson
+        const mapping = {
+            distinctId: 'd',
+            message: { output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('{"version":0}') },
+        }
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'd' ? target : source)
+                ),
+            fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
+        }
+
+        const replay = await buildSingleSourceMerge(store, new UUIDT().toString(), {
+            noopMappingDebounce: new MergeMappingDebounce(100, 60_000),
+        }).execute()
+        await replay.kafkaAck
+
+        expect(replay.results[0].outcome).toBe('skipped_already_identified')
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: mapping.message.value })
+        )
     })
 
     function buildSingleSourceMerge(

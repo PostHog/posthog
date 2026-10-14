@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_INSPECTOR|AWSINSPECTOR)_",),
+        npm=("@aws-sdk/client-inspector2", "@aws-sdk/client-inspector"),
+        cargo=("aws-sdk-inspector2", "aws-sdk-inspector"),
+        go=("github.com/aws/aws-sdk-go-v2/service/inspector2", "github.com/aws/aws-sdk-go-v2/service/inspector"),
+        maven=(
+            "software.amazon.awssdk:inspector2",
+            "software.amazon.awssdk:inspector",
+            "com.amazonaws:aws-java-sdk-inspector2",
+            "com.amazonaws:aws-java-sdk-inspector",
+            "com.amazonaws:aws-java-sdk-inspectorscan",
+            "software.amazon.awssdk:inspectorscan",
+        ),
+        rubygems=("aws-sdk-inspector2", "aws-sdk-inspector"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (INSPECTOR_API_VERSION,)
     default_version = INSPECTOR_API_VERSION

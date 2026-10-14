@@ -1843,6 +1843,10 @@ export type CanvasesListParams = {
      */
     channel?: string
     /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind

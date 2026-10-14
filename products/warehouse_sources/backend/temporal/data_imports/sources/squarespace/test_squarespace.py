@@ -2,14 +2,20 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.squarespace import (
+    SquarespaceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.settings import SQUARESPACE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source import SquarespaceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace import (
     MAX_CURSOR_RESTARTS,
     SQUARESPACE_BASE_URL,
@@ -18,11 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
     _build_initial_params,
     _format_datetime_z,
     _is_invalid_cursor_error,
-    get_rows,
     validate_credentials,
 )
-
-SQUARESPACE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace"
 
 
 def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -33,9 +36,9 @@ def _make_response(body: dict[str, Any], status_code: int = 200) -> Response:
     return resp
 
 
-def _page(data_key: str, items: list[dict[str, Any]], next_cursor: str | None = None) -> Response:
+def _page(data_key: str, items: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
     pagination = {"hasNextPage": next_cursor is not None, "nextPageCursor": next_cursor, "nextPageUrl": None}
-    return _make_response({data_key: items, "pagination": pagination})
+    return ScriptedResponse(json={data_key: items, "pagination": pagination})
 
 
 class TestFormatDatetimeZ:
@@ -112,59 +115,29 @@ class TestValidateCredentials:
         ]
     )
     def test_status_code_mapping(self, _name: str, status_code: int, expected: tuple[bool, bool]) -> None:
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
             assert validate_credentials("token") == expected
 
     def test_network_error_returns_invalid(self) -> None:
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
+        with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("token") == (False, False)
 
     def test_schema_probes_that_endpoint_with_its_version(self) -> None:
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _make_response({}, status_code=200)
+        with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("token", schema_name="products")
-            url = mock_session.return_value.get.call_args.args[0]
-            # products is served from the v2 API.
-            assert url == f"{SQUARESPACE_BASE_URL}/v2/commerce/products"
+        # products is served from the v2 API.
+        assert network.requests_log[0].url == f"{SQUARESPACE_BASE_URL}/v2/commerce/products"
 
 
 class TestGetRowsPagination:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        **kwargs: Any,
-    ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-        """Drive get_rows with a mocked session, returning (params sent per page, yielded batches)."""
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(SquarespaceSource(), SquarespaceSourceConfig(api_key="token"))
 
-        def fake_get(_url: str, *, params: dict[str, Any], **_kwargs: Any) -> Response:
-            sent_params.append(dict(params or {}))
-            return next(response_iter)
+    def test_a_run_with_no_saved_state_starts_without_a_cursor(self) -> None:
+        result = self._driver().run("orders", [_page("result", [{"id": "a"}])])
 
-        with patch(f"{SQUARESPACE_MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = fake_get
-            batches = list(
-                get_rows(
-                    api_key="token",
-                    endpoint=endpoint,
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                    **kwargs,
-                )
-            )
-        return sent_params, batches
-
-    def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("orders", manager, [_page("result", [{"id": "a"}])])
-        manager.load_state.assert_not_called()
+        assert result.params("cursor") == [None]
 
     @parameterized.expand(
         [
@@ -177,29 +150,24 @@ class TestGetRowsPagination:
         ]
     )
     def test_yields_rows_using_endpoint_data_key(self, endpoint: str, data_key: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        _, batches = self._drive(endpoint, manager, [_page(data_key, [{"id": "a"}, {"id": "b"}])])
-        assert batches == [[{"id": "a"}, {"id": "b"}]]
+        result = self._driver().run(endpoint, [_page(data_key, [{"id": "a"}, {"id": "b"}])])
+
+        assert result.items == [[{"id": "a"}, {"id": "b"}]]
 
     def test_invalid_cursor_on_initial_request_is_surfaced(self) -> None:
         # A cursor-less initial request can't trigger cursor expiry, so a cursor-rejection
         # there is a malformed query — surface it rather than looping forever.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("orders", [ScriptedResponse(status=400, json={"message": "cursor invalid"})])
 
-        with pytest.raises(SquarespaceInvalidCursorError):
-            self._drive("orders", manager, [_make_response({"message": "cursor invalid"}, status_code=400)])
+        assert isinstance(result.raised, SquarespaceInvalidCursorError)
 
     def test_invalid_cursor_gives_up_after_restart_budget_exhausted(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = SquarespaceResumeConfig(cursor="stale-cursor")
-
-        invalid = _make_response({"message": "cursor invalid"}, status_code=400)
-        responses = [invalid]
+        invalid = ScriptedResponse(status=400, json={"message": "cursor invalid"})
+        script = [invalid]
         for _ in range(MAX_CURSOR_RESTARTS):
-            responses.append(_page("result", [{"id": "o"}], next_cursor="cur"))
-            responses.append(invalid)
-        with pytest.raises(SquarespaceInvalidCursorError):
-            self._drive("orders", manager, responses)
+            script.append(_page("result", [{"id": "o"}], next_cursor="cur"))
+            script.append(invalid)
+
+        result = self._driver().run("orders", script, resume_state=SquarespaceResumeConfig(cursor="stale-cursor"))
+
+        assert isinstance(result.raised, SquarespaceInvalidCursorError)

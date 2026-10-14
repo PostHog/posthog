@@ -357,7 +357,7 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${result.id}`)
         },
     })
 
@@ -707,7 +707,7 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error_tracking')
+        return await withPostHogUrl(context, filtered, '/error-tracking')
     },
 })
 
@@ -779,7 +779,7 @@ const queryErrorTrackingIssue = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${params.issueId}`)
         },
     })
 
@@ -833,7 +833,7 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/query/issue_events/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/error_tracking/${params.issueId}`)
+            return await withPostHogUrl(context, result, `/error-tracking/${params.issueId}`)
         },
     })
 
@@ -936,11 +936,11 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         ...filtered,
                         results: await Promise.all(
                             (filtered.results ?? []).map((item) =>
-                                withPostHogUrl(context, item, `/error_tracking/${item.id}`)
+                                withPostHogUrl(context, item, `/error-tracking/${item.id}`)
                             )
                         ),
                     },
-                    '/error_tracking'
+                    '/error-tracking'
                 ),
                 [
                     'id',

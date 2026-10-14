@@ -17,6 +17,7 @@ from posthog.test.base import (
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -30,7 +31,6 @@ from posthog.helpers.dashboard_templates import (
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
-from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
@@ -47,6 +47,7 @@ from products.feature_flags.backend.flag_analytics import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 
 
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
@@ -354,7 +355,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_no_interference_between_different_types_of_new_incoming_increments(self):
-
         mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
@@ -452,7 +452,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_locking_works_for_capture_team_decide_usage(self):
-
         mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
@@ -540,7 +539,6 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_locking_in_redis_doesnt_block_new_incoming_increments(self):
-
         mock_capture = MagicMock()
         team_id = 3
         other_team_id = 1243
@@ -947,8 +945,8 @@ class TestEnrichedAnalytics(BaseTest):
         )
 
         # create usage dashboard for f1 and f3
-        _create_usage_dashboard(f1, self.user)
-        _create_usage_dashboard(f3, self.user)
+        create_usage_dashboard(f1, self.user)
+        create_usage_dashboard(f3, self.user)
 
         # create some enriched analytics events
         _create_event(
@@ -1108,7 +1106,7 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(flag.has_enriched_analytics, True)
 
 
-class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
+class TestFindFlagsWithEnrichedAnalyticsTask(SimpleTestCase):
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
     def test_logs_and_captures_on_failure_without_reraising(self, mock_find_flags: MagicMock) -> None:
         mock_find_flags.side_effect = Exception("boom")
@@ -1239,7 +1237,7 @@ class TestCachedCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
         assert counts == {self.team.id: 2}
 
 
-class TestFlagKeyFilterSQL(BaseTest):
+class TestFlagKeyFilterSQL(SimpleTestCase):
     def test_falls_back_to_json_extract_when_not_materialized(self):
         with patch(
             "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
@@ -1260,7 +1258,7 @@ class TestFlagKeyFilterSQL(BaseTest):
         assert "JSONExtractString" not in sql
 
 
-class TestEnrichedFlagKeyExprSQL(BaseTest):
+class TestEnrichedFlagKeyExprSQL(SimpleTestCase):
     def test_falls_back_to_json_extract_when_not_materialized(self):
         with patch(
             "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",

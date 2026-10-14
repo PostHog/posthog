@@ -65,10 +65,22 @@ class TestBudgetSpecFor(SimpleTestCase):
 
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70, API_QUERIES_BUDGET_CAPACITY_HOURS=24)
-class TestTokenBucket(BaseTest):
+class TestTokenBucket(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team_id = str(uuid4())
+        self.fresh_team_id = str(uuid4())
+
+    def tearDown(self) -> None:
+        get_client().delete(
+            f"{BUDGET_KEY_PREFIX}team/{self.team_id}",
+            f"{BUDGET_KEY_PREFIX}team/{self.fresh_team_id}",
+        )
+        super().tearDown()
+
     def test_budget_redis_calls_use_a_one_second_timeout(self):
         with patch("posthog.api_queries_budget.get_client") as get_client:
-            refill_and_read("team-a", SPEC)
+            refill_and_read(self.team_id, SPEC)
 
         get_client.assert_called_once_with(
             socket_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
@@ -76,43 +88,43 @@ class TestTokenBucket(BaseTest):
         )
 
     def test_fresh_bucket_starts_full(self):
-        assert refill_and_read("team-a", SPEC, now=1000.0) == 7200.0
+        assert refill_and_read(self.team_id, SPEC, now=1000.0) == 7200.0
 
     def test_debit_then_refill_at_rate_capped_at_capacity(self):
-        refill_and_read("team-a", SPEC, now=1000.0)
-        assert debit("team-a", 5000) == 2200.0
-        assert refill_and_read("team-a", SPEC, now=1001.0) == 2201.0
-        assert refill_and_read("team-a", SPEC, now=99999.0) == 7200.0
+        refill_and_read(self.team_id, SPEC, now=1000.0)
+        assert debit(self.team_id, 5000) == 2200.0
+        assert refill_and_read(self.team_id, SPEC, now=1001.0) == 2201.0
+        assert refill_and_read(self.team_id, SPEC, now=99999.0) == 7200.0
 
     def test_negative_balance_reports_seconds_until_positive(self):
-        refill_and_read("team-a", SPEC, now=1000.0)
-        remaining = debit("team-a", 9000)
+        refill_and_read(self.team_id, SPEC, now=1000.0)
+        remaining = debit(self.team_id, 9000)
         assert remaining == -1800.0
         assert seconds_until_positive(remaining, SPEC) == 1800
         assert seconds_until_positive(5.0, SPEC) == 0
         assert seconds_until_positive(0.0, SPEC) == 1
 
     def test_balance_floors_at_minus_one_hour_of_refill(self):
-        refill_and_read("team-a", SPEC, now=1000.0)
-        assert debit("team-a", 50_000) == -3600.0
+        refill_and_read(self.team_id, SPEC, now=1000.0)
+        assert debit(self.team_id, 50_000) == -3600.0
         assert seconds_until_positive(-3600.0, SPEC) == 3600
-        assert refill_and_read("team-a", SPEC, now=1000.0 + 3600) == 0.0
+        assert refill_and_read(self.team_id, SPEC, now=1000.0 + 3600) == 0.0
 
     def test_debit_before_any_read_uses_the_free_capacity_and_floor(self):
-        assert debit("team-new", 100) == 1580.0
-        assert debit("team-new", 100) == 1480.0
-        assert debit("team-new", 5000) == -70.0
+        assert debit(self.fresh_team_id, 100) == 1580.0
+        assert debit(self.fresh_team_id, 100) == 1480.0
+        assert debit(self.fresh_team_id, 5000) == -70.0
 
     @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=0)
     def test_disabled_budget_does_not_debit(self):
-        assert debit("team-a", 1000) is None
+        assert debit(self.team_id, 1000) is None
 
     def test_redis_errors_fail_open_and_count(self):
         read_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get()
         debit_before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get()
         with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
-            assert refill_and_read("team-a", SPEC) is None
-            assert debit("team-a", 1) is None
+            assert refill_and_read(self.team_id, SPEC) is None
+            assert debit(self.team_id, 1) is None
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get() == read_before + 1
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
 

@@ -20,6 +20,7 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
+from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -43,6 +44,7 @@ from products.signals.backend.report_checks import (
     MetricThresholdConfig,
     parse_check_config,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -78,6 +80,7 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.inbox_sort import inbox_merge_key
 from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -356,6 +359,24 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    scout_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.",
+    )
+    research_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.",
+    )
+    implementation_instructions = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=AGENT_STEERING_MAX_LENGTH,
+        help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
+    )
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
         required=False,
@@ -442,6 +463,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         )
     )
 
+    def to_representation(self, instance: SignalTeamConfig) -> dict[str, object]:
+        representation = dict(super().to_representation(instance))
+        for field in STEERING_FIELDS.values():
+            representation[field] = representation[field] or ""
+        return representation
+
     def validate_pull_request_label(self, value: str | None) -> str | None:
         # One stored shape for "use the default", so a team that clears the box does not get a
         # label GitHub would refuse.
@@ -478,6 +505,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "scout_instructions",
+            "research_instructions",
+            "implementation_instructions",
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",
@@ -1198,6 +1228,9 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    status = serializers.SerializerMethodField(
+        help_text="Current report status. Monitoring reads as resolved when its rollout is disabled.",
+    )
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
         many=True,
@@ -1411,6 +1444,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 )
             },
         }
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReport.Status.choices))
+    def get_status(self, obj: SignalReport) -> str:
+        if obj.status != SignalReport.Status.MONITORING:
+            return obj.status
+        enabled_by_team = cast(dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {}))
+        if obj.team_id not in enabled_by_team:
+            enabled_by_team[obj.team_id] = team_report_monitoring_enabled(obj.team_id)
+        return obj.status if enabled_by_team[obj.team_id] else SignalReport.Status.RESOLVED
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -1702,7 +1744,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
-        if obj.status == SignalReport.Status.RESOLVED:
+        if self.get_status(obj) == SignalReport.Status.RESOLVED:
             return "done"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
@@ -1792,6 +1834,24 @@ class SignalReportListSerializer(SignalReportSerializer):
             "comparisons are available from the report detail endpoint."
         ),
     )
+    inbox_merge_key = serializers.SerializerMethodField(
+        help_text=(
+            "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
+            "only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. "
+            "Reports without a usable score sort after scored ones. Null for every other sort."
+        ),
+    )
+
+    class Meta(SignalReportSerializer.Meta):
+        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
+        read_only_fields = fields
+
+    def get_inbox_merge_key(self, obj: SignalReport) -> int | None:
+        ranker = self.context.get("inbox_ranker")
+        if ranker is None:
+            return None
+        score = getattr(obj, "ranking_fixed_score", None) if ranker == "fixed" else None
+        return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportListQuerySerializer(serializers.Serializer):

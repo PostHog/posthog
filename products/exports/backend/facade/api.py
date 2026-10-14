@@ -4,6 +4,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -93,6 +94,18 @@ def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
     return get_content_response(asset, download=download)
+
+
+def read_export_asset_content(*, team_id: int, asset_id: int) -> bytes | None:
+    """The stored bytes of an export, or None when the export has no content or does not exist in the team."""
+    asset = get_export_asset(team_id=team_id, asset_id=asset_id)
+    if asset is None:
+        return None
+    if asset.content is not None:
+        return bytes(asset.content)
+    if asset.content_location:
+        return object_storage.read_bytes(asset.content_location)
+    return None
 
 
 def save_export_asset_content_from_file(
@@ -195,7 +208,7 @@ def get_delivery_image_url(
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
-def render_png_export(
+def _create_png_export_asset(
     *,
     team: Team,
     created_by: User,
@@ -205,17 +218,7 @@ def render_png_export(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
-) -> tuple[ExportedAsset, bytes | None]:
-    """Render a PNG export synchronously and return the asset together with its content bytes.
-
-    Blocks until the export workflow finishes (typically a few seconds). On failure the
-    returned bytes are None and ``asset.exception`` carries the error.
-
-    ``is_system`` marks the asset as created by an internal process, which excludes it from
-    the user's export listings and the per-team export quota. ``expires_after`` overrides
-    the format's default TTL; pass it when the render backs a short-lived delivery URL so
-    the stored bytes do not outlive their only consumer by months.
-    """
+) -> ExportedAsset:
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
@@ -253,6 +256,77 @@ def render_png_export(
         dashboard_id=dashboard_id,
         is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=expires_after,
+    )
+    return asset
+
+
+def create_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    insight_id: int | None = None,
+    query: dict | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
+) -> int:
+    """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
+
+    Returns the asset id. For a caller that is itself a Temporal workflow: it runs the export as a
+    child workflow instead of blocking a worker on ``render_png_export``. The access rules and the
+    ``is_system`` and ``expires_after`` arguments are the same as for ``render_png_export``.
+
+    Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
+    InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
+    """
+    return _create_png_export_asset(
+        team=team,
+        created_by=created_by,
+        insight_id=insight_id,
+        export_context={"source": query} if query is not None else None,
+        is_system=is_system,
+        expires_after=expires_after,
+    ).id
+
+
+def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
+    return (
+        ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
+        .filter(Q(exception__isnull=True) | Q(exception=""))
+        .filter(Q(content__isnull=False) | (Q(content_location__isnull=False) & ~Q(content_location="")))
+        .exists()
+    )
+
+
+def render_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    export_context: dict | None = None,
+    insight_id: int | None = None,
+    insight_short_id: str | None = None,
+    dashboard_id: int | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
+) -> tuple[ExportedAsset, bytes | None]:
+    """Render a PNG export synchronously and return the asset together with its content bytes.
+
+    Blocks until the export workflow finishes (typically a few seconds). On failure the
+    returned bytes are None and ``asset.exception`` carries the error.
+
+    ``is_system`` marks the asset as created by an internal process, which excludes it from
+    the user's export listings and the per-team export quota. ``expires_after`` overrides
+    the format's default TTL; pass it when the render backs a short-lived delivery URL so
+    the stored bytes do not outlive their only consumer by months.
+    """
+    asset = _create_png_export_asset(
+        team=team,
+        created_by=created_by,
+        export_context=export_context,
+        insight_id=insight_id,
+        insight_short_id=insight_short_id,
+        dashboard_id=dashboard_id,
+        is_system=is_system,
         expires_after=expires_after,
     )
 
