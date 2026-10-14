@@ -494,6 +494,18 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -512,6 +524,14 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
     )
+    trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per experiment of this run, oldest first. "
+            "Experiments before the first holdout score are left out."
+        ),
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
@@ -522,6 +542,7 @@ class LiveTrainingRunSerializer(DataclassSerializer):
             "best_holdout_score",
             "latest_agent_description",
             "latest_summary",
+            "trend",
         ]
 
 
@@ -583,18 +604,6 @@ class RealizedAucPointSerializer(DataclassSerializer):
     class Meta:
         dataclass = RealizedAucPoint
         fields = ["prediction_date", "realized_auc"]
-
-
-@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
-class TrainingTrendPointSerializer(DataclassSerializer):
-    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
-    best_holdout_score = serializers.FloatField(
-        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
-    )
-
-    class Meta:
-        dataclass = TrainingTrendPoint
-        fields = ["iteration_number", "best_holdout_score"]
 
 
 @extend_schema_serializer(component_name="AutoresearchPipeline")

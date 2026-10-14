@@ -17,6 +17,12 @@ export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
 
 export const signalsConfigCreateBodyAutostartBaseBranchesMaxOne = 255
 
+export const signalsConfigCreateBodyScoutInstructionsMax = 20000
+
+export const signalsConfigCreateBodyResearchInstructionsMax = 20000
+
+export const signalsConfigCreateBodyImplementationInstructionsMax = 20000
+
 export const signalsConfigCreateBodyIssueTrackingConfigMaxOne = 255
 
 export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
@@ -46,6 +52,27 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization\/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch."
+        ),
+    scout_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyScoutInstructionsMax)
+        .optional()
+        .describe(
+            "Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only."
+        ),
+    research_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyResearchInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.'
+        ),
+    implementation_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyImplementationInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.'
         ),
     issue_tracking_integration: zod
         .number()

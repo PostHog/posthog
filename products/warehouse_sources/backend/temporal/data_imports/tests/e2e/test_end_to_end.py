@@ -3481,7 +3481,13 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_query_folder_slots_rotate(team, stripe_balance_transaction, mock_stripe_client, minio_client):
+async def test_query_folder_slots_rotate(
+    team, stripe_balance_transaction, mock_stripe_client, minio_client, monkeypatch
+):
+    monkeypatch.setattr(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model._start_to_close_deadline_passed",
+        lambda: False,
+    )
     datetime_1 = datetime.now()
     with time_machine.travel(datetime_1, tick=False):
         workflow_id, inputs = await _run(
