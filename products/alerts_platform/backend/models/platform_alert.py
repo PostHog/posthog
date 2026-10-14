@@ -77,6 +77,9 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # The row this was copied from, so a backfill can run twice and so a comparison can line
     # an evaluation up against the one the source's own stack produced.
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
+    # When an operator switched this copy off. A write in the source never turns such a copy back
+    # on, so a rollout that retires a copy keeps it retired. Only a backfill run clears it.
+    switched_off_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.

@@ -344,6 +344,8 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             "datapoints_to_alarm": upsert.datapoints_to_alarm,
             "cooldown_minutes": upsert.cooldown_minutes,
             "schedule_restriction": upsert.schedule_restriction,
+            # Reached by a backfill run, which re-admits a copy an operator switched off.
+            "switched_off_at": None,
         }
         if (
             existing is None
@@ -382,8 +384,9 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
     """Copies one configuration in when its team already runs that source here.
 
     A team runs a source here while any of its copies of that source is enabled. A team the backfill
-    left out of its sample, or one `disable_configurations` switched off, gets nothing, so a write
-    in the source never widens a sample or undoes an operator's switch-off.
+    left out of its sample, or one `disable_configurations` switched off, gets nothing, and neither
+    does a copy an operator switched off by name, so a write in the source never widens a sample or
+    undoes an operator's switch-off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
@@ -392,7 +395,12 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> N
             .filter(source_kind=upsert.source_kind.value, enabled=True)
             .exists()
         )
-        if running:
+        switched_off = (
+            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
+            .filter(legacy_configuration_id=upsert.legacy_configuration_id, switched_off_at__isnull=False)
+            .exists()
+        )
+        if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
 
 
@@ -442,4 +450,4 @@ def disable_configurations(
             rows = rows.filter(team_id=team_id)
         if legacy_configuration_ids is not None:
             rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
-        return rows.update(enabled=False)
+        return rows.update(enabled=False, switched_off_at=django_timezone.now())
