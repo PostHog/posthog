@@ -731,8 +731,10 @@ function headerActionParameters(): Record<string, unknown> {
 //////////////////// Logs tab
 
 const LOGS_STORY_SESSION_ID = 'session-with-logs'
-const LOGS_STORY_TRACE_ID = 'story-trace'
-const LOGS_STORY_SPAN_ID = 'story-span-4'
+// Hex, like stored ids: the trace link drops any id that is not.
+const LOGS_STORY_TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
+const storySpanId = (index: number): string => (index + 1).toString(16).padStart(16, '0')
+const LOGS_STORY_SPAN_ID = storySpanId(4)
 
 function buildStoryLogs(event: ErrorEventType): LogMessage[] {
     const center = new Date(event.timestamp).getTime()
@@ -751,7 +753,7 @@ function buildStoryLogs(event: ErrorEventType): LogMessage[] {
     return lines.map(({ offsetMs, level, body }, index) => ({
         uuid: `story-log-${index}`,
         trace_id: LOGS_STORY_TRACE_ID,
-        span_id: `story-span-${index}`,
+        span_id: storySpanId(index),
         resource_attributes: { 'service.name': 'posthog-web' },
         attributes: { sessionId: LOGS_STORY_SESSION_ID },
         body,
