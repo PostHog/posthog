@@ -115,24 +115,24 @@ class TestRefreshAfterLoad(SimpleTestCase):
                 "seventy_days_of_history",
                 "2026-08-05T10:00:00Z",
                 [
-                    datetime(2026, 9, 14, 12, tzinfo=UTC),
-                    datetime(2026, 8, 15, 12, tzinfo=UTC),
-                    datetime(2026, 8, 5, tzinfo=UTC),
+                    (datetime(2026, 9, 14, 12, tzinfo=UTC), _NOW),
+                    (datetime(2026, 8, 15, 12, tzinfo=UTC), datetime(2026, 9, 14, 12, tzinfo=UTC)),
+                    (datetime(2026, 8, 5, tzinfo=UTC), datetime(2026, 8, 15, 12, tzinfo=UTC)),
                 ],
             ),
             ("no_rows", None, []),
         ]
     )
     def test_a_refresh_stores_every_day_of_history_newest_first(
-        self, _name: str, first_created: str | None, runs_since: list[datetime]
+        self, _name: str, first_created: str | None, runs_spans: list[tuple[datetime, datetime]]
     ) -> None:
         self.first_created = first_created
         ci_precompute.mark_in_use(_TEAM)
         ci_precompute.refresh_after_load(_TEAM)
 
-        stored_since = [
-            call.kwargs["since"]
+        stored_spans = [
+            (call.kwargs["since"], call.kwargs["until"])
             for call in self.ensure_stored.call_args_list
             if call.args[0] == ci_precompute.STORED_RUNS
         ]
-        assert stored_since == runs_since
+        assert stored_spans == runs_spans

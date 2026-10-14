@@ -224,11 +224,13 @@ def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables,
     return start
 
 
-def _newest_first(start: datetime) -> Iterator[datetime]:
-    since = datetime.now(UTC)
-    while since > start:
-        since = max(start, since - _BACKFILL_STEP)
-        yield since
+def _newest_first(start: datetime) -> Iterator[tuple[datetime, datetime]]:
+    """The spans from ``start`` to now, newest first, ``_BACKFILL_STEP`` long."""
+    until = datetime.now(UTC)
+    while until > start:
+        since = max(start, until - _BACKFILL_STEP)
+        yield since, until
+        until = since
 
 
 def ensure_stored(
@@ -237,12 +239,13 @@ def ensure_stored(
     source: JobSourceTables,
     *,
     since: datetime,
+    until: datetime | None = None,
     database: Database | None = None,
     run_inserts: bool,
     stale_while_revalidate_seconds: float | None = None,
     wait_timeout_seconds: float = _REFRESH_BUDGET_SECONDS,
 ) -> LazyComputationResult:
-    """The stored days of one repository from the day of ``since`` to now.
+    """The stored days of one repository from the day of ``since`` to ``until``, or to now.
 
     With ``run_inserts`` it stores each day that is missing or too old. Without, it only reports
     whether every day is stored.
@@ -251,7 +254,7 @@ def ensure_stored(
         team=team,
         insert_query=stored.insert_query(source),
         time_range_start=since,
-        time_range_end=datetime.now(UTC),
+        time_range_end=until or datetime.now(UTC),
         ttl_seconds=_max_age_schedule(),
         table=stored.table,
         query_type=stored.query_type,
@@ -301,7 +304,7 @@ def refresh_after_load(team: Team) -> None:
 
 
 def _may_insert(team: Team, deadline: float) -> bool:
-    # The flag is checked before each insert, so turning it off also stops a running refresh.
+    # The flag is checked before each step, so turning it off also stops a running refresh.
     return time.monotonic() < deadline and bool(team_flag(STORED_READS_FEATURE_FLAG, team))
 
 
@@ -320,7 +323,7 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
-    spans: list[tuple[StoredRows, JobSourceTables, Iterator[datetime]]] = []
+    spans: list[tuple[StoredRows, JobSourceTables, Iterator[tuple[datetime, datetime]]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             if not _may_insert(team, deadline):
@@ -345,8 +348,8 @@ def _refresh(team: Team) -> bool:
     while spans:
         for span in list(spans):
             stored, source, steps = span
-            since = next(steps, None)
-            if since is None:
+            step = next(steps, None)
+            if step is None:
                 spans.remove(span)
                 continue
             if not _may_insert(team, deadline):
@@ -355,7 +358,8 @@ def _refresh(team: Team) -> bool:
                 stored,
                 team,
                 source,
-                since=since,
+                since=step[0],
+                until=step[1],
                 database=database,
                 run_inserts=True,
                 wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
