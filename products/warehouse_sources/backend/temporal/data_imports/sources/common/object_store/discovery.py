@@ -170,8 +170,13 @@ def _delta_roots(objects: Iterable[StoredObject]) -> list[str]:
     return sorted(roots)
 
 
-def _is_under(path: str, roots: Iterable[str]) -> bool:
-    return any(root == "" or path.startswith(f"{root}/") for root in roots)
+def _is_under(path: str, roots: frozenset[str]) -> bool:
+    if not roots:
+        return False
+    if "" in roots:
+        return True
+    segments = path.split("/")[:-1]
+    return any("/".join(segments[:depth]) in roots for depth in range(1, len(segments) + 1))
 
 
 def _table_folder(path: str) -> str | None:
@@ -213,7 +218,7 @@ def group_tables(
     table again from `schema_metadata`.
     """
     ordered = sorted(objects, key=lambda stored: stored.path)
-    delta_roots = _delta_roots(ordered)
+    delta_roots = frozenset(_delta_roots(ordered))
     choice = options.file_format
     pattern = options.file_pattern or None
     combined_name = (options.combined_table_name or "").strip() or None
@@ -240,7 +245,7 @@ def group_tables(
 
     candidates: list[TableDefinition] = []
     if choice in ("infer", "delta"):
-        for root in delta_roots:
+        for root in sorted(delta_roots):
             candidates.append(definition(root.replace("/", "_") or root_name, "delta", root, None, "delta", []))
 
     if choice != "delta":

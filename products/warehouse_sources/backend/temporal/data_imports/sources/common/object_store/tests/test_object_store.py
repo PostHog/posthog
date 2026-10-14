@@ -329,6 +329,18 @@ class TestCsv:
             ),
             ("empty_file", b"", CsvOptions(), []),
             (
+                "headerless_quote_inside_an_unquoted_field_does_not_open_a_record",
+                b'1,12" pipe,3\n4,5,6\n',
+                CsvOptions(has_header=False),
+                [{"c1": "1", "c2": '12" pipe', "c3": "3"}, {"c1": "4", "c2": "5", "c3": "6"}],
+            ),
+            (
+                "repeated_headers_get_increasing_suffixes",
+                b"a,a,a,a_2\n1,2,3,4\n",
+                CsvOptions(),
+                [{"a": "1", "a_2": "2", "a_3": "3", "a_2_2": "4"}],
+            ),
+            (
                 "headerless_first_record_spans_lines",
                 b'1,"line one\nline two",3\n4,5,6\n',
                 CsvOptions(has_header=False),
@@ -340,6 +352,15 @@ class TestCsv:
         rows = [row for table in iter_csv_tables(io.BytesIO(content), options) for row in table.to_pylist()]
 
         assert rows == expected
+
+    def test_an_unterminated_quote_in_the_first_record_stays_within_the_record_limit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(formats, "MAX_RECORD_BYTES", 64)
+        content = b'1,"open\n' + b"line\n" * 100
+
+        with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+            list(iter_csv_tables(io.BytesIO(content), CsvOptions(has_header=False), file_path="x.csv"))
 
     def test_a_header_only_file_is_a_table_with_no_rows(self) -> None:
         tables = list(iter_csv_tables(io.BytesIO(b"id,name\n"), CsvOptions()))
@@ -411,6 +432,26 @@ class TestReadTable:
         [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
 
         assert [row["id"] for row in read_rows(store, table)] == ["1", "2"]
+
+    def test_gzipped_parquet_over_the_unpacked_size_limit_is_a_parse_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(formats, "MAX_UNPACKED_PARQUET_BYTES", 16)
+        (tmp_path / "big.parquet.gz").write_bytes(gzip.compress(b"x" * 1024))
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+            read_rows(store, table)
+
+    def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
+        pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
+        store = local_store(tmp_path)
+        [table] = group_tables(store.list_objects("", 10), DiscoveryOptions(), root_name="root")
+
+        batches = list(iter_table(store, table, LOGGER))
+
+        assert [(batch.column_names[0], batch.num_rows) for batch in batches] == [("id", 0)]
 
     def test_corrupt_gzip_is_a_parse_error(self, tmp_path: Path) -> None:
         (tmp_path / "bad.csv.gz").write_bytes(b"not gzip")

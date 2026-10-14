@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 
 import pyarrow as pa
@@ -8,6 +9,7 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     ACCESS_DENIED_ERROR,
     DELTA_UNSUPPORTED_ERROR,
+    FILE_PARSE_ERROR,
     NO_TABLE_FILES_ERROR,
     ObjectStorageError,
 )
@@ -15,13 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DELTA_BATCH_ROWS,
 )
 
-_ACCESS_DENIED_MARKERS = ("403", "AccessDenied", "Forbidden", "InvalidAccessKeyId", "SignatureDoesNotMatch")
+# Whole words only, so a status code doesn't match inside an object key such as `sales403/part.parquet`.
+_ACCESS_DENIED_MARKERS = re.compile(r"\b(403|AccessDenied|Forbidden|InvalidAccessKeyId|SignatureDoesNotMatch)\b")
 
 
 def _raise_if_access_denied(error: Exception, table_name: str) -> None:
     # delta-rs reports object store failures as text, so a rejected credential shows only as the
     # HTTP status or the S3 error code inside the message.
-    if any(marker in str(error) for marker in _ACCESS_DENIED_MARKERS):
+    if _ACCESS_DENIED_MARKERS.search(str(error)):
         raise ObjectStorageError(
             f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the key can read its folder."
         ) from error
@@ -63,6 +66,8 @@ def iter_delta_tables(
             if batch.num_rows:
                 yielded = True
                 yield pa.Table.from_batches([batch])
+    except pa.ArrowInvalid as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} a data file of the Delta table '{table_name}': {e}") from e
     except (DeltaError, OSError) as e:
         # The scan reads the data files lazily, so a key that can read the log but not the data fails here.
         _raise_if_access_denied(e, table_name)

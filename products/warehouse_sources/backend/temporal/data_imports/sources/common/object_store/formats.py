@@ -3,7 +3,6 @@ import csv
 import gzip
 import json
 import zlib
-import shutil
 import tempfile
 from collections.abc import Iterator
 from typing import IO, Any, Literal, cast
@@ -33,11 +32,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     JSONL_CHUNK_BYTES,
     JSONL_CHUNK_ROWS,
     MAX_RECORD_BYTES,
+    MAX_UNPACKED_PARQUET_BYTES,
     PARQUET_BATCH_ROWS,
 )
 
 TSV_SUFFIXES = (".tsv", ".tsv.gz")
 UTF8_BOM = b"\xef\xbb\xbf"
+SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
+COPY_CHUNK_BYTES = 1024 * 1024
 
 
 class _PrefixedStream(io.RawIOBase):
@@ -72,28 +74,18 @@ def csv_column_names(cells: list[str], has_header: bool) -> list[str]:
         return [f"c{index}" for index in range(1, len(cells) + 1)]
     names: list[str] = []
     seen: set[str] = set()
+    next_suffix: dict[str, int] = {}
     for index, cell in enumerate(cells, start=1):
         base = cell.strip() or f"c{index}"
         name = base
-        suffix = 2
+        suffix = next_suffix.get(base, 2)
         while name in seen:
             name = f"{base}_{suffix}"
             suffix += 1
+        next_suffix[base] = suffix
         seen.add(name)
         names.append(name)
     return names
-
-
-def _parse_csv_line(line: bytes, delimiter: str, allow_double_quotes: bool) -> list[str]:
-    text = line.decode("utf-8", errors="replace")
-    if allow_double_quotes:
-        reader = csv.reader([text], delimiter=delimiter)
-    else:
-        reader = csv.reader([text], delimiter=delimiter, quoting=csv.QUOTE_NONE)
-    try:
-        return next(reader, [])
-    except csv.Error as e:
-        raise ObjectStorageError(f"{FILE_PARSE_ERROR} the first row of the CSV file: {e}") from e
 
 
 def _read_bounded_line(stream: IO[bytes], file_path: str, kind: str) -> bytes:
@@ -106,21 +98,45 @@ def _read_bounded_line(stream: IO[bytes], file_path: str, kind: str) -> bytes:
     return line
 
 
-def _read_first_csv_record(stream: IO[bytes], allow_double_quotes: bool, file_path: str) -> bytes:
-    """The first non-blank record, joining lines while a quoted field is still open."""
-    record = _read_bounded_line(stream, file_path, "CSV")
-    while record and not record.strip():
-        record = _read_bounded_line(stream, file_path, "CSV")
-    while record and allow_double_quotes and record.count(b'"') % 2 == 1:
-        more = _read_bounded_line(stream, file_path, "CSV")
-        if not more:
-            break
-        record += more
-        if len(record) > MAX_RECORD_BYTES:
-            raise ObjectStorageError(
-                f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is longer than {MAX_RECORD_BYTES:,} bytes."
-            )
-    return record
+def _read_first_csv_record(
+    stream: IO[bytes], delimiter: str, allow_double_quotes: bool, file_path: str
+) -> tuple[bytes, list[str]]:
+    """The first non-blank record as the bytes it spans and its fields.
+
+    The CSV reader pulls lines until the record is complete, so a quoted field that spans lines is
+    one record, and a stray quote inside an unquoted field is not mistaken for the start of one.
+    """
+    consumed: list[bytes] = []
+    total = 0
+
+    def lines() -> Iterator[str]:
+        nonlocal total
+        while True:
+            line = _read_bounded_line(stream, file_path, "CSV")
+            if not line:
+                return
+            if not consumed:
+                if not line.strip():
+                    continue
+                line = line.removeprefix(UTF8_BOM)
+            total += len(line)
+            if total > MAX_RECORD_BYTES:
+                raise ObjectStorageError(
+                    f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is longer than "
+                    f"{MAX_RECORD_BYTES:,} bytes."
+                )
+            consumed.append(line)
+            yield line.decode("utf-8", errors="replace")
+
+    if allow_double_quotes:
+        reader = csv.reader(lines(), delimiter=delimiter)
+    else:
+        reader = csv.reader(lines(), delimiter=delimiter, quoting=csv.QUOTE_NONE)
+    try:
+        fields = next(reader, [])
+    except csv.Error as e:
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as CSV: the first record is invalid ({e}).") from e
+    return b"".join(consumed), fields
 
 
 def iter_csv_tables(
@@ -136,14 +152,11 @@ def iter_csv_tables(
     later value that does not fit would fail the whole file mid-stream, and two files of one table
     could disagree on a type. Empty unquoted fields are null.
     """
-    first_line = _read_first_csv_record(stream, options.allow_double_quotes, file_path)
-    if not first_line:
+    first_record, first_fields = _read_first_csv_record(stream, delimiter, options.allow_double_quotes, file_path)
+    if not first_record:
         return
-    first_line = first_line.removeprefix(UTF8_BOM)
-    names = csv_column_names(
-        _parse_csv_line(first_line.rstrip(b"\r\n"), delimiter, options.allow_double_quotes), options.has_header
-    )
-    body: IO[bytes] = stream if options.has_header else cast(IO[bytes], _PrefixedStream(first_line, stream))
+    names = csv_column_names(first_fields, options.has_header)
+    body: IO[bytes] = stream if options.has_header else cast(IO[bytes], _PrefixedStream(first_record, stream))
 
     skipped_rows = 0
 
@@ -238,9 +251,14 @@ def iter_parquet_tables(
 ) -> Iterator[pa.Table]:
     try:
         parquet_file = pq.ParquetFile(stream)
+        yielded = False
         for batch in parquet_file.iter_batches(batch_size=batch_rows, use_threads=False):
             if batch.num_rows:
+                yielded = True
                 yield pa.Table.from_batches([batch])
+        if not yielded:
+            # A file with no rows still carries a schema, which the pipeline needs to create the table.
+            yield parquet_file.schema_arrow.empty_table()
     except pa.ArrowInvalid as e:
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
 
@@ -260,10 +278,18 @@ def with_file_columns(table: pa.Table, stored: StoredObject) -> pa.Table:
 
 def _iter_gzipped_parquet(stream: IO[bytes], stored: StoredObject) -> Iterator[pa.Table]:
     """Parquet readers seek to the footer, which a gzip stream can't, so the file is unpacked to disk first."""
-    with tempfile.TemporaryFile() as unpacked:
+    with tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES) as unpacked:
         try:
             with gzip.GzipFile(fileobj=stream) as compressed:
-                shutil.copyfileobj(compressed, unpacked)
+                unpacked_bytes = 0
+                while chunk := compressed.read(COPY_CHUNK_BYTES):
+                    unpacked_bytes += len(chunk)
+                    if unpacked_bytes > MAX_UNPACKED_PARQUET_BYTES:
+                        raise ObjectStorageError(
+                            f"{FILE_PARSE_ERROR} '{stored.path}' as gzip: it unpacks to more than "
+                            f"{MAX_UNPACKED_PARQUET_BYTES:,} bytes."
+                        )
+                    unpacked.write(chunk)
         except (gzip.BadGzipFile, zlib.error, EOFError) as e:
             raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{stored.path}' as gzip: {e}") from e
         unpacked.seek(0)
