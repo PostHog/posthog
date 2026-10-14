@@ -2,6 +2,9 @@ from typing import cast
 
 from requests import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +49,37 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConfig]):
+    codebase_detection = detect(
+        env=("^CLEVER_?TAP_", "^(NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC)_CLEVER_?TAP_"),
+        script_hosts=("d2r1yp2w7bby2u.cloudfront.net", "static.clevertap.com"),
+        npm=(
+            "clevertap-react-native",
+            "clevertap-web-sdk",
+            "@types/clevertap-web-sdk",
+            "clevertap-cordova",
+            "@awesome-cordova-plugins/clevertap",
+            "@clevertap/clevertap-expo-plugin",
+            "clevertap",
+            "clevertap-react",
+        ),
+        cocoapods=(
+            "CleverTap-iOS-SDK",
+            "CTNotificationContent",
+            "CTNotificationService",
+            "CleverTap-Geofence-SDK",
+            "CleverTapLocation",
+        ),
+        maven=(
+            "com.clevertap.android:clevertap-android-sdk",
+            "com.clevertap.android:push-templates",
+            "com.clevertap.android:clevertap-hms-sdk",
+            "com.clevertap.android:clevertap-geofence-sdk",
+        ),
+        pub=("clevertap_plugin",),
+        swiftpm=("github.com/clevertap/clevertap-ios-sdk",),
+        alternative_to=(ProductKey.WORKFLOWS,),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://developer.clevertap.com/docs/get-events-api"
 

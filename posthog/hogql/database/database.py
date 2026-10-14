@@ -2653,7 +2653,11 @@ class Database(BaseModel):
                                         table_chain,
                                         table_for_key,
                                         case_insensitive=table.external_data_source.is_direct_query
-                                        and table.external_data_source.direct_engine in {"snowflake", "trino"},
+                                        and (
+                                            table.external_data_source.direct_engine in {"snowflake", "trino"}
+                                            or table.external_data_source.is_managed_warehouse
+                                            and table.url_pattern == "direct://trino"
+                                        ),
                                     ),
                                     table_conflict_mode=table_conflict_mode,
                                 )

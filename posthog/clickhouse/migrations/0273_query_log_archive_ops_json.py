@@ -2,14 +2,19 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     QUERY_LOG_ARCHIVE_DATA_TABLE,
     QUERY_LOG_ARCHIVE_OPS_MV,
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_V3_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+    WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.run_mode import run_mode
 
@@ -19,6 +24,11 @@ from posthog.run_mode import run_mode
 #   - query_log_archive         : Distributed read table over ops.sharded_query_log_archive, everywhere.
 #   - writable_query_log_archive: Distributed write table (physical columns only), everywhere.
 #   - ops_query_log_archive_mv  : slim MV (system.query_log -> writable), on every cluster.
+#
+# The v3 generation (one aggregated row per query chain) runs beside it with the same topology:
+# sharded_query_log_archive_v3 and query_log_archive_v3_buffer on OPS; writable_query_log_archive_v3,
+# ops_query_log_archive_v3_mv and query_log_archive_v3 on every cluster. query_log_archive reads the
+# v3 data table, not sharded_query_log_archive.
 #
 # This migration is idempotent and converges TWO divergent starting states:
 #   (A) Production, set up by hand: query_log_archive is the *data table* on OPS, writable_query_log_archive
@@ -62,7 +72,7 @@ operations = [
         node_roles=[NodeRole.OPS],
     ),
     # Only cloud has data to backfill. Off cloud the rename above is either a no-op (OPS
-    # carries no query_log_archive until step H creates it) or, where every role shares one
+    # carries no query_log_archive until step G creates it) or, where every role shares one
     # node, it catches the DATA-side table and leaves an empty copy behind — so drop it.
     *(
         []
@@ -89,9 +99,15 @@ operations = [
         QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE),
         node_roles=ALL_ROLES,
     ),
-    # ---------- F. Read Distributed query_log_archive -> ops.sharded, on EVERY node ----------
+    # ---------- F. v3 write path: data table + Buffer on OPS, writable + MV on every cluster ----------
+    run_sql_with_exceptions(SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=[NodeRole.OPS]),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(), node_roles=[NodeRole.OPS]),
+    run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=ALL_ROLES),
+    run_sql_with_exceptions(QUERY_LOG_ARCHIVE_V3_MV_SQL(), node_roles=ALL_ROLES),
+    # ---------- G. Read Distributed tables -> ops.sharded_query_log_archive_v3, on EVERY node ----------
     # Created everywhere so query_log_archive is queryable from any node. Safe to drop on every node:
     # the only place it is a populated data table is OPS, already renamed aside in B.
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=[NodeRole.ALL]),
     run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.ALL]),
+    run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(), node_roles=[NodeRole.ALL]),
 ]

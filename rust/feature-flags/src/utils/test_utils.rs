@@ -1852,6 +1852,25 @@ impl TestContext {
         Ok((key_id, raw_key))
     }
 
+    /// Records a token hash as leak-revoked (`revoke_exposed_project_secret_api_key`).
+    pub async fn create_revoked_team_secret_token(
+        &self,
+        team_id: i32,
+        raw_key: &str,
+    ) -> Result<(), Error> {
+        let secure_value = crate::api::auth::hash_token_value(raw_key);
+        let mut conn = self.non_persons_writer.get_connection().await?;
+        sqlx::query(
+            r#"INSERT INTO posthog_revokedteamsecrettoken (team_id, secure_value, created_at)
+               VALUES ($1, $2, NOW())"#,
+        )
+        .bind(team_id)
+        .bind(&secure_value)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
+
     /// Creates a team with both public token and secret API token
     /// Optionally accepts a backup secret token
     pub async fn create_team_with_secret_token(

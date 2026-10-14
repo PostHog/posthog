@@ -53,6 +53,9 @@ from posthog.models.data_deletion_request import (
     event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
+    queued_requests_to_verify,
+    reaches_target_through_event_uuids,
+    rows_without_events_copy_criteria,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
@@ -66,6 +69,7 @@ from posthog.models.deletion_targets import (
     UnsweptRowsError,
     assert_no_unsweepable_rows,
     assert_sweep_complete,
+    count_surviving_rows,
     placement_for,
     resolve_placements,
     surviving_rows_sql,
@@ -532,6 +536,14 @@ _HOGQL_UNSWEEPABLE_REASON = (
     f"table never stores. See {COVERAGE_DOC}."
 )
 
+_HOGQL_NO_EVENTS_COPY_REASON = (
+    "the request carries a HogQL predicate, which only compiles against the events schema, and these "
+    "rows have no copy in the events table. The deferred queue deletes rows here through the uuids of "
+    "their events copies, so it cannot decide whether the predicate names these rows. Such rows belong to an "
+    "org whose flag calls are stored only in this table, or to events an earlier deletion removed without "
+    f"these rows. To proceed, re-file the request without the predicate. See {COVERAGE_DOC}."
+)
+
 
 def _refuse_unsweepable(
     cluster: ClickhouseCluster,
@@ -554,6 +566,10 @@ def _refuse_unsweepable(
         )
     except UnsweepableRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
+
+
+def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
+    return lambda _target: criteria
 
 
 def _deletion_target(data_table: str) -> DeletionTarget:
@@ -638,11 +654,27 @@ def _event_removal_placements(
         return placements
 
     unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
-    if unsweepable:
-        criteria = portable_event_removal_where(deletion_request)
-        _refuse_unsweepable(
-            cluster, unsweepable, deletion_request, lambda _target: criteria, reason=_HOGQL_UNSWEEPABLE_REASON
-        )
+    criteria = portable_event_removal_where(deletion_request)
+    reachable = [t for t in unsweepable if reaches_target_through_event_uuids(deletion_request, t)]
+
+    _refuse_unsweepable(
+        cluster,
+        [t for t in unsweepable if t not in reachable],
+        deletion_request,
+        _same_criteria(criteria),
+        reason=_HOGQL_UNSWEEPABLE_REASON,
+    )
+    # The copy check reads the uuid of every matching event, so it runs only on tables that hold rows
+    # in the request's window.
+    for target in [t for t in reachable if count_surviving_rows(cluster, t, *criteria)]:
+        for window_criteria in rows_without_events_copy_criteria(deletion_request, target):
+            _refuse_unsweepable(
+                cluster,
+                [target],
+                deletion_request,
+                _same_criteria(window_criteria),
+                reason=_HOGQL_NO_EVENTS_COPY_REASON,
+            )
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
@@ -1193,8 +1225,9 @@ def _cleaned_select_list(
     # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
     # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
     # second because _timestamp is second-precision while the marker is microsecond-precision.
-    # A plain MergeTree such as flag_evaluations keeps the original value, because there _timestamp
-    # is the Kafka message time that flag_evaluations_backfill reads as the consumer position.
+    # flag_evaluations_backfill reads max(_timestamp) per Kafka partition as the consumer position. On
+    # flag_evaluations a bumped row can therefore make a stalled partition look current (see
+    # _KAFKA_POSITION_QUERY there).
     if "ReplacingMergeTree" in engine:
         replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
@@ -1559,7 +1592,7 @@ def reingest_property_removal_shard(
 
         # A failed earlier attempt may have inserted a month on another replica of this shard. Without
         # that part here, the leftover count below misses those rows and the insert adds them a second
-        # time, which a plain MergeTree such as flag_evaluations never merges away.
+        # time.
         _sync_replica(client, target, log)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:
@@ -2323,18 +2356,16 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 class VerifyQueuedConfig(dagster.Config):
     lookback_days: int = pydantic.Field(
         default=28,
-        description="Only verify QUEUED requests created within this many days. Bounds the sweep so a "
-        "permanently stuck request isn't re-checked forever.",
+        description="Only verify QUEUED requests created within this many days. A deferred event removal "
+        "with a HogQL predicate is also verified for this many days after its window falls behind the "
+        "flag_evaluations TTL. Bounds the sweep so a permanently stuck request isn't re-checked forever.",
     )
 
 
 @dagster.op(tags=OWNER_TAG)
 def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, config: VerifyQueuedConfig) -> None:
     """Verify recently-QUEUED deletion requests and promote those whose events are gone."""
-    from django.utils import timezone
-
-    cutoff = timezone.now() - timedelta(days=config.lookback_days)
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=cutoff)
+    queued = queued_requests_to_verify(timedelta(days=config.lookback_days))
     promoted = 0
     still_queued = 0
     for request in queued:

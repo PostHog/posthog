@@ -1,5 +1,8 @@
 from typing import cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +35,53 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^INTERCOM_",
+            "^IOS_INTERCOM_APP_ID$",
+            "^IOS_INTERCOM_KEY$",
+            "^ANDROID_INTERCOM_APP_ID$",
+            "^ANDROID_INTERCOM_KEY$",
+        ),
+        script_hosts=("widget.intercom.io", "js.intercomcdn.com", "app.intercom.io", "static.intercomcdn.com"),
+        npm=(
+            "intercom-client",
+            "@intercom/messenger-js-sdk",
+            "@intercom/intercom-react-native",
+            "react-use-intercom",
+            "cordova-plugin-intercom",
+            "@intercom/cli",
+            "passport-intercom",
+            "@types/intercom-web",
+            "@types/intercom-client",
+            "@capacitor-community/intercom",
+            "@capgo/capacitor-intercom",
+            "@awesome-cordova-plugins/intercom",
+            "@ionic-native/intercom",
+            "react-intercom",
+            "@supy-io/ngx-intercom",
+            "ng-intercom",
+            "@mathieustan/vue-intercom",
+        ),
+        pypi=("python-intercom", "django-intercom"),
+        cocoapods=("Intercom",),
+        composer=("intercom/intercom-php", "intercom/oauth2-intercom"),
+        go=("github.com/intercom/intercom-go", "gopkg.in/intercom/intercom-go.v2"),
+        hex=("intercom",),
+        maven=(
+            "io.intercom.android:intercom-sdk",
+            "io.intercom:intercom-java",
+            "io.intercom.android:intercom-sdk-base",
+            "io.intercom.android:intercom-sdk-fcm",
+            "io.intercom.android:intercom-sdk-ui",
+            "io.intercom.android:intercom-sdk-base-transitive",
+        ),
+        pub=("intercom_flutter", "intercom_flutter_web", "intercom_flutter_platform_interface"),
+        rubygems=("intercom", "intercom-rails", "omniauth-intercom", "intercom-app"),
+        swiftpm=("github.com/intercom/intercom-ios-sp", "github.com/intercom/intercom-ios"),
+        alternative_to=(ProductKey.CONVERSATIONS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2.13", "2.15", "2.16")
     default_version = "2.16"

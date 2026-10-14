@@ -217,6 +217,8 @@ class TestFieldCharsetResult:
         [
             (FIELD_TYPE.ENUM, 8, "ao\u00fbt".encode("latin1"), "ao\u00fbt"),
             (FIELD_TYPE.SET, 255, "co\u00fbt".encode(), "co\u00fbt"),
+            (FIELD_TYPE.ENUM, 255, "ao\u00fbt".encode("latin1"), "ao\ufffdt"),
+            (FIELD_TYPE.VAR_STRING, 255, "ao\u00fbt".encode("latin1"), "ao\ufffdt"),
             (242, 63, b"\x00\xfb", b"\x00\xfb"),
             (FIELD_TYPE.LONG, 63, b"42", 42),
             (FIELD_TYPE.NEWDECIMAL, 63, b"1.50", Decimal("1.50")),
@@ -229,7 +231,7 @@ class TestFieldCharsetResult:
         result.field_count = 1
         result._get_descriptions()
 
-        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))  # type: ignore[attr-defined]
+        row = result._read_row_from_packet(MysqlPacket(bytes([len(raw)]) + raw, "utf8"))
 
         assert row == (expected,)
 
@@ -936,8 +938,10 @@ class TestKeysetReadPath:
         return mock_connect, cursor, plan_check
 
     @staticmethod
-    def _keyset_source(manager):
-        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+    def _keyset_source(manager, **inputs):
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), _make_inputs(**inputs), resumable_source_manager=manager
+        )
         assert source.supports_resume is True
         return source
 
@@ -993,6 +997,14 @@ class TestKeysetReadPath:
 
         assert manager.save_state.call_count == 1
         manager.clear_state.assert_not_called()
+
+    def test_a_worker_death_halves_the_pages(self, keyset_mocks):
+        _, cursor, _ = keyset_mocks
+        cursor.fetchall.side_effect = [[(1,)], []]
+
+        list(cast(Generator, self._keyset_source(self._fake_manager(), worker_deaths=1).items()))
+
+        assert "LIMIT 1" in cursor.execute.call_args_list[0].args[0]
 
     def test_resumes_from_the_persisted_checkpoint(self, keyset_mocks):
         manager = self._fake_manager()

@@ -51,6 +51,7 @@ TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
 ITERATION_SUMMARY_MAX_LENGTH = 300
 RUN_READER_SUMMARY_MAX_LENGTH = 600
+HEADLINE_MAX_LENGTH = 60
 NEXT_STEPS_MAX_ITEMS = 5
 NEXT_STEP_MAX_LENGTH = 80
 OBJECT_JSON_MAX_BYTES = 64 * 1024
@@ -217,6 +218,20 @@ class FiniteFloatField(serializers.FloatField):
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
         return value
+
+
+class HeadlineField(serializers.CharField):
+    """A one-line headline. Collapses whitespace and cuts to length, so a long headline never fails a run."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        kwargs.setdefault("allow_blank", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str:
+        value = " ".join(super().to_internal_value(data).split())
+        return value[:HEADLINE_MAX_LENGTH].rstrip()
 
 
 @extend_schema_field(
@@ -494,6 +509,18 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
 class LiveTrainingRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
@@ -512,6 +539,14 @@ class LiveTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.",
     )
+    trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per experiment of this run, oldest first. "
+            "Experiments before the first holdout score are left out."
+        ),
+    )
 
     class Meta:
         dataclass = LiveTrainingRun
@@ -522,6 +557,7 @@ class LiveTrainingRunSerializer(DataclassSerializer):
             "best_holdout_score",
             "latest_agent_description",
             "latest_summary",
+            "trend",
         ]
 
 
@@ -583,18 +619,6 @@ class RealizedAucPointSerializer(DataclassSerializer):
     class Meta:
         dataclass = RealizedAucPoint
         fields = ["prediction_date", "realized_auc"]
-
-
-@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
-class TrainingTrendPointSerializer(DataclassSerializer):
-    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
-    best_holdout_score = serializers.FloatField(
-        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
-    )
-
-    class Meta:
-        dataclass = TrainingTrendPoint
-        fields = ["iteration_number", "best_holdout_score"]
 
 
 @extend_schema_serializer(component_name="AutoresearchPipeline")
@@ -1211,6 +1235,11 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.",
     )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this experiment, for people. Null if not written.",
+    )
     model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -1222,6 +1251,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "train_score",
             "agent_description",
             "summary",
+            "headline",
             "model_spec",
         ]
 
@@ -1282,6 +1312,11 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="One or two plain sentences on what this run learned, for people. Null if not written.",
     )
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Short title for this run, for people. Null if not written.",
+    )
     next_steps = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
@@ -1317,6 +1352,7 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
             "best_holdout_score",
             "summary",
             "reader_summary",
+            "headline",
             "next_steps",
             "iterations",
             "error",
@@ -1349,6 +1385,11 @@ class AutoresearchIterationSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Plain-language sentence on what this experiment tried and what happened, for people.",
     )
+    headline = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short title for this experiment, for people.",
+    )
     agent_confidence = serializers.FloatField(
         required=False, allow_null=True, help_text="Agent's self-assessed confidence 0–1"
     )
@@ -1374,6 +1415,7 @@ class AutoresearchIterationSerializer(DataclassSerializer):
             "status",
             "agent_description",
             "summary",
+            "headline",
             "agent_confidence",
             "parent_suggestion",
             "created_at",
@@ -1885,6 +1927,12 @@ class RecordIterationSerializer(serializers.Serializer):
             f"Max {ITERATION_SUMMARY_MAX_LENGTH} characters."
         ),
     )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this experiment tried. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
+        ),
+    )
     agent_confidence = FiniteFloatField(
         required=False,
         allow_null=True,
@@ -1978,6 +2026,12 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
         help_text=(
             "One or two plain sentences for people on what this run learned. "
             f"Max {RUN_READER_SUMMARY_MAX_LENGTH} characters."
+        ),
+    )
+    headline = HeadlineField(
+        help_text=(
+            f"A short title for people, at most {HEADLINE_MAX_LENGTH} characters, on what this run learned. "
+            "Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected."
         ),
     )
     next_steps = serializers.ListField(

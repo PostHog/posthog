@@ -1,5 +1,8 @@
 from typing import Any, Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +44,37 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^LANGSMITH_",
+            "^LANGCHAIN_API_KEY$",
+            "^LANGCHAIN_TRACING_V2$",
+            "^LANGCHAIN_ENDPOINT$",
+            "^LANGCHAIN_PROJECT$",
+            "^LANGCHAIN_WORKSPACE_ID$",
+            "^LANGCHAIN_SESSION$",
+            "^LANGCHAIN_REVISION_ID$",
+            "^LANGCHAIN_TRACING$",
+        ),
+        npm=(
+            "langsmith",
+            "@langchain/langsmith-opencode",
+            "@langchain/langsmith-pi-extension",
+            "@mastra/langsmith",
+            "@temporalio/langsmith",
+        ),
+        pypi=("langsmith", "langsmith-mcp-server", "langsmith-fetch", "langsmith-tool-server"),
+        go=("github.com/langchain-ai/langsmith-go", "github.com/langchain-ai/langsmith-cli"),
+        maven=(
+            "com.langchain.smith:langsmith-java",
+            "com.langchain.smith:langsmith-java-core",
+            "com.langchain.smith:langsmith-java-client-okhttp",
+            "com.langchain.smith:langsmith-java-wrappers",
+        ),
+        rubygems=("langsmith-sdk",),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -302,8 +302,8 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.9.0",
 ]
-# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Dev only:
-# no image installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
+# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Only
+# Dockerfile.dagster-ml installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
 inbox-ranking = [
     "onnx~=1.21.0",
     "onnxruntime~=1.30.0",
@@ -814,7 +814,6 @@ ignore_imports = [
     "products.reminders.backend.routes -> products.reminders.backend.api.reminder",
     "products.replay_vision.backend.routes -> products.replay_vision.backend.api",
     "products.revenue_analytics.backend.routes -> products.revenue_analytics.backend.api",
-    "products.review_hog.backend.routes -> products.review_hog.backend.api",
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",

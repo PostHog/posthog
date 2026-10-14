@@ -96,6 +96,7 @@ def create_bytecode(
     locals: Optional[list[Local]] = None,
     cohort_membership_supported: Optional[bool] = False,
     null_safe_comparisons: Optional[bool] = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
@@ -111,6 +112,7 @@ def create_bytecode(
         locals,
         cohort_membership_supported,
         null_safe_comparisons,
+        allowed_cohort_ids,
     )
     bytecode.extend(compiler.visit(expr))
     return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
@@ -129,6 +131,7 @@ class BytecodeCompiler(Visitor):
         locals: Optional[list[Local]] = None,
         cohort_membership_supported: Optional[bool] = False,
         null_safe_comparisons: Optional[bool] = False,
+        allowed_cohort_ids: Optional[set[int]] = None,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -141,6 +144,8 @@ class BytecodeCompiler(Visitor):
         self.args = args
         self.cohort_membership_supported = cohort_membership_supported
         self.null_safe_comparisons = null_safe_comparisons
+        self.allowed_cohort_ids = allowed_cohort_ids
+        self._compiling_cohort_membership_call = False
         # we're in a function definition
         if args is not None:
             for arg in args:
@@ -225,10 +230,21 @@ class BytecodeCompiler(Visitor):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
             if self.cohort_membership_supported:
-                if operation == Operation.IN_COHORT:
-                    return self.visit(ast.Call(name="inCohort", args=[node.right]))
-                else:
-                    return self.visit(ast.Call(name="notInCohort", args=[node.right]))
+                if self.allowed_cohort_ids is not None:
+                    if not isinstance(node.right, ast.Constant) or not isinstance(node.right.value, int):
+                        raise QueryError("Cohort conditions require a constant cohort id.")
+                    if node.right.value not in self.allowed_cohort_ids:
+                        raise QueryError(
+                            f"Cohort {node.right.value} can't be used here. "
+                            "Reference cohorts through a cohort filter so they can be validated."
+                        )
+                name = "inCohort" if operation == Operation.IN_COHORT else "notInCohort"
+                call = ast.Call(name=name, args=[node.right, ast.Field(chain=["cohort_ids"])])
+                self._compiling_cohort_membership_call = True
+                try:
+                    return self.visit(call)
+                finally:
+                    self._compiling_cohort_membership_call = False
             else:
                 cohort_name = ""
                 if isinstance(node.right, ast.Constant):
@@ -401,6 +417,13 @@ class BytecodeCompiler(Visitor):
 
         # Did not find a local nor an upvalue, must be a global.
 
+        if (
+            self.cohort_membership_supported
+            and node.chain[0] == "cohort_ids"
+            and not self._compiling_cohort_membership_call
+        ):
+            raise QueryError("cohort_ids is reserved here. Use a cohort property filter instead.")
+
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
@@ -499,6 +522,8 @@ class BytecodeCompiler(Visitor):
 
     def visit_call(self, node: ast.Call):
         self._check_declared_call(node)
+        if node.name in ("inCohort", "notInCohort") and not self._compiling_cohort_membership_call:
+            raise QueryError(f"Can't call {node.name}() directly. Use a cohort property filter instead.")
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
@@ -1001,7 +1026,14 @@ class BytecodeCompiler(Visitor):
             body = ast.Block(declarations=[node.body, ast.ReturnStatement(expr=None)])
 
         self._declare_local(node.name)
-        compiler = BytecodeCompiler(self.supported_functions, node.params, self.context, self)
+        compiler = BytecodeCompiler(
+            self.supported_functions,
+            node.params,
+            self.context,
+            self,
+            cohort_membership_supported=self.cohort_membership_supported,
+            allowed_cohort_ids=self.allowed_cohort_ids,
+        )
         bytecode = compiler.visit(body)
 
         ops = [
@@ -1034,7 +1066,14 @@ class BytecodeCompiler(Visitor):
             else:
                 expr = ast.ReturnStatement(expr=expr)
 
-        compiler = BytecodeCompiler(self.supported_functions, node.args, self.context, self)
+        compiler = BytecodeCompiler(
+            self.supported_functions,
+            node.args,
+            self.context,
+            self,
+            cohort_membership_supported=self.cohort_membership_supported,
+            allowed_cohort_ids=self.allowed_cohort_ids,
+        )
         bytecode = compiler.visit(expr)
         ops = [
             Operation.CALLABLE,

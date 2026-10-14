@@ -1,6 +1,9 @@
 from typing import cast
 from uuid import UUID
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OneSignalSource(ResumableSource[OneSignalSourceConfig, OneSignalResumeConfig]):
+    codebase_detection = detect(
+        env=("^ONE_?SIGNAL_", "^(NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC)_ONE_?SIGNAL_"),
+        script_hosts=("cdn.onesignal.com",),
+        npm=(
+            "@onesignal/node-onesignal",
+            "react-native-onesignal",
+            "react-onesignal",
+            "onesignal-expo-plugin",
+            "onesignal-cordova-plugin",
+            "onesignal-node",
+            "@onesignal/capacitor-plugin",
+            "@onesignal/onesignal-vue3",
+            "onesignal-ngx",
+            "onesignal-vue",
+            "@awesome-cordova-plugins/onesignal",
+        ),
+        pypi=("onesignal-python-api", "onesignal-sdk"),
+        cargo=("onesignal-rust-api",),
+        cocoapods=("OneSignalXCFramework", "OneSignal"),
+        composer=("berkayk/onesignal-laravel", "norkunas/onesignal-php-api", "onesignal/onesignal-php-api"),
+        go=("github.com/onesignal/onesignal-go-api",),
+        maven=("com.onesignal:OneSignal", "com.onesignal:onesignal-java-client"),
+        pub=("onesignal_flutter",),
+        rubygems=("onesignal", "onesignal-ruby"),
+        swiftpm=("github.com/onesignal/onesignal-xcframework", "github.com/onesignal/onesignal-ios-sdk"),
+        alternative_to=(ProductKey.WORKFLOWS,),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://documentation.onesignal.com/reference/rest-api-overview"
 

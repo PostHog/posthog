@@ -63,9 +63,6 @@ export function MissingLinkInvestigate({
                 <span>{missingLabel(missing)}</span>
             </span>
             <AgentPromptButton
-                storageKey="logs-missing-link"
-                defaultAgentKey="clipboard"
-                agentKeys={['clipboard', 'claude-code', 'cursor', 'codex', 'posthog-code']}
                 size="xs"
                 actions={[
                     {

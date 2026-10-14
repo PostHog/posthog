@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +30,58 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
+    codebase_detection = detect(
+        env=("^OPTIMIZELY_", "^NEXT_PUBLIC_OPTIMIZELY_SDK_KEY$", "^EXPO_PUBLIC_OPTIMIZELY_SDK_KEY$"),
+        script_hosts=("cdn.optimizely.com", "cdn-pci.optimizely.com", "optimizely-edge.com"),
+        npm=(
+            "@optimizely/optimizely-sdk",
+            "@optimizely/react-sdk",
+            "@optimizely/express",
+            "@optimizely/edge-delivery",
+            "@optimizely/sdk-plugin-pending-events",
+            "@optimizely/js-web-sdk",
+            "@optimizely/optimizely-sdk-core",
+            "@optimizely/js-sdk-logging",
+            "@optimizely/js-sdk-utils",
+            "@optimizely/js-sdk-event-processor",
+            "@optimizely/js-sdk-datafile-manager",
+            "@optimizely/optimizely-connector",
+            "optimizely-client-sdk",
+            "optimizely-server-sdk",
+            "optimizely-node",
+            "cordova-plugin-optimizely",
+            "@flags-sdk/optimizely",
+        ),
+        pypi=("optimizely-sdk", "optimizely"),
+        cocoapods=(
+            "OptimizelySwiftSDK",
+            "OptimizelySDKiOS",
+            "OptimizelySDKTVOS",
+            "OptimizelySDKCore",
+            "OptimizelySDKShared",
+            "OptimizelySDKDatafileManager",
+            "OptimizelySDKEventDispatcher",
+            "OptimizelySDKUserProfileService",
+            "OptimizelySDKUserProfile",
+        ),
+        composer=("optimizely/optimizely-sdk",),
+        go=("github.com/optimizely/go-sdk", "github.com/optimizely/agent"),
+        maven=(
+            "com.optimizely.ab:core-api",
+            "com.optimizely.ab:android-sdk",
+            "com.optimizely.ab:core-httpclient-impl",
+            "com.optimizely.ab:android-sdk-datafile-handler",
+            "com.optimizely.ab:android-sdk-event-handler",
+            "com.optimizely.ab:android-sdk-odp",
+            "com.optimizely.ab:android-sdk-shared",
+            "com.optimizely.ab:android-sdk-user-profile",
+        ),
+        pub=("optimizely_flutter_sdk",),
+        rubygems=("optimizely-sdk",),
+        swiftpm=("github.com/optimizely/swift-sdk",),
+        alternative_to=(ProductKey.EXPERIMENTS,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://library.optimizely.com/docs/api/app/v2/index.html"

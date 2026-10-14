@@ -13,6 +13,7 @@ import json
 import base64
 import asyncio
 import hashlib
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -186,16 +187,29 @@ class _PipelineActivity:
     live_training_run: LiveTrainingRun | None
 
 
+def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[TrainingTrendPoint]:
+    """Best holdout score up to each iteration, oldest first. Iterations before the first score are left out."""
+    trend: list[TrainingTrendPoint] = []
+    best: float | None = None
+    for iteration_number, holdout_score in scores:
+        if holdout_score is not None and (best is None or holdout_score > best):
+            best = holdout_score
+        if best is not None:
+            trend.append(TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best))
+    return trend
+
+
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
-    scores = [i.holdout_score for i in iterations if i.holdout_score is not None]
+    trend = _best_so_far_trend((i.iteration_number, i.holdout_score) for i in iterations)
     return LiveTrainingRun(
         id=run.id,
         iteration_budget=run.iteration_budget,
         experiment_count=len(iterations),
-        best_holdout_score=max(scores) if scores else None,
+        best_holdout_score=trend[-1].best_holdout_score if trend else None,
         latest_agent_description=iterations[-1].agent_description if iterations else "",
         latest_summary=iterations[-1].summary if iterations else None,
+        trend=trend,
     )
 
 
@@ -220,21 +234,16 @@ def _champion_training_trends(
 ) -> dict[UUID, list[TrainingTrendPoint]]:
     """Best-so-far holdout score per iteration of the run that trained each champion, oldest first."""
     pipeline_by_run = {c.source_training_run_id: p for p, c in champions.items() if c.source_training_run_id}
-    trends: dict[UUID, list[TrainingTrendPoint]] = {}
-    best: dict[UUID, float] = {}
+    scores: dict[UUID, list[tuple[int, float | None]]] = {}
     for training_run_id, iteration_number, holdout_score in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=list(pipeline_by_run))
         .order_by("training_run_id", "iteration_number")
         .values_list("training_run_id", "iteration_number", "holdout_score")
     ):
-        if holdout_score is not None and holdout_score > best.get(training_run_id, -1.0):
-            best[training_run_id] = holdout_score
-        if training_run_id in best:
-            trends.setdefault(pipeline_by_run[training_run_id], []).append(
-                TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best[training_run_id])
-            )
-    return trends
+        scores.setdefault(training_run_id, []).append((iteration_number, holdout_score))
+    trends = {pipeline_by_run[run_id]: _best_so_far_trend(run_scores) for run_id, run_scores in scores.items()}
+    return {pipeline_id: trend for pipeline_id, trend in trends.items() if trend}
 
 
 def _champion_likely_counts(team_id: int, champions: dict[UUID, AutoresearchModel]) -> dict[UUID, tuple[int, float]]:
@@ -319,7 +328,7 @@ def _pipeline_activity(
     for iteration in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=[run.id for run in live_runs.values()])
-        .only("training_run_id", "holdout_score", "agent_description", "summary")
+        .only("training_run_id", "iteration_number", "holdout_score", "agent_description", "summary")
         .order_by("training_run_id", "iteration_number")
     ):
         live_iterations.setdefault(iteration.training_run_id, []).append(iteration)
@@ -442,6 +451,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         model_spec=row.model_spec or {},
         recipe_snapshot=row.recipe_snapshot or {},
     )
@@ -460,6 +470,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         best_holdout_score=row.best_holdout_score,
         summary=row.summary or None,
         reader_summary=row.reader_summary,
+        headline=row.headline,
         next_steps=row.next_steps,
         iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
         error=row.error,
@@ -483,6 +494,7 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         status=row.status,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
@@ -1479,6 +1491,7 @@ def record_iteration(
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
             "summary": fields.get("summary") or None,
+            "headline": fields.get("headline") or None,
             "agent_confidence": fields.get("agent_confidence"),
         }
         # A re-send that omits parent_suggestion keeps the attribution it recorded the first
@@ -1539,6 +1552,7 @@ def complete_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
@@ -1561,6 +1575,7 @@ def complete_run(
             distillation=distillation or "",
             report_notebook_short_id=report_notebook_short_id or "",
             reader_summary=reader_summary or None,
+            headline=headline or None,
             next_steps=next_steps or None,
         )
     except PromotionError as exc:

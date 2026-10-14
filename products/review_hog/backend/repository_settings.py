@@ -9,23 +9,34 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
+from uuid import UUID
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.review_hog.backend.activity_logging import log_repository_taken
 from products.review_hog.backend.automatic_review_rules import (
     AuthorPreferences,
-    AutomaticReviewDecision,
-    AutomaticReviewReason,
     ProjectRuleContext,
     load_author_preferences,
 )
+from products.review_hog.backend.facade.contracts import (
+    UNSET,
+    AutomaticReviewDecision,
+    GitHubRepositoryListError,
+    OwnershipConflict,
+    PersonNotActiveMemberError,
+    ProjectRef,
+    RepositorySettingsError,
+    Unset,
+)
+from products.review_hog.backend.facade.enums import AutomaticReviewReason, RepositoryOverviewView, RepositoryOwnerKind
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewRepository,
@@ -38,41 +49,11 @@ from products.review_hog.backend.preferences import DefaultReviewMode
 logger = logging.getLogger(__name__)
 
 
-class Unset:
-    """Marks a field the request did not mention, because None is a valid value."""
-
-
-UNSET = Unset()
-
-
-class RepositorySettingsError(Exception):
-    """A write the rules do not allow. The API answers 400 with the message."""
-
-
-@frozen
-class ProjectRef:
-    """Another project, named only inside its own organization."""
-
-    team_id: int
-    name: str | None
-
-    @classmethod
-    def load(cls, team_id: int, *, viewer_organization_id: Any) -> "ProjectRef":
-        team = Team.objects.filter(id=team_id).values("name", "organization_id").first() or {}
-        same_organization = team.get("organization_id") == viewer_organization_id
-        return cls(team_id=team_id, name=team.get("name") if same_organization else None)
-
-    @property
-    def label(self) -> str:
-        return f"the {self.name} project" if self.name else "a project in another organization"
-
-
-class OwnershipConflict(Exception):
-    """Another project already holds what this write asks for. The API answers 409."""
-
-    def __init__(self, message: str, project: ProjectRef | None) -> None:
-        super().__init__(message)
-        self.project = project
+def load_project_ref(team_id: int, *, viewer_organization_id: Any) -> ProjectRef:
+    """Another project, with its name only when it is in the viewer's organization."""
+    team = Team.objects.filter(id=team_id).values("name", "organization_id").first() or {}
+    same_organization = team.get("organization_id") == viewer_organization_id
+    return ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
 
 
 @frozen
@@ -101,7 +82,7 @@ class ProjectRepositories:
         self.user = user
 
     def _project(self, team_id: int) -> ProjectRef:
-        return ProjectRef.load(team_id, viewer_organization_id=self.team.organization_id)
+        return load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
 
     def integrations(self) -> list[Integration]:
         return list(
@@ -113,6 +94,69 @@ class ProjectRepositories:
         if integration is None:
             raise RepositorySettingsError("This project has no GitHub connection for that installation.")
         return integration
+
+    def installation_repositories(self, installation_id: str, search: str) -> Sequence[Mapping[str, Any]]:
+        """The repositories the installation can see, from the cache, whose name contains `search`."""
+        integration = self.integration_for(installation_id)
+        try:
+            repositories = GitHubIntegration(
+                integration, source="review_hog", priority=Priority.NORMAL
+            ).list_all_cached_repositories()
+        except Exception:
+            # The list refreshes from GitHub when the cache is cold, and GitHub can fail or rate limit.
+            logger.warning("review_hog_repository_overview_list_failed", exc_info=True)
+            raise GitHubRepositoryListError("GitHub did not return the repository list. Try again shortly.")
+        search = search.strip().casefold()
+        if search:
+            repositories = [
+                repository for repository in repositories if search in str(repository["full_name"]).casefold()
+            ]
+        return repositories
+
+    def check_active_member(self, user_id: int) -> None:
+        is_member = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user_id=user_id, user__is_active=True
+        ).exists()
+        if not is_member:
+            raise PersonNotActiveMemberError("This user is not an active member of the organization.")
+
+    def repositories(self) -> list[ReviewRepository]:
+        return list(
+            ReviewRepository.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+
+    def repository(self, repository_id: UUID) -> ReviewRepository | None:
+        return (
+            ReviewRepository.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .filter(id=repository_id)
+            .first()
+        )
+
+    def delete_repository(self, repository_id: UUID) -> bool:
+        """Delete one repository row and its lists. False when the project has no such row."""
+        row = self.repository(repository_id)
+        if row is None:
+            return False
+        row.delete()
+        return True
+
+    def claims(self) -> list[ReviewInstallationClaim]:
+        return list(
+            ReviewInstallationClaim.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+
+    def claim(self, claim_id: UUID) -> ReviewInstallationClaim | None:
+        return (
+            ReviewInstallationClaim.objects.for_team(self.team_id, canonical=True)
+            .select_related("created_by")
+            .filter(id=claim_id)
+            .first()
+        )
 
     def verified_ref(self, ref: RepositoryRef) -> RepositoryRef:
         """The repository as the installation reports it. A client cannot store a pair GitHub does not know."""
@@ -296,18 +340,21 @@ class ProjectRepositories:
         )
         return created
 
+    def remove_person(self, repository_id: UUID | None, person_id: UUID) -> bool:
+        """Remove one entry from a list of the project rule (no repository) or of an exception.
 
-class RepositoryOwnerKind(models.TextChoices):
-    THIS_PROJECT = "this_project", "This project"
-    OTHER_PROJECT = "other_project", "Another project"
-    NONE = "none", "No project"
-
-
-class RepositoryOverviewView(models.TextChoices):
-    ALL = "all", "All repositories"
-    IN_PROJECT = "in_project", "In this project"
-    EXCEPTIONS = "exceptions", "With exceptions"
-    MINE = "mine", "My choices"
+        False when the list has no such entry.
+        """
+        people = ReviewRepositoryPerson.objects.for_team(self.team_id, canonical=True)
+        if repository_id is None:
+            people = people.filter(repository__isnull=True)
+        else:
+            people = people.filter(repository_id=repository_id)
+        person = people.filter(id=person_id).first()
+        if person is None:
+            return False
+        person.delete()
+        return True
 
 
 @frozen
@@ -348,7 +395,7 @@ class RepositoryOverview:
 
     def _project(self, team_id: int) -> ProjectRef:
         if team_id not in self._projects:
-            self._projects[team_id] = ProjectRef.load(team_id, viewer_organization_id=self.team.organization_id)
+            self._projects[team_id] = load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
         return self._projects[team_id]
 
     def entry(self, repository: Mapping[str, Any]) -> OverviewEntry:
@@ -427,6 +474,25 @@ class RepositoryChoices:
     def __init__(self, team: Team, user: User) -> None:
         self.team = team
         self.user = user
+
+    def choices(self) -> list[ReviewUserRepositoryChoice]:
+        return list(
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id, canonical=True)
+            .filter(user_id=self.user.id)
+            .order_by("full_name")
+        )
+
+    def delete(self, choice_id: UUID) -> bool:
+        """Clear one of the person's choices. False when the person has no such choice."""
+        choice = (
+            ReviewUserRepositoryChoice.objects.for_team(self.team.id, canonical=True)
+            .filter(user_id=self.user.id, id=choice_id)
+            .first()
+        )
+        if choice is None:
+            return False
+        choice.delete()
+        return True
 
     def save(self, ref: RepositoryRef, mode: str) -> tuple[ReviewUserRepositoryChoice | None, AutomaticReviewDecision]:
         ProjectRepositories(self.team, self.user).integration_for(ref.installation_id)

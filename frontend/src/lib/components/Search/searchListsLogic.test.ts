@@ -27,7 +27,7 @@ describe('searchListsLogic', () => {
     ])('shows Data ops with DuckDB=%s and Trino=%s', (duckdb, trino, visible) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: duckdb,
-            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]: trino,
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: trino,
         })
 
         expect(logic.values.productsItems.some((item) => item.id === 'product-Data warehouse')).toBe(visible)

@@ -14,6 +14,7 @@ from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
     record_outcomes,
+    take_ownership,
     upsert_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -21,8 +22,10 @@ from products.alerts_platform.backend.facade.contracts import (
     FiringEpisode,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
@@ -79,6 +82,54 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             at=self.cutoff + timedelta(hours=1),
         )
         assert self._alert().firing_started_at is None
+
+    def test_a_check_that_started_before_a_handover_records_nothing(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+        take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff + timedelta(seconds=30),
+            )
+        )
+
+        self._record()
+
+        assert self._alert().state == "not_firing"
+
+    def test_a_copy_inside_its_own_firing_is_not_taken_over(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id
+            )
+            PlatformAlert.objects.create(
+                team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
+            )
+
+        taken = take_ownership(
+            PlatformOwnershipHandover(
+                legacy_configuration_id=legacy_id,
+                team_id=self.team.id,
+                state=PlatformAlertState.NOT_FIRING,
+                last_notified_at=None,
+                consecutive_failures=0,
+                next_check_at=self.cutoff + timedelta(minutes=2),
+                at=self.cutoff,
+            )
+        )
+
+        assert not taken
+        self.configuration.refresh_from_db()
+        assert (self.configuration.owner, self._alert().state) == ("source", "firing")
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -142,6 +193,45 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == [("not_firing", self.cutoff)]
         assert self._alert().firing_started_at is None
+
+    @parameterized.expand([("one_schedule_group", "5:1:True", 1), ("no_schedule_group", None, 2)])
+    def test_a_team_checks_share_a_slot_only_when_the_source_groups_them(
+        self, _name: str, schedule_group: str | None, expected_slots: int
+    ) -> None:
+        # Ids 1 and 2 fall in different slots of a 5-minute cadence when the offset is per configuration.
+        with team_scope(self.team.id):
+            configurations = [
+                PlatformAlertConfiguration.objects.create(
+                    id=UUID(int=n),
+                    team=self.team,
+                    name=f"Alert {n}",
+                    source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                    source_config={},
+                    check_interval_minutes=5,
+                    next_check_at=self.cutoff - timedelta(minutes=1),
+                )
+                for n in (1, 2)
+            ]
+        outcomes = [
+            PlatformAlertOutcome(
+                configuration_id=c.id,
+                evaluation_key=f"window:{self.cutoff.isoformat()}",
+                kind=AlertEventKind.CHECK,
+                new_state="not_firing",
+                notified=False,
+                consecutive_failures=0,
+                schedule_group=schedule_group,
+            )
+            for c in configurations
+        ]
+        record_outcomes(self.team.id, outcomes, self.cutoff)
+
+        with team_scope(self.team.id):
+            due = {
+                c.next_check_at
+                for c in PlatformAlertConfiguration.objects.filter(id__in=[c.id for c in configurations])
+            }
+        assert len(due) == expected_slots
 
     def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
         fields: dict[str, Any] = {

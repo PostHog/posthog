@@ -10,6 +10,7 @@ import structlog
 from posthog.models import Team
 
 from products.logs.backend.alert_state_machine import NotificationAction
+from products.logs.backend.models import LogsAlertConfiguration
 from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +48,25 @@ class NotifiedAlert:
     result_count: int | None
     consecutive_failures: int
     filters: dict
+    # Set by a caller that retries, so a repeated emission starts no second signal.
+    idempotency_key: str | None = None
+
+
+_WEIGHT_BY_ACTION: dict[AlertSignalAction, float] = dict(_ACTION_WEIGHT.values())
+
+
+@dataclasses.dataclass(frozen=True)
+class PlatformAlertSignal:
+    """One alert the platform announced as firing or auto-disabled, for which logs emits a signal.
+
+    Crosses the Temporal activity boundary, so every field is a primitive.
+    """
+
+    alert_id: str
+    action: AlertSignalAction
+    result_count: int | None
+    consecutive_failures: int
+    evaluation_key: str
 
 
 def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
@@ -109,8 +129,42 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
             description=description,
             weight=na.weight,
             extra=extra,
+            idempotency_key=na.idempotency_key,
         )
         return True
     except Exception:
         logger.exception("Failed to emit logs alert signal", alert_id=na.alert_id, action=na.action)
         return False
+
+
+def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
+    """The signal facts for alerts the platform announced, read from their logs alert rows.
+
+    An alert whose logs row is gone gets no signal, the way the logs stack sends none for it.
+    """
+    alerts = {
+        str(alert.id): alert
+        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=[s.alert_id for s in signals])
+    }
+    notified: list[NotifiedAlert] = []
+    for signal in signals:
+        alert = alerts.get(signal.alert_id)
+        if alert is None:
+            continue
+        notified.append(
+            NotifiedAlert(
+                alert_id=signal.alert_id,
+                team_id=team_id,
+                alert_name=alert.name,
+                action=signal.action,
+                weight=_WEIGHT_BY_ACTION[signal.action],
+                threshold_count=alert.threshold_count,
+                threshold_operator=alert.threshold_operator,
+                window_minutes=alert.window_minutes,
+                result_count=signal.result_count,
+                consecutive_failures=signal.consecutive_failures,
+                filters=alert.filters,
+                idempotency_key=f"{signal.alert_id}:{signal.action}:{signal.evaluation_key}",
+            )
+        )
+    return notified

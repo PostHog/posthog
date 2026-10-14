@@ -1,5 +1,8 @@
 from typing import cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +32,44 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogrocketSource(ResumableSource[LogrocketSourceConfig, LogrocketResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOGROCKET_",),
+        script_hosts=(
+            "cdn.logrocket.io",
+            "cdn.lr-ingest.io",
+            "cdn.logr-in.com",
+            "cdn.logrocket.com",
+            "cdn.lr-in.com",
+            "cdn.lr-in-prod.com",
+            "cdn.lr-ingest.com",
+            "cdn.ingest-lr.com",
+            "cdn.lr-intake.com",
+            "cdn.intake-lr.com",
+            "cdn.logr-ingest.com",
+            "cdn.lrkt-in.com",
+            "cdn.lgrckt-in.com",
+        ),
+        npm=(
+            "logrocket",
+            "logrocket-react",
+            "@logrocket/react-native",
+            "logrocket-cli",
+            "logrocket-ngrx",
+            "logrocket-vuex",
+            "logrocket-mobx",
+            "logrocket-mobx-state-tree",
+            "logrocket-fuzzy-search-sanitizer",
+            "@logrocket/mcp-replay",
+            "@logrocket/mcp",
+        ),
+        cocoapods=("LogRocket",),
+        go=("github.com/LogRocket/logrocket-mcp-replay-go",),
+        maven=("com.logrocket:logrocket", "com.logrocket:compose"),
+        pub=("logrocket_flutter",),
+        swiftpm=("github.com/logrocket/logrocket-ios-swift-package",),
+        alternative_to=(ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.logrocket.com/docs/audit-log-api"
 

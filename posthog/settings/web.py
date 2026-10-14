@@ -43,6 +43,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
     "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
@@ -98,7 +99,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.github_commands.backend.apps.GithubCommandsConfig",
+    "products.commands.backend.apps.CommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
@@ -638,6 +639,8 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Workflow steps and workflow template steps both take a field named `type` with this set.
+            "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -890,6 +893,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
+                # The wizard tool catalog: deploy-static public JSON that compresses ~5x.
+                "^/?api/wizard/tool_catalog/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1348,11 +1353,6 @@ WIZARD_GATEWAY_CLIENT_IDS = [
     client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
-# Wizard programs that may mint, each getting its own pinned product node and so
-# its own per-program budget and mint quota. The list is authoritative: a program
-# absent here is refused, not folded into a generic node, so listing a new program
-# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
-WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that

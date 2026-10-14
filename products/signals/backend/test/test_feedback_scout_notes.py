@@ -190,26 +190,52 @@ class TestFeedbackScoutNotes(APIBaseTest):
         assert action.count == 2
         assert action.metadata == {"sentiment": "negative"}
 
-    @parameterized.expand([("positive", "negative", "ready"), ("negative", "positive", "suppressed")])
-    def test_feedback_can_be_read_changed_and_cleared(self, first: str, second: str, report_status: str) -> None:
+    @parameterized.expand(
+        [
+            ("ready", "positive", "negative", SignalReport.Status.READY, False, True),
+            ("suppressed", "negative", "positive", SignalReport.Status.SUPPRESSED, False, True),
+            ("monitoring_disabled", "positive", "negative", SignalReport.Status.MONITORING, False, True),
+            ("monitoring_enabled", "positive", "negative", SignalReport.Status.MONITORING, True, True),
+        ]
+    )
+    def test_feedback_can_be_read_changed_and_cleared(
+        self, _name: str, first: str, second: str, report_status: str, flag_enabled: bool, visible: bool
+    ) -> None:
         self._set_task_access("viewer")
         report = self._create_report()
         report.status = report_status
         report.save(update_fields=["status"])
         read_url = self._feedback_url(str(report.id)).replace("/feedback/", "/feedback_state/")
-        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag_enabled):
+            initial = self.client.get(read_url)
+            if not visible:
+                assert initial.status_code == status.HTTP_404_NOT_FOUND
+                response = self.client.post(
+                    self._feedback_url(str(report.id)),
+                    {"sentiment": first, "note": "Useful evidence"},
+                    format="json",
+                )
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+                assert not SignalReportAction.objects.for_team(self.team.id).filter(report=report).exists()
+            else:
+                assert initial.status_code == status.HTTP_200_OK
+                assert initial.json() == {"sentiment": None, "note": ""}
 
-        self._feedback(report, sentiment=first, note="Useful evidence")
-        assert self.client.get(read_url).json() == {"sentiment": first, "note": "Useful evidence"}
+                self._feedback(report, sentiment=first, note="Useful evidence")
+                assert self.client.get(read_url).json() == {"sentiment": first, "note": "Useful evidence"}
 
-        self._feedback(report, sentiment=second)
-        assert self.client.get(read_url).json() == {"sentiment": second, "note": ""}
+                self._feedback(report, sentiment=second)
+                assert self.client.get(read_url).json() == {"sentiment": second, "note": ""}
 
-        self._feedback(report, sentiment=None)
-        assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
-        self._feedback(report, sentiment=None)
-        action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
-        assert action.count == 2
+                self._feedback(report, sentiment=None)
+                assert self.client.get(read_url).json() == {"sentiment": None, "note": ""}
+                self._feedback(report, sentiment=None)
+                action = SignalReportAction.objects.for_team(self.team.id).get(report=report, user=self.user)
+                assert action.type == SignalReportAction.ActionType.FEEDBACK
+                assert action.count == 2
+
+        report.refresh_from_db()
+        assert report.status == report_status
 
     def test_feedback_is_private_to_each_user(self) -> None:
         report = self._create_report()

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,48 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^HONEYBADGER_",
+            "^NEXT_PUBLIC_HONEYBADGER_API_KEY$",
+            "^NEXT_PUBLIC_HONEYBADGER_ASSETS_URL$",
+            "^NEXT_PUBLIC_HONEYBADGER_REVISION$",
+            "^NEXT_PUBLIC_HONEYBADGER_SERVICE_NAME$",
+            "^REACT_APP_HONEYBADGER_API_KEY$",
+        ),
+        script_hosts=("js.honeybadger.io",),
+        npm=(
+            "@honeybadger-io/js",
+            "@honeybadger-io/react",
+            "@honeybadger-io/vue",
+            "@honeybadger-io/react-native",
+            "@honeybadger-io/nextjs",
+            "@honeybadger-io/webpack",
+            "@honeybadger-io/core",
+            "@honeybadger-io/cloudflare",
+            "@honeybadger-io/esbuild-plugin",
+            "@honeybadger-io/rollup-plugin",
+            "@honeybadger-io/plugin-core",
+            "@honeybadger-io/gatsby-plugin-honeybadger",
+            "honeybadger-js",
+            "honeybadger",
+        ),
+        pypi=("honeybadger",),
+        cargo=("honeybadger",),
+        cocoapods=("Honeybadger",),
+        composer=(
+            "honeybadger-io/honeybadger-php",
+            "honeybadger-io/honeybadger-laravel",
+            "honeybadger-io/nova-honeybadger",
+        ),
+        go=("github.com/honeybadger-io/honeybadger-go", "github.com/honeybadger-io/api-go"),
+        hex=("honeybadger",),
+        maven=("io.honeybadger:honeybadger-java", "io.honeybadger:honeybadger-java-shaded"),
+        rubygems=("honeybadger", "yabeda-honeybadger_insights", "resque-honeybadger", "delayed_job_honeybadger"),
+        swiftpm=("github.com/honeybadger-io/honeybadger-cocoa",),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

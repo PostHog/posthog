@@ -41,7 +41,8 @@ from products.alerts_platform.backend.facade.lifecycle import (
     AlertState,
     NotificationAction,
 )
-from products.logs.backend.alert_source_cycle import is_in_quiet_hours, window_end_of
+from products.logs.backend.alert_evaluation_key import window_end_of
+from products.logs.backend.alert_source_cycle import is_in_quiet_hours
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 logger = structlog.get_logger(__name__)

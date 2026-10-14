@@ -1,6 +1,11 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { filterVisibleScoutWriteScopeRows, offeredScoutWriteScopes, scoutWriteScopeLabels } from './scoutWriteScopes'
+import {
+    filterVisibleScoutWriteScopeRows,
+    offeredScoutWriteScopes,
+    scoutWriteScopeLabels,
+    scoutWriteScopesBeyondDefault,
+} from './scoutWriteScopes'
 
 describe('scoutWriteScopes', () => {
     it('labels only the scopes the picker offers', () => {
@@ -9,13 +14,20 @@ describe('scoutWriteScopes', () => {
         expect(
             scoutWriteScopeLabels([
                 'insight:write',
+                'notebook:write',
                 'llm_skill:write',
                 'dashboard:write',
                 'replay_scanner:write',
                 'customer_task:write',
                 'cohort:write',
             ])
-        ).toEqual(['Dashboards', 'Insights', 'Customer tasks', 'Skills', 'Replay vision scanners'])
+        ).toEqual(['Notebooks', 'Dashboards', 'Insights', 'Customer tasks', 'Skills', 'Replay vision scanners'])
+    })
+
+    it('leaves the default grant out of what sets a scout apart', () => {
+        // Nearly every scout holds notebooks, so a roster chip for it would mark every row.
+        expect(scoutWriteScopesBeyondDefault(['notebook:write'])).toEqual([])
+        expect(scoutWriteScopesBeyondDefault(['notebook:write', 'dashboard:write'])).toEqual(['dashboard:write'])
     })
 
     it('drops a stored scope the picker has no row for', () => {

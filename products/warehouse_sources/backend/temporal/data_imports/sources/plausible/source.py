@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +38,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^PLAUSIBLE_", "^NUXT_PUBLIC_PLAUSIBLE_"),
+        script_hosts=("plausible.io",),
+        npm=(
+            "plausible-tracker",
+            "@plausible-analytics/tracker",
+            "next-plausible",
+            "@nuxtjs/plausible",
+            "vue-plausible",
+            "v-plausible",
+            "gatsby-plugin-plausible",
+            "vuepress-plugin-plausible",
+            "gridsome-plugin-plausible-analytics",
+        ),
+        pypi=("django-plausible", "django-plausible-proxy", "sphinx-plausible"),
+        composer=("vincentbean/laravel-plausible", "njoguamos/laravel-plausible"),
+        go=("github.com/andrerfcsantos/go-plausible",),
+        hex=("plausible",),
+        pub=("plausible_analytics", "plausible"),
+        rubygems=("plausible_api", "bridgetown-plausible"),
+        swiftpm=("github.com/nickoneill/plausibleswift", "github.com/brightdigit/aviaryinsights"),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://plausible.io/docs/stats-api"

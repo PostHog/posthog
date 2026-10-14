@@ -266,6 +266,28 @@ describe('BatchExportHogFunctionService', () => {
     })
 
     describe('execution errors', () => {
+        it('returns a failed invocation, not a 500, when an integration was deleted', async () => {
+            hogFunction = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                batch_export_id: batchExportId,
+                inputs_schema: [
+                    ...(HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema ?? []),
+                    { key: 'oauth', type: 'integration', required: true },
+                ],
+                inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, oauth: { value: 99999999 } },
+            })
+
+            const res = await postInvocation({ clickhouse_event: clickhouseEvent })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(res.body.errors).toEqual([
+                expect.stringContaining("The integration for input 'oauth' no longer exists"),
+            ])
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('returns error log when fetch returns 500', async () => {
             mockFetch.mockImplementation(() =>
                 Promise.resolve({

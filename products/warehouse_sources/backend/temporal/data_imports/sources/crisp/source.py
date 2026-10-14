@@ -3,6 +3,9 @@ from uuid import UUID
 
 from requests.exceptions import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +36,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
+    codebase_detection = detect(
+        env=("^CRISP_", "^(NEXT_PUBLIC|VITE|REACT_APP|NUXT_PUBLIC|EXPO_PUBLIC)_CRISP_"),
+        script_hosts=("client.crisp.chat",),
+        npm=(
+            "crisp-sdk-web",
+            "crisp-api",
+            "@capgo/capacitor-crisp",
+            "crisp-sdk-react-native",
+            "react-native-crisp-chat-sdk",
+        ),
+        pypi=("crisp-api",),
+        cocoapods=("Crisp",),
+        composer=("crispchat/php-crisp-api",),
+        go=("github.com/crisp-im/go-crisp-api/crisp",),
+        maven=("im.crisp:crisp-sdk",),
+        pub=("crisp_chat",),
+        rubygems=("crisp-api",),
+        swiftpm=("github.com/crisp-im/crisp-sdk-ios",),
+        alternative_to=(ProductKey.CONVERSATIONS,),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -68,6 +92,8 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
             ENDPOINTS,
             {name: endpoint.incremental_fields for name, endpoint in ENDPOINTS.items()},
             names,
+            # An append sync of a child table writes every message of a changed conversation again.
+            merge_only=[name for name, endpoint in ENDPOINTS.items() if endpoint.fanout is not None],
             should_sync_default={name: endpoint.should_sync_default for name, endpoint in ENDPOINTS.items()},
         )
         for schema in schemas:
