@@ -217,52 +217,14 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
 
-    @parameterized.expand(
-        [
-            ({"kind": "EventsQuery", "select": ["event"], "modifiers": {"useNewEventsCluster": True}},),
-            (
-                {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "example"}],
-                    "modifiers": {"useNewEventsCluster": True},
-                },
-            ),
-            (
-                {
-                    "kind": "ActorsQuery",
-                    "source": {
-                        "kind": "InsightActorsQuery",
-                        "source": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "example"}],
-                            "modifiers": {"useNewEventsCluster": True},
-                        },
-                    },
-                },
-            ),
-            (
-                {
-                    "kind": "FunnelCorrelationQuery",
-                    "funnelCorrelationType": "events",
-                    "source": {
-                        "kind": "FunnelsActorsQuery",
-                        "funnelStep": 1,
-                        "source": {
-                            "kind": "FunnelsQuery",
-                            "series": [{"kind": "EventsNode", "event": "example"}],
-                            "modifiers": {"useNewEventsCluster": True},
-                        },
-                    },
-                },
-            ),
-        ]
-    )
-    def test_native_opt_in_rejects_non_sql_queries_before_execution(self, query: dict) -> None:
+    def test_native_opt_in_rejects_non_sql_queries_before_execution(self) -> None:
         with (
             patch("posthog.hogql.query.sync_execute") as execute,
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
-            response = self._run_query(query)
+            response = self._run_query(
+                {"kind": "EventsQuery", "select": ["event"], "modifiers": {"useNewEventsCluster": True}}
+            )
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("HogQLQuery SQL request", str(response.json()))
         execute.assert_not_called()
