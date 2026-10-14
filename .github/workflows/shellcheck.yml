@@ -72,6 +72,15 @@ jobs:
                   shellcheck "$d/mq-queue-state.sh" "$d/mq-queue-state.test.sh" "$d/mq-triage-marker.sh"
                   bash "$d/mq-queue-state.test.sh"
 
+            - name: Check master-red revert helper
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  d=.agents/skills/debugging-ci-failures/scripts
+                  [ -f "$d/master-red-revert.test.sh" ] || exit 0
+                  shellcheck "$d/master-red-revert.sh" "$d/master-red-revert.test.sh"
+                  bash "$d/master-red-revert.test.sh"
+
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
             - name: Check AGENTS.md / CLAUDE.md symlinks
