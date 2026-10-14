@@ -29,9 +29,15 @@ import {
     visionScannersDuplicateCreate,
     visionScannersList,
     visionScannersPartialUpdate,
+    visionScannersSpendRetrieve,
     visionScannersStatsRetrieve,
 } from '../generated/api'
-import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import type {
+    ScannerSpendApi,
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionScannersListParams,
+} from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
@@ -165,6 +171,8 @@ export interface replayScannersLogicValues {
     enabledFilter: EnabledFilter[]
     filters: ScannersFilters
     hasActiveFilters: boolean
+    scannerSpend: Record<string, ScannerSpendApi>
+    scannerSpendLoading: boolean
     scannerStats: ScannerStatsResponseApi | null
     scannerStatsLoading: boolean
     scannerTypeFilter: ScannerTypeEnumApi[]
@@ -219,6 +227,25 @@ export interface replayScannersLogicActions {
         payload?: {
             value: true
         }
+    }
+    loadScannerSpend: (scannerIds: string[]) => string[]
+    loadScannerSpendFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScannerSpendSuccess: (
+        scannerSpend: {
+            [k: string]: ScannerSpendApi
+        },
+        payload?: string[]
+    ) => {
+        scannerSpend: {
+            [k: string]: ScannerSpendApi
+        }
+        payload?: string[]
     }
     loadScannerStats: () => {
         value: true
@@ -384,6 +411,30 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 },
             },
         ],
+        // Loaded after the rows: spend counts every observation of the period, so the table must not wait on it.
+        scannerSpend: [
+            {} as Record<string, ScannerSpendApi>,
+            {
+                loadScannerSpend: async (scannerIds: string[], breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || scannerIds.length === 0) {
+                        return {}
+                    }
+                    try {
+                        const response = await visionScannersSpendRetrieve(String(teamId), {
+                            scanner_ids: scannerIds.join(','),
+                        })
+                        breakpoint()
+                        return Object.fromEntries(response.results.map((row) => [row.scanner_id, row]))
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        return {}
+                    }
+                },
+            },
+        ],
         scannerStats: [
             null as ScannerStatsResponseApi | null,
             {
@@ -509,7 +560,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     SCANNERS_PAGE_SIZE,
                     offset
                 )
-                const response = await visionScannersList(String(teamId), params)
+                const response = await visionScannersList(String(teamId), { ...params, include_spend: false })
                 // Drop out-of-order responses — the most recent filter/page change owns the table.
                 breakpoint()
                 const results = response.results ?? []
@@ -527,6 +578,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
+        },
+
+        loadScannersSuccess: ({ scanners }) => {
+            actions.loadScannerSpend(scanners.map((scanner) => scanner.id))
         },
 
         // Refetch on any result-set change; debounce live search keystrokes only — URL restores must load immediately.

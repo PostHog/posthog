@@ -68,6 +68,11 @@ def is_experiment_accessible(access: UserAccessControl | None, team_id: int, exp
     return experiment_id in _accessible_experiment_ids(access, team_id, {experiment_id})
 
 
+def accessible_experiment_ids(access: UserAccessControl | None, team_id: int, experiment_ids: set[int]) -> set[int]:
+    """Batch form of `is_experiment_accessible`: the subset of `experiment_ids` the caller may view, in one query."""
+    return _accessible_experiment_ids(access, team_id, experiment_ids)
+
+
 def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: Iterable[int] = ()) -> Q:
     """Scanner rows whose experiment scope matches: watching no experiment (`unrestricted`) and/or
     watching one of `experiment_ids`, OR-combined.

@@ -89,6 +89,17 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         update_resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
         self.assertEqual(update_resp.status_code, 403, update_resp.json())
 
+    def test_spend_leaves_out_scanners_the_caller_cannot_read(self) -> None:
+        allowed_scanner = self._create_scanner(name="allowed")
+        blocked_scanner = self._create_scanner(name="blocked")
+        self._set_resource_default("replay_scanner", "none")
+        self._grant_object_access(self.other_user, "replay_scanner", str(allowed_scanner.id), "viewer")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}spend/?scanner_ids={blocked_scanner.id},{allowed_scanner.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["scanner_id"] for row in resp.json()["results"]], [str(allowed_scanner.id)])
+
     def test_object_level_grant_overrides_resource_default_none(self) -> None:
         allowed_scanner = self._create_scanner(name="allowed")
         blocked_scanner = self._create_scanner(name="blocked")
@@ -258,6 +269,21 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.client.force_login(self.user)
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
+
+    def test_list_hides_only_the_experiments_the_viewer_cannot_access(self) -> None:
+        hidden = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        visible = create_experiment(self.team, "visible-flag", created_by=self.user)
+        self._create_scanner(name="hidden", experiment_targeting={"experiment_id": hidden.id})
+        self._create_scanner(name="visible", experiment_targeting={"experiment_id": visible.id})
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(visible.id), "viewer")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        targeting = {row["name"]: row["experiment_targeting"] for row in resp.json()["results"]}
+        self.assertEqual(targeting, {"hidden": None, "visible": {"experiment_id": visible.id}})
 
     def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
         # The API redacts experiment_targeting to null for such an editor, and the editor form

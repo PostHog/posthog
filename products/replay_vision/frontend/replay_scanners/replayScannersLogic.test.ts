@@ -336,6 +336,43 @@ describe('replayScannersLogic', () => {
         })
     })
 
+    describe('spend column', () => {
+        it('asks the list for rows without spend', async () => {
+            let listParams: URLSearchParams | null = null
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/': ({ request }) => {
+                        listParams = new URL(request.url).searchParams
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanners()).toFinishAllListeners()
+
+            expect(listParams!.get('include_spend')).toBe('false')
+        })
+
+        it('loads spend for the page rows after they arrive', async () => {
+            let spendIds: string | null = null
+            const spend = { scanner_id: 'a', credits_this_month: 1250, observations_this_month: 5 }
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/spend/': ({ request }) => {
+                        spendIds = new URL(request.url).searchParams.get('scanner_ids')
+                        return [200, { results: [spend] }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScannersSuccess(scanners, scanners.length))
+                .toDispatchActions(['loadScannerSpend', 'loadScannerSpendSuccess'])
+                .toMatchValues({ scannerSpend: { a: spend } })
+
+            expect(spendIds).toBe('a,b,c')
+        })
+    })
+
     describe('delete refresh', () => {
         it('deleteScannerSuccess refetches the page and the creators list', async () => {
             await expectLogic(logic, () => logic.actions.deleteScannerSuccess('a')).toDispatchActions([

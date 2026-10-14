@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTabs,
@@ -139,6 +140,8 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
+        scannerSpend,
+        scannerSpendLoading,
     } = useValues(replayScannersLogic)
     const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
     const { push } = useActions(router)
@@ -228,12 +231,22 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Spend this period',
             key: 'credits_this_month',
-            render: (_, scanner) => (
-                <div className="text-sm tabular-nums">
-                    <div>{formatCreditCount(scanner.credits_this_month)}</div>
-                    {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>}
-                </div>
-            ),
+            render: (_, scanner) => {
+                const credits = scannerSpend[scanner.id]?.credits_this_month
+                if (credits === undefined) {
+                    return scannerSpendLoading ? (
+                        <LemonSkeleton className="h-4 w-16" />
+                    ) : (
+                        <span className="text-muted">—</span>
+                    )
+                }
+                return (
+                    <div className="text-sm tabular-nums">
+                        <div>{formatCreditCount(credits)}</div>
+                        {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(credits)}</div>}
+                    </div>
+                )
+            },
             sorter: true,
         },
         {
