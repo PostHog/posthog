@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SkioSource(ResumableSource[SkioSourceConfig, SkioResumeConfig]):
+    codebase_detection = detect(env=("^SKIO_",))
+
     # Skio's GraphQL API is served from Hasura's fixed /v1/graphql path and exposes no
     # vendor-chosen version token, so the unversioned framework default applies.
     api_docs_url = "https://code.skio.com"

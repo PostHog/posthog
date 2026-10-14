@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FirstPromoterSource(ResumableSource[FirstPromoterSourceConfig, FirstPromoterResumeConfig]):
+    codebase_detection = detect(env=("^(FIRST_PROMOTER|FIRSTPROMOTER)_",), script_hosts=("cdn.firstpromoter.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `/api/v2/` is a real version segment: the legacy v1 Admin API still answers on the same
     # host and is not what this source calls.
