@@ -19,22 +19,25 @@ export const seriesColor = (index: number): string => `data-color-${(index % SER
 
 type NamableSeries = Pick<_MetricSeriesApi, 'labels' | 'metric_name'> & { clause?: string | null }
 
-// Human-readable series name from its label map (e.g. "service.name=checkout, env=prod"),
+// Human-readable series name parts from its label map (e.g. ["service.name=checkout", "env=prod"]),
 // falling back to the metric name then a provided default for ungrouped/unlabelled series.
-const formatSeriesName = (series: NamableSeries, fallback: string, showClause: boolean): string => {
+const formatSeriesNameParts = (series: NamableSeries, fallback: string, showClause: boolean): string[] => {
     const prefix = showClause && series.clause ? `${series.clause} · ` : ''
     const entries = Object.entries(series.labels ?? {})
-    if (entries.length > 0) {
-        return prefix + entries.map(([key, value]) => `${key}=${value}`).join(', ')
-    }
-    return prefix + (series.metric_name ?? fallback)
+    const parts =
+        entries.length > 0 ? entries.map(([key, value]) => `${key}=${value}`) : [series.metric_name ?? fallback]
+    return [prefix + parts[0], ...parts.slice(1)]
 }
 
 /** Display names for a whole chart's series, index-aligned with the input. The clause
  * alias prefixes each name (e.g. "a · env=prod") only when the list plots more than
  * one clause — that is the case where two ungrouped series would otherwise collide,
  * and deciding here keeps every consumer (legend, aggregates table) in agreement. */
-export const formatSeriesNames = (seriesList: NamableSeries[], fallback: string): string[] => {
+export const formatSeriesNames = (seriesList: NamableSeries[], fallback: string): string[] =>
+    formatSeriesNamesParts(seriesList, fallback).map((parts) => parts.join(', '))
+
+/** Like `formatSeriesNames`, but keeps each `key=value` label as its own part. */
+export const formatSeriesNamesParts = (seriesList: NamableSeries[], fallback: string): string[][] => {
     const showClause = new Set(seriesList.map((s) => s.clause).filter(Boolean)).size > 1
-    return seriesList.map((series) => formatSeriesName(series, fallback, showClause))
+    return seriesList.map((series) => formatSeriesNameParts(series, fallback, showClause))
 }

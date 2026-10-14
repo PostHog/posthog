@@ -2174,10 +2174,10 @@ Diffed against: <https://docs.campfire.ai/llms.txt>
 - [x] `revenue-recognition/list-contract-subscriptions` — subscription schedules per contract, needed for ARR/MRR and rev-rec waterfalls (high)
 - [x] `revenue-recognition/list-contract-customers` — lookup table resolving the customer IDs carried on contracts, invoices and revenue transactions (high)
 - [x] `settings/list-chart-entities` — legal entity lookup - every transaction carries an entity ID and multi-entity consolidation is unusable without it (high)
-- [ ] `company-objects/list-custom-dimensions (+ list-custom-dimension-groups)` — the breakdown dimensions tagged on chart transactions and journal entries (medium)
-- [ ] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
-- [ ] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
-- [ ] `core-accounting/list-budgets (+ list-budget-accounts)` — budget vs actual reporting against chart_of_accounts we already have (medium)
+- [x] `company-objects/list-custom-dimensions (+ list-custom-dimension-groups)` — the breakdown dimensions tagged on chart transactions and journal entries (medium)
+- [x] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
+- [x] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
+- [x] `core-accounting/list-budgets (+ list-budget-accounts)` — budget vs actual reporting against chart_of_accounts we already have (medium)
 - [ ] `revenue-recognition/list-prepaid-commits (+ list-prepaid-commit-consumption)` — committed spend and drawdown, core usage-based revenue analytics (medium)
 - [ ] `revenue-recognition/list-contract-usage-revenue` — usage-driven revenue rows that reconcile to revenue_transactions (medium)
 - [ ] `core-accounting/list-intercompany-journal-entries` — intercompany JEs are excluded from the journal_entries table today (medium)
@@ -6798,10 +6798,10 @@ Today (3): `executions`, `flows`, `triggers`
 
 Diffed against: <https://kestra.io/kestra.yml>
 
-- [ ] `Execution task runs (GET /api/v1/{tenant}/executions/{executionId})` — measure task failures, retries, and durations absent from the lightweight execution search results (high)
-- [ ] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
-- [ ] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
-- [ ] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
+- [x] `Execution task runs (GET /api/v1/{tenant}/executions/{executionId})` — measure task failures, retries, and durations absent from the lightweight execution search results (high)
+- [x] `Flow revisions (GET /api/v1/{tenant}/flows/{namespace}/{id}/revisions)` — resolve flowRevision in executions and compare outcomes across workflow versions (high)
+- [x] `Execution metrics (GET /api/v1/{tenant}/metrics/{executionId})` — analyze task counters and measured values, such as processed rows and bytes (high)
+- [x] `Logs (GET /api/v1/{tenant}/logs/search)` — investigate recurring failures and warnings across executions and tasks (medium)
 - [ ] `Task outputs (GET /api/v1/{tenant}/outputs/tasks/{executionId}; GET /api/v1/{tenant}/outputs/tasks/{executionId}/{taskRunId})` — connect workflow results to execution performance and downstream processing (medium)
 - [ ] `Instance usage (GET /api/v1/{tenant}/usages/all)` — track aggregate execution and flow usage for capacity planning (medium)
 
@@ -7136,7 +7136,7 @@ Today (3): `accounts`, `leads`, `visits`
 
 Diffed against: <https://docs.leadfeeder.com/api/>
 
-- [ ] `GET /accounts/{account_id}/custom_feeds (and GET /accounts/{account_id}/custom_feeds/{id}/leads)` — custom feeds are the saved lead segments; syncing them resolves feed ids and lets leads be attributed to a segment (medium)
+- [x] `GET /accounts/{account_id}/custom_feeds (and GET /accounts/{account_id}/custom_feeds/{id}/leads)` — custom feeds are the saved lead segments; syncing them resolves feed ids and lets leads be attributed to a segment (medium)
 
 Note: The docs page PostHog targets is explicitly labelled the legacy Leadfeeder API and points new integrations at the newer Dealfront platform API (https://docs.dealfront.com/api/public), which the page says exposes richer company/contact data, financials, signals, tags, lists and CRM relationships. That newer API is hosted on Apidog with no fetchable spec, so its resource list is unverified and not enumerated here - but the connector is built on a deprecated API and is worth a migration review. Legacy API resources are only accounts, custom feeds, leads, visits and feed exports; PostHog covers three of the four queryable ones.
 
