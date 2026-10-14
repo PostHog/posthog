@@ -17,6 +17,9 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.hogql.errors import QueryError
+from posthog.hogql.property import validate_regex
+
 from posthog.api.documentation import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
@@ -257,6 +260,26 @@ class ActionSerializer(
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_creation_context(self, obj) -> None:
         return None
+
+    def validate_steps(self, steps: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        # ClickHouse compiles these with RE2 at query time, so one pattern RE2 rejects fails
+        # every insight that uses the action. steps_to_expr runs this same check on stored steps.
+        # The check runs here and not on the step serializer because the error renderer turns an
+        # error nested inside one list item into a Python repr instead of a readable message.
+        for step in steps or []:
+            for value_field, matching_field in (
+                ("url", "url_matching"),
+                ("href", "href_matching"),
+                ("text", "text_matching"),
+            ):
+                value = step.get(value_field)
+                if step.get(matching_field) != "regex" or not isinstance(value, str):
+                    continue
+                try:
+                    validate_regex(value)
+                except QueryError as err:
+                    raise serializers.ValidationError(str(err)) from err
+        return steps
 
     def validate(self, attrs):
         instance = cast(Action, self.instance)

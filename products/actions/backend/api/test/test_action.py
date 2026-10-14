@@ -14,11 +14,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.models import Tag, User
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
-from products.actions.backend.api.action import ActionStepJSONSerializer
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -183,6 +184,28 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "code": "blank",
                 "detail": "This field may not be blank.",
                 "attr": "name",
+            },
+        )
+        self.assertEqual(Action.objects.count(), count)
+
+    def test_cant_create_action_with_invalid_step_regex(self, *args):
+        count = Action.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            {
+                "name": "pricing pages",
+                "steps": [{"event": "$pageview", "url": "/pricing/\\d+\\", "url_matching": "regex"}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Invalid regular expression: '/pricing/\\d+\\'",
+                "attr": "steps",
             },
         )
         self.assertEqual(Action.objects.count(), count)
@@ -1058,6 +1081,29 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestActionStepRegexValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{field}_{case}", field, matching, value, expect_valid)
+            for field in ("url", "href", "text")
+            for case, matching, value, expect_valid in (
+                ("trailing_backslash", "regex", "/pricing/\\d+\\", False),
+                # Python's re accepts a lookahead, so this case fails if the check stops using RE2.
+                ("lookahead", "regex", "/pricing/(?=annual)", False),
+                ("valid_regex", "regex", "/pricing/\\d+", True),
+                ("contains_is_not_a_regex", "contains", "/pricing/\\d+\\", True),
+            )
+        ]
+    )
+    def test_validates_step_regex(self, _name: str, field: str, matching: str, value: str, expect_valid: bool) -> None:
+        steps = [{"event": "$autocapture", field: value, f"{field}_matching": matching}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaisesMessage(ValidationError, "Invalid regular expression"):
+                ActionSerializer().validate_steps(steps)
 
 
 class TestSelectorWarning(SimpleTestCase):
