@@ -9200,14 +9200,6 @@ export interface ProductsData {
     metadata: ProductItem[]
 }
 
-export interface UserProductListItem {
-    id: string
-    product_path: string
-    enabled: boolean
-    created_at: string
-    updated_at: string
-}
-
 /** Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown. */
 export interface UIVisibilityConfig {
     visible?: boolean

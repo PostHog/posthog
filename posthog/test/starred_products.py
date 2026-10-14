@@ -10,6 +10,6 @@ def start_without_default_starred_products(test_case: TestCase) -> None:
     For tests about the shortcuts a user creates, where the defaults would only add rows to every assertion.
     """
     FileSystemShortcut.objects.all().delete()
-    patcher = patch("posthog.models.file_system.user_product_list.add_default_products_for_accessible_teams")
+    patcher = patch("posthog.models.file_system.starred_products.star_default_products_for_accessible_teams")
     patcher.start()
     test_case.addCleanup(patcher.stop)

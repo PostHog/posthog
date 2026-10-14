@@ -1,20 +1,43 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
-from posthog.models.file_system.user_product_list import DEFAULT_PRODUCT_PATHS, UserProductList
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.starred_products import DEFAULT_PRODUCT_PATHS, star_default_products
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.products import Products
 
 from products.access_control.backend.models.access_control import AccessControl
 
 
-class TestUserProductListDefaults(BaseTest):
+class TestDefaultStarredProducts(BaseTest):
     def _default_paths_for(self, user: User, team: Team) -> set[str]:
-        return set(
-            UserProductList.objects.filter(user=user, team=team, enabled=True).values_list("product_path", flat=True)
+        return set(FileSystemShortcut.objects.filter(user=user, team=team).values_list("path", flat=True))
+
+    def test_default_product_paths_are_valid_products(self):
+        assert set(DEFAULT_PRODUCT_PATHS) <= set(Products.get_product_paths())
+
+    @parameterized.expand([("same_environment", False), ("other_environment_of_the_project", True)])
+    def test_leaves_a_user_who_already_starred_products_in_the_project_alone(
+        self, _name: str, star_in_other_environment: bool
+    ) -> None:
+        user = User.objects.create_user(email="starred@posthog.com", password="password", first_name="Starred")
+        other_environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        starred_team = other_environment if star_in_other_environment else self.team
+        FileSystemShortcut.objects.create(team=starred_team, user=user, path="Logs", type="logs")
+
+        star_default_products(user, self.team)
+
+        starred = list(
+            FileSystemShortcut.objects.filter(user=user, team__project_id=self.project.id).values_list(
+                "path", flat=True
+            )
         )
+        assert starred == ["Logs"]
 
     def _make_team_private(self, team: Team) -> None:
         # Project-level access controls only apply when the org has the feature.
@@ -67,7 +90,7 @@ class TestUserProductListDefaults(BaseTest):
 
     def test_creating_team_in_a_large_organization_adds_default_products_after_commit(self) -> None:
         with (
-            patch("posthog.models.team.team.ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD", 0),
+            patch("posthog.models.team.team.ASYNC_DEFAULT_STARRED_PRODUCTS_THRESHOLD", 0),
             self.captureOnCommitCallbacks(execute=True),
         ):
             new_team = Team.objects.create_with_data(

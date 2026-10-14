@@ -1800,28 +1800,28 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
 
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
-def sync_user_product_lists_for_new_team(team_id: int) -> None:
+def star_default_products_for_new_team(team_id: int) -> None:
     """
-    Sync UserProductList for all users who have access to a new team.
+    Star the default products for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import add_default_products_for_user
+    from posthog.models.file_system.starred_products import star_default_products
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        logger.info("star_default_products_for_new_team: Team not found, skipping", team_id=team_id)
         return
 
     users = list(team.all_users_with_access())
     logger.info(
-        "sync_user_product_lists_for_new_team: Starting sync",
+        "star_default_products_for_new_team: Starting",
         team_id=team_id,
         user_count=len(users),
     )
 
     for user in users:
-        add_default_products_for_user(user, team)
+        star_default_products(user, team)
 
-    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)
+    logger.info("star_default_products_for_new_team: Completed", team_id=team_id)

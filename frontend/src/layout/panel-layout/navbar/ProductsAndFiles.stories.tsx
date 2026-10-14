@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { within, waitFor } from '@testing-library/dom'
@@ -317,20 +317,6 @@ export const CustomizeSidebarDark: Story = { ...CustomizeSidebarRanked, globals:
 export const CustomizeSidebarNarrow: Story = {
     ...CustomizeSidebarRanked,
     parameters: { testOptions: { viewport: { width: 600, height: 900 } } },
-}
-export const StarredSetupPrompt: Story = {
-    decorators: [
-        mswDecorator({
-            get: { '/api/users/@me/': [200, { ...MOCK_DEFAULT_USER, ui_configuration: null }] },
-        }),
-    ],
-}
-export const StarredSetup: Story = {
-    ...StarredSetupPrompt,
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Choose starred products'))
-    },
 }
 export const Files: Story = { args: { tab: 'files' } }
 export const FilesOptions: Story = {
