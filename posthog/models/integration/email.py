@@ -296,16 +296,17 @@ class EmailIntegration:
                 integration.config["verified"] = True
                 integration.save()
 
-            verified_integration_ids = [integration.id for integration in all_integrations_for_domain]
-            transaction.on_commit(
-                lambda: reload_integrations_on_workers(self.integration.team_id, verified_integration_ids)
-            )
-
             from products.workflows.backend.facade.api import (
                 set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
+            # Runs before the worker reload is queued: a failing on-commit callback skips the ones after it.
             set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+
+            verified_integration_ids = [integration.id for integration in all_integrations_for_domain]
+            transaction.on_commit(
+                lambda: reload_integrations_on_workers(self.integration.team_id, verified_integration_ids)
+            )
 
         return verification_result
 
