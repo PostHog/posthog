@@ -983,8 +983,8 @@ impl PersonLookup for PostgresStorage {
         // service-layer cap bounds the number of rows locked.
         let mut tx = self.bulk_primary_pool.begin().await?;
 
-        // No FOR UPDATE on the source person: deletes lock PDI rows before person
-        // rows, so locking the person first here would invert that order and risk
+        // No FOR UPDATE on the source person: deletes lock the person before its
+        // PDIs, so locking it after the PDIs here would invert that order and risk
         // deadlock. The PDI locks below are what guard the reassignment.
         let person_version: i64 = sqlx::query_scalar!(
             r#"
@@ -1050,28 +1050,22 @@ impl PersonLookup for PostgresStorage {
             .map(|did| pdi_version_by_did[did.as_str()] + SPLIT_VERSION_OFFSET)
             .collect();
 
-        // No ON CONFLICT — the partitioned table has a unique index, not a
-        // unique constraint, so ON CONFLICT inference doesn't work.
-        let existing_persons = sqlx::query!(
+        // A live person here (the source itself, for the distinct id that created it) would absorb
+        // the distinct id and get its ClickHouse row blanked by the split's empty-person publish.
+        // It is never written, so it is not locked: deletes lock the person before its PDIs.
+        let live_uuids: HashSet<Uuid> = sqlx::query_scalar!(
             r#"
-            SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!", is_deleted as "is_deleted!"
+            SELECT uuid as "uuid!"
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2)
-            FOR UPDATE
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
             "#,
             team_id as i32,
             &derived_uuids
         )
         .fetch_all(&mut *tx)
-        .await?;
-
-        // A live person here (the source itself, for the distinct id that created it) would absorb
-        // the distinct id and get its ClickHouse row blanked by the split's empty-person publish.
-        let live_uuids: HashSet<Uuid> = existing_persons
-            .iter()
-            .filter(|r| !r.is_deleted)
-            .map(|r| r.uuid)
-            .collect();
+        .await?
+        .into_iter()
+        .collect();
         let new_uuids: Vec<Uuid> = derived_uuids
             .into_iter()
             .map(|u| {
@@ -1083,9 +1077,24 @@ impl PersonLookup for PostgresStorage {
             })
             .collect();
 
-        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = existing_persons
+        // No ON CONFLICT — the partitioned table has a unique index, not a
+        // unique constraint, so ON CONFLICT inference doesn't work.
+        let tombstones = sqlx::query!(
+            r#"
+            SELECT id::bigint as "id!", uuid as "uuid!", created_at as "created_at!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
+            ORDER BY id
+            FOR UPDATE
+            "#,
+            team_id as i32,
+            &new_uuids
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut person_by_uuid: HashMap<Uuid, (i64, DateTime<Utc>)> = tombstones
             .into_iter()
-            .filter(|r| r.is_deleted)
             .map(|r| (r.uuid, (r.id, r.created_at)))
             .collect();
         let mut version_by_uuid: HashMap<Uuid, i64> = HashMap::new();

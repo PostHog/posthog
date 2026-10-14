@@ -3273,6 +3273,78 @@ async fn test_split_person_never_reuses_a_live_person(#[case] live_is_source: bo
 }
 
 #[tokio::test]
+async fn test_split_person_mixed_targets_keep_request_order() {
+    let ctx = TestContext::new().await;
+    let creator = "mixed_creator@example.com";
+    let revived = "mixed_revived@example.com";
+    let fresh = "mixed_fresh@example.com";
+    let creator_uuid = personhog_common::persons::person_uuid(ctx.team_id, creator);
+    let revived_uuid = personhog_common::persons::person_uuid(ctx.team_id, revived);
+    let fresh_uuid = personhog_common::persons::person_uuid(ctx.team_id, fresh);
+
+    let source = ctx
+        .insert_person_with_uuid(creator, None, creator_uuid)
+        .await
+        .unwrap();
+    for did in [revived, fresh, "mixed_keeper@example.com"] {
+        ctx.add_distinct_id_to_person(source.id, did).await.unwrap();
+    }
+    let tombstone_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let tombstone_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 500, false, NULL, true)"#,
+    )
+    .bind(tombstone_id)
+    .bind(revived_uuid)
+    .bind(ctx.team_id)
+    .bind(tombstone_created_at)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let request = [creator, revived, fresh].map(String::from);
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, source.id, &request)
+        .await
+        .expect("Split should succeed");
+
+    let dids: Vec<&str> = results.iter().map(|r| r.distinct_id.as_str()).collect();
+    assert_eq!(dids, vec![creator, revived, fresh]);
+    assert_ne!(results[0].new_person_uuid, creator_uuid);
+    assert_eq!(results[0].new_person_version, 101);
+    assert_eq!(results[1].new_person_uuid, revived_uuid);
+    assert_eq!(results[1].new_person_version, 501);
+    assert_eq!(results[1].new_person_created_at, tombstone_created_at);
+    assert_eq!(results[2].new_person_uuid, fresh_uuid);
+    assert_eq!(results[2].new_person_version, 101);
+
+    for result in &results {
+        let owner = ctx
+            .storage
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .await
+            .unwrap()
+            .expect("Each split mapping reads as live");
+        assert_eq!(owner.uuid, result.new_person_uuid);
+    }
+    let kept = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "mixed_keeper@example.com")
+        .await
+        .unwrap()
+        .expect("The source keeps its other distinct id");
+    assert_eq!(kept.id, source.id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_not_found_unknown_distinct_id() {
     let ctx = TestContext::new().await;
     let person = ctx
