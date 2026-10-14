@@ -107,4 +107,10 @@ describe('buildHogFunctionConfigDiff', () => {
         expect(diffs[0].proposedText).toContain('liquid')
         expect(diffs[0].proposedText).toContain('"b"')
     })
+
+    it('treats a missing input templating as hog, so a values-only agent edit adds no noise', () => {
+        const live = { inputs: { url: { value: 'https://x', templating: 'hog' } } }
+        const draft = { inputs: { url: { value: 'https://x' } } }
+        expect(buildHogFunctionDraftDiff(live, draft)).toEqual([])
+    })
 })

@@ -144,8 +144,9 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        publishDraft: async () => {
+        publishDraft: async (_, breakpoint) => {
             const id = values.hogFunction?.id
+            const type = values.type
             if (!id || values.draftActionPending) {
                 return
             }
@@ -166,6 +167,8 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             } finally {
                 actions.setDraftActionPending(null)
             }
+            // Stops here if the scene unmounted during the requests, so no dialog opens for a dead logic.
+            breakpoint()
             const { draft, draft_updated_at } = latest
             if (
                 !draft ||
@@ -188,10 +191,11 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 onConfirm: () => actions.confirmPublishDraft(preview.confirm_token ?? ''),
             })
             // pinned: analytics event name
-            posthog.capture('hog function draft publish previewed', { type: values.type })
+            posthog.capture('hog function draft publish previewed', { type })
         },
         confirmPublishDraft: async ({ confirmToken }) => {
             const id = values.hogFunction?.id
+            const type = values.type
             // draftActionPending also guards the dialog's close animation, where a fast double-click
             // on the confirm button dispatches twice.
             if (!id || values.draftActionPending) {
@@ -205,7 +209,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 })
                 lemonToast.success('Changes published')
                 // pinned: analytics event name
-                posthog.capture('hog function draft published', { type: values.type })
+                posthog.capture('hog function draft published', { type })
             } catch (error) {
                 lemonToast.error(
                     error instanceof ApiError && error.status !== 409 && error.detail
@@ -236,6 +240,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         },
         confirmDiscardDraft: async () => {
             const id = values.hogFunction?.id
+            const type = values.type
             if (!id || values.draftActionPending) {
                 return
             }
@@ -244,7 +249,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 await hogFunctionsDiscardDraftCreate(String(values.currentTeamIdStrict), id)
                 lemonToast.success('Staged changes discarded')
                 // pinned: analytics event name
-                posthog.capture('hog function draft discarded', { type: values.type })
+                posthog.capture('hog function draft discarded', { type })
             } catch {
                 lemonToast.error('Could not discard the staged changes. Try again.')
             } finally {

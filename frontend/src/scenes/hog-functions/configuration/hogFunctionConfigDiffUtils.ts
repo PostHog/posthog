@@ -209,7 +209,11 @@ function comparableInputs(inputs: unknown, inputsSchema: unknown): unknown {
         (inputsSchema ?? []) as CyclotronJobInputSchemaType[]
     )
     return Object.fromEntries(
-        Object.entries(redacted).map(([key, entry]) => [key, withoutKeys(entry, DERIVED_INPUT_KEYS)])
+        Object.entries(redacted).map(([key, entry]) => {
+            // The server treats a missing `templating` as Hog, and an agent edit often sends values only.
+            const derived = entry?.templating === 'hog' ? [...DERIVED_INPUT_KEYS, 'templating'] : DERIVED_INPUT_KEYS
+            return [key, withoutKeys(entry, derived)]
+        })
     )
 }
 
