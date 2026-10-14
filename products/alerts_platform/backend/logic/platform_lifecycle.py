@@ -17,8 +17,10 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
     source_condition,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
@@ -342,6 +344,39 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
     return created
+
+
+def take_ownership(handover: PlatformOwnershipHandover) -> None:
+    """Makes the platform the owner of a copied alert, carrying on from the source's state.
+
+    The second writer of an alert's state beside `record_outcomes`. The caller holds the source's
+    row lock and writes the source's owner in the same transaction, so both rows change together.
+    Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
+    """
+    if handover.state == PlatformAlertState.FIRING:
+        raise ValueError("a firing alert stays with its source until it resolves")
+    if handover.next_check_at is not None and handover.next_check_at <= handover.at:
+        raise ValueError("next_check_at must be later than the handover, or a running check could record over it")
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(handover.team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=handover.legacy_configuration_id)
+        )
+        configuration.owner = PlatformAlertOwner.PLATFORM
+        configuration.owner_changed_at = handover.at
+        configuration.consecutive_failures = handover.consecutive_failures
+        update_fields = ["owner", "owner_changed_at", "consecutive_failures"]
+        if handover.next_check_at is not None:
+            configuration.next_check_at = handover.next_check_at
+            update_fields.append("next_check_at")
+        configuration.save(update_fields=update_fields)
+
+        alert = _alerts_for_write(handover.team_id, [configuration])[str(configuration.id)]
+        alert.state = handover.state
+        alert.last_notified_at = handover.last_notified_at
+        alert.firing_started_at = None
+        alert.save(update_fields=["state", "last_notified_at", "firing_started_at"])
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:

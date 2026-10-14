@@ -24,7 +24,7 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
     return PlatformConfigurationSnapshot(
-        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures
+        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures, owner=row.owner
     )
 
 
@@ -42,6 +42,14 @@ def configuration(configuration_id: UUID) -> PlatformConfigurationSnapshot:
     """
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     return _configuration_snapshot(PlatformAlertConfiguration.objects.get(id=configuration_id))
+
+
+def copy_of(legacy_configuration_id: UUID) -> PlatformConfigurationSnapshot:
+    """The platform copy of a source's configuration, which a source's test made through its own code."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    return _configuration_snapshot(
+        PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_configuration_id)
+    )
 
 
 def set_due_at(configuration_id: UUID, due_at: datetime) -> None:

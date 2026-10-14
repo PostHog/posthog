@@ -158,6 +158,23 @@ class PlatformAlertUpsert:
     anchor_time: str | None = None
 
 
+@frozen
+class PlatformOwnershipHandover:
+    """A source alert handed to the platform, with the runtime state the platform carries on from.
+
+    `next_check_at` must be later than the moment of the handover. A platform check that started
+    before the handover records only rows still due, so it records nothing for this one.
+    """
+
+    legacy_configuration_id: UUID
+    team_id: int
+    state: str
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+    at: datetime
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
@@ -374,6 +391,7 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    owner: str
 
 
 @frozen
