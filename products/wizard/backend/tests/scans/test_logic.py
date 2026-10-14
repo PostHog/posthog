@@ -192,3 +192,28 @@ def test_competitor_events_belong_to_the_scanned_projects_organization(
         _scan(team, "s1", 0, ["Amplitude"], created_by_id=user.id)
 
     assert capture.call_args.kwargs["groups"]["organization"] == str(team.organization_id)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "scans, same_organization, expected",
+    [
+        ([("s1", 0, ["Stripe", "OpenAI"])], True, True),
+        ([("s1", 0, ["OpenAI"]), ("s2", 1, ["Stripe"])], True, False),
+        ([("s1", 0, ["Stripe"])], True, False),
+        ([("s1", 0, ["OpenAI"])], False, False),
+    ],
+    ids=["active_in_another_project", "removed_by_a_later_scan", "other_kind", "other_organization"],
+)
+def test_organization_has_detected_tool_reads_every_project_in_the_organization(
+    team: Team, scans: list[tuple[str, int, list[str]]], same_organization: bool, expected: bool
+) -> None:
+    organization = team.organization if same_organization else Organization.objects.create(name="Other organization")
+    scanned_team = Team.objects.create_with_data(initiating_user=None, organization=organization)
+    for session_id, hours, kinds in scans:
+        _scan(scanned_team, session_id, hours, kinds)
+
+    assert (
+        wizard_facade.organization_has_detected_tool(organization_id=str(team.organization_id), kinds=["OpenAI"])
+        is expected
+    )

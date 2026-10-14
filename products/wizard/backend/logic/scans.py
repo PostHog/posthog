@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from datetime import datetime
 
 from django.db import connection, transaction
@@ -222,3 +223,12 @@ def _report_competitor_changes(scan: WizardScan, changes: _ScanChanges) -> None:
                 "competes_with": list(removal.competes_with),
             },
         )
+
+
+def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
+    # Reads across teams on purpose: the question is whether any project in the organization uses the tool.
+    return (
+        WizardDetectedTool.objects.unscoped()
+        .filter(team__organization_id=organization_id, kind__in=kinds, removed_at__isnull=True)
+        .exists()
+    )

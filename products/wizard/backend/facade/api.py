@@ -8,7 +8,7 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID
@@ -55,6 +55,11 @@ def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
 
 def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
     return scans.record_scan(params)
+
+
+def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
+    """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
+    return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
 
 
 def get_tool_catalog_json() -> bytes:
