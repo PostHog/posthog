@@ -998,10 +998,11 @@ describe('PushNotificationService', () => {
         })
 
         describe('when APNs rejects the provider token', () => {
-            const apnsResponse = (status: number, reason?: string): any => ({
+            const apnsResponse = (status: number, reason?: string, headers?: Record<string, string>): any => ({
                 fetchError: null,
                 fetchResponse: {
                     status,
+                    headers,
                     text: () => Promise.resolve(reason ? JSON.stringify({ reason }) : ''),
                     dump: () => Promise.resolve(),
                 },
@@ -1057,6 +1058,80 @@ describe('PushNotificationService', () => {
                     1200,
                     'NX'
                 )
+            })
+
+            it('reschedules a rejection for a key that delivered recently instead of failing the send', async () => {
+                mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
+                await send()
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                const rescheduled = await send()
+                // The retry can run on a pod that has not delivered with this key yet.
+                const otherPod = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                )
+                const retried = await otherPod.executeSendPushNotification(rescheduled.invocation)
+
+                for (const result of [rescheduled, retried]) {
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+                }
+
+                // Acceptance carried for a different signing key does not make this key's rejection retriable.
+                const otherKeyCarried = {
+                    ...rescheduled.invocation,
+                    queueMetadata: { tries: 1, apnsAcceptedKeys: ['0000000000000000'] },
+                }
+                const failed = await new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                ).executeSendPushNotification(otherKeyCarried)
+                expect(failed.finished).toBe(true)
+                expect(failed.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
+            })
+
+            it('carries the working key when another device asks for a longer Retry-After', async () => {
+                mockTrackedFetch.mockResolvedValueOnce(apnsResponse(200))
+                await send()
+                // Only one error per channel reaches the reschedule, and the 429 wins it on Retry-After.
+                mockTrackedFetch.mockImplementation(({ url }: { url: string }) =>
+                    Promise.resolve(
+                        url.endsWith('/token-a')
+                            ? apnsResponse(403, 'InvalidProviderToken')
+                            : apnsResponse(429, 'TooManyRequests', { 'retry-after': '30' })
+                    )
+                )
+                const rescheduled = await service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        [deviceSubscriptionKey('com.example.app', 'token-a')]: encryptedFields.encrypt('token-a'),
+                        [deviceSubscriptionKey('com.example.app', 'token-b')]: encryptedFields.encrypt('token-b'),
+                    })
+                )
+                expect(rescheduled.finished).toBe(false)
+
+                // On a fresh pod the throttled device is gone, so only the carried evidence keeps the rejection retriable.
+                mockTrackedFetch.mockImplementation(({ url }: { url: string }) =>
+                    Promise.resolve(
+                        url.endsWith('/token-a')
+                            ? apnsResponse(403, 'InvalidProviderToken')
+                            : apnsResponse(410, 'Unregistered')
+                    )
+                )
+                const retried = await new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockValkey
+                ).executeSendPushNotification(rescheduled.invocation)
+
+                expect(retried.finished).toBe(false)
+                expect(retried.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_failed' }))
             })
 
             it('reuses a token another pod already put in place of the rejected one', async () => {

@@ -413,6 +413,18 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None = None,
     ) -> MaterializationPreview:
         """Preview the materialization transform without enabling it."""
+        try:
+            return self._build_preview(endpoint, version, bucket_overrides)
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # A bad user query, not a system fault, so report it as unmaterializable.
+            return MaterializationPreview.cant_materialize(str(e))
+
+    def _build_preview(
+        self,
+        endpoint: Endpoint,
+        version: EndpointVersion,
+        bucket_overrides: dict[str, str] | None,
+    ) -> MaterializationPreview:
         can_mat, reason = version.can_materialize()
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
