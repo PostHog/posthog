@@ -279,14 +279,21 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
         ),
     )
 
+    cleanup_started = asyncio.Event()
+
+    async def on_cleanup() -> None:
+        cleanup_started.set()
+
     case_task = asyncio.create_task(
         runner.run_eval_case(
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=on_cleanup,
         )
     )
     await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    assert cleanup_started.is_set()
 
     assert not case_task.done()
     handle.terminal.set()

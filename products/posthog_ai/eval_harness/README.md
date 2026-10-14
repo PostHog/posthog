@@ -76,6 +76,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                         |
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
+| `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
@@ -273,11 +274,20 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 
 ## Output
 
-Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
+The console shows case starts and phase changes for each trial.
+A status line every 30 seconds shows execution totals, phase counts, elapsed time, and the oldest active trial.
+`CASE READY` means execution completed; scoring and result collection are still pending.
+`CASE DONE` and `EXPERIMENT DONE` mean the scores are ready.
+The `scoring` phase includes time waiting for all results in that experiment, so it is not an isolated scorer duration.
+Use `--verbose` to show detailed service and agent logs in the console. The transcript retains these logs in both modes.
+Warnings and errors use short console messages. Open the transcript for full tracebacks.
+
 The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
-A crashed suite is labeled `CRASH`, includes its traceback in the summary, and makes the run exit nonzero without taking down the other suites.
+A crashed suite is labeled `CRASH` and makes the run exit nonzero without taking down the other suites.
+Its full traceback stays in the transcript. `--verbose` also shows the traceback in the final summary.
 
 Every real eval invocation mirrors its complete stdout and stderr to:
 
@@ -292,7 +302,7 @@ Suite listing (`--list`) and argument errors do not create transcripts.
 
 Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
-The summary includes the trial ID, the agent trace ID when available, and the scores for that trial.
+The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.

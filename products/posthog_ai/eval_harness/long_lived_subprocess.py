@@ -354,7 +354,7 @@ class LongLivedSubprocessManager:
         if proc.stdout is not None:
             threading.Thread(target=pipe_to_logger, args=(proc.stdout, logging.INFO), daemon=True).start()
         if proc.stderr is not None:
-            threading.Thread(target=pipe_to_logger, args=(proc.stderr, logging.WARNING), daemon=True).start()
+            threading.Thread(target=pipe_to_logger, args=(proc.stderr, logging.INFO), daemon=True).start()
 
     def _register(self, stop: StopCallback) -> None:
         self._install_signal_handlers()

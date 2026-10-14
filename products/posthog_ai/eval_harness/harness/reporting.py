@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import os
+import time
 import asyncio
 import traceback
 from collections import Counter, defaultdict
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from ..engines.types import EvalSummary
 from .trial_stats import ScorerTrialStats
@@ -36,11 +40,36 @@ class SuiteRunResult:
     duration_seconds: float = 0.0
 
 
+CasePhase = Literal["queued", "setup", "agent", "cleanup", "logs", "scoring"]
+
+
+@frozen(frozen=False)
+class _CaseProgress:
+    experiment: str
+    name: str
+    trial_index: int
+    started: float
+    phase_started: float
+    phase: CasePhase = "queued"
+    status: CaseStatus = "ok"
+    durations: dict[str, float] = field(default_factory=dict)
+
+    def transition(self, phase: CasePhase) -> None:
+        now = time.monotonic()
+        self.durations[self.phase] = self.durations.get(self.phase, 0.0) + now - self.phase_started
+        self.phase = phase
+        self.phase_started = now
+
+    def label(self) -> str:
+        return f"{self.experiment} :: {self.name} [trial {self.trial_index + 1}]"
+
+
 class ProgressReporter:
     """Serializes harness output and renders the stable final summary."""
 
-    def __init__(self, total_suites: int) -> None:
+    def __init__(self, total_suites: int, *, verbose: bool = False) -> None:
         self._total_suites = total_suites
+        self._verbose = verbose
         self._lock = asyncio.Lock()
         self._finished_suites = 0
         self._summaries: dict[str, EvalSummary] = {}
@@ -53,6 +82,89 @@ class ProgressReporter:
         self._experiment_totals: dict[str, int] = {}
         self._posthog_urls: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
+        self._active_cases: dict[str, _CaseProgress] = {}
+        self._started = time.monotonic()
+
+    @asynccontextmanager
+    async def live_updates(self) -> AsyncIterator[None]:
+        async def update() -> None:
+            while True:
+                await asyncio.sleep(30)
+                await self.report_progress()
+
+        task = asyncio.create_task(update())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    async def report_progress(self) -> None:
+        async with self._lock:
+            counts: Counter[str] = Counter(case.phase for case in self._active_cases.values())
+            total = sum(self._experiment_totals.values())
+            finished = sum(self._case_counts.values())
+            states = ", ".join(
+                f"{phase}={counts[phase]}" for phase in ("queued", "setup", "agent", "cleanup", "logs", "scoring")
+            )
+            lines = [
+                f"PROGRESS  executions {finished}/{total}; elapsed {_format_duration(time.monotonic() - self._started)}",
+                f"  {states}",
+            ]
+            if self._active_cases:
+                oldest = min(self._active_cases.values(), key=lambda case: case.started)
+                lines.append(
+                    f"  oldest: {oldest.label()} ({oldest.phase}, {_format_duration(time.monotonic() - oldest.phase_started)})"
+                )
+            _emit("\n".join(lines))
+
+    async def case_started(self, experiment: str, name: str, trial_id: str, trial_index: int) -> dict[str, float]:
+        async with self._lock:
+            now = time.monotonic()
+            case = _CaseProgress(
+                experiment=experiment, name=name, trial_index=trial_index, started=now, phase_started=now
+            )
+            self._active_cases[trial_id] = case
+            _emit(f"CASE START  {case.label()}  queued; id={trial_id}")
+            return case.durations
+
+    async def case_phase(self, trial_id: str, phase: CasePhase) -> None:
+        async with self._lock:
+            case = self._active_cases.get(trial_id)
+            if case is None or case.phase == phase:
+                return
+            case.transition(phase)
+            _emit(f"CASE PHASE  {case.label()}  {phase}")
+
+    async def case_scored(self, trial_id: str, *, error: str | None = None) -> None:
+        async with self._lock:
+            case = self._active_cases.pop(trial_id, None)
+            if case is None:
+                return
+            case.transition(case.phase)
+            if error is not None:
+                self._case_statuses[case.experiment][case.status] -= 1
+                self._case_statuses[case.experiment]["error"] += 1
+            marker = (
+                "ERROR" if error is not None else {"ok": "DONE", "timeout": "TIMEOUT", "error": "ERROR"}[case.status]
+            )
+            _emit(f"CASE {marker:<7} {case.label()}  results ready")
+
+    async def finish_cases(self, trial_ids: Sequence[str]) -> None:
+        async with self._lock:
+            for trial_id in trial_ids:
+                case = self._active_cases.pop(trial_id, None)
+                if case is not None:
+                    case.transition(case.phase)
+
+    async def finish_experiment(self, experiment: str) -> None:
+        await self.finish_cases(
+            [trial_id for trial_id, case in self._active_cases.items() if case.experiment == experiment]
+        )
+
+    def setup_started(self, phase: str) -> None:
+        _emit(f"SETUP START  {phase}")
 
     def print_run_header(
         self,
@@ -72,6 +184,8 @@ class ProgressReporter:
             f"Sandbox concurrency: {max_sandboxes}",
             f"Trials per case: {trials}",
             f"Case timeout: {case_timeout_seconds}s",
+            "Execution completion does not include scoring. The experiment ends when results are ready.",
+            "Use --verbose for detailed console logs. The transcript always keeps detailed logs.",
             "",
         ]
         _emit("\n".join(lines))
@@ -93,16 +207,31 @@ class ProgressReporter:
         *,
         duration_seconds: float,
         status: CaseStatus = "ok",
+        trial_id: str | None = None,
+        error_type: str | None = None,
     ) -> None:
         async with self._lock:
             self._case_counts[experiment_name] += 1
             self._case_durations[experiment_name] += duration_seconds
             self._case_statuses[experiment_name][status] += 1
             marker = {"ok": "DONE", "timeout": "TIMEOUT", "error": "ERROR"}[status]
+            detail = ""
+            case = self._active_cases.get(trial_id) if trial_id else None
+            if case is not None and trial_id is not None:
+                case_name = f"{case_name} [trial {case.trial_index + 1}]"
+                case.status = status
+                if status == "error":
+                    detail = f"; {error_type or 'infrastructure error'}; last phase={case.phase}; id={trial_id}. Inspect the full run transcript and {self._log_dirs.get(experiment_name, 'agent logs')}."
+                    case.transition(case.phase)
+                    self._active_cases.pop(trial_id, None)
+                else:
+                    marker = "READY" if status == "ok" else "TIMEOUT"
+                    detail = "; execution complete; scoring pending"
+                    case.transition("scoring")
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total}]" if total is not None else ""
             _emit(
-                f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}"
+                f"CASE {marker:<7} {experiment_name} :: {case_name}  {progress}  {_format_duration(duration_seconds)}{detail}"
             )
 
     async def case_setup_retry(
@@ -279,7 +408,13 @@ class ProgressReporter:
             lines.append(f"Suite: {result.suite_id}")
             lines.append(f"Duration: {_format_duration(result.duration_seconds)}")
             if result.error is not None:
-                lines.append("".join(traceback.format_exception(result.error)).rstrip())
+                if self._verbose:
+                    lines.append("".join(traceback.format_exception(result.error)).rstrip())
+                else:
+                    lines.append(
+                        f"{type(result.error).__name__}: {str(result.error).splitlines()[0] if str(result.error) else '(no message)'}"
+                    )
+                    lines.append("Inspect the full run transcript for the traceback.")
             else:
                 lines.append("(no traceback captured)")
         return lines

@@ -39,7 +39,30 @@ class _StubReporter:
         self.summaries: list[tuple[str, Any, int]] = []
         self.posthog_urls: list[tuple[str, str]] = []
 
-    async def case_done(self, experiment_name: str, case_name: str, duration_seconds: float, status: str) -> None:
+    async def case_started(self, experiment: str, name: str, trial_id: str, trial_index: int) -> dict[str, float]:
+        return {}
+
+    async def case_phase(self, trial_id: str, phase: str) -> None:
+        pass
+
+    async def case_scored(self, trial_id: str, *, error: str | None = None) -> None:
+        pass
+
+    async def finish_cases(self, trial_ids: Sequence[str]) -> None:
+        pass
+
+    async def finish_experiment(self, experiment: str) -> None:
+        pass
+
+    async def case_done(
+        self,
+        experiment_name: str,
+        case_name: str,
+        duration_seconds: float,
+        status: str,
+        trial_id: str | None = None,
+        error_type: str | None = None,
+    ) -> None:
         self.done.append((case_name, status))
 
     async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
@@ -136,15 +159,18 @@ def test_task_scores_timeout_as_output_not_error(tmp_path: Path, monkeypatch: py
     assert ctx.reporter.done == [("c1", "timeout")]  # type: ignore[attr-defined]
 
 
-def test_task_reraises_infra_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("error_type", [ValueError, asyncio.CancelledError])
+def test_task_reraises_infra_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[BaseException]
+) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
-        raise ValueError("boom")
+        raise error_type("boom")
 
     ctx = _build_ctx()
     run = _build_run(tmp_path, monkeypatch, ctx, task)
-    with pytest.raises(ValueError):
+    with pytest.raises(error_type):
         asyncio.run(run._task({"name": "c1", "prompt": "the prompt"}, hooks=NullCaseHooks()))
-    assert ctx.reporter.done == [("c1", "error")]  # type: ignore[attr-defined]
+    assert ctx.reporter.done == ([] if error_type is asyncio.CancelledError else [("c1", "error")])  # type: ignore[attr-defined]
 
 
 def test_one_shot_slots_bound_concurrency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

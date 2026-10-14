@@ -25,6 +25,8 @@ Each trial has a unique ID in engine metadata. Local logs and summaries use that
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 Scorer traces and agent trace roots use the same ID to match each result to its own execution.
 Case names stay the same across trials.
+Trial metadata and local summaries also record phase durations in seconds.
+The scoring phase includes time waiting for the experiment results, rather than scorer execution alone.
 
 ## Postgres experiment ingestion
 

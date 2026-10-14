@@ -6,6 +6,7 @@ import time
 import uuid
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from temporalio.client import WorkflowFailureError
@@ -122,6 +123,7 @@ async def run_eval_case(
     context: CustomPromptSandboxContext,
     *,
     provider: SandboxProviderStrategy,
+    on_cleanup: Callable[[], Awaitable[None]] | None = None,
 ) -> EvalCaseResult:
     """Run an eval case using the full Task -> temporal workflow -> log polling pipeline.
 
@@ -154,6 +156,8 @@ async def run_eval_case(
         duration = time.monotonic() - start
         logger.info("Eval case '%s' completed in %.1fs, log size=%d", case.name, duration, len(full_log))
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
+        if on_cleanup is not None:
+            await on_cleanup()
         completion_task = asyncio.create_task(_finish_workflow(state.handle, status="completed", reason=None))
         cleanup_confirmed = await asyncio.shield(completion_task)
         if not cleanup_confirmed:
@@ -166,6 +170,8 @@ async def run_eval_case(
         # coroutine; catch it explicitly so we can stop the workflow, then re-raise.
         duration = time.monotonic() - start
         logger.exception("Eval case '%s' failed after %.1fs: %s", case.name, duration, e)
+        if on_cleanup is not None:
+            await on_cleanup()
         cleanup_confirmed = False
         if completion_task is not None:
             # A case timeout can arrive while successful workflow cleanup is

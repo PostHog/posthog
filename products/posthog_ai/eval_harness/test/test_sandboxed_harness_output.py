@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import json
 import asyncio
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
@@ -32,6 +33,7 @@ from products.posthog_ai.eval_harness.engines.types import (
     ExperimentResult,
     NullCaseHooks,
 )
+from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
@@ -580,7 +582,7 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
     output = capsys.readouterr().out
     retry_count = failures if recovers else (retries if stage == "seed" and isinstance(error, NetworkError) else 0)
     assert output.count("CASE RETRY") == retry_count
-    assert output.count("CASE DONE" if recovers else "CASE ERROR") == 1
+    assert output.count("CASE READY" if recovers else "CASE ERROR") == 1
     assert reporter.has_case_errors() is (not recovers)
     assert ctx.sandbox_slots._value == ctx.team_setup_slots._value == 1
     assert not broken_workers
@@ -640,3 +642,103 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         if call.kwargs.get("event") == "$ai_trace"
     ]
     assert [root["$ai_trace_id"] for root in roots] == ["trace-2", "trace-1", "trace-0"]
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+@pytest.mark.parametrize("structured", [False, True])
+def test_console_detail_does_not_remove_transcript_logs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], verbose: bool, structured: bool
+) -> None:
+    transcript = RunTranscript.create(tmp_path)
+    handler = transcript.logging_handler(verbose=verbose)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    info = logging.LogRecord(
+        "eval", logging.INFO, "", 0, {"event": "agent detail"} if structured else "agent detail", (), None
+    )
+    try:
+        raise ValueError("service unavailable")
+    except ValueError:
+        error = logging.LogRecord(
+            "eval", logging.ERROR, "", 0, {"event": "case error"} if structured else "case error", (), sys.exc_info()
+        )
+    with transcript.capture():
+        handler.handle(info)
+        handler.handle(error)
+    handler.close()
+    transcript.finish()
+    output = capsys.readouterr()
+    saved = transcript.path.read_text()
+    assert "agent detail" in saved
+    assert "ValueError: service unavailable" in saved
+    assert "case error" in output.err
+    assert ("agent detail" in output.err) is verbose
+    assert ("Traceback" in output.err) is verbose
+    assert output.out.splitlines()[-1] == saved.splitlines()[-1] == str(transcript.path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoring_error", [None, "scorer failed"])
+async def test_progress_tracks_trials_and_keeps_scoring_distinct(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], scoring_error: str | None
+) -> None:
+    now = [10.0]
+    monkeypatch.setattr(reporting.time, "monotonic", lambda: now[0])
+    reporter = ProgressReporter(total_suites=1)
+    await reporter.experiment_started("suite", 3, tmp_path)
+    phases = await reporter.case_started("suite", "same-case", "trial-1", 0)
+    await reporter.case_started("suite", "same-case", "trial-2", 1)
+    now[0] = 15.0
+    await reporter.case_phase("trial-1", "setup")
+    now[0] = 25.0
+    await reporter.case_phase("trial-1", "agent")
+    now[0] = 45.0
+    await reporter.case_done("suite", "same-case", duration_seconds=35, trial_id="trial-1")
+    await reporter.report_progress()
+    output = capsys.readouterr().out
+    assert "CASE READY" in output
+    assert "scoring pending" in output
+    assert "executions 1/3" in output
+    assert "queued=1" in output and "scoring=1" in output
+    assert "oldest: suite :: same-case [trial 1] (scoring" in output
+    assert phases == {"queued": 5.0, "setup": 10.0, "agent": 20.0}
+    now[0] = 50.0
+    await reporter.case_scored("trial-1", error=scoring_error)
+    assert ("CASE ERROR" if scoring_error else "CASE DONE") in capsys.readouterr().out
+    assert reporter.has_case_errors() is (scoring_error is not None)
+    await reporter.finish_experiment("suite")
+    await reporter.report_progress()
+    assert "scoring=0" in capsys.readouterr().out
+    assert phases["scoring"] == 5.0
+
+
+@pytest.mark.asyncio
+async def test_periodic_progress_stops_with_its_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    reporter = ProgressReporter(total_suites=1)
+    sleeping = asyncio.Event()
+    release = asyncio.Event()
+    emitted = asyncio.Event()
+    cancelled = asyncio.Event()
+    lines: list[str] = []
+
+    async def pause(delay: float) -> None:
+        assert delay == 30
+        sleeping.set()
+        try:
+            await release.wait()
+            release.clear()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    def capture(text: str) -> None:
+        lines.append(text)
+        emitted.set()
+
+    monkeypatch.setattr(reporting.asyncio, "sleep", pause)
+    monkeypatch.setattr(reporting, "_emit", capture)
+    async with reporter.live_updates():
+        await sleeping.wait()
+        release.set()
+        await emitted.wait()
+    assert len(lines) == 1 and lines[0].startswith("PROGRESS")
+    assert cancelled.is_set()

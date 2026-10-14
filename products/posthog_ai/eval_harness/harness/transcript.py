@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
@@ -23,13 +24,13 @@ class _TranscriptSink:
         self.finished = False
         self.ends_with_newline = True
 
-    def write(self, terminal: TextIO, text: str) -> int:
+    def write(self, terminal: TextIO, text: str, *, terminal_text: str | None = None) -> int:
         with self.lock:
             if self.finished:
                 return len(text)
             self.file.write(text)
             self.file.flush()
-            terminal.write(text)
+            terminal.write(text if terminal_text is None else terminal_text)
             terminal.flush()
             if text:
                 self.ends_with_newline = text.endswith("\n")
@@ -54,6 +55,29 @@ class _TranscriptSink:
             self.stdout.flush()
             self.finished = True
             self.file.close()
+
+
+class _TranscriptLogHandler(logging.Handler):
+    def __init__(self, sink: _TranscriptSink, terminal: TextIO, verbose: bool) -> None:
+        super().__init__()
+        self._sink = sink
+        self._terminal = terminal
+        self._verbose = verbose
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            detail = self.format(record) + "\n"
+            terminal_text = ""
+            if self._verbose:
+                terminal_text = detail
+            elif record.levelno >= logging.WARNING:
+                message = str(
+                    record.msg.get("event", record.msg) if isinstance(record.msg, dict) else record.getMessage()
+                ).splitlines()
+                terminal_text = f"{record.levelname}: {record.name}: {message[0][:240] if message else ''}\n"
+            self._sink.write(self._terminal, detail, terminal_text=terminal_text)
+        except Exception:
+            self.handleError(record)
 
 
 class _TeeStream:
@@ -96,6 +120,9 @@ class RunTranscript:
         self._sink = _TranscriptSink(self.path, stdout)
         self._stdout = _TeeStream(stdout, self._sink)
         self._stderr = _TeeStream(stderr, self._sink)
+
+    def logging_handler(self, *, verbose: bool = False) -> logging.Handler:
+        return _TranscriptLogHandler(self._sink, self._stderr._terminal, verbose)
 
     @classmethod
     def create(cls, root: Path = HARNESS_LOGS_ROOT) -> RunTranscript:

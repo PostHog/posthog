@@ -14,7 +14,7 @@ from .transcript import RunTranscript
 USAGE_ERROR_EXIT_CODE = 2
 
 
-def _run(options: HarnessOptions) -> int:
+def _run(options: HarnessOptions, *, transcript: RunTranscript | None = None) -> int:
     # Load the repo-root .env before Django reads the environment, so the harness
     # works without a manual `set -a; source .env`. Shell values win, and the
     # explicit overrides below still trump anything an env file provided.
@@ -37,7 +37,9 @@ def _run(options: HarnessOptions) -> int:
     # would otherwise silently point eval reads at the dev persons DB.
     os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
 
-    setup_django()
+    setup_django(keep_logging=transcript is not None)
+    if transcript is not None:
+        _configure_logging(transcript, verbose=options.verbose)
 
     # Deferred so Django is configured first: everything below reaches settings,
     # the ORM, or the products.tasks facade at import time.
@@ -53,11 +55,12 @@ def _run(options: HarnessOptions) -> int:
         return USAGE_ERROR_EXIT_CODE
 
 
-def _configure_logging() -> None:
+def _configure_logging(transcript: RunTranscript | None = None, *, verbose: bool = False) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         force=True,
+        handlers=[transcript.logging_handler(verbose=verbose)] if transcript is not None else None,
     )
 
 
@@ -67,13 +70,15 @@ def main(argv: list[str] | None = None) -> int:
         _configure_logging()
         return _run(options)
 
+    if not options.verbose:
+        os.environ.setdefault("TQDM_DISABLE", "1")
     transcript = RunTranscript.create()
     exit_code = 1
     try:
         with transcript.capture():
-            _configure_logging()
+            _configure_logging(transcript, verbose=options.verbose)
             try:
-                exit_code = _run(options)
+                exit_code = _run(options, transcript=transcript)
             except KeyboardInterrupt:
                 logging.getLogger(__name__).warning("Interrupted")
                 exit_code = 130
