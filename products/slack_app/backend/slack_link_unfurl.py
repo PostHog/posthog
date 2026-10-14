@@ -117,9 +117,6 @@ _INVITE_THROTTLE_SECONDS = 24 * 60 * 60
 # The throttle must fail fast rather than correctly: it sits inside the webhook's ack budget.
 _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 
-# Each chart is a render, so one message with many insight links gets charts for the first few.
-_MAX_UNFURL_CHARTS = 3
-
 # Query `source.kind` / top-level `kind` → short name before " insight" (sync with InsightType / query kinds).
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
@@ -536,8 +533,8 @@ def _bar(fraction: float) -> str:
     return "█" * filled + "░" * (_CHART_WIDTH - filled)
 
 
-def _chart_label(value: object) -> str:
-    return _truncate(str(value or "").replace("`", "'"), _CHART_LABEL_CHARS)
+def _chart_label(value: object, max_len: int = _CHART_LABEL_CHARS) -> str:
+    return _truncate(str(value or "").replace("`", "'"), max_len)
 
 
 def _capped_lines(lines: list[str]) -> list[str]:
@@ -559,7 +556,7 @@ def _tile_grid(names: list[str]) -> str | None:
     if not names:
         return None
     width = _CHART_WIDTH + 2
-    cells = [f"▪ {_truncate(name.replace('`', "'"), width)}" for name in names[:_MAX_GRID_TILES]]
+    cells = [f"▪ {_chart_label(name, width)}" for name in names[:_MAX_GRID_TILES]]
     rows = [cells[index : index + 2] for index in range(0, len(cells), 2)]
     lines = ["   ".join(cell.ljust(width + 2) for cell in row).rstrip() for row in rows]
     if len(names) > _MAX_GRID_TILES:
@@ -953,7 +950,7 @@ def start_unfurl_charts(
         unfurl_id=event.get("unfurl_id"),
         source=event.get("source"),
         unfurls=unfurls,
-        charts=charts[:_MAX_UNFURL_CHARTS],
+        charts=charts,
         export_task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
     )
     try:
@@ -1099,23 +1096,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     invite_kind, _ = next(iter(cards.values()))
     invite = _build_unfurl_invite(integration, invite_kind, channel)
     kinds = sorted({kind for kind, _ in cards.values()})
-    compact = len(cards) > 1
-    unfurls = _unfurls(cards, compact=compact, invite=invite)
-    error = _post_unfurls(slack, event, unfurls)
-    if error in _REJECTED_PAYLOAD_ERRORS and not compact:
-        capture_slack_event(
-            integration,
-            "slack app link unfurl failed",
-            slack_user_id=slack_user_id,
-            posthog_user=user,
-            kinds=kinds,
-            compact=compact,
-            error=error,
-        )
-        compact = True
+    for compact in (True,) if len(cards) > 1 else (False, True):
         unfurls = _unfurls(cards, compact=compact, invite=invite)
         error = _post_unfurls(slack, event, unfurls)
-    if error is not None:
+        if error is None:
+            break
         capture_slack_event(
             integration,
             "slack app link unfurl failed",
@@ -1125,6 +1110,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             compact=compact,
             error=error,
         )
+        if error not in _REJECTED_PAYLOAD_ERRORS:
+            return
+    else:
         return
 
     chart_requests = [
