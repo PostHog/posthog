@@ -34,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_TIMESTAMP_COLUMN,
     DELETED_COLUMN,
+    TOAST_OMITTED_COLUMN,
     build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
@@ -60,6 +62,8 @@ _FIRST_COMMIT_AT = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 
 Key = tuple[Any, ...]
 Row = dict[str, Any]
+# One history row as the suite compares it: the operation, the source columns, and the commit time.
+HistoryEntry = tuple[str, Row, dt.datetime]
 
 
 class SimulatedCrash(Exception):
@@ -185,19 +189,23 @@ class SourceDatabase:
         self.confirmed = self.head
         return self.confirmed
 
-    def expected_history(self, table: TableDef) -> list[tuple[str, Key]]:
-        """Every change to the table in commit order, with a key change as a delete and an insert."""
-        expected: list[tuple[str, Key]] = []
+    def expected_history(self, table: TableDef) -> list[HistoryEntry]:
+        """Every row version of the table in commit order, with a key change as a delete and an insert.
+
+        A delete carries the values of the row it removed, which the loader fills in for a delete that
+        arrives with its key only.
+        """
+        expected: list[HistoryEntry] = []
         for transaction in self.log:
+            at = transaction.committed_at
             for change in transaction.changes:
                 if change.table != table.name or change.op == "T":
                     continue
-                key = table.key_of(change.row)
-                old_key = table.key_of(change.old_row) if change.old_row is not None else key
-                if change.op == "U" and old_key != key:
-                    expected += [("D", old_key), ("I", key)]
+                old = change.old_row
+                if change.op == "U" and old is not None and table.key_of(old) != table.key_of(change.row):
+                    expected += [("D", dict(old), at), ("I", dict(change.row), at)]
                 else:
-                    expected.append((change.op, key))
+                    expected.append((change.op, dict(change.row), at))
         return expected
 
 
@@ -342,12 +350,20 @@ class Warehouse:
         batch = enrich_toast_omitted_rows(batch, self._keys, existing)
         batch = enrich_delete_rows(batch, self._keys, existing)
         batch, _ = resolve_batch(batch, self._keys, cdc_write_mode=CONSOLIDATED_WRITE_MODE)
-        for row in batch.to_pylist():
+        for row in _without_toast_marker(batch).to_pylist():
             self.merged[self._table.key_of(row)] = row
 
     def append_history(self, batch: pa.Table) -> None:
-        if batch.num_rows:
-            self.history.extend(build_scd2_table(batch, self._keys).to_pylist())
+        if not batch.num_rows:
+            return
+        batch = build_scd2_table(batch, self._keys)
+        # The loader enriches from the open version of each key. The writer that closes the older
+        # versions is not modelled here, so the open version is the last one appended.
+        current = {self._table.key_of(row): row for row in self.history}
+        existing = self._as_table(list(current.values()))
+        batch = enrich_toast_omitted_rows(batch, self._keys, existing)
+        batch = enrich_delete_rows(batch, self._keys, existing)
+        self.history.extend(_without_toast_marker(batch).to_pylist())
 
     def reseed(self, rows: dict[Key, Row]) -> None:
         self.merged = {key: {**row, DELETED_COLUMN: False} for key, row in rows.items()}
@@ -361,10 +377,17 @@ class Warehouse:
         }
 
     def _existing_rows(self) -> pa.Table | None:
-        if not self.merged:
+        return self._as_table(list(self.merged.values()))
+
+    def _as_table(self, rows: list[Row]) -> pa.Table | None:
+        if not rows:
             return None
-        rows = list(self.merged.values())
         return pa.table({column: [row.get(column) for row in rows] for column in self._table.columns})
+
+
+def _without_toast_marker(batch: pa.Table) -> pa.Table:
+    # The loader strips the marker before the write, so no stored row carries it.
+    return batch.drop_columns([TOAST_OMITTED_COLUMN]) if TOAST_OMITTED_COLUMN in batch.column_names else batch
 
 
 class ConformanceKit:
@@ -528,8 +551,11 @@ class ConformanceKit:
     def deleted_rows(self, table: TableDef) -> dict[Key, Row]:
         return self._warehouses[table.name].rows(deleted=True)
 
-    def history(self, table: TableDef) -> list[tuple[str, Key]]:
-        return [(row[CDC_OP_COLUMN], table.key_of(row)) for row in self._warehouses[table.name].history]
+    def history(self, table: TableDef) -> list[HistoryEntry]:
+        return [
+            (row[CDC_OP_COLUMN], {column: row.get(column) for column in table.columns}, row[CDC_TIMESTAMP_COLUMN])
+            for row in self._warehouses[table.name].history
+        ]
 
     def buffered_rows(self, table: TableDef) -> list[Row]:
         prefix = strip_s3_protocol(get_buffer_prefix(_TEAM_ID, str(self.schema(table).id)))
