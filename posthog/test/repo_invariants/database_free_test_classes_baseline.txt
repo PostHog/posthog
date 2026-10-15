@@ -10,7 +10,6 @@ posthog/models/tophog/test/test_tophog_queries.py::TestTopHogQueries
 posthog/tasks/test/test_usage_report.py::TestSendNoUsage
 posthog/test/activity_logging/test_feature_flag_activity_logging.py::TestChangesBetweenFeatureFlags
 posthog/test/test_check_product_migrations.py::TestCheckProductMigrations
-products/posthog_ai/eval_harness/test/test_acp_log.py::TestSandboxedTraceCaptureParser
 products/posthog_ai/scripts/hogql_example/test/test_hogql_example.py::TestRenderHogQLExample
 products/streamlit_apps/backend/tests/test_tasks.py::TestAutoRestartCrashedStreamlitSandboxes
 products/streamlit_apps/backend/tests/test_tasks.py::TestStopIdleStreamlitSandboxes
