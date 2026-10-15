@@ -109467,6 +109467,64 @@ export namespace Schemas {
       user: number;
     }
 
+    /**
+     * * `autoresearch` - autoresearch
+     * * `error_tracking` - error_tracking
+     * * `eval_clusters` - eval_clusters
+     * * `experiments` - experiments
+     * * `hogdesk` - hogdesk
+     * * `image_builder` - image_builder
+     * * `loop` - loop
+     * * `mcp_analytics` - mcp_analytics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai
+     * * `posthog_desktop` - posthog_desktop
+     * * `posthog_mobile` - posthog_mobile
+     * * `posthog_web` - posthog_web
+     * * `review_hog` - review_hog
+     * * `scout_suggestions` - scout_suggestions
+     * * `session_summaries` - session_summaries
+     * * `signal_report` - signal_report
+     * * `signals_chat` - signals_chat
+     * * `signals_scout` - signals_scout
+     * * `slack` - slack
+     * * `space_setup` - space_setup
+     * * `support_queue` - support_queue
+     * * `support_reply` - support_reply
+     * * `task_analysis` - task_analysis
+     * * `workflow` - workflow
+     */
+    export type TaskListSourceEnum = typeof TaskListSourceEnum[keyof typeof TaskListSourceEnum];
+
+
+    export const TaskListSourceEnum = {
+      Autoresearch: 'autoresearch',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      Experiments: 'experiments',
+      Hogdesk: 'hogdesk',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      Onboarding: 'onboarding',
+      PosthogAi: 'posthog_ai',
+      PosthogDesktop: 'posthog_desktop',
+      PosthogMobile: 'posthog_mobile',
+      PosthogWeb: 'posthog_web',
+      ReviewHog: 'review_hog',
+      ScoutSuggestions: 'scout_suggestions',
+      SessionSummaries: 'session_summaries',
+      SignalReport: 'signal_report',
+      SignalsChat: 'signals_chat',
+      SignalsScout: 'signals_scout',
+      Slack: 'slack',
+      SpaceSetup: 'space_setup',
+      SupportQueue: 'support_queue',
+      SupportReply: 'support_reply',
+      TaskAnalysis: 'task_analysis',
+      Workflow: 'workflow',
+    } as const;
+
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
@@ -110772,6 +110830,11 @@ export namespace Schemas {
       id: string;
       /** SHA-256 digest of the uploaded session content */
       content_sha256: string;
+    }
+
+    export interface TaskSourcesResponse {
+      /** Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task list `sources` filter. Each value filters the task list back to at least one task. */
+      sources: TaskListSourceEnum[];
     }
 
     export interface TaskStagedArtifactFinalizeUpload {
