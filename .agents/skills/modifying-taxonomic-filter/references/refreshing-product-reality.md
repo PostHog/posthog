@@ -295,7 +295,7 @@ s AS (
 SELECT
   f.g AS group_type,
   round(100 * f.n / sum(f.n) OVER (), 1) AS share_of_failures_pct,
-  round(100 * (SELECT sum(nonempty_n) FROM f) / (SELECT n FROM s), 2) AS failure_events_per_100_typed_queries
+  round(100 * (SELECT sum(nonempty_n) FROM f) / (SELECT n FROM s), 2) AS failure_events_per_100_search_queries
 FROM f
 ORDER BY share_of_failures_pct DESC
 LIMIT 15
@@ -416,19 +416,20 @@ WHERE event = 'taxonomic filter closed'
 
 ### 14. Which tabs users open
 
-Share of category picks by tab, over 90 days.
-Backs the pseudo-category tabs row in [feature-inventory](feature-inventory.md).
-Read it with query 8: only a small share of opens pick a category at all, so a tab with a small share here is rarely opened.
+Share of category clicks by tab, over 90 days.
+It is a relative click mix, not an open rate: one open can switch tabs several times, and Suggested, Recent and Pinned clicks are in the base too.
+It shows which tabs people click least, which backs the pseudo-category tabs row in [feature-inventory](feature-inventory.md) as a lead.
+Before you remove a tab, measure distinct opens or users that use it over one window, as step 6 of "Before removing anything" asks.
 
 ```sql
 SELECT
   toString(properties.groupType) AS group_type,
-  round(100 * count() / sum(count()) OVER (), 1) AS share_of_category_picks_pct
+  round(100 * count() / sum(count()) OVER (), 1) AS share_of_category_clicks_pct
 FROM events
 WHERE event = 'taxonomic filter category selected'
   AND timestamp >= now() - INTERVAL 90 DAY
 GROUP BY group_type
-ORDER BY share_of_category_picks_pct DESC
+ORDER BY share_of_category_clicks_pct DESC
 LIMIT 30
 ```
 

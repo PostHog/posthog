@@ -7,7 +7,7 @@ Bring evidence, not seniority.
 ## Should the picker reopen on the last category used?
 
 - **Current position:** no.
-  For an ordinary selection, the picker reopens on Suggested.
+  For an ordinary selection, legacy reopens on Suggested and the rebuild reopens on its `all` scope (`comboboxAllState` in `menu/TaxonomicFilterMenu.tsx`).
   Exceptions: with no selection the rebuild opens its top-level menu; HogQL and data warehouse selections reopen in their edit flows (`resolveSelectedOpenState` in `menu/TaxonomicFilterMenu.tsx`); legacy reopens a group in `OPEN_AS_SELF_ON_REOPEN` (`types.ts`) on itself.
 - **For changing:** about 44% of users who switch away from Suggested later pick the same tab again (about 11% of all picker users).
 - **Against changing:** a remembered tab is a hidden mode.
