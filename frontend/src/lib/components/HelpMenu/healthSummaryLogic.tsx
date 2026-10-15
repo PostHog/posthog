@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { runWhenIdle } from 'lib/utils/async'
 import type { HealthIssueSummary } from 'scenes/health/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -100,7 +101,8 @@ export const healthSummaryLogic = kea<healthSummaryLogicType>([
             }, 'refreshTimeout')
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadHealthSummary()
+    afterMount(({ actions, cache }) => {
+        // Only the help menu reads this data, so wait for an idle browser and let the page's own requests go first.
+        cache.disposables.add(() => runWhenIdle(() => actions.loadHealthSummary()), 'idleLoad')
     }),
 ])
