@@ -30,8 +30,9 @@ const ACTION_INSET = 20
 const ACTION_WIDTH = 64
 const IDLE_SCALE = 0.7
 const IDLE_OPACITY = 0.6
-const ARM_SPRING = { damping: 14, stiffness: 240 }
-const RETURN_SPRING = { damping: 24, stiffness: 300 }
+// Both springs settle with a small overshoot at most, so the pop reads as a snap and not a bounce.
+const ARM_SPRING = { damping: 24, stiffness: 320 }
+const RETURN_SPRING = { damping: 32, stiffness: 320 }
 const COMMIT_SLIDE_MS = 180
 // react-native-web does not cancel a press when the pan activates, so the mouseup that ends a drag also presses the
 // row. That mouseup can arrive before or after the pan ends, so the block lasts a little past the end.
@@ -148,7 +149,8 @@ export function SwipeToReadRow({ read, onMarkRead, onMarkUnread, children }: Swi
                 const next = offset.value * direction >= threshold
                 if (next !== isArmed.value) {
                     setArmed(next)
-                    scheduleOnRN(haptic, 'selection')
+                    // Arming is the moment the swipe takes effect, so it gets the impact. Leaving the zone only ticks.
+                    scheduleOnRN(haptic, next ? 'light' : 'selection')
                 }
             })
             .onEnd((_event, success) => {

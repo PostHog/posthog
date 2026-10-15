@@ -2,8 +2,8 @@ import { commitDistance, rowOffset } from './swipeToRead'
 
 describe('swipe to read', () => {
     test.each([
-        [320, 128],
-        [200, 104],
+        [400, 120],
+        [320, 104],
     ])('commits a %ipt row after %ipt of travel', (width, distance) => {
         expect(commitDistance(width)).toBe(distance)
     })

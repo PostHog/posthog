@@ -6,7 +6,7 @@ export type SwipeDirection = 1 | -1
  * in `SwipeToReadRow`, so the armed action never moves under the row.
  */
 const MIN_COMMIT_DISTANCE = 104
-const COMMIT_FRACTION = 0.4
+const COMMIT_FRACTION = 0.3
 /** The direction with no action moves the row this far at most, so the row feels alive but shows nothing. */
 const INERT_LIMIT = 12
 const OVERDRAG_LIMIT = 48
