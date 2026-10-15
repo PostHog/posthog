@@ -135,7 +135,7 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
      * `--lemon-table-sticky-header-top` CSS variable on an ancestor to pin it below other sticky content.
      * The header only pins while the table fits its container: a table that must scroll horizontally
      * keeps its scroll container, which stops the header from pinning to the page.
-     * Has no effect together with `allowContentScroll`.
+     * Together with `allowContentScroll`, the header pins to the top of the table's own scroll container instead.
      */
     stickyHeader?: boolean
     /** Row actions to display at the end of each row. Return null to hide actions for specific rows. */
@@ -464,6 +464,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     !uppercaseHeader && 'LemonTable--lowercase-header',
                     allowContentScroll && 'h-full min-h-0 overflow-hidden',
                     canStickHeader && tableFitsContainer && 'LemonTable--sticky-header',
+                    stickyHeader && allowContentScroll && 'LemonTable--sticky-content-header',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

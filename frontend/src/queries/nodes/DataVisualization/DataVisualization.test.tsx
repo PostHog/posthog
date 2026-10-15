@@ -11,6 +11,7 @@ import { DataTableVisualization } from './DataVisualization'
 type LemonTableMockProps = {
     embedded?: boolean
     allowContentScroll?: boolean
+    stickyHeader?: boolean
 }
 
 let mockLatestLemonTableProps: LemonTableMockProps | null = null
@@ -98,7 +99,7 @@ describe('DataTableVisualization', () => {
         { embedded: true, expectedAllowContentScroll: true },
         { embedded: false, expectedAllowContentScroll: false },
     ])(
-        'sets table scroll mode to $expectedAllowContentScroll when embedded is $embedded',
+        'sets table scroll and sticky header modes to $expectedAllowContentScroll when embedded is $embedded',
         async ({ embedded, expectedAllowContentScroll }) => {
             render(
                 <DataTableVisualization
@@ -122,6 +123,7 @@ describe('DataTableVisualization', () => {
             }
             expect(mockLatestLemonTableProps.embedded).toBe(embedded)
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
+            expect(mockLatestLemonTableProps.stickyHeader).toBe(expectedAllowContentScroll)
         }
     )
 })
