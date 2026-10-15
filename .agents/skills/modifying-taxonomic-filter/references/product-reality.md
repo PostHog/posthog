@@ -87,9 +87,9 @@ So promote email and URL, but don't design only for them.
 Summary only.
 Detail in [failure-modes](failure-modes.md).
 
-- Category picked, then a search that finds nothing: ~10% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
+- Category picked, then a search that finds nothing: ~11% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
   The ~3% is too low: Suggested sends no empty-result event.
-- Opens with a category pick end in a selection ~55% of the time, vs ~85% without one.
+- Opens with a category pick end in a selection ~62% of the time, vs ~85% without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39% (Jul to Oct 2026, health dashboard session tile) while the empty-result rate stayed flat.
   The tile pools both surfaces, so check each one with query 12 before you read it as a worse empty state.

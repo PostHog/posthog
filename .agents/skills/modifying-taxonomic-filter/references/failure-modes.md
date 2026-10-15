@@ -7,12 +7,12 @@ Each entry says how to spot it in data and what a fix should do.
 
 A user picks a category, then searches for something that lives in another group, and gets nothing.
 
-- **Signal:** a category pick followed by an empty result is ~5.5x more common than the reverse order.
-  ~10% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
-  Selection rate drops ~30 points (~55% vs ~85%).
+- **Signal:** a category pick followed by an empty result is ~9x more common than the reverse order.
+  ~11% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
+  Selection rate drops ~23 points (~62% vs ~85%).
 - **Caveat:** the ~3% is too low.
   Opens that stay on Suggested send no empty-result event, so their empty states are not counted.
-  The same gap pushes the ~5.5x order ratio up, because an empty search on Suggested before a category pick is never counted.
+  The same gap pushes the ~9x order ratio up, because an empty search on Suggested before a category pick is never counted.
   The selection drop does not use empty-result events, so lean on it first.
 - **Why:** the active category silently narrows search.
   Users don't hold the category in mind once they start typing.
