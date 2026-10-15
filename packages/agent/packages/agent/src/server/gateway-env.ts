@@ -18,6 +18,11 @@ import {
 import type { Logger } from "../utils/logger";
 import type { AgentServerConfig } from "./types";
 
+// A run makes many model calls inside one run deadline, so a Flex capacity
+// crunch must not hold each call for the gateway's four-minute default before
+// it falls back to standard.
+const FLEX_FALLBACK_BUDGET_SECONDS = "60";
+
 export interface GatewayEnvInput {
   runSpanContext?: SpanContext;
   isInternal?: boolean;
@@ -163,6 +168,8 @@ export function buildGatewayEnv(
       openaiCustomHeaders["X-PostHog-Service-Tier"] = serviceTier;
       if (serviceTier === "flex") {
         openaiCustomHeaders["X-PostHog-Flex-Fallback"] = "standard";
+        openaiCustomHeaders["X-PostHog-Flex-Fallback-Budget"] =
+          FLEX_FALLBACK_BUDGET_SECONDS;
       }
     }
     // The Go gateway then drops Codex's per-session prompt_cache_key on every
