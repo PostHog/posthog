@@ -75,6 +75,10 @@ They are no longer half of the top 8.
 
 ## What values users filter on
 
+No query in [refreshing-product-reality](refreshing-product-reality.md) reproduces these figures.
+Picker telemetry does not record which property key or value was chosen, so they come from a separate one-off analysis of chosen filters (2026-10, two-week window).
+A refresh that cannot re-derive them should mark them as stale, not carry them forward.
+
 - Email and URL properties are ~38% of chosen property values.
 - Custom (non-`$`) properties are ~42% as a group.
 - About half of users who filter use email or URL at all in two weeks.
