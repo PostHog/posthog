@@ -67,10 +67,10 @@ export function useTasks(
 }
 
 // A pin can be on any task the user can see, also one older than the recent list reaches. The
-// server cuts each page at 100 rows, so this reads every page to keep every pin. It does not poll:
-// an active pinned task is also in the polled recent list, which wins the merge, and a pin change
-// refetches this list. It goes stale as fast as the pin IDs in usePinnedTasks, so a window focus
-// reloads both and a pin made on another device shows up.
+// server cuts each page at 100 rows, so this reads every page to keep every pin. It polls like the
+// other task lists: a pin on another user's task, or from a source the work list hides, has no
+// other path to a fresh status. It goes stale as fast as the pin IDs in usePinnedTasks, so a
+// window focus reloads both and a pin made on another device shows up.
 export function usePinnedTaskRecords() {
   return useAuthenticatedQuery(
     taskKeys.list({ pinned: true }),
@@ -81,7 +81,7 @@ export function usePinnedTaskRecords() {
           { fetchAll: true },
         )
       ).tasks as unknown as Task[],
-    { staleTime: 30_000 },
+    { staleTime: 30_000, refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
   );
 }
 
