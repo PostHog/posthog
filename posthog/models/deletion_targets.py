@@ -100,9 +100,8 @@ class DeletionTarget:
     # Which events-schema variant compile_hogql_predicate emits for this table, None where no
     # variant is known to run against its physical columns. A predicate that applies to every row
     # here resolves against the events HogQL table, and the only choice is legacy versus native-JSON.
-    # uncopied_rows_hogql_table names the HogQL table for the rows of a copied target that have no
-    # copy. A fragment names physical columns (mat_*, the property-group maps, or JSON subcolumns),
-    # so it only runs against the schema it was compiled for.
+    # A fragment names physical columns (mat_*, the property-group maps, or JSON subcolumns), so it
+    # only runs against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
     # True where the property-removal job sweeps the table. Its verification fails while any copy of
     # a named property that the table keeps survives the rewrite. A property removal refuses while a

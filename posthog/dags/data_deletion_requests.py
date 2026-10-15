@@ -542,9 +542,8 @@ _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON = (
 )
 
 _IMMEDIATE_HOGQL_RETRY_HINT = (
-    " A fresh run of a request whose earlier run already deleted events also refuses here, because those "
-    "events were the copies of these rows. To finish that request, use Re-execute from failure on the "
-    "earlier Dagster run, which does not run this check again."
+    " If an earlier run of this request already deleted events, finish it with Re-execute from failure on "
+    "that Dagster run, which does not run this check again."
 )
 
 
@@ -689,14 +688,15 @@ def _event_removal_placements(
         # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
         if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
             continue
+        deferred = reaches_target_through_event_uuids(deletion_request, target)
         if uncopied_predicate.compiled is None:
             reason = _hogql_no_events_copy_reason(uncopied_predicate.error)
-        elif reaches_target_through_event_uuids(deletion_request, target):
+        elif deferred:
             uncopied.append((placement, uncopied_predicate))
             continue
         else:
             reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
-        if deletion_request.execution_mode != ExecutionMode.DEFERRED.value:
+        if not deferred:
             reason += _IMMEDIATE_HOGQL_RETRY_HINT
         for window in uncopied_predicate.windows(deletion_request, target):
             _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)

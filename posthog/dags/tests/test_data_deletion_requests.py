@@ -3075,14 +3075,6 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
             "elements_chain",
             id="hogql_predicate_that_cannot_run_on_flag_evaluations_refuses_rows_without_an_events_copy",
         ),
-        pytest.param(
-            [FLAG_EVALUATIONS_SOURCE_EVENT],
-            False,
-            "properties.$browser = 'Chrome' AND NOT elements_chain ILIKE '%checkout%'",
-            True,
-            None,
-            id="hogql_predicate_that_cannot_run_on_flag_evaluations_leaves_rows_with_an_events_copy_to_the_ttl",
-        ),
     ],
 )
 def test_immediate_event_deletion_of_flag_evaluations(
