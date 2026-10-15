@@ -1147,6 +1147,7 @@ describe("AuthProxyService gateway sessions", () => {
     source.getRoute.mockResolvedValue({
       mode: "blocked",
       reason: "credit_bucket_exhausted",
+      status: 402,
       detail: "Your organization has reached its PostHog Desktop usage limit",
     });
 
@@ -1171,6 +1172,7 @@ describe("AuthProxyService gateway sessions", () => {
     source.getRoute.mockResolvedValue({
       mode: "blocked",
       reason: "credit_bucket_exhausted",
+      status: 402,
       detail: "limit",
     });
 

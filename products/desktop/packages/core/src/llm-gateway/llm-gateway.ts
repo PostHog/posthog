@@ -104,6 +104,13 @@ export class LlmGatewayError extends Error {
   }
 }
 
+const ANTHROPIC_ERROR_TYPE_BY_STATUS: Record<number, string> = {
+  401: "authentication_error",
+  402: "billing_error",
+  403: "permission_error",
+  429: "rate_limit_error",
+};
+
 @injectable()
 export class LlmGatewayService {
   constructor(
@@ -162,9 +169,9 @@ export class LlmGatewayService {
     if (route.mode === "blocked") {
       throw new LlmGatewayError(
         route.detail,
-        "billing_error",
+        ANTHROPIC_ERROR_TYPE_BY_STATUS[route.status] ?? "api_error",
         route.reason,
-        402,
+        route.status,
       );
     }
     if (route.mode === "go") {

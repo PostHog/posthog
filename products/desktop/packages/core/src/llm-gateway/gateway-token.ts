@@ -26,14 +26,17 @@ type GoRoute = Extract<GatewayRoute, { mode: "go" }>;
  */
 export const GATEWAY_TOKEN_REFRESH_SKEW_MS = 2 * 60_000;
 export const GATEWAY_TOKEN_MIN_REFRESH_SKEW_MS = 30_000;
-export const GATEWAY_LEGACY_RECHECK_MS = 10 * 60_000;
-/** `not_rolled_out` changes only with the flag, so it is re-checked less often. */
-export const GATEWAY_NOT_ROLLED_OUT_RECHECK_MS = 30 * 60_000;
+export const GATEWAY_REFUSED_RECHECK_MS = 10 * 60_000;
 export const GATEWAY_BLOCKED_RECHECK_MS = 30 * 60_000;
 export const GATEWAY_REMINT_MIN_INTERVAL_MS = 5_000;
 export const GATEWAY_REFRESH_RETRY_MS = 30_000;
 
 export const GATEWAY_MINT_TIMEOUT_MS = 15_000;
+
+const LASTING_DJANGO_REFUSAL_REASONS = new Set([
+  "unconfigured",
+  "not_rolled_out",
+]);
 
 interface CacheEntry {
   route: GatewayRoute;
@@ -44,11 +47,6 @@ interface CacheEntry {
   capReminted: Set<string>;
 }
 
-/**
- * Holds the app's `phe_` Go gateway token per project, minted through Django
- * and never handed to a subprocess. A refusal routes to the legacy gateway,
- * except an exhausted credit bucket, which is final.
- */
 @injectable()
 export class GatewayTokenService {
   private readonly cache = new Map<number, CacheEntry>();
@@ -80,10 +78,6 @@ export class GatewayTokenService {
     );
   }
 
-  /**
-   * A due legacy re-check runs in the background unless `awaitRecheck` asks
-   * to wait (a session start picks its target once).
-   */
   async getRoute(
     projectId?: number | null,
     options: { awaitRecheck?: boolean } = {},
@@ -133,24 +127,30 @@ export class GatewayTokenService {
     return route.mode === "go" ? route : null;
   }
 
-  /**
-   * Go refused `token` with a 401 and no re-mint can replace it: the project
-   * uses the legacy gateway until the re-check.
-   */
   fallBack(token: string, projectId: number | null | undefined): void {
     const resolvedProject =
       projectId ?? this.authService.getState().currentProjectId;
     if (resolvedProject === null || resolvedProject === undefined) return;
     const entry = this.cache.get(resolvedProject);
     if (entry?.route.mode !== "go" || entry.route.token !== token) return;
-    this.log.warn("Go refused the gateway token; using the legacy gateway");
-    entry.route = { mode: "legacy", reason: "gateway_unauthorized" };
-    entry.recheckAt = this.now() + GATEWAY_LEGACY_RECHECK_MS;
+    this.log.warn("Go refused the gateway token; blocking gateway access");
+    entry.route = {
+      mode: "blocked",
+      reason: "gateway_unauthorized",
+      status: 401,
+      detail:
+        "PostHog Desktop couldn't authenticate with the AI gateway. Sign out and back in to try again.",
+    };
+    entry.recheckAt = this.now() + GATEWAY_REFRESH_RETRY_MS;
   }
 
   clearBlocked(): void {
     for (const [projectId, entry] of this.cache) {
-      if (entry.route.mode === "blocked" && !entry.inFlight) {
+      if (
+        entry.route.mode === "blocked" &&
+        entry.route.reason === "credit_bucket_exhausted" &&
+        !entry.inFlight
+      ) {
         this.cache.delete(projectId);
       }
     }
@@ -165,8 +165,6 @@ export class GatewayTokenService {
 
     const entry = this.cache.get(projectId);
     const now = this.now();
-    // A known legacy refusal is served while it re-checks; a first mint or a
-    // blocked route (a hard 402 once its window passes) waits.
     const settled =
       entry !== undefined &&
       entry.route.mode === "legacy" &&
@@ -218,7 +216,8 @@ export class GatewayTokenService {
         }
         if (
           current?.mode === "go" &&
-          route.mode === "legacy" &&
+          route.mode !== "go" &&
+          !(route.mode === "blocked" && route.status === 402) &&
           this.now() < current.expiresAt
         ) {
           this.log.warn(
@@ -280,7 +279,7 @@ export class GatewayTokenService {
         timedOut: timeout.signal.aborted,
       });
       clearTimeout(timer);
-      return this.legacy("mint_failed");
+      return this.blocked("mint_failed");
     }
 
     const body: unknown = await response.json().catch(() => null);
@@ -289,13 +288,13 @@ export class GatewayTokenService {
       const refusal = gatewayTokenRefusalSchema.safeParse(body);
       const data = refusal.success ? refusal.data : {};
       const reason = data.reason ?? data.code ?? `http_${response.status}`;
-      // Final: the legacy gateway refuses the same user, so no fallback.
       if (response.status === 402 && reason === "credit_bucket_exhausted") {
         this.log.info("Gateway token refused: credit bucket exhausted");
         return {
           route: {
             mode: "blocked",
             reason: "credit_bucket_exhausted",
+            status: 402,
             detail:
               data.detail ??
               "Your organization has reached its PostHog Desktop usage limit",
@@ -309,17 +308,25 @@ export class GatewayTokenService {
       ) {
         this.authService.reportDesktopAccessBlocked?.(projectId, data.access);
       }
-      this.log.info("Gateway token not issued; using the legacy gateway", {
+      this.log.info("Gateway token not issued; blocking gateway access", {
         status: response.status,
         reason,
       });
-      return this.legacy(reason);
+      const status =
+        response.status >= 400 && response.status < 500 ? response.status : 503;
+      const retryAfterSeconds = Number(response.headers.get("retry-after"));
+      return this.blocked(
+        reason,
+        status,
+        data.detail,
+        Number.isFinite(retryAfterSeconds) ? retryAfterSeconds * 1000 : 0,
+      );
     }
 
     const minted = gatewayTokenMintedSchema.safeParse(body);
     if (!minted.success) {
       this.log.warn("Gateway token response did not match the contract");
-      return this.legacy("invalid_mint_response");
+      return this.blocked("invalid_mint_response");
     }
     const gatewayUrl = validateAiGatewayUrl(minted.data.gateway_url, {
       apiHost,
@@ -333,11 +340,11 @@ export class GatewayTokenService {
       this.now();
     if (!gatewayUrl) {
       this.log.warn("Gateway token response named an untrusted gateway");
-      return this.legacy("invalid_gateway_url");
+      return this.blocked("invalid_gateway_url");
     }
     if (!Number.isFinite(expiresAt)) {
       this.log.warn("Gateway token response had an unreadable expiry");
-      return this.legacy("invalid_expiry");
+      return this.blocked("invalid_expiry");
     }
     return {
       route: {
@@ -357,16 +364,45 @@ export class GatewayTokenService {
     };
   }
 
+  private blocked(
+    reason: string,
+    status = 503,
+    detail?: string,
+    retryAfterMs = 0,
+  ): {
+    route: GatewayRoute;
+    recheckMs: number;
+  } {
+    const isTransient =
+      (status === 429 || status >= 500) &&
+      !LASTING_DJANGO_REFUSAL_REASONS.has(reason);
+    return {
+      route: {
+        mode: "blocked",
+        reason,
+        status,
+        detail:
+          detail ??
+          (isTransient
+            ? "PostHog Desktop couldn't get AI gateway access. Try again shortly."
+            : `PostHog Desktop couldn't get AI gateway access (${reason}). Sign out and back in or contact support.`),
+      },
+      recheckMs: isTransient
+        ? Math.max(
+            GATEWAY_REFRESH_RETRY_MS,
+            Math.min(retryAfterMs, GATEWAY_REFUSED_RECHECK_MS),
+          )
+        : GATEWAY_REFUSED_RECHECK_MS,
+    };
+  }
+
   private legacy(reason: string): {
     route: GatewayRoute;
     recheckMs: number;
   } {
     return {
       route: { mode: "legacy", reason },
-      recheckMs:
-        reason === "not_rolled_out"
-          ? GATEWAY_NOT_ROLLED_OUT_RECHECK_MS
-          : GATEWAY_LEGACY_RECHECK_MS,
+      recheckMs: GATEWAY_REFUSED_RECHECK_MS,
     };
   }
 

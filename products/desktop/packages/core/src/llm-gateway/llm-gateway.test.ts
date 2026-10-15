@@ -987,6 +987,7 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
       route: {
         mode: "blocked",
         reason: "credit_bucket_exhausted",
+        status: 402,
         detail: "Your organization has reached its PostHog Desktop usage limit",
       },
       fetch: goFetch,

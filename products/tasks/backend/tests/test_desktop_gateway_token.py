@@ -476,6 +476,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "reason": "throttled",
             "detail": "Too many gateway token requests. Try later.",
         }
+        assert 0 < int(third["Retry-After"]) <= 3600
         post.assert_not_called()
 
     def test_the_default_ceiling_is_120_mints_an_hour(self) -> None:

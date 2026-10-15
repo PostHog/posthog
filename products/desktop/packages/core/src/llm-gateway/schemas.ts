@@ -108,7 +108,8 @@ export type GatewayRoute =
   | { mode: "legacy"; reason: string }
   | {
       mode: "blocked";
-      reason: "credit_bucket_exhausted";
+      reason: string;
+      status: number;
       detail: string;
     }
   | {

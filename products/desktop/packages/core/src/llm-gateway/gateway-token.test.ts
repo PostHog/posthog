@@ -4,10 +4,9 @@ import type { AuthService } from "../auth/auth";
 import type { AuthState } from "../auth/schemas";
 import {
   GATEWAY_BLOCKED_RECHECK_MS,
-  GATEWAY_LEGACY_RECHECK_MS,
   GATEWAY_MINT_TIMEOUT_MS,
-  GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
   GATEWAY_REFRESH_RETRY_MS,
+  GATEWAY_REFUSED_RECHECK_MS,
   GATEWAY_REMINT_MIN_INTERVAL_MS,
   GATEWAY_TOKEN_MIN_REFRESH_SKEW_MS,
   GATEWAY_TOKEN_REFRESH_SKEW_MS,
@@ -174,77 +173,121 @@ describe("GatewayTokenService.getRoute", () => {
       200,
       { enabled: false, reason: "unconfigured" },
       "unconfigured",
-      GATEWAY_LEGACY_RECHECK_MS,
+      GATEWAY_REFUSED_RECHECK_MS,
     ],
     [
       200,
       { enabled: false, reason: "not_rolled_out" },
       "not_rolled_out",
-      GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
+      GATEWAY_REFUSED_RECHECK_MS,
     ],
     [
       403,
-      { enabled: false, reason: "desktop_access_blocked" },
+      {
+        enabled: false,
+        reason: "desktop_access_blocked",
+        detail: "Contact support to restore desktop access.",
+      },
       "desktop_access_blocked",
-      GATEWAY_LEGACY_RECHECK_MS,
+      GATEWAY_REFUSED_RECHECK_MS,
     ],
     [
       402,
       { enabled: false, reason: "payment_required" },
       "payment_required",
-      GATEWAY_LEGACY_RECHECK_MS,
+      GATEWAY_REFUSED_RECHECK_MS,
     ],
-    [404, { detail: "Not found." }, "http_404", GATEWAY_LEGACY_RECHECK_MS],
-    [429, { detail: "org deactivated" }, "http_429", GATEWAY_LEGACY_RECHECK_MS],
-    [503, null, "http_503", GATEWAY_LEGACY_RECHECK_MS],
+    [404, { detail: "Not found." }, "http_404", GATEWAY_REFUSED_RECHECK_MS],
+    [
+      429,
+      { detail: "Try again shortly." },
+      "http_429",
+      GATEWAY_REFRESH_RETRY_MS,
+    ],
+    [503, null, "http_503", GATEWAY_REFRESH_RETRY_MS],
   ])(
-    "treats a %s as legacy and re-checks after the negative cache",
+    "blocks a %s refusal and re-checks after the negative cache",
     async (status, body, reason, recheckMs) => {
       const t = setup();
       t.mintResponses.push(() => json(body, status));
       t.mintResponses.push(() => json(minted("phe_one"), 201));
 
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
+      const blocked = await t.service.getRoute();
+      expect(blocked).toEqual({
+        mode: "blocked",
+        reason,
+        status: status === 200 ? 503 : status,
+        detail:
+          (body && "detail" in body ? body.detail : undefined) ??
+          (recheckMs === GATEWAY_REFUSED_RECHECK_MS
+            ? `PostHog Desktop couldn't get AI gateway access (${reason}). Sign out and back in or contact support.`
+            : "PostHog Desktop couldn't get AI gateway access. Try again shortly."),
+      });
+      t.service.clearBlocked();
       vi.setSystemTime(Date.now() + recheckMs - 1);
-      expect(await t.service.getRoute()).toMatchObject({ mode: "legacy" });
+      expect(await t.service.getRoute()).toEqual(blocked);
       expect(t.mintCalls()).toBe(1);
       vi.setSystemTime(Date.now() + 2);
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
-      expect(t.mintCalls()).toBe(2);
-      await vi.waitFor(async () =>
-        expect(await t.service.getRoute()).toMatchObject({ mode: "go" }),
-      );
+      expect(await t.service.getRoute()).toMatchObject({ mode: "go" });
       expect(t.mintCalls()).toBe(2);
     },
   );
 
-  it("serves a known refusal to callers while its re-check is in flight", async () => {
+  it("waits out a throttled mint's Retry-After before minting again", async () => {
+    const t = setup();
+    t.mintResponses.push(
+      () =>
+        new Response(JSON.stringify({ enabled: false, reason: "throttled" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "600" },
+        }),
+    );
+    t.mintResponses.push(() => json(minted("phe_one"), 201));
+
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
+      status: 429,
+    });
+    vi.setSystemTime(Date.now() + 600_000 - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
+    expect(t.mintCalls()).toBe(1);
+    vi.setSystemTime(Date.now() + 2);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "go" });
+  });
+
+  it("waits for a known refusal's re-check while it is in flight", async () => {
     const t = setup();
     t.mintResponses.push(() =>
-      json({ enabled: false, reason: "not_rolled_out" }, 200),
+      json({ enabled: false, reason: "credit_state_unknown" }, 200),
     );
-    t.mintResponses.push(() => new Promise<Response>(() => undefined));
+    let release: (response: Response) => void = () => undefined;
+    t.mintResponses.push(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
 
     await t.service.getRoute();
-    vi.setSystemTime(Date.now() + GATEWAY_NOT_ROLLED_OUT_RECHECK_MS);
-    await t.service.getRoute();
+    vi.setSystemTime(Date.now() + GATEWAY_REFRESH_RETRY_MS);
+    const rechecking = t.service.getRoute();
     await vi.waitFor(() => expect(t.mintCalls()).toBe(2));
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
-      reason: "not_rolled_out",
-    });
+    const joined = t.service.getRoute();
+    release(json(minted("phe_one"), 201));
+    expect(await joined).toBe(await rechecking);
+    expect(await joined).toMatchObject({ mode: "go", token: "phe_one" });
   });
 
   it("waits for the re-check when a session start asks for it", async () => {
     const t = setup();
     t.mintResponses.push(() =>
-      json({ enabled: false, reason: "not_rolled_out" }, 200),
+      json({ enabled: false, reason: "credit_state_unknown" }, 200),
     );
     t.mintResponses.push(() => json(minted("phe_one"), 201));
 
     await t.service.getRoute();
-    vi.setSystemTime(Date.now() + GATEWAY_NOT_ROLLED_OUT_RECHECK_MS);
+    vi.setSystemTime(Date.now() + GATEWAY_REFRESH_RETRY_MS);
 
     expect(await t.service.getRoute(42, { awaitRecheck: true })).toMatchObject({
       mode: "go",
@@ -254,10 +297,10 @@ describe("GatewayTokenService.getRoute", () => {
 
   it.each([
     [
-      "a session start on a legacy route",
-      { enabled: false, reason: "not_rolled_out" },
+      "a session start on a transient blocked route",
+      { enabled: false, reason: "credit_state_unknown" },
       200,
-      GATEWAY_NOT_ROLLED_OUT_RECHECK_MS,
+      GATEWAY_REFRESH_RETRY_MS,
       { awaitRecheck: true },
     ],
     [
@@ -322,6 +365,7 @@ describe("GatewayTokenService.getRoute", () => {
     expect(await t.service.getRoute()).toEqual({
       mode: "blocked",
       reason: "credit_bucket_exhausted",
+      status: 402,
       detail: sentence,
     });
     vi.setSystemTime(Date.now() + GATEWAY_BLOCKED_RECHECK_MS - 1);
@@ -353,12 +397,16 @@ describe("GatewayTokenService.getRoute", () => {
     ],
     [503, { enabled: false, reason: "mint_failed" }, "mint_failed"],
   ])(
-    "keeps a %s refusal on legacy with its reason",
+    "keeps a %s refusal blocked with its reason",
     async (status, body, reason) => {
       const t = setup();
       t.mintResponses.push(() => json(body, status));
 
-      expect(await t.service.getRoute()).toEqual({ mode: "legacy", reason });
+      expect(await t.service.getRoute()).toMatchObject({
+        mode: "blocked",
+        status,
+        reason,
+      });
     },
   );
 
@@ -369,22 +417,26 @@ describe("GatewayTokenService.getRoute", () => {
       json({ enabled: false, reason: "desktop_access_blocked", access }, 403),
     );
 
-    expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+    expect(await t.service.getRoute()).toMatchObject({
+      mode: "blocked",
+      status: 403,
       reason: "desktop_access_blocked",
     });
     expect(t.reportDesktopAccessBlocked).toHaveBeenCalledWith(42, access);
   });
 
-  it("falls back to legacy when the mint request fails", async () => {
+  it("blocks gateway access when the mint request fails", async () => {
     const t = setup();
     t.mintResponses.push(() => {
       throw new Error("offline");
     });
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "mint_failed",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
   });
 
@@ -402,8 +454,11 @@ describe("GatewayTokenService.getRoute", () => {
     );
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "invalid_gateway_url",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
   });
 
@@ -436,8 +491,7 @@ describe("GatewayTokenService.getRoute", () => {
   });
 
   it("pins the re-check, re-mint and refresh windows", () => {
-    expect(GATEWAY_LEGACY_RECHECK_MS).toBe(600_000);
-    expect(GATEWAY_NOT_ROLLED_OUT_RECHECK_MS).toBe(1_800_000);
+    expect(GATEWAY_REFUSED_RECHECK_MS).toBe(600_000);
     expect(GATEWAY_BLOCKED_RECHECK_MS).toBe(1_800_000);
     expect(GATEWAY_REMINT_MIN_INTERVAL_MS).toBe(5_000);
     expect(GATEWAY_REFRESH_RETRY_MS).toBe(30_000);
@@ -476,12 +530,18 @@ describe("GatewayTokenService.getRoute", () => {
     );
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "invalid_expiry",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "invalid_expiry",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
     expect(t.mintCalls()).toBe(1);
   });
@@ -508,7 +568,13 @@ describe("GatewayTokenService.getRoute", () => {
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
 
-    expect(await pending).toEqual({ mode: "legacy", reason: "mint_failed" });
+    expect(await pending).toEqual({
+      mode: "blocked",
+      status: 503,
+      reason: "mint_failed",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
+    });
   });
 
   it("gives up on a mint whose body does not arrive in time", async () => {
@@ -532,8 +598,11 @@ describe("GatewayTokenService.getRoute", () => {
     await vi.advanceTimersByTimeAsync(GATEWAY_MINT_TIMEOUT_MS);
 
     expect(await pending).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "invalid_mint_response",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
   });
 
@@ -542,8 +611,11 @@ describe("GatewayTokenService.getRoute", () => {
     t.mintResponses.push(() => json({ ...minted("sk-not-phe") }, 201));
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 503,
       reason: "invalid_mint_response",
+      detail:
+        "PostHog Desktop couldn't get AI gateway access. Try again shortly.",
     });
   });
 
@@ -568,6 +640,7 @@ describe("GatewayTokenService.getRoute", () => {
   it.each([
     ["a network error", () => Promise.reject(new Error("offline"))],
     ["a 503", () => json(null, 503)],
+    ["a 429", () => json({ enabled: false, reason: "throttled" }, 429)],
     [
       "a flag-off refusal",
       () => json({ enabled: false, reason: "not_rolled_out" }, 200),
@@ -727,8 +800,7 @@ describe("GatewayTokenService.remint", () => {
     expect(
       await t.service.remint("token_cap_exceeded", "phe_one", undefined),
     ).toBeNull();
-    // Past the minimum interval, so only the per-token rule refuses.
-    vi.setSystemTime(Date.now() + GATEWAY_REMINT_MIN_INTERVAL_MS);
+    vi.setSystemTime(Date.now() + GATEWAY_REFRESH_RETRY_MS);
     expect(
       await t.service.remint("token_cap_exceeded", "phe_one", undefined),
     ).toBeNull();
@@ -801,7 +873,7 @@ describe("GatewayTokenService.remint", () => {
     ).toMatchObject({ token: "phe_two" });
   });
 
-  it("falls back to legacy when Go refuses the re-minted token too", async () => {
+  it("blocks gateway access when Go refuses the re-minted token too", async () => {
     const t = await primed();
     t.mintResponses.push(() => json(minted("phe_two"), 201));
     await t.service.remint("unauthorized", "phe_one", undefined);
@@ -809,11 +881,14 @@ describe("GatewayTokenService.remint", () => {
     t.service.fallBack("phe_two", undefined);
 
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 401,
       reason: "gateway_unauthorized",
+      detail:
+        "PostHog Desktop couldn't authenticate with the AI gateway. Sign out and back in to try again.",
     });
-    vi.setSystemTime(Date.now() + GATEWAY_LEGACY_RECHECK_MS - 1);
-    expect(await t.service.getRoute()).toMatchObject({ mode: "legacy" });
+    vi.setSystemTime(Date.now() + GATEWAY_REFRESH_RETRY_MS - 1);
+    expect(await t.service.getRoute()).toMatchObject({ mode: "blocked" });
     expect(t.mintCalls()).toBe(2);
     t.mintResponses.push(() => json(minted("phe_three"), 201));
     vi.setSystemTime(Date.now() + 1);
@@ -831,8 +906,11 @@ describe("GatewayTokenService.remint", () => {
     t.service.fallBack("phe_other", 43);
 
     expect(await t.service.getRoute(43)).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 401,
       reason: "gateway_unauthorized",
+      detail:
+        "PostHog Desktop couldn't authenticate with the AI gateway. Sign out and back in to try again.",
     });
     expect(await t.service.getRoute(42)).toMatchObject({ token: "phe_one" });
   });
@@ -856,8 +934,11 @@ describe("GatewayTokenService.remint", () => {
       await t.service.remint("unauthorized", "phe_one", undefined),
     ).toBeNull();
     expect(await t.service.getRoute()).toEqual({
-      mode: "legacy",
+      mode: "blocked",
+      status: 401,
       reason: "gateway_unauthorized",
+      detail:
+        "PostHog Desktop couldn't authenticate with the AI gateway. Sign out and back in to try again.",
     });
     expect(t.mintCalls()).toBe(1);
   });

@@ -6,7 +6,7 @@ export const AUTH_PROXY_PLACEHOLDER_CREDENTIAL = "posthog-code-auth-proxy";
 
 export type GatewayCredential =
   | { mode: "legacy"; reason: string }
-  | { mode: "blocked"; reason: "credit_bucket_exhausted"; detail: string }
+  | { mode: "blocked"; reason: string; status: number; detail: string }
   | {
       mode: "go";
       gatewayUrl: string;

@@ -136,6 +136,7 @@ describe("AgentAuthAdapter", () => {
         vi.fn().mockResolvedValue({
           mode: "blocked",
           reason: "credit_bucket_exhausted",
+          status: 402,
           detail: "limit",
         }),
       );

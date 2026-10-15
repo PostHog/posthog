@@ -1,3 +1,4 @@
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -207,15 +208,20 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(exclude=True)
     @action(detail=False, methods=["post"], url_path="gateway_token", required_scopes=["llm_gateway:read"])
     def gateway_token(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Mints a `phe_` pinned to this team, the user and the plan's models. Any non-201 keeps the
-        app on the legacy gateway."""
+        """Mints a `phe_` pinned to this team, the user and the plan's models. The app shows any
+        non-201 to the agent as the refusal, since the legacy gateway no longer serves posthog_code."""
         access_token, refusal = _desktop_oauth_credential(request)
         if refusal is not None or access_token is None:
             return refusal or _disabled("oauth_required", status.HTTP_403_FORBIDDEN)
-        if not DesktopGatewayTokenThrottle().allow_request(request, self):
-            return _disabled(
+        throttle = DesktopGatewayTokenThrottle()
+        if not throttle.allow_request(request, self):
+            throttled = _disabled(
                 "throttled", status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many gateway token requests. Try later."
             )
+            wait_seconds = throttle.wait()
+            if wait_seconds is not None:
+                throttled["Retry-After"] = str(math.ceil(wait_seconds))
+            return throttled
         user = cast(User, request.user)
         team = self.team
         organization = self.organization

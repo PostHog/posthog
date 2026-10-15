@@ -27,6 +27,13 @@ import {
 
 type GoCredential = Extract<GatewayCredential, { mode: "go" }>;
 
+const ANTHROPIC_ERROR_TYPE_BY_STATUS: Record<number, string> = {
+  401: "authentication_error",
+  402: "billing_error",
+  403: "permission_error",
+  429: "rate_limit_error",
+};
+
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface SessionTarget {
@@ -166,8 +173,8 @@ export class GatewaySessionHandler {
       return;
     }
     if (credential.mode === "blocked") {
-      jsonError(res, 402, {
-        type: "billing_error",
+      jsonError(res, credential.status, {
+        type: ANTHROPIC_ERROR_TYPE_BY_STATUS[credential.status] ?? "api_error",
         code: credential.reason,
         message: credential.detail,
       });
