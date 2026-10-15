@@ -305,6 +305,30 @@ def release_report_claim_of_task(*, team_id: int, report_id: str, task_id: str) 
     release_report_claim_of_task_impl(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
+@frozen
+class ReportTaskLink:
+    """The task that holds the report's claim, and the pull request the report shows."""
+
+    claiming_task_id: str | None
+    pr_url: str | None
+
+
+def report_task_link(*, team_id: int, report_id: str) -> ReportTaskLink:
+    from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+        fetch_implementation_pr_state_for_reports,
+    )
+    from products.signals.backend.report_claims import (
+        get_active_claim,  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+    )
+
+    claim = get_active_claim(team_id=team_id, report_id=report_id)
+    pr = fetch_implementation_pr_state_for_reports([report_id], team_id=team_id).get(report_id)
+    return ReportTaskLink(
+        claiming_task_id=str(claim.actor_task_id) if claim and claim.actor_task_id else None,
+        pr_url=pr.url if pr else None,
+    )
+
+
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
     from products.signals.backend.report_generation.select_repo import (

@@ -27,10 +27,8 @@ from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
-from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
+from products.signals.backend.facade.api import ReportTaskLink, claim_report_for_workflow_task, report_task_link
 from products.signals.backend.models import SignalReport
-from products.signals.backend.report_assignments import claim_report_for_task
-from products.signals.backend.report_claims import get_active_claim
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
@@ -651,12 +649,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
-        if claimed:
-            assert claim is not None
-            assert str(claim.actor_task_id) == response.json()["id"]
-        else:
-            assert claim is None
+        claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
+        assert claiming_task_id == (response.json()["id"] if claimed else None)
 
     @parameterized.expand(
         [
@@ -690,7 +684,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post_for_inbox_report(report)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+        assert report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id is None
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": reason}
 
@@ -708,7 +702,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         response = self._post_for_inbox_report(report)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+        assert report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id is None
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["inbox_report_claim"]["claimed"] is False
 
@@ -720,15 +714,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         signals_task = Task.objects.create(
             team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        claim_report_for_task(team_id=self.team.id, report_id=str(report.id), task_id=str(signals_task.id))
+        assert claim_report_for_workflow_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(signals_task.id)
+        )
         Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
 
         response = self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
-        assert claim is not None
-        assert claim.actor_task_id == signals_task.id
+        claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
+        assert claiming_task_id == str(signals_task.id)
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False}
 
@@ -768,17 +763,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
             else:
                 assert tasks_facade.claim_and_fail_stale_run(run.id, "stranded")
 
-        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
-        linked_pr = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=self.team.id).get(
-            str(report.id)
-        )
+        link = report_task_link(team_id=self.team.id, report_id=str(report.id))
         if pr_url:
-            assert claim is not None
-            assert claim.actor_task_id == run.task_id
-            assert linked_pr is not None and linked_pr.url == pr_url
+            assert link == ReportTaskLink(claiming_task_id=str(run.task_id), pr_url=pr_url)
         else:
-            assert claim is None
-            assert linked_pr is None
+            assert link == ReportTaskLink(claiming_task_id=None, pr_url=None)
 
     @parameterized.expand(
         [
