@@ -19,6 +19,7 @@ import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biMemberAliasesLogic } from './biMemberAliasesLogic'
+import { getBIVisualizationSource } from './biQueryResults'
 import { getBIScatterAxisOptions } from './biScatter'
 import { biSceneLogic } from './biSceneLogic'
 import { biSourcePreviewLogic } from './biSourcePreviewLogic'
@@ -573,6 +574,71 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.exportView()).toFinishAllListeners()
         expect(exportedPayload).toEqual({ name: 'revenue_view', query: JSON.parse(JSON.stringify(worksheet().source)) })
         expect(save).not.toHaveBeenCalled()
+    })
+
+    it('previews pending or last-run SQL and carries the complete source to an unsaved SQL tab', () => {
+        const source = { table: 'events', connectionId: 'example-connection' }
+        const initial = worksheet({
+            ...config,
+            source,
+            rows: config.rows.map((field) => ({ ...field, source })),
+            columns: config.columns.map((field) => ({ ...field, source })),
+        })
+        initial.source = {
+            ...initial.source,
+            connectionId: 'example-connection',
+            filters: {
+                ...initial.source.filters,
+                properties: [
+                    {
+                        key: 'channel',
+                        value: ['example'],
+                        type: PropertyFilterType.Event,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            variables: { example: { variableId: 'example', code_name: 'threshold', value: 10 } },
+            values: { example: 20 },
+        }
+        logic.actions.restoreWorksheet(initial)
+        logic.actions.setLastRunQuery(initial)
+        editor.actions.setLimit(100)
+        logic.actions.setSqlPreviewOpen(true)
+        expect(logic.values.sqlPreviewVersion).toBe('current')
+        expect(logic.values.displayedQueryIsCurrent).toBe(false)
+        const currentSource = getBIVisualizationSource(logic.values.worksheet)
+        expect(logic.values.sqlPreviewQuery?.source).toEqual(currentSource)
+        const handoff = (): unknown =>
+            JSON.parse(new URL(logic.values.sqlEditorUrl!, 'https://example.com').searchParams.get('open_query')!)
+        expect(handoff()).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: currentSource,
+            display: ChartDisplayType.ActionsTable,
+        })
+        logic.actions.setSqlPreviewVersion('last_run')
+        expect(handoff()).toEqual({
+            kind: NodeKind.DataVisualizationNode,
+            source: getBIVisualizationSource(initial),
+            display: ChartDisplayType.ActionsTable,
+        })
+        expect(logic.values.lastRunQuery).toEqual(initial)
+        expect(save).not.toHaveBeenCalled()
+        expect(exportView).not.toHaveBeenCalled()
+    })
+
+    it('clears the preview and handoff when clearing the worksheet removes its query', () => {
+        const previous = worksheet()
+        logic.actions.restoreWorksheet(previous)
+        logic.actions.setLastRunQuery(previous)
+        logic.actions.setSqlPreviewOpen(true)
+        expect(logic.values.sqlEditorUrl).not.toBeNull()
+        editor.actions.resetConfig()
+        expect(logic.values.sqlPreviewOpen).toBe(false)
+        logic.actions.setSqlPreviewVersion('current')
+        expect(logic.values.sqlEditorUrl).toBeNull()
+        logic.actions.setSqlPreviewVersion('last_run')
+        expect(logic.values.sqlEditorUrl).toBeNull()
     })
 
     it('undoes shelves, filters, calculations and formatting without running a query, and branches after undo', async () => {
