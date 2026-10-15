@@ -1,3 +1,5 @@
+import json
+import tempfile
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
@@ -156,6 +158,8 @@ def _build_resource(
             "auth": auth,
             "max_retries": SP_API_MAX_RETRY_ATTEMPTS,
             "retry_backoff_max_seconds": SP_API_RETRY_BACKOFF_MAX_SECONDS,
+            # Order bodies carry buyer data that only the row maps remove, after any sample is taken.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": [
@@ -303,7 +307,9 @@ def _transactions_resource(
                 windows += transaction_windows(before, now)
             if resume.next_token:
                 initial_paginator_state = {"cursor": resume.next_token}
-    if should_use_incremental_field and (not windows or windows[-1].transaction_status is None):
+    # A first sync reads the whole history already, so the sweep would only repeat rows.
+    has_watermark = should_use_incremental_field and db_incremental_field_last_value is not None
+    if has_watermark and (not windows or windows[-1].transaction_status is None):
         windows.append(deferred_release_sweep(now))
 
     def state_for(window: TransactionWindow, next_token: str | None = None) -> AmazonSellingPartnerResumeConfig:
@@ -383,39 +389,44 @@ def _inventory_rows(
         if marketplace_id in completed:
             continue
         # Pages are read back to back before any row is handed on, because a page token expires
-        # 30 seconds after Amazon issues it.
-        rows: list[dict[str, Any]] = []
-        next_token: str | None = None
-        while True:
-            params: dict[str, Any] = {
-                "granularityType": "Marketplace",
-                "granularityId": marketplace_id,
-                "marketplaceIds": marketplace_id,
-                "details": "true",
-            }
-            if next_token:
-                params["nextToken"] = next_token
-            response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
-            response.raise_for_status()
-            body = response.json()
-            summaries = (body.get("payload") or {}).get("inventorySummaries") or []
-            rows.extend({"marketplaceId": marketplace_id, **summary} for summary in summaries)
-            next_token = (body.get("pagination") or {}).get("nextToken")
-            # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
-            manager.safe_point()
-            if not next_token:
-                break
+        # 30 seconds after Amazon issues it. Rows wait in a temporary file so a large catalog
+        # does not have to fit in memory.
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as spool:
+            row_count = 0
+            next_token: str | None = None
+            while True:
+                params: dict[str, Any] = {
+                    "granularityType": "Marketplace",
+                    "granularityId": marketplace_id,
+                    "marketplaceIds": marketplace_id,
+                    "details": "true",
+                }
+                if next_token:
+                    params["nextToken"] = next_token
+                response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
+                response.raise_for_status()
+                body = response.json()
+                for summary in (body.get("payload") or {}).get("inventorySummaries") or []:
+                    spool.write(json.dumps({"marketplaceId": marketplace_id, **summary}) + "\n")
+                    row_count += 1
+                next_token = (body.get("pagination") or {}).get("nextToken")
+                # The staged cursor does not cover this marketplace, so a hand-off here reads it again.
+                manager.safe_point()
+                if not next_token:
+                    break
 
-        completed = [*completed, marketplace_id]
-        batches = list(batched(rows, INVENTORY_ROWS_PER_BATCH, strict=False))
-        if not batches:
-            manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
-            manager.safe_point()
-            continue
-        for index, batch in enumerate(batches):
-            if index == len(batches) - 1:
+            completed = [*completed, marketplace_id]
+            if row_count == 0:
                 manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
-            yield list(batch)
+                manager.safe_point()
+                continue
+            spool.seek(0)
+            handed_on = 0
+            for lines in batched(spool, INVENTORY_ROWS_PER_BATCH, strict=False):
+                handed_on += len(lines)
+                if handed_on == row_count:
+                    manager.save_state(AmazonSellingPartnerResumeConfig(completed_marketplaces=completed))
+                yield [json.loads(line) for line in lines]
 
 
 def amazon_selling_partner_source(

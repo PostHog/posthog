@@ -135,6 +135,8 @@ class TestOrders:
         assert api_requests[0].param("includedData") == ORDERS_INCLUDED_DATA
         assert [row["orderId"] for row in result.rows] == ["1", "2", "3"]
         assert result.saved_states == [AmazonSellingPartnerResumeConfig(next_token="tok2")]
+        # Order bodies carry buyer data, so no session may store HTTP samples of them.
+        assert result.session_options and all(options.get("capture") is False for options in result.session_options)
 
     @pytest.mark.parametrize(
         ("incremental_field", "last_value", "marketplace_ids", "expected_after", "expected_marketplaces"),
@@ -300,6 +302,15 @@ class TestTransactions:
             window_start="2026-09-01T00:00:00Z", window_end="2026-10-15T11:57:00Z", next_token="n2"
         )
         assert result.committed_states[0] == first_page_state
+
+    def test_a_first_incremental_sync_skips_the_deferred_sweep(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return TOKEN if request.path == TOKEN_PATH else _transactions_page([])
+
+        result = _driver().run("transactions", respond, incremental_field="postedDate")
+
+        assert result.raised is None
+        assert all(request.param("transactionStatus") is None for request in _api_requests(result))
 
     def test_resume_reuses_the_saved_window_end_with_its_token(self) -> None:
         result = _driver().run(
