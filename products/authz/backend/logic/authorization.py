@@ -13,6 +13,7 @@ from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
 )
+from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
 
 from ..client import Consistency, pooled_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
@@ -187,16 +188,77 @@ def check(
         ]
 
 
-# Listing and querying rows gate on the same permission as viewing one row.
-READ_ACTIONS = {Action.LIST: Action.VIEW, Action.QUERY: Action.VIEW}
-
-# Above this many ids the result is not worth inlining into a query, so the subject fails closed.
-MAX_IDS = 1000
-
-
 def list_resources(
     resource: Resource,
     action: Action,
+    subject: Subject | None,
+    context: Context | None,
+    limit: int | None,
+    *,
+    consistency: Consistency = "HIGHER_CONSISTENCY",
+) -> ResourceIds:
+    if action == Action.QUERY:
+        return _query_resource_filter(resource, subject, context, limit, consistency=consistency)
+    validate_context(context)
+    if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+        raise ValueError("List resources requires a supported resource type")
+    if resource.project_id is None:
+        raise ValueError("List resources requires a project")
+    if limit is not None and limit < 1:
+        raise ValueError("Resource limit must be positive")
+    org_id = organization_id(resource)
+    prefix = f"{resource.type}:{org_id}/{resource.project_id}/"
+    relation = action_relation(f"{prefix}0", action)
+    user = actor_key(subject)
+    revision = ready_state(org_id)
+    if revision is None:
+        return ResourceIds(ids=frozenset(), complete=False)
+    with pooled_openfga_client() as client:
+        if client.get_store_id() is None:
+            raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
+        ids: set[str] = set()
+        stream = client.streamed_list_objects(
+            ClientListObjectsRequest(user=user, type=str(resource.type), relation=relation),
+            {"consistency": consistency},
+        )
+        try:
+            for result in stream:
+                if result.object.startswith(prefix):
+                    ids.add(result.object.removeprefix(prefix))
+                    if limit is not None and len(ids) > limit:
+                        if resource.type == ResourceType.DASHBOARD:
+                            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+                        else:
+                            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                                active_authorization_insight_ids,
+                            )
+
+                            active_ids = active_authorization_insight_ids(resource.project_id, ids)
+                        ids = set(active_ids)
+                        if len(ids) > limit:
+                            return ResourceIds(ids=frozenset(), complete=False)
+        finally:
+            stream.close()
+        if resource.type == ResourceType.DASHBOARD:
+            active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+        else:
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                active_authorization_insight_ids,
+            )
+
+            active_ids = active_authorization_insight_ids(resource.project_id, ids)
+        if limit is not None and len(active_ids) > limit:
+            return ResourceIds(ids=frozenset(), complete=False)
+        if ready_state(org_id) != revision:
+            return ResourceIds(ids=frozenset(), complete=False)
+        return ResourceIds(ids=active_ids, complete=True)
+
+
+MAX_IDS = 1000
+
+
+def _query_resource_filter(
+    resource: Resource,
     subject: Subject | None,
     context: Context | None,
     limit: int | None,
@@ -219,7 +281,7 @@ def list_resources(
     org_id = organization_id(resource)
     type_name = resource.type.value
     prefix = f"{type_name}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", READ_ACTIONS.get(action, action))
+    relation = action_relation(f"{prefix}0", Action.VIEW)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
     capped = ResourceIds(ids=frozenset(), complete=False)
@@ -235,7 +297,7 @@ def list_resources(
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
         reader = _Reader(client, user, type_name, prefix, cap, consistency)
-        if action in (Action.VIEW, Action.LIST, Action.QUERY) and reader.allowed(category_key, "can_view"):
+        if reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
                 return capped

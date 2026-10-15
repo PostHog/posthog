@@ -112,14 +112,9 @@ def filter_resource_queryset(
             resource=Resource(type=resource_type, project_id=team_id),
             action=Action.VIEW,
             subject=subject,
-            creator_exempt=True,
         )
         if result.complete:
-            ids = Q(pk__in=result.ids)
-            constraint = ~ids if result.excluded else ids
-            if result.creator_exempt and subject.user_id is not None:
-                constraint |= Q(created_by_id=subject.user_id)
-            allowed |= Q(team_id=team_id) & constraint
+            allowed |= Q(team_id=team_id, pk__in=result.ids)
     return queryset.filter(allowed)
 
 
@@ -143,7 +138,7 @@ def check_resource_category_access(
     if require_category:
         return False
     result = api.list_resources(resource=resource, action=action, subject=subject)
-    return result.complete and bool(result.ids or result.excluded)
+    return result.complete and bool(result.ids)
 
 
 def check_dashboard_category_access(user: User, team: Team, action: Action, *, require_category: bool) -> bool:

@@ -12,8 +12,6 @@ from products.authz.backend.facade.contracts import CheckRequest, Resource, Subj
 from products.authz.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight
 
 
 class TestLegacyAuthorization(BaseTest):
@@ -66,7 +64,10 @@ class TestLegacyAuthorization(BaseTest):
         ) == [Action.VIEW in expected, Action.EDIT in expected]
         listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete
-        assert listed.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
+        assert listed.ids == (frozenset({str(self.dashboard_id)}) if Action.VIEW in expected else frozenset())
+        query_filter = api.list_resources(resource=self.dashboards, action=Action.QUERY, subject=self.subject)
+        assert query_filter.complete
+        assert query_filter.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
         assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
 
     @parameterized.expand(
@@ -104,8 +105,9 @@ class TestLegacyAuthorization(BaseTest):
             team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
         )
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
+        assert not api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject).ids
         assert not api.list_resources(
-            resource=self.dashboards, action=Action.VIEW, subject=self.subject, creator_exempt=True
+            resource=self.dashboards, action=Action.QUERY, subject=self.subject, creator_exempt=True
         ).allows(str(self.dashboard_id), created_by_user_id=self.reader.id, subject_user_id=self.reader.id)
         dashboard_testing.delete_dashboard(team_id=self.team.id, dashboard_id=self.dashboard_id)
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
@@ -143,9 +145,6 @@ class TestLegacyAuthorization(BaseTest):
         )
 
     def test_collaborator_restriction_and_list_limit(self) -> None:
-        insight = Insight.objects.create(team=self.team, created_by=self.reader)
-        DashboardTile.objects.create(team=self.team, dashboard_id=self.dashboard_id, insight=insight)
-        insights = Resource(type=ResourceType.INSIGHT, project_id=self.team.id)
         access_testing.create_access_control(
             team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="member"
         )
@@ -153,28 +152,11 @@ class TestLegacyAuthorization(BaseTest):
             team_id=self.team.id, dashboard_id=self.dashboard_id, level=RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
         assert api.permissions(resource=self.resource, subject=self.subject) == frozenset({Action.VIEW})
-        assert not api.list_resources(resource=self.dashboards, action=Action.EDIT, subject=self.subject).allows(
-            str(self.dashboard_id)
-        )
-        assert not api.list_resources(
-            resource=insights, action=Action.EDIT, subject=self.subject, creator_exempt=True
-        ).allows(str(insight.pk), created_by_user_id=self.reader.id, subject_user_id=self.reader.id)
         dashboard_testing.set_dashboard_collaborator(
             team_id=self.team.id, dashboard_id=self.dashboard_id, user_id=self.reader.id, level=PrivilegeLevel.CAN_EDIT
         )
         assert api.check(resource=self.resource, action=Action.EDIT, subject=self.subject)
-        assert api.list_resources(resource=self.dashboards, action=Action.EDIT, subject=self.subject).allows(
-            str(self.dashboard_id)
-        )
-        assert api.list_resources(resource=insights, action=Action.EDIT, subject=self.subject).allows(str(insight.pk))
-        other_dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
-        listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
-        assert listed.complete and listed.allows(str(other_dashboard_id))
-        # The cap counts the dashboards with a rule of their own, not every dashboard in the project.
-        for dashboard_id in (self.dashboard_id, other_dashboard_id):
-            access_testing.create_access_control(
-                team_id=self.team.id, resource="dashboard", resource_id=str(dashboard_id), access_level="viewer"
-            )
+        dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
         capped = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert api.check(resource=self.resource, action=Action.MANAGE_ACCESS, subject=Subject(user_id=self.user.id))

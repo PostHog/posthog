@@ -35,16 +35,24 @@ class LegacyDashboardAuthorization:
         dashboard = self.dashboards[dashboard_id]
         return dashboard is not None and self._check(dashboard, level)
 
-    def ids(self, level: AccessControlLevelResource, limit: int) -> frozenset[str] | None:
-        dashboards = list(Dashboard.objects.filter(team_id=self.team.id, deleted=False).prefetch_related("privileges"))
+    def ids(self, level: AccessControlLevelResource, limit: int | None) -> frozenset[str] | None:
+        ids: set[str] = set()
+        # ponytail: full dashboard scan; use queryset filtering before a production rollout.
+        dashboards = list(Dashboard.objects.filter(team_id=self.team.id))
         self.access.preload_object_access_controls(dashboards)
-        allowed: set[str] = set()
         for dashboard in dashboards:
+            self.dashboards[str(dashboard.pk)] = dashboard
             if self._check(dashboard, level):
-                allowed.add(str(dashboard.id))
-                if len(allowed) > limit:
+                ids.add(str(dashboard.id))
+                if limit is not None and len(ids) > limit:
                     return None
-        return frozenset(allowed)
+        return frozenset(ids)
+
+
+def active_authorization_dashboard_ids(team_id: int, ids: Collection[str]) -> frozenset[str]:
+    return frozenset(
+        str(id) for id in Dashboard.objects.filter(team_id=team_id, id__in=ids).values_list("id", flat=True)
+    )
 
 
 def insight_dashboard_ids(team_id: int, insight_ids: Collection[int] | None = None) -> dict[int, tuple[int, ...]]:

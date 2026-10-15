@@ -682,8 +682,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "allowed_table" in serialized
         assert "denied_table" not in serialized
 
-    @parameterized.expand([("inherited_denial", False), ("explicit_table_grant", True)])
-    def test_source_denial_reaches_its_tables_but_not_self_managed(self, _name: str, table_grant: bool):
+    def test_source_denial_reaches_its_tables_but_not_self_managed(self):
         # The gate resolves each table through RESOURCE_FALLBACK_MAP, so a rule about a source must
         # deny the tables it syncs while leaving tables no source owns untouched. Pins the gate's
         # resolution call: a per-table or umbrella test passes even if the gate stops consulting the
@@ -714,19 +713,9 @@ class TestWarehouseTableAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        self.organization.uses_most_specific_access_resolution = True
-        self.organization.save()
-        if table_grant:
-            self._create_ac(
-                resource="warehouse_table",
-                resource_id=str(sourced_table.id),
-                access_level="viewer",
-                member=self._membership(),
-            )
-
         database = Database.create_for(team=self.team, user=self.user)
 
-        assert (sourced_table.name not in database._denied_tables) is table_grant
+        assert sourced_table.name in database._denied_tables
         # allowed_table has no source, so no rule about sources may reach it.
         assert "allowed_table" not in database._denied_tables
 

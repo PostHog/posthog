@@ -21,7 +21,7 @@ from . import authorization, request_context
 
 
 def dashboard_level(action: Action) -> AccessControlLevelResource:
-    if action in (Action.VIEW, Action.LIST, Action.QUERY):
+    if action in (Action.VIEW, Action.LIST):
         return "viewer"
     if action in (Action.EDIT, Action.DELETE, Action.SHARE, Action.CREATE):
         return "editor"
@@ -135,9 +135,45 @@ class LegacyAuthorization:
         return self.dashboard_access(access).check(resource.id, level)
 
     def list_resources(
+        self, resource: Resource, action: Action, subject: Subject | None, limit: int | None
+    ) -> ResourceIds:
+        if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+            raise ValueError("List resources requires a supported resource type")
+        if resource.project_id is None:
+            raise ValueError("List resources requires a project")
+        if limit is not None and limit < 1:
+            raise ValueError("Resource limit must be positive")
+        authorization.action_relation(f"{resource.type}:0", action)
+        authorization.organization_id(resource)
+        user = self.user(subject)
+        if user is None:
+            return ResourceIds(ids=frozenset(), complete=True)
+        access = self.user_access(user, resource)
+        if not access.has_project_access:
+            return ResourceIds(ids=frozenset(), complete=True)
+        if resource.type == ResourceType.DASHBOARD:
+            dashboard_ids = self.dashboard_access(access).ids(dashboard_level(action), limit)
+            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
+
+        assert access.team is not None
+        ids: set[str] = set()
+        from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
+            authorization_insights,
+        )
+
+        insight_ids = authorization_insights(access.team.id)
+        for insight in insight_ids:
+            if insight.deleted:
+                continue
+            if self.check_insight(access, action, insight):
+                ids.add(str(insight.id))
+                if limit is not None and len(ids) > limit:
+                    return ResourceIds(ids=frozenset(), complete=False)
+        return ResourceIds(ids=frozenset(ids), complete=True)
+
+    def query_resource_filter(
         self,
         resource: Resource,
-        action: Action,
         subject: Subject | None,
         limit: int | None,
         creator_exempt: bool,
@@ -150,7 +186,7 @@ class LegacyAuthorization:
         if limit is not None and limit < 1:
             raise ValueError("Resource limit must be positive")
         cap = limit if limit is not None else authorization.MAX_IDS
-        level = dashboard_level(action)
+        level: AccessControlLevelResource = "viewer"
         if user_access_control is not None and subject is not None and subject.user_id == user_access_control.user.pk:
             preloaded_user = user_access_control.user
             if isinstance(preloaded_user, User) and preloaded_user.is_active:
@@ -165,21 +201,6 @@ class LegacyAuthorization:
 
         if not access.has_project_access:
             return ResourceIds(ids=frozenset(), complete=True)
-        if resource.type == ResourceType.DASHBOARD and level != "viewer":
-            dashboard_ids = self.dashboard_access(access).ids(level, cap)
-            return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)
-        if resource.type == ResourceType.INSIGHT and level != "viewer":
-            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- defer product analytics models
-                authorization_insights,
-            )
-
-            insight_ids: set[str] = set()
-            for insight in authorization_insights(resource.project_id):
-                if not insight.deleted and self.check_insight(access, action, insight):
-                    insight_ids.add(str(insight.id))
-                    if len(insight_ids) > cap:
-                        return ResourceIds(ids=frozenset(), complete=False)
-            return ResourceIds(ids=frozenset(insight_ids), complete=True)
         if access.is_organization_admin:
             return build(frozenset(), excluded=True)
         scope = cast(APIScopeObject, resource.type.value)
@@ -233,4 +254,7 @@ def list_resources(
     user_access_control: UserAccessControl | None = None,
 ) -> ResourceIds:
     authorization.validate_context(context)
-    return evaluator().list_resources(resource, action, subject, limit, creator_exempt, user_access_control)
+    engine = evaluator()
+    if action == Action.QUERY:
+        return engine.query_resource_filter(resource, subject, limit, creator_exempt, user_access_control)
+    return engine.list_resources(resource, action, subject, limit)
