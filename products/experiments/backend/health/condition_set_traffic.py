@@ -1,7 +1,9 @@
 """
 Loads the `$feature_flag_called` events of a running experiment's flag in the last days, by the release condition
 set that served each person. The forced-variant check grades its finding by the share of people that the pinned
-sets served.
+sets served. These are the people the flag served a variant, not the exposures that the experiment's exposure
+criteria count when they name another event, filters or an action, so the finding speaks of the users who got a
+variant.
 
 The flag service names the set in the reason "Matched condition set N", numbered from 1 in the stored order of the
 conditions (`get_reason_description` in rust/feature-flags/src/api/types.rs). Only calls of the flag's current
