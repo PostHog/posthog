@@ -56,6 +56,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test import replay_gate_fixtures
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -4469,6 +4470,43 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
     def test_valid_session_recording_linked_flag(self, _name: str, value: dict | None, expected: dict | None) -> None:
         assert TeamSerializer.validate_session_recording_linked_flag(value) == expected
         assert ProjectBackwardCompatSerializer.validate_session_recording_linked_flag(value) == expected
+
+    @staticmethod
+    def _trigger_groups_gated_on(flag: Any) -> dict:
+        return {
+            **replay_gate_fixtures.trigger_groups({"events": ["$pageview"], "flag": flag}),
+            "fallbackSampleRate": 0.1,
+        }
+
+    @parameterized.expand(
+        [
+            ["non-numeric string id", "abc"],
+            ["null id", None],
+        ]
+    )
+    def test_invalid_session_recording_trigger_groups_flag_id(self, _name: str, flag_id: Any) -> None:
+        self._assert_field_error(
+            "session_recording_trigger_groups",
+            self._trigger_groups_gated_on({"id": flag_id, "key": "flag-key"}),
+            "invalid",
+            "Group 0: flag 'id' must be an integer.",
+        )
+
+    @parameterized.expand(
+        [
+            ["integer id", {"id": 123, "key": "flag-key"}, {"id": 123, "key": "flag-key"}],
+            [
+                "numeric string id with variant",
+                {"id": "123", "key": "flag-key", "variant": "test"},
+                {"id": 123, "key": "flag-key", "variant": "test"},
+            ],
+        ]
+    )
+    def test_valid_session_recording_trigger_groups_flag_id(self, _name: str, flag: dict, expected: dict) -> None:
+        value = self._trigger_groups_gated_on(flag)
+        expected_groups = self._trigger_groups_gated_on(expected)
+        assert TeamSerializer.validate_session_recording_trigger_groups(value) == expected_groups
+        assert ProjectBackwardCompatSerializer.validate_session_recording_trigger_groups(value) == expected_groups
 
     @parameterized.expand(
         [
