@@ -251,7 +251,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             }
         assert len(due) == expected_slots
 
-    def _copy(self, legacy_id: UUID, **overrides: Any) -> None:
+    def _copy(self, legacy_id: UUID, *, revive: bool = False, **overrides: Any) -> None:
         fields: dict[str, Any] = {
             "legacy_configuration_id": legacy_id,
             "team_id": self.team.id,
@@ -268,7 +268,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             "snooze_until": None,
         }
         fields.update(overrides)
-        upsert_configuration(PlatformAlertUpsert(**fields))
+        upsert_configuration(PlatformAlertUpsert(**fields), revive=revive)
 
     @parameterized.expand(
         [
@@ -283,7 +283,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             ("a_new_cadence_takes_the_source_schedule", False, 60, timedelta(minutes=-1), timedelta(minutes=34)),
         ]
     )
-    def test_a_second_copy_keeps_the_schedule_the_platform_owns(
+    def test_a_second_copy_keeps_what_the_platform_owns_until_the_copy_comes_back_on(
         self,
         _name: str,
         disabled_between: bool,
@@ -299,18 +299,29 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             schedule_restriction=quiet_hours,
             next_check_at=None if first_offset is None else self.cutoff + first_offset,
         )
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(consecutive_failures=3)
+            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(
+                state="firing", firing_started_at=self.cutoff
+            )
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
-        self._copy(
-            legacy_id,
-            schedule_restriction=quiet_hours,
-            next_check_at=self.cutoff + timedelta(minutes=34),
-            check_interval_minutes=interval_on_rerun,
-        )
+        with time_machine.travel(self.cutoff, tick=False):
+            self._copy(
+                legacy_id,
+                schedule_restriction=quiet_hours,
+                next_check_at=self.cutoff + timedelta(minutes=34),
+                check_interval_minutes=interval_on_rerun,
+            )
 
         with team_scope(self.team.id):
             copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+            alert = PlatformAlert.objects.get(configuration=copied)
         assert copied.next_check_at == self.cutoff + expected_offset
+        # A copy that comes back on starts clean, as the source's own enable does.
+        assert (alert.state, alert.firing_started_at, copied.consecutive_failures) == (
+            ("not_firing", None, 0) if disabled_between else ("firing", self.cutoff, 3)
+        )
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()
@@ -339,3 +350,37 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         copy(None)
         assert snooze_seen_by_check() == ("firing", None)
+
+    def test_a_source_turned_back_on_restarts_a_broken_copy_past_any_check_in_flight(self) -> None:
+        legacy_id = uuid4()
+        self._copy(legacy_id)
+        with team_scope(self.team.id):
+            copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+            PlatformAlertConfiguration.objects.filter(id=copied.id).update(consecutive_failures=5)
+            PlatformAlert.objects.filter(configuration=copied).update(state="broken")
+
+        with time_machine.travel(self.cutoff, tick=False):
+            self._copy(legacy_id, revive=True)
+        # A check that read the source as off before it came back on reports a stop.
+        with self.captureOnCommitCallbacks(execute=True):
+            recorded = record_outcomes(
+                self.team.id,
+                [
+                    PlatformAlertOutcome(
+                        configuration_id=copied.id,
+                        evaluation_key="window:stale",
+                        kind=AlertEventKind.CHECK,
+                        new_state="broken",
+                        notified=False,
+                        consecutive_failures=5,
+                        disable=True,
+                    )
+                ],
+                self.cutoff,
+            )
+
+        assert recorded == 0
+        with team_scope(self.team.id):
+            copied = PlatformAlertConfiguration.objects.get(id=copied.id)
+            alert = PlatformAlert.objects.get(configuration=copied)
+        assert (copied.enabled, copied.consecutive_failures, alert.state) == (True, 0, "not_firing")
