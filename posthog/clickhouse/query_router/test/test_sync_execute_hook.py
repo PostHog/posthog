@@ -72,6 +72,7 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         self.redis = get_client()
         self.addCleanup(self._delete_router_keys)
         self.clock = FakeClock()
+        self.enterContext(patch("time.time", self.clock.time))
         router = get_query_router()
         self.enterContext(patch.object(router, "get_time", self.clock.time))
         self.enterContext(patch.object(router, "sleep", self.clock.sleep))
@@ -110,9 +111,9 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         assert _running_slots(self.redis, Pool.OFFLINE) == 0
         assert self.ch_client.log_comment()["query_router_class"] == "background"
 
-    def test_dropped_query_is_counted_for_its_team_and_takes_no_clickhouse_connection(self) -> None:
+    def test_dropped_query_is_counted_and_takes_no_clickhouse_connection(self) -> None:
         self._enforce_with_a_full_pool()
-        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background", "team_id": "1"})
+        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background"})
         drops_before = REGISTRY.get_sample_value(*drops) or 0.0
 
         with tags_context(kind="celery", id="posthog.tasks.example"):
