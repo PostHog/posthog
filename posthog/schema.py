@@ -5147,6 +5147,7 @@ class BIField(BaseModel):
     datePart: DatePart | None = None
     expression: str
     id: str
+    label: str | None = None
     localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
     localFieldId: str | None = None
     name: str
