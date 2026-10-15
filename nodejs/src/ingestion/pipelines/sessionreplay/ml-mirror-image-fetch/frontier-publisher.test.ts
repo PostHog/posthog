@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {
@@ -9,7 +10,7 @@ import {
     MAX_RECORD_BYTES,
     parseCollectedUrlsRecord,
 } from './collected-urls-record'
-import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
+import { FrontierPublisher, FrontierPublisherOptions, RepublishBatch } from './frontier-publisher'
 import { ImageFetchResult } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 
@@ -45,7 +46,7 @@ interface SentMessage {
     headers?: Record<string, string>
 }
 
-function build(): {
+function build(options: Partial<FrontierPublisherOptions> = {}): {
     publisher: FrontierPublisher
     batch: RepublishBatch
     sent: SentMessage[]
@@ -63,6 +64,7 @@ function build(): {
         delayTiers: TIERS,
         maxConcurrentImagePublishes: 2,
         maxConcurrentRepublishes: 2,
+        ...options,
     })
     return { publisher, batch: publisher.createRepublishBatch(), sent }
 }
@@ -135,6 +137,20 @@ describe('FrontierPublisher', () => {
             ok: true,
             candidates: [{ notBeforeMs: 1_700_000_000_000 + delayMs }],
         })
+    })
+
+    it.each([
+        ['a v3 session job', true, '2'],
+        // A v4 job back at wire version 2 would fail the v4 lane's version check and go to the dead-letter topic.
+        ['a v4 job, which has no v3 session key', false, '1'],
+    ])('republishes %s at its wire version', async (_name, sessionKeyed, version) => {
+        const { batch, sent } = build({ sessionKeyed })
+        jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
+
+        await batch.republish(candidate({ sessionId: 'session' }), candidate(), 'retry')
+        await batch.flush()
+
+        expect(sent[0].headers?.[INGESTION_VERSION_HEADER]).toBe(version)
     })
 
     it('groups delayed jobs by destination topic and registrable domain', async () => {

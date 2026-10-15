@@ -11,9 +11,10 @@ prometheus.collectDefaultMetrics()
 
 export function initializePrometheusLabels(
     ingestionPipeline: string | null = null,
-    ingestionLane: string | null = null
+    ingestionLane: string | null = null,
+    extraLabels: Record<string, string> = {}
 ): void {
-    const labels: Record<string, string> = {}
+    const labels: Record<string, string> = { ...extraLabels }
     if (ingestionPipeline) {
         labels['ingestion_pipeline'] = ingestionPipeline
     }

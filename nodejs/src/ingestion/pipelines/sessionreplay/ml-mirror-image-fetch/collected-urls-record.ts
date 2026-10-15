@@ -101,7 +101,19 @@ function isStoredRepublishReason(value: unknown): value is StoredRepublishReason
     )
 }
 
-export function parseCollectedUrlsRecord(value: Buffer | null, key: string | null): RecordParse {
+export type UrlRefFilter = (ref: string) => boolean
+
+/** The v3 lane fetches scoped v2 and v3 references and global ones. */
+export function isV3LaneUrlRef(originalRef: string): boolean {
+    const ref = parseImageRef(originalRef)
+    return !!ref && ref.source === 'url' && ref.pseudoTeam === undefined
+}
+
+export function parseCollectedUrlsRecord(
+    value: Buffer | null,
+    key: string | null,
+    acceptsRef: UrlRefFilter = isV3LaneUrlRef
+): RecordParse {
     if (!value || !key) {
         return { ok: false, reason: 'malformed' }
     }
@@ -135,7 +147,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
     const rejected: { reason: UrlDropReason }[] = []
     const skipped: { reason: UrlSkipReason }[] = []
     for (const job of parsed.jobs) {
-        const parsedJob = parseJob(job, key)
+        const parsedJob = parseJob(job, key, acceptsRef)
         if (parsedJob.kind === 'rejected') {
             return { ok: false, reason: parsedJob.reason }
         }
@@ -213,7 +225,7 @@ type ParsedJob =
     | { kind: 'rejected'; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> }
     | { kind: 'skipped'; reason: UrlSkipReason }
 
-function parseJob(job: unknown, kafkaKey: string): ParsedJob {
+function parseJob(job: unknown, kafkaKey: string, acceptsRef: UrlRefFilter): ParsedJob {
     if (!isRecord(job)) {
         return { kind: 'rejected', reason: 'bad_url' }
     }
@@ -246,8 +258,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     ) {
         return { kind: 'rejected', reason: 'bad_url' }
     }
-    const ref = parseImageRef(originalRef)
-    if (!ref || ref.source !== 'url' || ref.pseudoTeam !== undefined) {
+    if (!acceptsRef(originalRef)) {
         return { kind: 'rejected', reason: 'bad_ref' }
     }
     const verdict = tryCanonicalizeUrl(currentUrl)

@@ -6,6 +6,10 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1H,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
 } from '~/common/config/kafka-topics'
 import {
@@ -20,6 +24,10 @@ import { logger } from '~/common/utils/logger'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
+    UrlRefFilter,
+    isV3LaneUrlRef,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/collected-urls-record'
+import {
     ConfigurationPolicyService,
     HttpConfigurationFetcher,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
@@ -33,13 +41,16 @@ import {
     ImageFetchBatchJoiner,
     assertImageFetchBatchTarget,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
-import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import { HttpImageFetcher, ImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import type { FetchedImageSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-sink'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/pool-window-batch-handler'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/tophog-metrics'
-import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
+import {
+    UrlFetchConsumer,
+    UrlFetchConsumerOptions,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
@@ -72,13 +83,63 @@ const POOL_MAX_BATCHES_IN_FLIGHT_PER_MEMBER = 4
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
 
-const BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS = [
+/** One image fetch lane: its frontier, the three delay tiers it relays through, and what sets it apart. */
+export interface ImageFetchLane {
+    frontier: string
+    retry1m: string
+    retry10m: string
+    retry1h: string
+    /** The setting that names the lane's consumer group. Each retry tier's group adds a suffix to it. */
+    groupIdSetting: 'SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID' | 'AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_GROUP_ID'
+    acceptsRef: UrlRefFilter
+    /** Whether a job with a session ID belongs to a session with a v3 key, which sets its wire version. */
+    sessionKeyed: boolean
+}
+
+export const V3_IMAGE_FETCH_LANE: ImageFetchLane = {
+    frontier: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    retry1m: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    retry10m: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    retry1h: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+    groupIdSetting: 'SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID',
+    acceptsRef: isV3LaneUrlRef,
+    sessionKeyed: true,
+}
+
+/** A dead letter must never land on a topic either lane consumes, which would loop it back. */
+export const BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS = [
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1H,
 ]
+
+export interface HostLimits {
+    requestsPerSecond: number
+    burst: number
+    maxConcurrent: number
+}
+
+/** What a lane adds to the v3 fetch lane: where images go, which jobs it drops first, and its politeness. */
+export interface ImageFetchLaneParts {
+    imageSink: FetchedImageSink
+    admitCandidates?: UrlFetchConsumerOptions['admitCandidates']
+    hostLimits?: HostLimits
+    wrapFetcher?: (fetcher: ImageFetcher) => ImageFetcher
+}
+
+export function v3HostLimits(config: IngestionSessionReplayMlMirrorServerConfig): HostLimits {
+    return {
+        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+    }
+}
 
 /** The addon holds a 15 MB native library and `index.ts` imports every server, so it loads on first use. */
 let anonymizer: typeof import('@posthog/replay-anonymizer') | undefined
@@ -94,15 +155,17 @@ function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
 
 export function buildFrontierPublisher(
     producer: KafkaProducer,
-    maxConcurrentImagePublishes: number
+    maxConcurrentImagePublishes: number,
+    lane: ImageFetchLane = V3_IMAGE_FETCH_LANE
 ): FrontierPublisher {
     return new FrontierPublisher(producer, {
-        frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        sessionKeyed: lane.sessionKeyed,
+        frontierTopic: lane.frontier,
         scrubTopic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
         delayTiers: [
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000, metricTopic: 'retry_1m' },
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000, metricTopic: 'retry_10m' },
-            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000, metricTopic: 'retry_1h' },
+            { topic: lane.retry1m, delayMs: 60_000, metricTopic: 'retry_1m' },
+            { topic: lane.retry10m, delayMs: 600_000, metricTopic: 'retry_10m' },
+            { topic: lane.retry1h, delayMs: 3_600_000, metricTopic: 'retry_1h' },
         ],
         maxConcurrentImagePublishes,
         maxConcurrentRepublishes: maxConcurrentImagePublishes,
@@ -113,13 +176,13 @@ export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
     publisher: FrontierPublisher,
     topHogMetrics: ImageFetchTopHogMetrics,
-    imageSink: FetchedImageSink = publisher
+    imageSink: FetchedImageSink = publisher,
+    hostLimits: HostLimits = v3HostLimits(config),
+    wrapFetcher: (fetcher: ImageFetcher) => ImageFetcher = (fetcher) => fetcher
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
-        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
-        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
-        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+        ...hostLimits,
         breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES,
         breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS,
         breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS,
@@ -139,21 +202,22 @@ export function buildFetchRunner(
         )
     )
     return new FetchRunner(
-        new HttpImageFetcher(
-            {
-                maxUrlLength: MAX_REDIRECT_URL_LENGTH,
-                // The crate's rule, so a redirect target meets the check the collector already applied
-                // to the first candidate rather than a second answer to the same question.
-                isPublicHost: (host) => getAnonymizer().isPublicHost(host),
-            },
-            webBotAuthSigner
+        wrapFetcher(
+            new HttpImageFetcher(
+                {
+                    maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+                    // The crate's rule, so a redirect target meets the check the collector already applied
+                    // to the first candidate rather than a second answer to the same question.
+                    isPublicHost: (host) => getAnonymizer().isPublicHost(host),
+                },
+                webBotAuthSigner
+            )
         ),
         budget,
         scheduler,
         configurationPolicy,
         {
-            maxConcurrentPerRegistrableDomain:
-                config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+            maxConcurrentPerRegistrableDomain: hostLimits.maxConcurrent,
             maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
             batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
             maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
@@ -174,13 +238,14 @@ export function buildFetchRunner(
 }
 
 export function buildImageFetchConsumerConfigs(
-    config: IngestionSessionReplayMlMirrorServerConfig
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    lane: ImageFetchLane = V3_IMAGE_FETCH_LANE
 ): KafkaConsumerV2Config[] {
     const targetBatchCount = config.SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH
     assertImageFetchBatchTarget(targetBatchCount)
     return Array.from({ length: targetBatchCount }, () => ({
-        topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
-        groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
+        topic: lane.frontier,
+        groupId: config[lane.groupIdSetting],
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
@@ -271,6 +336,8 @@ export async function shutdownImageFetchConsumers(
  * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
 export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerServer {
+    /** The topics this lane reads and writes. The v4 lane overrides them. */
+    protected readonly lane: ImageFetchLane = V3_IMAGE_FETCH_LANE
     private keyManager?: MlKeyManager
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
@@ -342,20 +409,31 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
         const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
         const publisher = buildFrontierPublisher(
             producer,
-            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
+            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+            this.lane
         )
         const deadLetterTopic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC
         const deadLetters = deadLetterTopic
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
             : null
 
-        const fetchRunner = buildFetchRunner(this.config, publisher, topHogMetrics)
+        const laneParts = await this.buildLaneParts(publisher)
+        const fetchRunner = buildFetchRunner(
+            this.config,
+            publisher,
+            topHogMetrics,
+            laneParts.imageSink,
+            laneParts.hostLimits,
+            laneParts.wrapFetcher
+        )
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
             publisher,
             {
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
+                acceptsRef: this.lane.acceptsRef,
+                admitCandidates: laneParts.admitCandidates,
             },
             fetchRunner,
             deadLetters,
@@ -367,7 +445,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             continuousPool: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL,
         })
 
-        const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
+        const consumerConfigs = buildImageFetchConsumerConfigs(this.config, this.lane)
         const batchJoiner = new ImageFetchBatchJoiner(
             imageFetchBatchesPerPass(this.config, consumerConfigs.length),
             (messages) => fetchConsumer.handleBatch(messages, Date.now())
@@ -412,6 +490,11 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 )
             )
         )
+    }
+
+    /** The v3 lane sends fetched images to the scrub topic through the publisher. */
+    protected buildLaneParts(publisher: FrontierPublisher): Promise<ImageFetchLaneParts> {
+        return Promise.resolve({ imageSink: publisher })
     }
 
     protected getCleanupResources(): CleanupResources {

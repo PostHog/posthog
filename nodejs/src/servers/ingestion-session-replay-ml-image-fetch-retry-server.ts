@@ -1,11 +1,5 @@
 import { LibrdKafkaError } from 'node-rdkafka'
 
-import {
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
-} from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig, findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
@@ -16,6 +10,7 @@ import { CaptureWatermark, capturedRecords } from '~/ingestion/pipelines/session
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import { CleanupResources } from './base-server'
+import { ImageFetchLane, V3_IMAGE_FETCH_LANE } from './ingestion-session-replay-ml-image-fetch-server'
 import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /**
@@ -28,20 +23,17 @@ const POLL_INTERVAL_MARGIN_MS = 60_000
 const MAX_POLL_INTERVAL_MS = 86_400_000
 const REVOKED_PARTITION_CODES = new Set([-172, -190, -142, -144])
 
-/** The topics the publisher writes to. A pod drains one of these and nothing else. */
-const DELAY_TOPICS = [
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
-    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
-]
-
 export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsumerServer {
+    /** The lane whose delay tiers this pod relays. The v4 lane overrides it. */
+    protected readonly lane: ImageFetchLane = V3_IMAGE_FETCH_LANE
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     protected async startServices(): Promise<void> {
         const topic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC
         const delayMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS
         const batchSize = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE
+        // The topics the publisher writes to. A pod drains one of these and nothing else.
+        const delayTopics = [this.lane.retry1m, this.lane.retry10m, this.lane.retry1h]
         const producerDeliveryTimeoutMs = Number(
             this.config.KAFKA_INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS
         )
@@ -49,9 +41,9 @@ export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsu
         // idle while the tier filled. Naming the three the publisher writes to also stops a pod
         // draining the frontier itself, which has no period and would publish every record straight
         // back to it.
-        if (!DELAY_TOPICS.includes(topic)) {
+        if (!delayTopics.includes(topic)) {
             throw new Error(
-                `SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC must name one of ${DELAY_TOPICS.join(', ')}, got "${topic}"`
+                `SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC must name one of ${delayTopics.join(', ')}, got "${topic}"`
             )
         }
         if (!Number.isInteger(batchSize) || batchSize < 1) {
@@ -66,7 +58,7 @@ export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsu
 
         const consumerConfig: KafkaConsumerConfig = {
             topic,
-            groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID}-retry-${delayMs}`,
+            groupId: `${this.config[this.lane.groupIdSetting]}-retry-${delayMs}`,
             autoCommit: true,
             // Stored after every publish in the batch is acknowledged.
             autoOffsetStore: false,
@@ -107,7 +99,7 @@ export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsu
                     })
                 }
             },
-            frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+            frontierTopic: this.lane.frontier,
             delayMs,
             heartbeat: () => consumer.reportDeliberateWait(),
         })

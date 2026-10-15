@@ -28,6 +28,8 @@ export interface FrontierPublisherOptions {
     delayTiers: DelayTier[]
     maxConcurrentImagePublishes: number
     maxConcurrentRepublishes: number
+    /** False for a lane whose jobs carry no v3 session key, so a job with a session ID stays at wire version 1. */
+    sessionKeyed?: boolean
 }
 
 export type RepublishResult = 'queued' | 'refused_delay'
@@ -105,7 +107,8 @@ export class FrontierPublisher implements FetchedImageSink {
             this.options.frontierTopic,
             this.delayTiers,
             this.republishes,
-            deadlineAtMonotonicMs
+            deadlineAtMonotonicMs,
+            this.options.sessionKeyed ?? true
         )
     }
 
@@ -113,7 +116,10 @@ export class FrontierPublisher implements FetchedImageSink {
         if (!result.bytes || !result.contentType) {
             throw new Error('an image publish needs response bytes and a content type')
         }
-        const record = mlKafkaRecord(candidate.sessionId ? '2' : '1', result.bytes)
+        const record = mlKafkaRecord(
+            (this.options.sessionKeyed ?? true) && candidate.sessionId ? '2' : '1',
+            result.bytes
+        )
         const headers: Record<string, string> = {
             'content-type': result.contentType,
             [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
@@ -148,7 +154,8 @@ class BufferedRepublishBatch implements RepublishBatch {
         private readonly frontierTopic: string,
         private readonly delayTiers: DelayTier[],
         private readonly republishes: ConcurrencyController,
-        private readonly deadlineAtMonotonicMs: number
+        private readonly deadlineAtMonotonicMs: number,
+        private readonly sessionKeyed: boolean
     ) {}
 
     public republish(
@@ -304,7 +311,7 @@ class BufferedRepublishBatch implements RepublishBatch {
                         }
                         try {
                             const record = mlKafkaRecord(
-                                plan.candidates[0].sessionId ? '2' : '1',
+                                this.sessionKeyed && plan.candidates[0].sessionId ? '2' : '1',
                                 serializeFrontierRecord(plan.candidates)
                             )
                             await this.producer.produce({

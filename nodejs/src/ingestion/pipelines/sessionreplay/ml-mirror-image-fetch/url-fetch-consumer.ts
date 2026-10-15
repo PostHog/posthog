@@ -13,6 +13,7 @@ import {
     FetchCandidate,
     MAX_HOPS,
     UrlDropReason,
+    UrlRefFilter,
     UrlSkipReason,
     parseCollectedUrlsRecord,
 } from './collected-urls-record'
@@ -47,6 +48,10 @@ type RejectedFrontierRecord = {
 export interface UrlFetchConsumerOptions {
     seenTtlSeconds: number
     dryRun: boolean
+    /** The references this lane fetches. The default is the v3 lane's. */
+    acceptsRef?: UrlRefFilter
+    /** Drops jobs before any request for them, and resolves to the jobs that stay. The lane counts what it drops. */
+    admitCandidates?: (candidates: FetchCandidate[], nowMs: number) => Promise<FetchCandidate[]>
 }
 
 export class UrlFetchConsumer {
@@ -162,8 +167,12 @@ export class UrlFetchConsumer {
                     }
                 }
             }
-            const candidates = [...candidatesByRef.values()]
+            const parsedCandidates = [...candidatesByRef.values()]
             candidatesByRef.clear()
+            const candidates =
+                this.options.admitCandidates && !this.options.dryRun && parsedCandidates.length > 0
+                    ? await this.options.admitCandidates(parsedCandidates, nowMs)
+                    : parsedCandidates
             const origins = new Map<string, number>()
             const registrableDomains = new Map<string, number>()
             const partitionOrigins = new Map<number, Map<string, number>>()
@@ -299,7 +308,7 @@ export class UrlFetchConsumer {
 
     private parse(message: Message): ReturnType<typeof parseCollectedUrlsRecord> {
         try {
-            return parseCollectedUrlsRecord(message.value, message.key?.toString() ?? null)
+            return parseCollectedUrlsRecord(message.value, message.key?.toString() ?? null, this.options.acceptsRef)
         } catch (error) {
             logger.error('🌐', 'ml_image_fetch_record_parse_threw', {
                 error: error instanceof Error ? error.name : 'unknown',
