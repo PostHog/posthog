@@ -381,8 +381,8 @@ def query_author_workflow_costs(
 # The window-cost shape twice over — the current window and the equal-length one before it — as
 # per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
 # scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
-# __QUEUE_AGG__ rides the same scan: the merge-queue slice of each window's billable seconds.
-# __DEPOT_CI_AGG__ does the same for the slice that ran on the Depot CI engine.
+# __QUEUE_AGG__ and __DEPOT_CI_AGG__ ride the same scan: the merge-queue and Depot CI engine slices
+# of each window's billable seconds.
 _WINDOW_COST_WITH_PREV_SELECT = """
     SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__, __DEPOT_CI_AGG__
     FROM __COST_SOURCE__ AS c
@@ -394,9 +394,9 @@ _WINDOW_COST_WITH_PREV_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class WindowCostsWithPrev:
-    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue slice
-    of each window's billable seconds — carried on the same scan so queue spend never needs a
-    second pass over the cost source. The Depot CI engine slice rides the same scan."""
+    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue and
+    Depot CI engine slices of each window's billable seconds. The slices come from the same scan,
+    so they never need a second pass over the cost source."""
 
     by_workflow: dict[str, PRCostAggregate]
     by_workflow_prev: dict[str, PRCostAggregate]

@@ -1462,8 +1462,7 @@ class RepoOverview:
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
-    # The slice of billable_minutes whose jobs ran on the Depot CI engine. The remainder is not
-    # GitHub-billed time: it ran on the GitHub Actions engine, on Depot runners.
+    # The slice of billable_minutes whose jobs ran on the Depot CI engine, not on GitHub Actions.
     depot_ci_billable_minutes: float | None
     depot_ci_billable_minutes_prev: float | None
     # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
