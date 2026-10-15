@@ -838,22 +838,21 @@ def team_api_test_factory():
             first.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
             stale.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
 
-            self.team.refresh_from_db()
+            updated = Team.objects.get(pk=self.team.pk)
+            current_primary = updated.secret_api_token
+            current_backup = updated.secret_api_token_backup
+            assert current_primary is not None and current_backup is not None
             mirrored = set(
                 ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
             )
-            self.assertEqual(
-                mirrored,
-                {hash_key_value(self.team.secret_api_token), hash_key_value(self.team.secret_api_token_backup)},
-            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary), hash_key_value(current_backup)})
 
             # Deleting the backup from an instance that predates both rotations must not
             # write its stale primary back over the current token.
-            current_primary = self.team.secret_api_token
             first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
-            self.team.refresh_from_db()
-            self.assertEqual(self.team.secret_api_token, current_primary)
-            self.assertIsNone(self.team.secret_api_token_backup)
+            updated = Team.objects.get(pk=self.team.pk)
+            self.assertEqual(updated.secret_api_token, current_primary)
+            self.assertIsNone(updated.secret_api_token_backup)
             mirrored = set(
                 ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
             )
