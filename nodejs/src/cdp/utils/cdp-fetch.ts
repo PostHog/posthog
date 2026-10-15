@@ -119,8 +119,10 @@ export async function cdpTrackedFetch({
     templateId,
     teamId,
     hogFunctionId,
+    retryConnectionErrors = true,
 }: {
     url: string
+    retryConnectionErrors?: boolean
     fetchParams: FetchOptions
     templateId: string
 } & CdpFetchAttribution): Promise<{
@@ -143,7 +145,7 @@ export async function cdpTrackedFetch({
     cdpHttpRequestTiming.observe(fetchDuration)
     cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
 
-    if (fetchError && isConnectionLevelError(fetchError)) {
+    if (retryConnectionErrors && fetchError && isConnectionLevelError(fetchError)) {
         logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
             url,
             error: fetchError,

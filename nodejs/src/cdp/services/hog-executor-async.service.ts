@@ -548,6 +548,7 @@ export class HogExecutorAsyncService {
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
+            retryConnectionErrors: !params.mcp_event_subscription,
             url: params.url,
             fetchParams,
             templateId,

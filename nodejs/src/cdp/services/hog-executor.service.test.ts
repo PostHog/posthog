@@ -1642,36 +1642,44 @@ describe('Hog Executor', () => {
                 expect(mockRequest).not.toHaveBeenCalled()
             })
 
-            it('sends the authorized bytes and blocks a retry after revocation', async () => {
-                ;(internalFetch as jest.Mock)
-                    .mockResolvedValueOnce({
-                        status: 200,
-                        text: jest.fn().mockResolvedValue(
-                            JSON.stringify({
-                                body: authorizedBody,
-                                headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
-                            })
-                        ),
+            it.each(['http_error', 'connection_reset'])(
+                'rechecks permissions after %s before retrying',
+                async (failure) => {
+                    ;(internalFetch as jest.Mock)
+                        .mockResolvedValueOnce({
+                            status: 200,
+                            text: jest.fn().mockResolvedValue(
+                                JSON.stringify({
+                                    body: authorizedBody,
+                                    headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
+                                })
+                            ),
+                        })
+                        .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
+                    const receivedBody: Buffer[] = []
+                    mockRequest.mockClear()
+                    mockRequest.mockImplementation((req, res) => {
+                        req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
+                        req.on('end', () => {
+                            expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
+                            expect(req.headers['webhook-id']).toBe('event-123')
+                            if (failure === 'connection_reset') {
+                                res.destroy()
+                            } else {
+                                res.writeHead(500)
+                                res.end('retry')
+                            }
+                        })
                     })
-                    .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
-                const receivedBody: Buffer[] = []
-                mockRequest.mockClear()
-                mockRequest.mockImplementation((req, res) => {
-                    req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
-                    req.on('end', () => {
-                        expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
-                        expect(req.headers['webhook-id']).toBe('event-123')
-                        res.writeHead(500)
-                        res.end('retry')
-                    })
-                })
-                let result = await executor.executeFetch(await mcpInvocation())
-                expect(result.invocation.queueScheduledAt).toBeDefined()
-                result = await executor.executeFetch(result.invocation)
-                expect(result.finished).toBe(true)
-                expect(result.error).toBeDefined()
-                expect(mockRequest).toHaveBeenCalledTimes(1)
-            })
+                    let result = await executor.executeFetch(await mcpInvocation())
+                    expect(mockRequest).toHaveBeenCalledTimes(1)
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    result = await executor.executeFetch(result.invocation)
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeDefined()
+                    expect(mockRequest).toHaveBeenCalledTimes(1)
+                }
+            )
         })
 
         describe('standard_webhooks', () => {

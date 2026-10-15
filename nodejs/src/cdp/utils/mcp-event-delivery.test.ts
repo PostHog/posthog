@@ -1,4 +1,5 @@
 import type { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction } from '../types'
@@ -29,6 +30,11 @@ describe('MCP event delivery authorization', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.spyOn(logger, 'warn').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('uses the caller credential and returns the authorized body and fresh signature', async () => {
@@ -89,16 +95,45 @@ describe('MCP event delivery authorization', () => {
         }
     })
 
-    it('fails closed on an unreachable or malformed authorization response', async () => {
-        jest.mocked(internalFetch).mockRejectedValue(new Error('unavailable'))
+    it.each([
+        ['dns', Object.assign(new Error('private diagnostic'), { code: 'ENOTFOUND' })],
+        [
+            'connection',
+            new Error('private diagnostic', {
+                cause: Object.assign(new Error('private cause'), { code: 'ECONNRESET' }),
+            }),
+        ],
+        ['timeout', Object.assign(new Error('private diagnostic'), { name: 'TimeoutError' })],
+        ['network', new Error('private diagnostic')],
+    ])('records sanitized %s context for an unreachable authorization service', async (category, error) => {
+        jest.mocked(internalFetch).mockRejectedValue(error)
         expect(await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })).toEqual({
             ok: false,
             status: 503,
         })
-        jest.mocked(internalFetch).mockResolvedValue({ status: 200, text: jest.fn().mockResolvedValue('{}') } as any)
+        expect(logger.warn).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                category,
+                teamId: 123,
+                hogFunctionId: invocation.hogFunction.id,
+                subscriptionId: params.mcp_event_subscription!.id,
+            })
+        )
+        expect(JSON.stringify(jest.mocked(logger.warn).mock.calls)).not.toContain('private diagnostic')
+        expect(JSON.stringify(jest.mocked(logger.warn).mock.calls)).not.toContain('private cause')
+        expect(JSON.stringify(jest.mocked(logger.warn).mock.calls)).not.toContain('fake-user-credential')
+    })
+
+    it.each(['{}', 'not json'])('fails closed and diagnoses malformed authorization response %s', async (body) => {
+        jest.mocked(internalFetch).mockResolvedValue({ status: 200, text: jest.fn().mockResolvedValue(body) } as any)
         expect(await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })).toEqual({
             ok: false,
             status: 503,
         })
+        expect(logger.warn).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ category: 'invalid_response' })
+        )
     })
 })
