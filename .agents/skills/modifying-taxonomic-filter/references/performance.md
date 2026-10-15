@@ -19,7 +19,8 @@ Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.
 
 ## A failed request must show as an error
 
-`taxonomic filter fetch failed` fires on ~0.2 per 100 typed legacy searches (query 10).
+`taxonomic filter fetch failed` fires ~0.2 times per 100 typed legacy queries (query 10).
+One search can send several events, so this is not a share of failed searches.
 The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
 Cohorts, events, person properties and flags make up most of the failures.
 Legacy ends loading and shows `InfiniteListErrorState` with a retry.

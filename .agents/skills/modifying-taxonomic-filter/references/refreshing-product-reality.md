@@ -6,6 +6,7 @@ Never commit absolute event or user counts.**
 
 Queries 1 to 7 use a 90-day window; keep that consistent so trends are comparable.
 Queries 8 to 12 use 7 days because they are heavier.
+Query 13 uses 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
@@ -257,6 +258,8 @@ There is no honest rate per group: a list also fails while it feeds Suggested, a
 Rank groups by share of failures, and report one overall rate.
 Failures also fire on the first load, when the query is empty, and no search event matches those.
 So the overall rate counts only failures with a typed query.
+It is failure events per typed query, not failed searches: on Suggested every list that feeds the tab can fail and send its own event for one search, and short queries that never reach a list still count in the base.
+There is no request ID to count failed searches exactly.
 The share ranking keeps first-load failures, because they show which groups fail.
 The health dashboard divides by timed searches instead, so its rate is higher.
 
@@ -282,7 +285,7 @@ s AS (
 SELECT
   f.g AS group_type,
   round(100 * f.n / sum(f.n) OVER (), 1) AS share_of_failures_pct,
-  round(100 * (SELECT sum(typed_n) FROM f) / (SELECT n FROM s), 2) AS typed_failures_per_100_searches
+  round(100 * (SELECT sum(typed_n) FROM f) / (SELECT n FROM s), 2) AS failure_events_per_100_typed_queries
 FROM f
 ORDER BY share_of_failures_pct DESC
 LIMIT 15
@@ -309,10 +312,10 @@ Write back the step ratios.
 SELECT
   round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
     / countIf(event = 'taxonomic filter event match answered'
-              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_low_pct,
+              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_distinct_pct,
   round(100 * countIf(event = 'taxonomic filter event match suggested')
     / countIf(event = 'taxonomic filter event match answered'
-              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_high_pct,
+              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_raw_pct,
   round(100 * uniqIf((person_id, $session_id), event = 'taxonomic filter event match selected')
     / uniqIf((person_id, $session_id), event = 'taxonomic filter event match suggested'), 1) AS sessions_selecting_per_session_suggested_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
@@ -357,6 +360,41 @@ FROM empties e
 ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND e.sid = p.sid AND e.surface = p.surface AND p.t > e.t
 GROUP BY surface
 ORDER BY surface
+```
+
+### 13. Tab use, docking and empty-result rate
+
+Legacy closes over 90 days, plus the legacy empty-result rate.
+Backs the person properties, standalone Recent and Pinned, docking and empty-result rows in [feature-inventory](feature-inventory.md).
+`groupType` on a close is the tab open at close, so a close counts against the last tab only.
+
+```sql
+SELECT
+  round(100 * countIf(toBool(properties.hadSelection)) / count(), 1) AS all_tabs_selection_pct,
+  round(100 * countIf(toBool(properties.hadSelection) AND properties.groupType = 'person_properties')
+    / countIf(properties.groupType = 'person_properties'), 1) AS person_properties_selection_pct,
+  round(100 * countIf(properties.groupType = 'recent_filters') / count(), 2) AS closes_on_recent_tab_pct,
+  round(100 * countIf(toBool(properties.hadSelection) AND properties.groupType = 'recent_filters')
+    / countIf(properties.groupType = 'recent_filters'), 1) AS recent_tab_selection_pct,
+  round(100 * countIf(properties.groupType = 'pinned_filters') / count(), 2) AS closes_on_pinned_tab_pct,
+  round(100 * countIf(toBool(properties.categoryRailDocked)) / count(), 1) AS docked_closes_pct,
+  round(100 * countIf(toBool(properties.hadSelection) AND toBool(properties.categoryRailDocked))
+    / countIf(toBool(properties.categoryRailDocked)), 1) AS docked_selection_pct,
+  round(100 * countIf(toBool(properties.hadSelection) AND NOT toBool(properties.categoryRailDocked))
+    / countIf(NOT toBool(properties.categoryRailDocked)), 1) AS undocked_selection_pct,
+  round(100 * (
+    SELECT count() FROM events
+    WHERE event = 'taxonomic filter empty result' AND properties.surface = 'legacy-pill'
+      AND timestamp >= now() - INTERVAL 90 DAY
+  ) / (
+    SELECT count() FROM events
+    WHERE event = 'taxonomic_filter_search_query' AND properties.surface = 'legacy-pill'
+      AND timestamp >= now() - INTERVAL 90 DAY
+  ), 1) AS empty_results_per_100_typed_queries
+FROM events
+WHERE event = 'taxonomic filter closed'
+  AND properties.surface = 'legacy-pill'
+  AND timestamp >= now() - INTERVAL 90 DAY
 ```
 
 ## Updating the doc

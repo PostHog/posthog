@@ -29,7 +29,7 @@ Bring evidence, not seniority.
 
 - **Current position:** hidden behind a category pill, with an optional docked rail.
 - **Evidence:** ~96% of engaged opens never select a real category.
-  About 2% of closes are docked, with the same pick rate as undocked.
+  About 1% of closes are docked, with a slightly lower pick rate (~79% vs ~86% undocked).
   An earlier experiment saw better retention for new users with hidden categories.
   The effect faded when existing users were included.
 - **Implication:** keep hidden by default and keep the rail for those who want it.

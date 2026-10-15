@@ -39,7 +39,8 @@ Most empty searches are real words that exist somewhere else.
 
 ## 4. Failures that look like something else
 
-- **Signal:** `taxonomic filter fetch failed` on ~0.2 per 100 typed legacy searches (query 10).
+- **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 typed legacy queries (query 10).
+  One search can send several events, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Events, cohorts, person properties and flags fail most.
   Some pseudo-category groups fail more often than they are picked.
@@ -74,7 +75,7 @@ Most empty searches are real words that exist somewhere else.
 
 ## 8. The weakest big tab: person properties
 
-- **Signal:** ~70% of engaged opens on it end in a selection, the lowest of the large tabs.
+- **Signal:** ~64% of engaged opens on it end in a selection (~86% across all tabs), the lowest of the large tabs.
   Average selected position is far down the list.
   It is also the top scope for empty queries.
 - **Fix direction:** rank properties seen on the chosen event or recently used higher, and separate system from custom properties.

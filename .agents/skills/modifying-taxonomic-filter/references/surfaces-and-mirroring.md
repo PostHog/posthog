@@ -68,5 +68,6 @@ The rebuild reads recents and pins through these via a bridge; it doesn't fork t
 
 `redistributeTopMatches` is legacy-only: it lives in `taxonomicFilterLogic.tsx` and the rebuild never calls it.
 
-One intentional divergence is documented in `useTaxonomicFilter.ts`: both surfaces lead with SuggestedFilters when the picker has more than one substantive group.
-Preserve documented divergences; don't "fix" them into parity.
+Suggested ordering is shared behavior: both surfaces drop SuggestedFilters when there is one substantive group, and lead with it when there are two or more (legacy `resolveSuggestedFiltersGroup` in `taxonomicFilterLogic.tsx`, rebuild `resolveTaxonomicGroupTypes` in `hooks/useTaxonomicFilter.ts`).
+Keep the two in parity when you change it.
+Where a real divergence exists, it is documented next to the code; preserve those, and don't "fix" them into parity.
