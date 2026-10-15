@@ -727,7 +727,7 @@ def _build_template_context(
 
     if posthog_distinct_id:
         groups = {}
-        group_properties = {}
+        group_properties: dict[str, dict[str, str | int]] = {}
         person_properties = {}
         if request.user and request.user.is_authenticated:
             user = cast("User", request.user)
