@@ -108,8 +108,10 @@ runs:
 
                       if [ -n "$base_branch" ]; then
                           head_sha=$(git rev-parse HEAD)
-                          base_ref=$(gh api "repos/$REPOSITORY/compare/$base_branch...$head_sha?per_page=1" --jq '.merge_base_commit.sha' || true)
-                          if [ -n "$base_ref" ]; then
+                          # On an API error gh writes the error body to stdout, so
+                          # only a full SHA counts as a merge base.
+                          base_ref=$(gh api "repos/$REPOSITORY/compare/$base_branch...$head_sha?per_page=1" --jq '.merge_base_commit.sha' 2>/dev/null || true)
+                          if [[ "$base_ref" =~ ^[0-9a-f]{40}$ ]]; then
                               echo "Using the merge base of $base_branch and HEAD from the compare API: $base_ref"
                           else
                               echo "The compare API gave no merge base; falling back to PR base SHA"

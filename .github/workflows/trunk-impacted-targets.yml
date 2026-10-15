@@ -111,13 +111,17 @@ jobs:
 
                   # Each attempt overwrites the output file, so a failed attempt
                   # leaves no partial page behind for the next one to append to.
+                  # A 4xx, rate limits included, would fail again on the same
+                  # token bucket, so only network errors and 5xx are retried.
                   gh_api_to() {
-                      local out="$1" attempt
+                      local out="$1" err="$RUNNER_TEMP/gh-api-error.txt" attempt
                       shift
                       for attempt in 1 2 3; do
-                          if gh api "$@" > "$out"; then
+                          if gh api "$@" > "$out" 2> "$err"; then
                               return 0
                           fi
+                          cat "$err" >&2
+                          grep -qE '\(HTTP 4[0-9]{2}\)' "$err" && return 1
                           [ "$attempt" -lt 3 ] && sleep $((attempt * 5))
                       done
                       return 1
