@@ -1,8 +1,8 @@
 //! Packs ready key runs into requests near a target size, one request per
 //! free worker slot.
 //!
-//! Worst case: 2 × target − 1 events, or 2 × target − 2 bytes plus the largest
-//! message. Keys join below the target, and a run is capped at the target.
+//! Worst case: target − 1 events plus the run cap, or target + run cap − 2
+//! bytes plus the largest message. Keys join below the target.
 
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
@@ -53,6 +53,7 @@ impl PackReason {
 
 pub struct Packer {
     targets: PackTargets,
+    run_cap: RunCap,
     reservation: Option<Instant>,
 }
 
@@ -60,12 +61,22 @@ impl Packer {
     pub fn new(targets: PackTargets) -> Self {
         Self {
             targets,
+            run_cap: targets.run_cap(),
             reservation: None,
         }
     }
 
+    pub fn with_run_cap(mut self, run_cap: RunCap) -> Self {
+        self.run_cap = run_cap;
+        self
+    }
+
     pub fn targets(&self) -> PackTargets {
         self.targets
+    }
+
+    pub fn run_cap(&self) -> RunCap {
+        self.run_cap
     }
 
     pub fn latency_budget(&self) -> Duration {

@@ -18,6 +18,10 @@ from ..facade.contracts import (
     CodeFile,
     FigureMark,
     FigureQuote,
+    HighlightItem,
+    HighlightMetric,
+    Highlights,
+    HighlightValueFormat,
     ImpactNumber,
     ImpactWorking,
     KeyClause,
@@ -30,7 +34,18 @@ from ..facade.contracts import (
     SignalPreview,
     SignalView,
 )
-from ..facade.enums import CitedSource, FigureSourceKind, FigureText, ImpactNumberKey, KeyClauseRole
+from ..facade.enums import (
+    CitedSource,
+    FigureSourceKind,
+    FigureText,
+    HighlightInterval,
+    HighlightLabel,
+    HighlightPriority,
+    HighlightsStatus,
+    HighlightUnit,
+    ImpactNumberKey,
+    KeyClauseRole,
+)
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -124,7 +139,7 @@ class BriefingItemSerializer(DataclassSerializer):
         help_text="Short fact under the label, at most 40 characters, for example 'Spend down 37%'."
     )
     url = serializers.CharField(help_text="Where the item opens: an app path, or a GitHub URL for pull requests.")
-    rank = serializers.IntegerField(help_text="Position in the briefing, 1 is the top item.")
+    rank = serializers.IntegerField(help_text="Position in `items`, 1 is the first item.")
     source_product = serializers.CharField(
         allow_null=True,
         help_text="For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
@@ -146,19 +161,26 @@ class BriefingItemSerializer(DataclassSerializer):
 class BriefingSerializer(DataclassSerializer):
     id = serializers.CharField(help_text="Briefing id.")
     local_day = serializers.DateField(help_text="The day this briefing is for, in the person's timezone.")
-    headline = serializers.CharField(help_text="One sentence that counts what needs the person.")
+    headline = serializers.CharField(
+        allow_blank=True,
+        help_text="One sentence that counts what needs the person. Empty while the briefing is collecting.",
+    )
     paragraphs = serializers.ListField(
         child=BriefingSegmentSerializer(many=True),
         help_text="Up to 3 paragraphs, each a list of text runs; runs with an item_key are links.",
     )
     items = BriefingItemSerializer(
-        many=True, help_text="The items the text names, in rank order: what the page and the left bar show."
+        many=True,
+        help_text="The items the text names, in display order: by the report's current priority, P0 first and items without one last, then in the order the briefing ranked them.",
     )
     more_reports_count = serializers.IntegerField(
         help_text="Other open reports for the person, beyond the ones the briefing shows."
     )
     open_reports_count = serializers.IntegerField(
         help_text="Open reports in the whole project beyond the ones the briefing shows, whoever they are for."
+    )
+    refresh_at = serializers.DateTimeField(
+        help_text="When the next briefing day starts, at 8:00 in the briefing's timezone. Load the briefing again then."
     )
 
     class Meta:
@@ -412,3 +434,103 @@ class FigureMarkSerializer(DataclassSerializer):
 
 class FigureMarksSerializer(serializers.Serializer):
     marks = FigureMarkSerializer(many=True, help_text="The numbers to mark, at most 4, each with its source.")
+
+
+class HighlightValueFormatSerializer(DataclassSerializer):
+    format = serializers.CharField(
+        allow_null=True, help_text="Number format of the insight, for example numeric, percentage or currency."
+    )
+    prefix = serializers.CharField(allow_null=True, help_text="Text the insight shows before each value.")
+    postfix = serializers.CharField(allow_null=True, help_text="Text the insight shows after each value.")
+    decimal_places = serializers.IntegerField(allow_null=True, help_text="Most decimal places the insight shows.")
+
+    class Meta:
+        dataclass = HighlightValueFormat
+
+
+class HighlightMetricSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        help_text="Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>."
+    )
+    name = serializers.CharField(help_text="Name of the key metric or of the insight, for example Sign-ups.")
+    value = serializers.FloatField(
+        help_text="Value for the last complete period: the last 7 complete days, or the last complete week or month."
+    )
+    unit = serializers.ChoiceField(
+        choices=HighlightUnit.choices,
+        help_text="`events` for a count of events, `people` for unique people, `number` for an insight value.",
+    )
+    change_pct = serializers.FloatField(
+        allow_null=True,
+        help_text="Change against the period before, in percent. Null when the period before is 0.",
+    )
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="Values oldest first: daily for the last 28 complete days, or one value per week or month.",
+    )
+    interval = serializers.ChoiceField(
+        choices=HighlightInterval.choices, help_text="What one value in `series` covers: a day, a week or a month."
+    )
+    url = serializers.CharField(
+        allow_null=True, help_text="Path of the insight the metric comes from. Null for a key metric."
+    )
+    value_format = HighlightValueFormatSerializer(
+        allow_null=True,
+        help_text="How the insight formats its values. Null for a key metric and for an insight with plain numbers.",
+    )
+    period_starts = serializers.ListField(
+        child=serializers.DateField(),
+        help_text="The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`.",
+    )
+
+    class Meta:
+        dataclass = HighlightMetric
+
+
+class HighlightItemSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Stable key of the item for this person and day.")
+    label = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=HighlightLabel.choices,
+        help_text="`risk` when something got worse or broke, `opportunity` when the person can act to gain.",
+    )
+    priority = serializers.ChoiceField(
+        choices=HighlightPriority.choices,
+        help_text="Priority on the same scale as report priorities. `P1` for a risk with a score of 0.75 or more, `P2` for another risk, `P3` for an opportunity with a score of 0.4 or more, `P4` for another opportunity.",
+    )
+    title = serializers.CharField(help_text="One sentence that says what happened, with numbers.")
+    detail = serializers.CharField(help_text="One or two short sentences with the comparison and the next action.")
+    url = serializers.CharField(allow_null=True, help_text="Path in the app to open, relative to the project.")
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Values behind the item for a small trend line, oldest first. Null when the item has no trend.",
+    )
+    score = serializers.FloatField(help_text="Importance weighted by relevance, from 0 to 1.")
+
+    class Meta:
+        dataclass = HighlightItem
+        extra_kwargs = {
+            "source": {"help_text": "Name of the highlight source that found the item, for example alerts."},
+        }
+
+
+class HighlightsSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=HighlightsStatus.choices,
+        help_text="`ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.",
+    )
+    generated_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the content was computed. Null when no highlights were computed yet today."
+    )
+    day = serializers.DateField(help_text="The day the highlights are for, in the project's timezone.")
+    refresh_at = serializers.DateTimeField(
+        help_text="Midnight at the end of `day` in the project's timezone, when the next day's highlights start. Load them again then."
+    )
+    pulse = HighlightMetricSerializer(many=True, help_text="Key metrics of the project from its settings.")
+    items = HighlightItemSerializer(
+        many=True,
+        help_text="Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first.",
+    )
+
+    class Meta:
+        dataclass = Highlights
