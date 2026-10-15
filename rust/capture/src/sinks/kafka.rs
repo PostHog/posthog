@@ -289,7 +289,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // effects live in the same match that maps it to an output, so a new
         // address cannot skip them: dlq sets the dlq headers, and both admin
         // redirects count their reroutes.
-        let decision = pipeline::resolve(&metadata, self.outputs.ai_events_overflow_armed())?;
+        let decision = pipeline::resolve(&metadata, self.outputs.has_ai_overflow_lane())?;
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
@@ -2079,10 +2079,9 @@ mod tests {
 
         // ==================== AiEvents ====================
         // The dedicated $ai_* lane routes to its own topic, keyed on the
-        // event key. test_outputs() arms the AI overflow valve
-        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC), so overflow handling mirrors the
-        // AnalyticsMain arm onto the AI topics; the unarmed tests below
-        // override the valve off.
+        // event key. test_outputs() has an AI overflow lane, so overflow
+        // handling mirrors the AnalyticsMain arm onto the AI topics; the
+        // no-lane test below removes it.
 
         #[tokio::test]
         async fn ai_events_normal() {
@@ -2107,9 +2106,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn ai_events_force_overflow_reroutes_when_armed() {
-            // With the valve armed, restriction-driven force_overflow behaves
-            // exactly like the analytics main lane: rerouted, key kept.
+        async fn ai_events_force_overflow_reroutes() {
+            // Restriction-driven force_overflow behaves exactly like the
+            // analytics main lane: rerouted, key kept.
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,
@@ -2202,13 +2201,11 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn ai_events_unarmed_never_overflows() {
-            // Without AI_EVENTS_OVERFLOW_ENABLED the lane never overflows:
-            // force_overflow and any stamped reason (which the gated pipeline
-            // would not produce anyway) are ignored.
+        async fn ai_events_without_overflow_lane_never_overflow() {
+            // Import has no AI overflow lane, so every overflow stamp is ignored.
             let producer = MockKafkaProducer::new();
             let mut topics = test_outputs();
-            topics.ai_events_overflow_enabled = false;
+            topics.has_ai_overflow_lane = false;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {

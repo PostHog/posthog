@@ -22,7 +22,6 @@ pub enum Destination {
     Dlq,
     ErrorTrackingMain,
     AiMain,
-    /// Only routed to when the AI overflow valve is armed.
     AiOverflow,
     /// Admin-configured topic copied from `redirect_to_topic`.
     Custom(String),
@@ -135,7 +134,7 @@ pub struct OutputTable<R = ProducerName> {
     pub(crate) error_tracking: OutputTarget<R>,
     pub(crate) ai_main: OutputTarget<R>,
     pub(crate) ai_overflow: OutputTarget<R>,
-    pub(crate) ai_events_overflow_enabled: bool,
+    pub(crate) has_ai_overflow_lane: bool,
     pub(crate) custom_producer: R,
 }
 
@@ -193,13 +192,13 @@ impl<R> OutputTable<R> {
             error_tracking: target(&self.error_tracking),
             ai_main: target(&self.ai_main),
             ai_overflow: target(&self.ai_overflow),
-            ai_events_overflow_enabled: self.ai_events_overflow_enabled,
+            has_ai_overflow_lane: self.has_ai_overflow_lane,
             custom_producer,
         }
     }
 
-    pub fn ai_events_overflow_armed(&self) -> bool {
-        self.ai_events_overflow_enabled
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        self.has_ai_overflow_lane
     }
 
     /// Every registered output must resolve to a non-empty topic. `Custom` is
@@ -218,8 +217,7 @@ impl<R> OutputTable<R> {
 }
 
 impl OutputTable {
-    /// `ai_events_overflow_enabled` arms the AI overflow lane.
-    pub fn new(config: &OutputsConfig, ai_events_overflow_enabled: bool) -> Self {
+    pub fn new(config: &OutputsConfig, has_ai_overflow_lane: bool) -> Self {
         let target = |topic: &String, producer: ProducerName| OutputTarget {
             topic: Arc::from(topic.as_str()),
             producer,
@@ -251,7 +249,7 @@ impl OutputTable {
             error_tracking: target(&config.error_tracking_topic, config.error_tracking_producer),
             ai_main: target(&config.ai_main_topic, config.ai_main_producer),
             ai_overflow: target(&config.ai_overflow_topic, config.ai_overflow_producer),
-            ai_events_overflow_enabled,
+            has_ai_overflow_lane,
             custom_producer: config.custom_producer,
         }
     }
@@ -275,7 +273,7 @@ pub(crate) fn test_outputs() -> OutputTable {
         error_tracking: target("error_tracking_events"),
         ai_main: target("ai_events"),
         ai_overflow: target("ai_events_overflow"),
-        ai_events_overflow_enabled: true,
+        has_ai_overflow_lane: true,
         custom_producer: ProducerName::Ingestion,
     }
 }
@@ -307,19 +305,6 @@ mod tests {
         assert_eq!(
             registry.topic_for(&Destination::Custom("admin_topic".to_string())),
             "admin_topic"
-        );
-    }
-
-    /// The flag arms the AI overflow lane; a configured topic alone does not.
-    #[rstest]
-    #[case::enabled(true)]
-    #[case::disabled(false)]
-    fn ai_overflow_is_armed_by_the_flag_not_the_topic(#[case] enabled: bool) {
-        let config: OutputsConfig = envconfig::Envconfig::init_from_hashmap(&Default::default())
-            .expect("default outputs config");
-        assert_eq!(
-            OutputTable::new(&config, enabled).ai_events_overflow_armed(),
-            enabled
         );
     }
 

@@ -48,6 +48,11 @@ impl CaptureMode {
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
     }
+
+    /// Import has no AI overflow lane: imports must never overflow.
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -271,10 +276,8 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
-    /// Arms the AI overflow lane: the AI lane's overflow limiter and
-    /// restriction-driven force_overflow reroute to
-    /// `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`. Import mode refuses it at boot
-    /// because imports must never overflow.
+    /// Builds the AI lane's overflow limiter, as `overflow_enabled` does for
+    /// analytics. Restriction overflow does not need it.
     #[envconfig(default = "false")]
     pub ai_events_overflow_enabled: bool,
 
@@ -593,7 +596,6 @@ pub struct OutputsConfig {
     pub ai_main_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
     pub ai_main_producer: ProducerName,
-    /// Receives AI events only while `AI_EVENTS_OVERFLOW_ENABLED` is set.
     #[envconfig(
         from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC",
         default = "events_plugin_ingestion_ai_overflow"

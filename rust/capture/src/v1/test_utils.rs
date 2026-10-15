@@ -657,9 +657,6 @@ impl TestStateBuilder {
         self
     }
 
-    /// Arm the AI overflow valve: a dedicated AI-lane limiter with the given
-    /// rate and burst. Also sets `ai_events_overflow_enabled`, mirroring
-    /// production where both derive from the same overflow-topic config.
     pub fn with_ai_events_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
         self.ai_events_overflow_limiter = Some((
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
@@ -777,12 +774,14 @@ impl TestStateBuilder {
                 self.overflow_preserve_locality,
             ))
         });
-        let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
         let mock_producer = self.mock_producer.unwrap_or_default();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             mock_producer.clone(),
-            OutputTable::new(&test_outputs_config(), ai_events_overflow_enabled),
+            OutputTable::new(
+                &test_outputs_config(),
+                self.capture_mode.has_ai_overflow_lane(),
+            ),
         )));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
@@ -811,7 +810,6 @@ impl TestStateBuilder {
             replay_overflow_limiter: None,
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
-            ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,
         };
