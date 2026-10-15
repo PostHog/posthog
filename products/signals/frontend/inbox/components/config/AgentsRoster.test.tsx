@@ -75,7 +75,7 @@ describe('AgentsRoster', () => {
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
-        const githubButton = await screen.findByRole('button', { name: 'Turn on GitHub issues' })
+        const githubButton = await screen.findByLabelText('Turn on GitHub issues')
         expect(githubButton).toHaveAttribute('aria-disabled', 'true')
         await userEvent.click(githubButton)
         expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
