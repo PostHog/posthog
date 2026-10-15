@@ -2,11 +2,7 @@ import posthog from 'posthog-js'
 
 import { MultipleSurveyQuestion, Survey, SurveyQuestionType } from '~/types'
 
-type SurveyEditedProperties = {
-    name: Survey['name']
-    id: Survey['id']
-    created_at: Survey['created_at']
-    start_date: Survey['start_date']
+type SurveyConfigurationProperties = {
     events_count: number | undefined
     recurring_survey_iteration_count: number
     recurring_survey_iteration_interval: number
@@ -17,16 +13,12 @@ type SurveyEditedProperties = {
     skipping_submit_button: boolean
 }
 
-function getSurveyEditedProperties(survey: Survey): SurveyEditedProperties {
+export function getSurveyConfigurationProperties(survey: Survey): SurveyConfigurationProperties {
     const questionsWithShuffledOptions = survey.questions.filter((question) => {
         return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
     })
 
     return {
-        name: survey.name,
-        id: survey.id,
-        created_at: survey.created_at,
-        start_date: survey.start_date,
         events_count: survey.conditions?.events?.values.length,
         recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
         recurring_survey_iteration_interval:
@@ -50,5 +42,11 @@ function getSurveyEditedProperties(survey: Survey): SurveyEditedProperties {
 }
 
 export function reportSurveyEdited(survey: Survey): void {
-    posthog.capture('survey edited', getSurveyEditedProperties(survey))
+    posthog.capture('survey edited', {
+        name: survey.name,
+        id: survey.id,
+        created_at: survey.created_at,
+        start_date: survey.start_date,
+        ...getSurveyConfigurationProperties(survey),
+    })
 }
