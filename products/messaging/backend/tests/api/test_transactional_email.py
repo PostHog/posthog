@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -40,7 +41,7 @@ class TestTransactionalEmailSend(APIBaseTest):
         self.body = {
             "to": "user@example.com",
             "identifiers": {"distinct_id": "user-1"},
-            "message_data": {"link": "https://example.com/reset"},
+            "message_data": {"link": "https://example.com/reset", "nickname": None},
         }
 
     def _cdp_accepts(self, mock_post: MagicMock, invocation_id: str = "invocation-1") -> None:
@@ -71,7 +72,7 @@ class TestTransactionalEmailSend(APIBaseTest):
         assert url.endswith(f"/api/projects/{self.team.id}/messaging/transactional_email")
         assert payload["template_id"] == str(self.template.id)
         assert payload["distinct_id"] == "user-1"
-        assert payload["variables"] == {"link": "https://example.com/reset"}
+        assert payload["variables"] == {"link": "https://example.com/reset", "nickname": None}
         assert payload["email"]["to"] == {"email": "user@example.com", "name": ""}
         assert payload["email"]["from"] == {"integrationId": self.sender.id}
         assert payload["email"]["subject"] == "Reset your password"
@@ -100,6 +101,7 @@ class TestTransactionalEmailSend(APIBaseTest):
         [
             ("marketing_template", "marketing_template"),
             ("template_without_subject", "template_not_sendable"),
+            ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
             ("liquid_in_recipient", "invalid_recipient"),
         ]
@@ -115,6 +117,9 @@ class TestTransactionalEmailSend(APIBaseTest):
         elif case == "template_without_subject":
             self.template.content = {"email": {"html": "<p>Hi</p>"}}
             self.template.save()
+        elif case == "template_without_body":
+            self.template.content = {"email": {"subject": "Hi"}}
+            self.template.save()
         elif case == "unverified_sender":
             self.sender.config = {"verified": False}
             self.sender.save()
@@ -125,6 +130,7 @@ class TestTransactionalEmailSend(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
+        assert response.json()["type"] == "invalid_request"
         mock_post.assert_not_called()
 
     def test_a_retried_request_with_the_same_idempotency_key_sends_once(self, mock_post, _flag, _capture):
@@ -136,6 +142,17 @@ class TestTransactionalEmailSend(APIBaseTest):
 
         assert first.json() == {"message_id": "invocation-1", "replayed": False}
         assert second.json() == {"message_id": "invocation-1", "replayed": True}
+        assert mock_post.call_count == 1
+
+    def test_a_retry_after_an_unknown_outcome_does_not_send_twice(self, mock_post, _flag, _capture):
+        mock_post.side_effect = requests.ReadTimeout()
+        headers = {"Idempotency-Key": str(uuid4())}
+
+        first = self.client.post(self.url, self.body, format="json", headers=headers)
+        second = self.client.post(self.url, self.body, format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert second.status_code == status.HTTP_409_CONFLICT
         assert mock_post.call_count == 1
 
     def test_reports_quota_limited_teams(self, mock_post, _flag, _capture):

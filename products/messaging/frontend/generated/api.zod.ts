@@ -596,7 +596,7 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
                 .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
                 .nullish()
                 .describe(
-                    "Distinct ID of the recipient's person. Attaches the email's engagement events (sent, delivered, opened, clicked, bounced) to that person, and makes their properties available to the template as `person.properties`."
+                    "Distinct ID of the recipient's person. Attaches the email's engagement events (sent, delivered, opened, clicked, bounced) to that person. The template can't read the person's properties, so pass everything it needs in `message_data`."
                 ),
         })
         .optional()

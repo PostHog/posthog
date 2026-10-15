@@ -47,6 +47,11 @@ class TestValidateGraph(TestCase):
         actions = [TRIGGER, _fn("a"), _fn("a"), EXIT]
         assert "Duplicate action id" in _graph_errors(actions, [])
 
+    def test_reserved_action_id_raises(self):
+        actions = [TRIGGER, _fn("transactional_email"), EXIT]
+        edges = [_edge("t", "transactional_email"), _edge("transactional_email", "x")]
+        assert "is reserved" in _graph_errors(actions, edges)
+
     @parameterized.expand([("zero", []), ("two", [TRIGGER, dict(TRIGGER, id="t2")])])
     def test_trigger_count_must_be_one(self, _name, trigger_actions):
         actions = [*trigger_actions, _fn("a")] if trigger_actions else [_fn("a")]

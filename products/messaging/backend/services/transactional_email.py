@@ -4,6 +4,7 @@ import hashlib
 from typing import Any
 from uuid import UUID
 
+import requests
 import structlog
 
 from posthog.models.integration import Integration
@@ -35,6 +36,8 @@ def _sendable_template(team_id: int, template_id: UUID) -> MessageTemplate:
     email = (template.content or {}).get("email")
     if template.type != "email" or not isinstance(email, dict) or not email.get("subject"):
         raise TemplateNotSendable("The template has no email subject, so it can't be sent.")
+    if not (email.get("text") or email.get("html")):
+        raise TemplateNotSendable("The template has no email body, so it can't be sent.")
     if template.message_category_id:
         category = MessageCategory.objects.filter(
             team_id=team_id, id=template.message_category_id, deleted=False
@@ -111,14 +114,21 @@ def send_transactional_email(
     }
     try:
         response = queue_transactional_email(team.id, str(template.id), payload)
-    except Exception as e:
+    except (requests.ConnectionError, RuntimeError) as e:
+        # The request never reached cdp-api, so nothing is queued and a retry can send.
         if redis_key:
             redis.delete(redis_key)
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template.id))
         raise DeliveryUnavailable() from e
+    except Exception as e:
+        # cdp-api can queue the email before the response times out. The reservation stays, so a retry
+        # with the same key gets a conflict instead of a second email.
+        logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template.id))
+        raise DeliveryUnavailable() from e
 
     if response.status_code != 202:
-        if redis_key:
+        # Only a 5xx can come after the job is queued, so only a 4xx rejection releases the reservation.
+        if redis_key and response.status_code < 500:
             redis.delete(redis_key)
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")

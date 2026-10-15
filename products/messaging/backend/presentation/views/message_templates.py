@@ -257,8 +257,8 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=400,
         help_text="Distinct ID of the recipient's person. Attaches the email's engagement events (sent, delivered, "
-        "opened, clicked, bounced) to that person, and makes their properties available to the template as "
-        "`person.properties`.",
+        "opened, clicked, bounced) to that person. The template can't read the person's properties, so pass "
+        "everything it needs in `message_data`.",
     )
 
 
@@ -268,7 +268,7 @@ class SendTransactionalEmailSerializer(serializers.Serializer):
         required=False, help_text="Who the email is for, used to attribute engagement events."
     )
     message_data = serializers.DictField(
-        child=serializers.JSONField(),
+        child=serializers.JSONField(allow_null=True),
         required=False,
         default=dict,
         help_text="Data for the template's Liquid placeholders, available as `variables`. "
@@ -292,6 +292,8 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
 
 class TransactionalEmailRejected(exceptions.APIException):
     STATUS_BY_CODE = {"quota_limited": 429, "idempotency_conflict": 409}
+    # The caller has to change the request. Without this the error handler reports a server error.
+    default_type = "invalid_request"
 
     def __init__(self, error: TransactionalEmailError) -> None:
         self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
@@ -500,7 +502,9 @@ class MessageTemplatesViewSet(
             404: OpenApiResponse(description="Template not found"),
             409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
             429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
-            503: OpenApiResponse(description="The email pipeline is unavailable. Safe to retry"),
+            503: OpenApiResponse(
+                description="The email pipeline did not confirm the send. Retry with the same Idempotency-Key"
+            ),
         },
         summary="Send a transactional email",
         description=(

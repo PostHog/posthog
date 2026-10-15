@@ -11,6 +11,9 @@ from rest_framework import serializers
 # each alongside a single `continue` fall-through/timeout edge.
 
 
+RESERVED_ACTION_ID = "transactional_email"
+
+
 def _branch_slot_count(action: dict) -> int:
     config = action.get("config") or {}
     action_type = action.get("type")
@@ -37,6 +40,11 @@ def validate_graph(actions: list[dict], edges: list[dict], abort_action: Optiona
     duplicate_ids = sorted({aid for aid in action_ids if action_ids.count(aid) > 1 and aid is not None})
     if duplicate_ids:
         errors.append(f"Duplicate action id(s): {', '.join(duplicate_ids)}. Action ids must be unique.")
+
+    # Engagement tracking reads this id as a transactional send from a message template, so a workflow
+    # step with it would lose its workflow attribution. Mirrors TRANSACTIONAL_EMAIL_ACTION_ID in nodejs.
+    if RESERVED_ACTION_ID in action_ids:
+        errors.append(f'The action id "{RESERVED_ACTION_ID}" is reserved. Use a different id.')
 
     # Exactly one trigger.
     trigger_ids = [a.get("id") for a in actions if a.get("type") == "trigger"]
