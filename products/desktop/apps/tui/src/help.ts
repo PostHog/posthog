@@ -34,10 +34,13 @@ export const HELP: HelpGroup[] = [
       { keys: "Ctrl+V", does: "Paste an image from the clipboard" },
       { keys: "!", does: "Run a shell command where the agent runs" },
       {
-        keys: "Ctrl+]",
-        does: "Step a Claude Code chat's permission mode (Ctrl+M too)",
+        keys: "Ctrl+M / Ctrl+Shift+M",
+        does: "Step a Claude Code chat's permission mode / back",
       },
-      { keys: "Ctrl+}", does: "Step it back (Ctrl+Shift+M too)" },
+      {
+        keys: "Ctrl+[ / Ctrl+]",
+        does: "Back / forward through the chats visited",
+      },
     ],
   },
   {

@@ -13,7 +13,9 @@ export type Shortcut =
   | "reload"
   | "toggleSidebar"
   | "cycleMode"
-  | "cycleModeBack";
+  | "cycleModeBack"
+  | "historyBack"
+  | "historyForward";
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
@@ -36,14 +38,13 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   // As in VS Code. Inside tmux, Ctrl+B is tmux's own prefix, so Cmd+B does it too.
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";
   if (key.ctrl && letter === "r") return "reload";
-  // Ctrl+] steps a Claude Code chat's mode, Ctrl+Shift+] (Ctrl+}) steps it back. Legacy terminals send both as
-  // one raw byte, so there it only goes forward; it wraps, so that is enough.
-  // Ctrl+M needs the kitty keyboard protocol, since a legacy terminal sends it as Enter; Ctrl+] works everywhere.
+  // Ctrl+M needs the kitty keyboard protocol, since a legacy terminal sends it as Enter.
   if (key.ctrl && letter === "m")
     return key.shift ? "cycleModeBack" : "cycleMode";
-  if (key.ctrl && (input === "}" || (input === "]" && key.shift)))
-    return "cycleModeBack";
-  if (input === "\x1d" || (key.ctrl && input === "]")) return "cycleMode";
+  // Ctrl+[ and Ctrl+] step back and forward through the chats visited. A legacy terminal sends Ctrl+[ as Esc,
+  // so there only Ctrl+] (one raw byte) works.
+  if (key.ctrl && input === "[") return "historyBack";
+  if (input === "\x1d" || (key.ctrl && input === "]")) return "historyForward";
   return null;
 }
 

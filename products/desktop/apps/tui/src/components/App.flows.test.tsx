@@ -20,6 +20,7 @@ import { CLAUDE_TOKEN_PATH } from "../claudeToken";
 import type { CodexCloudClient } from "../hooks/useSettings";
 import {
   activeWorkspace,
+  findPane,
   initialLayout,
   layoutPath,
   loadLayout,
@@ -472,6 +473,32 @@ describe("App flows", () => {
           2, 1,
         ]);
       });
+    } finally {
+      app.close();
+    }
+  });
+
+  it("steps back to the chat a pane left with Ctrl+[, and forward again with Ctrl+]", async () => {
+    const split = openTask(
+      splitFocused(openTask(initialLayout(), "c1"), "row"),
+      "c2",
+    );
+    const [, right] = paneIds(activeWorkspace(split).root);
+    const app = cloudApp({
+      layout: split,
+      tasks: [cloudTask(), cloudTask({ id: "c2", title: "Other chat" })],
+    });
+    const rightTask = (): string | null =>
+      findPane(loadLayout(layoutPath(ACCOUNT)), right)?.taskId ?? null;
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Other chat"));
+      app.press("/new");
+      app.press("\r");
+      await vi.waitFor(() => expect(rightTask()).toBeNull());
+      app.press("\x1b[91;5u");
+      await vi.waitFor(() => expect(rightTask()).toBe("c2"));
+      app.press("\x1b[93;5u");
+      await vi.waitFor(() => expect(rightTask()).toBeNull());
     } finally {
       app.close();
     }

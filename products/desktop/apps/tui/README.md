@@ -56,7 +56,8 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 | Ctrl+\ / Ctrl+\| | Split side by side / stacked |
 | Tab / Shift+Tab | Next pane or the sidebar / back |
 | ↑ ↓ ← → | Step chats / fold a workspace |
-| Ctrl+] / Ctrl+} | Step a Claude Code chat's mode (Ctrl+M on kitty terminals) |
+| Ctrl+[ / Ctrl+] | Back / forward through the chats visited (Ctrl+[ needs a kitty terminal) |
+| Ctrl+M / Ctrl+Shift+M | Step a Claude Code chat's mode / back (kitty terminals) |
 | Ctrl+B | Narrow the sidebar |
 | Ctrl+; | Settings |
 | Ctrl+R / Ctrl+Q | Reload / quit |
