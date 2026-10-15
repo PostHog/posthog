@@ -24,7 +24,7 @@ from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_
 from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS
 
 D0 = datetime.date(2026, 8, 1)
-DAYS = 40
+DAYS = 49
 REPORTS_PER_DAY = 12
 HOLDOUT_DAYS = 7
 TEAMS = (2, 3)
