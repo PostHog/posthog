@@ -10,29 +10,49 @@ import { initKeaTests } from '~/test/init'
 import { guestGrantsLogic } from './guestGrantsLogic'
 import { GuestGrant, inviteLogic } from './inviteLogic'
 
-const PREVIEW = [
-    {
-        resource: 'dashboard',
-        id: '12',
-        name: 'Client KPIs',
-        includes: [{ resource: 'insight', id: '7', name: 'Weekly pageviews' }],
-    },
-]
+const DASHBOARD_PREVIEW = {
+    resource: 'dashboard',
+    id: '12',
+    name: 'Client KPIs',
+    includes: [{ resource: 'insight', id: '7', name: 'Weekly pageviews' }],
+}
+const NOTEBOOK_PREVIEW = { resource: 'notebook', id: 'nb-1', name: 'Onboarding review', includes: [] }
 
 describe('guestGrantsLogic', () => {
     let logic: ReturnType<typeof guestGrantsLogic.build>
-    let previewRequests: unknown[]
+    let listRequests: Record<string, number>
+    let previewRequests: { grants: GuestGrant[] }[]
 
     beforeEach(() => {
+        listRequests = { dashboard: 0, insight: 0, notebook: 0 }
         previewRequests = []
         useMocks({
             get: {
-                '/api/projects/:team_id/dashboards/': () => [200, { results: [{ id: 12, name: 'Client KPIs' }] }],
+                '/api/projects/:team_id/dashboards/': () => {
+                    listRequests.dashboard += 1
+                    return [200, { count: 1, results: [{ id: 12, name: 'Client KPIs' }] }]
+                },
+                '/api/projects/:team_id/insights/': () => {
+                    listRequests.insight += 1
+                    return [200, { count: 0, results: [] }]
+                },
+                '/api/projects/:team_id/notebooks/': () => {
+                    listRequests.notebook += 1
+                    return [200, { count: 1, results: [{ id: 'nb-1', title: 'Onboarding review' }] }]
+                },
             },
             post: {
                 '/api/organizations/:organization_id/invites/guest_preview/': async ({ request }) => {
-                    previewRequests.push(await request.json())
-                    return [200, { results: PREVIEW }]
+                    const body = (await request.json()) as { grants: GuestGrant[] }
+                    previewRequests.push(body)
+                    return [
+                        200,
+                        {
+                            results: body.grants.map((grant) =>
+                                grant.resource === 'dashboard' ? DASHBOARD_PREVIEW : NOTEBOOK_PREVIEW
+                            ),
+                        },
+                    ]
                 },
             },
         })
@@ -77,12 +97,43 @@ describe('guestGrantsLogic', () => {
         ])
     })
 
-    it('previews the selected grants without their names', async () => {
-        logic.actions.toggleObject('dashboard', { id: '12', name: 'Client KPIs' })
-        await expectLogic(logic).toDispatchActions(['loadPreviewSuccess']).toMatchValues({ preview: PREVIEW })
-        expect(previewRequests[previewRequests.length - 1]).toEqual({
-            project_id: expect.any(Number),
-            grants: [{ resource: 'dashboard', id: '12' }],
+    it('loads each list once and switches types from the cache', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setActiveResource('notebook')
+        await expectLogic(logic).toMatchValues({
+            options: [{ id: 'nb-1', name: 'Onboarding review' }],
+            optionsLoading: false,
         })
+        logic.actions.setActiveResource('dashboard')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listRequests).toEqual({ dashboard: 1, insight: 1, notebook: 1 })
+    })
+
+    it('filters the cached list while the search runs', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setActiveResource('notebook')
+        logic.actions.setSearch('onboard')
+        await expectLogic(logic).toMatchValues({ options: [{ id: 'nb-1', name: 'Onboarding review' }] })
+        logic.actions.setSearch('pricing')
+        await expectLogic(logic).toMatchValues({ options: [] })
+    })
+
+    it('shows a pick at once and previews only the new pick', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.toggleObject('dashboard', { id: '12', name: 'Client KPIs' })
+        await expectLogic(logic).toMatchValues({
+            previewItems: [{ resource: 'dashboard', id: '12', name: 'Client KPIs', includes: [], loading: true }],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.toggleObject('notebook', { id: 'nb-1', name: 'Onboarding review' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.toggleObject('dashboard', { id: '12', name: 'Client KPIs' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(previewRequests.map((request) => request.grants)).toEqual([
+            [{ resource: 'dashboard', id: '12' }],
+            [{ resource: 'notebook', id: 'nb-1' }],
+        ])
+        expect(logic.values.previewItems).toEqual([{ ...NOTEBOOK_PREVIEW, loading: false }])
     })
 })

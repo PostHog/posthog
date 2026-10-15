@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils/strings'
 
-import type { GuestGrantPreviewApi } from '~/generated/core/api.schemas'
-
-import { GuestGrantResource, guestGrantsLogic } from './guestGrantsLogic'
+import { GuestGrantPreviewItem, GuestGrantResource, guestGrantsLogic } from './guestGrantsLogic'
 
 const RESOURCES: { value: GuestGrantResource; label: string }[] = [
     { value: 'dashboard', label: 'Dashboards' },
@@ -16,7 +15,7 @@ const RESOURCES: { value: GuestGrantResource; label: string }[] = [
     { value: 'notebook', label: 'Notebooks' },
 ]
 
-function PreviewItem({ item }: { item: GuestGrantPreviewApi }): JSX.Element {
+function PreviewItem({ item }: { item: GuestGrantPreviewItem }): JSX.Element {
     const label = RESOURCES.find((resource) => resource.value === item.resource)?.label ?? item.resource
     const insights = item.includes.filter((include) => include.resource === 'insight')
     const recordingCount = item.includes.length - insights.length
@@ -29,6 +28,7 @@ function PreviewItem({ item }: { item: GuestGrantPreviewApi }): JSX.Element {
                 </div>
             ))}
             {recordingCount > 0 && <div className="text-secondary pl-3">{pluralize(recordingCount, 'recording')}</div>}
+            {item.loading && <LemonSkeleton className="h-4 w-32 ml-3" />}
         </div>
     )
 }
@@ -40,8 +40,9 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
         search,
         options,
         optionsLoading,
-        preview,
-        previewLoading,
+        optionsSearching,
+        hiddenOptionCount,
+        previewItems,
         allSelected,
         selectedIds,
         selectedCounts,
@@ -83,6 +84,7 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
                         placeholder={`Search ${activeLabel}`}
                         value={search}
                         onChange={setSearch}
+                        suffix={optionsSearching ? <Spinner /> : null}
                     />
                     <LemonCheckbox
                         className="py-1"
@@ -92,8 +94,8 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
                         data-attr="invite-guest-grant-all"
                     />
                     <div className="flex flex-col max-h-60 overflow-y-auto">
-                        {optionsLoading && !options.length ? (
-                            <Spinner className="m-2" />
+                        {optionsLoading ? (
+                            <LemonSkeleton className="h-5 my-1" repeat={3} />
                         ) : !options.length ? (
                             <div className="text-secondary py-1">
                                 {search ? `No ${activeLabel} match your search.` : `No ${activeLabel} yet.`}
@@ -112,15 +114,18 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
                             ))
                         )}
                     </div>
+                    {hiddenOptionCount > 0 && (
+                        <div className="text-xs text-secondary">
+                            Showing {options.length} of {options.length + hiddenOptionCount}. Search to find others.
+                        </div>
+                    )}
                 </div>
                 <div className="flex flex-col gap-3 @2xl/guest-grants:border-l @2xl/guest-grants:pl-4">
                     <div className="text-xs font-semibold text-secondary">They will see</div>
-                    {preview === null && previewLoading ? (
-                        <Spinner />
-                    ) : !preview?.length ? (
+                    {!previewItems.length ? (
                         <div className="text-secondary">Nothing yet. Pick what they can view.</div>
                     ) : (
-                        preview.map((item) => <PreviewItem key={`${item.resource}-${item.id}`} item={item} />)
+                        previewItems.map((item) => <PreviewItem key={`${item.resource}-${item.id}`} item={item} />)
                     )}
                 </div>
             </div>
