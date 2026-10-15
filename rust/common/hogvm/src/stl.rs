@@ -1646,20 +1646,30 @@ fn extract(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     Ok(HogLiteral::Number(number).into())
 }
 
-// The wall-clock `extract` reads its field from, or None where the reference's luxon DateTime is
-// invalid. The reference parses a string with luxon `fromISO`. Here a string must match the shared
-// date grammar in a form `fromISO` also accepts: a `T` separator, an uppercase `Z`, no surrounding
-// whitespace. Forms only `fromISO` accepts, such as `2024`, `20240315` and `2024-W11`, are None.
+// None where the reference's luxon DateTime is invalid. Luxon also reads values this VM cannot
+// (zones such as `UTC+5`, ISO forms such as `2024` and `2024-W11`, numbers as strings); those
+// return NotImplemented, which the transformation executor turns into a Node VM fallback
+// (`isUnsupportedByRustVm` in nodejs/src/cdp/hog-transformations/rust-vm.ts).
 fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTime>, VmError> {
     let heap = &vm.heap;
+    let unsupported = || {
+        Err(VmError::NotImplemented(
+            "extract of a value only luxon reads".to_string(),
+        ))
+    };
     match value.deref(heap)? {
         HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDateTime__")? => {
-            let Some(secs) = obj_number(heap, obj, "dt")?.filter(|s| s.is_finite()) else {
-                return Ok(None);
+            let Some(secs) = obj_number(heap, obj, "dt")? else {
+                return unsupported();
             };
-            let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
-            let Ok(tz) = zone.parse::<chrono_tz::Tz>() else {
+            // Past the JavaScript Date range of ±8.64e15 ms, luxon marks the instant invalid.
+            if !secs.is_finite() || (secs * 1000.0).abs() > 8.64e15 {
                 return Ok(None);
+            }
+            let Some(tz) =
+                obj_string(heap, obj, "zone")?.and_then(|zone| zone.parse::<chrono_tz::Tz>().ok())
+            else {
+                return unsupported();
             };
             Ok(tz
                 .timestamp_opt(secs.floor() as i64, 0)
@@ -1667,10 +1677,15 @@ fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTi
                 .map(|dt| dt.naive_local()))
         }
         HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDate__")? => {
-            let year = obj_number(heap, obj, "year")?.unwrap_or(f64::NAN);
-            let month = obj_number(heap, obj, "month")?.unwrap_or(f64::NAN);
-            let day = obj_number(heap, obj, "day")?.unwrap_or(f64::NAN);
-            if !(year.is_finite() && month.is_finite() && day.is_finite()) {
+            let (Some(year), Some(month), Some(day)) = (
+                obj_number(heap, obj, "year")?,
+                obj_number(heap, obj, "month")?,
+                obj_number(heap, obj, "day")?,
+            ) else {
+                return unsupported();
+            };
+            // Luxon rejects a fractional calendar field instead of truncating it.
+            if [year, month, day].iter().any(|f| f.fract() != 0.0) {
                 return Ok(None);
             }
             Ok(
@@ -1679,18 +1694,25 @@ fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTi
             )
         }
         HogLiteral::String(s) => {
-            let luxon_iso_form = s.trim() == s.as_str()
-                && s.as_bytes().get(10).is_none_or(|sep| *sep == b'T')
-                && !s.ends_with('z');
-            if !luxon_iso_form {
+            // Luxon anchors its ISO grammar; every form starts with a digit or a sign.
+            let could_be_luxon_iso = s.trim() == s.as_str()
+                && s.starts_with(|c: char| c.is_ascii_digit() || c == '+' || c == '-');
+            if !could_be_luxon_iso {
                 return Ok(None);
             }
-            Ok(parse_datetime_to_seconds(s, None)
-                .ok()
-                .and_then(|secs| DateTime::from_timestamp(secs.floor() as i64, 0))
-                .map(|dt| dt.naive_utc()))
+            // A `t` or space separator and a lowercase `z` parse here but not in luxon.
+            let shared_iso_form =
+                s.as_bytes().get(10).is_none_or(|sep| *sep == b'T') && !s.ends_with('z');
+            match parse_datetime_to_seconds(s, None) {
+                Ok(_) if !shared_iso_form => Ok(None),
+                Ok(secs) => {
+                    Ok(DateTime::from_timestamp(secs.floor() as i64, 0).map(|dt| dt.naive_utc()))
+                }
+                Err(_) => unsupported(),
+            }
         }
-        _ => Ok(None),
+        HogLiteral::Null | HogLiteral::Boolean(_) => Ok(None),
+        _ => unsupported(),
     }
 }
 
