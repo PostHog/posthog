@@ -7,7 +7,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import type { SuggestionCard } from './suggestionCards'
 import { WorkflowDataSuggestionsSurface, workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
-/** A one-line suggestion, for the suggestions under the top one. */
 export function WorkflowSuggestionRow({
     card,
     surface,

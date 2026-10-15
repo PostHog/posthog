@@ -129,8 +129,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
     )
 }
 
-/** Suggestion cards create the workflow themselves, so the footer button goes away while they show. It mounts only
- * while suggestions lead the step, because mounting the suggestions logic starts an AI run. */
+// Mounted only while suggestions lead the step, because mounting the suggestions logic starts an AI run.
 function HiddenWhileSuggesting({ children }: { children: JSX.Element }): JSX.Element | null {
     const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'onboarding_wizard' }))
     return generating || cards.length > 0 ? null : children

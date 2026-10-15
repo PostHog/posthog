@@ -8,8 +8,6 @@ import { WorkflowSuggestionCard } from '../suggestions/WorkflowSuggestionCard'
 import { WorkflowSuggestionRow } from '../suggestions/WorkflowSuggestionRow'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
-/** The first journey as suggestions from the project's events: one card to start from, the rest as rows, and a
- * way out to the templates. Without suggestions it shows `fallback`, the template list. */
 export function WizardSuggestionsStep({ fallback }: { fallback: JSX.Element }): JSX.Element {
     const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'onboarding_wizard' }))
     const { setTemplatesShown } = useActions(workflowsOnboardingWizardLogic)
