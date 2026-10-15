@@ -63,7 +63,7 @@ class TestInboxOnboarding(APIBaseTest):
 
     def test_exposure_is_sticky_and_queued_once(self) -> None:
         with (
-            patch("products.signals.backend.onboarding.posthoganalytics.capture") as capture,
+            patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
             patch("products.signals.backend.tasks.reconcile_inbox_onboarding.delay") as reconcile,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -159,7 +159,7 @@ class TestInboxOnboarding(APIBaseTest):
                 "products.signals.backend.onboarding_completion.InboxOnboardingReconciler.has_repository",
                 return_value=object(),
             ),
-            patch("products.signals.backend.onboarding.posthoganalytics.capture") as capture,
+            patch("products.signals.backend.facade.onboarding.posthoganalytics.capture") as capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             first = self.client.post(f"{self.url}complete/", self.draft, format="json")

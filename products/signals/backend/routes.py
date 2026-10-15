@@ -2,7 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
 from products.signals.backend.presentation.inbox_summary import InboxSummaryViewSet
-from products.signals.backend.onboarding import InboxOnboardingViewSet
+from products.signals.backend.presentation.onboarding import InboxOnboardingViewSet
 from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
