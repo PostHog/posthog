@@ -21,11 +21,12 @@ Re-run with [refreshing-product-reality](refreshing-product-reality.md) when thi
   About 85% of picks are in the top three rows.
   These are legacy figures: the rebuild's `all` scope counts recents and pinned rows in its positions, so its numbers do not compare.
 - **~96% of engaged opens never select a real category** (7-day sample, legacy picker, sessions split at each `taxonomic filter closed`).
-- **Suggested carries about three quarters of selections.**
+- **Suggested carries about three quarters of selections** (legacy picker).
   Roughly half of those are recents.
 
 ## Selection paths
 
+Legacy picker only (query 5 leaves out `rebuild-menu`).
 These overlap: one pick can be both searched and from recents.
 
 | Path                         | Share of selections |

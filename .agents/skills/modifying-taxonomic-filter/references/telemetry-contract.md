@@ -80,10 +80,17 @@ Read the event match events as a funnel: answered, then suggested, then selected
 - `taxonomic filter category selected`: `groupType`, `eventName`.
 - `taxonomic filter category dropdown opened`: `variant`.
 - `taxonomic filter category rail toggled`: `docked`.
-- `taxonomic filter pin toggled`: `groupType`, `value`, `pinned`.
-- `taxonomic filter default pins seeded`: `values`.
 - `taxonomic filter event match answered`: `outcome`.
   Emitted server side.
+
+## Both surfaces, without `surface`
+
+These come from the shared `taxonomicFilterPinnedPropertiesLogic.ts`, which both surfaces call.
+Nothing on them says which surface sent them.
+
+- `taxonomic filter pin toggled`: `groupType`, `value`, `pinned`.
+  A rebuild pin click sends `taxonomic filter menu pin toggled` and then this one too, so do not add the two together.
+- `taxonomic filter default pins seeded`: `values`.
 
 ## Rebuild only, without `surface`
 

@@ -322,28 +322,31 @@ WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event
 
 ### 12. Recovery after an empty result
 
-Share of empty results followed by a searched selection from the same person within 30 seconds.
+Share of empty results followed by a searched selection in the same person and session within 30 seconds.
+Two pickers open at once in one session can still match each other; exact matching would need a picker instance ID.
 This counts every empty result, including repeats while typing, so it reads lower than the health dashboard's recovery tile.
 Compare each against its own history, not each other.
 
 ```sql
 WITH empties AS (
-  SELECT person_id, timestamp AS t
+  SELECT person_id, $session_id AS sid, timestamp AS t
   FROM events
   WHERE event = 'taxonomic filter empty result'
     AND timestamp >= now() - INTERVAL 7 DAY
+    AND $session_id IS NOT NULL
 ),
 picks AS (
-  SELECT person_id, timestamp AS t
+  SELECT person_id, $session_id AS sid, timestamp AS t
   FROM events
   WHERE event = 'taxonomic filter item selected'
     AND toBool(properties.hadSearchInput)
     AND timestamp >= now() - INTERVAL 7 DAY
+    AND $session_id IS NOT NULL
 )
 -- ASOF matches only the next pick per empty result, so the join does not grow as empties x picks
 SELECT round(100 * countIf(p.t > e.t AND p.t <= e.t + INTERVAL 30 SECOND) / count(), 1) AS recovered_within_30s_pct
 FROM empties e
-ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND p.t > e.t
+ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND e.sid = p.sid AND p.t > e.t
 ```
 
 ## Updating the doc
