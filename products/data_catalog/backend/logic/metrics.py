@@ -208,8 +208,6 @@ def _name_taken(existing: Metric, *, team: Team, user: Optional[User], request: 
     capture_metric_event(METRIC_NAME_CONFLICT_EVENT, existing, team=team, user=user, request=request)
     return MetricNameTaken(
         detail=f"A metric named '{existing.name}' already exists. Use a different name, or overwrite the existing metric.",
-        # Name and status only: the metric list hides a metric whose definition reads a table the caller
-        # cannot access, so its description and definition must not leak through this error either.
         extra={"existing_metric": {"name": existing.name, "status": existing.status}},
     )
 
@@ -594,6 +592,22 @@ def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAcc
         if not references_denied_table(metric.referenced_table_names, denied_tables)
     ]
     return metrics.filter(id__in=visible_metric_ids)
+
+
+def reject_name_held_by_hidden_metric(
+    team: Team, user: User, user_access_control: UserAccessControl, name: str
+) -> None:
+    """Refuse a create whose name a live metric hidden from the caller holds.
+
+    Create does not read through ``metrics_visible_to_user``, so without this check an overwrite could
+    refine a metric whose definition reads a table the caller is denied, and the response would return
+    that definition. The conflict carries no metric data, so it confirms only that the name is taken.
+    """
+    if not metrics_for_team(team).filter(name=name).exists():
+        return
+    if metrics_visible_to_user(team, user, user_access_control).filter(name=name).exists():
+        return
+    raise MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

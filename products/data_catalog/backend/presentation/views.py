@@ -189,6 +189,8 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = MetricCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        user = cast(User, request.user)
+        api.reject_name_held_by_hidden_metric(self.team, user, self.user_access_control, data["name"])
         # Pass only the fields the client actually sent, so an upsert that refines an existing metric
         # leaves omitted fields (a stored definition, provenance, ...) untouched rather than resetting them.
         optional = {
@@ -207,7 +209,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         metric = api.upsert_metric(
             team=self.team,
-            user=cast(User, request.user),
+            user=user,
             name=data["name"],
             description=data["description"],
             overwrite=data["overwrite"],
