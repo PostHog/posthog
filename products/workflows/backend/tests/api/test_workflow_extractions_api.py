@@ -177,6 +177,11 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
                 "files_changed",
             ),
             (
+                "long_text_for_a_number",
+                _tool_reply({"pr_url": None, "files_changed": "x" * 1001, "needs_review": True}),
+                "files_changed that is not a number",
+            ),
+            (
                 "text_over_the_cap",
                 _tool_reply({"pr_url": "x" * 1001, "files_changed": 3, "needs_review": True}),
                 "more than 1000 characters for pr_url",

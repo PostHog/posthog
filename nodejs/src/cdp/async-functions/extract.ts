@@ -60,7 +60,7 @@ const parseExtractPayload = (args: any[]): ExtractPayload => {
     const taskRunId = typeof payload.task_run_id === 'string' && payload.task_run_id ? payload.task_run_id : null
     if (taskRunId !== null && !RUN_ID.test(taskRunId)) {
         throw new Error(
-            `Enter the run ID of an AI task step in AI task run, such as {variables.task.run_id}, not "${taskRunId}"`
+            `Set "AI task run" to the run ID of an AI task step, such as {variables.task.run_id}. "${taskRunId}" is not a run ID.`
         )
     }
     const context = payload.context ?? null
@@ -73,15 +73,19 @@ const parseExtractPayload = (args: any[]): ExtractPayload => {
 
 const fieldTypesFromOutputVariables = (
     action: HogFlowAction | undefined,
-    variables: HogFlow['variables']
+    variables: HogFlow['variables'],
+    fieldNames: ReadonlySet<string>
 ): Map<string, FieldType> => {
     const outputVariable = action?.output_variable
     const mappings = Array.isArray(outputVariable) ? outputVariable : outputVariable ? [outputVariable] : []
     const variableTypes = new Map((variables ?? []).map((variable) => [variable.key, variable.type]))
     const types = new Map<string, FieldType>()
     for (const mapping of mappings) {
+        if (mapping.result_path != null && typeof mapping.result_path !== 'string') {
+            throw new Error(`Set the result path of ${mapping.key} to the name of a field`)
+        }
         const type = variableTypes.get(mapping.key)
-        if (!mapping.result_path || !type || !FIELD_TYPES.has(type)) {
+        if (!mapping.result_path || !fieldNames.has(mapping.result_path) || !type || !FIELD_TYPES.has(type)) {
             continue
         }
         const earlierType = types.get(mapping.result_path)
@@ -112,13 +116,13 @@ registerAsyncFunction('postHogExtract', {
         }
 
         const action = hogFlow.actions?.find((candidate) => candidate.id === context.invocation.state.actionId)
-        const types = fieldTypesFromOutputVariables(action, hogFlow.variables)
+        const types = fieldTypesFromOutputVariables(action, hogFlow.variables, new Set(Object.keys(payload.fields)))
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
             message: payload.taskRunId
                 ? `Extract with AI reads the full report of AI task run ${payload.taskRunId}.`
-                : 'Extract with AI reads Text to read.',
+                : 'Extract with AI reads the "Text to read" input.',
         })
         await callInternalApi(context, result, {
             jwt,

@@ -151,20 +151,23 @@ def _read_values(response: Any, fields: list[ExtractionField]) -> dict[str, Extr
         None,
     )
     if not isinstance(answer, dict):
-        raise ExtractionUnusableError("The model did not return the fields.")
+        raise ExtractionUnusableError("The model did not return the fields. Run the step again.")
     values: dict[str, ExtractedValue] = {}
     for field in fields:
         if field.name not in answer:
-            raise ExtractionUnusableError(f"The model left out {field.name}.")
+            raise ExtractionUnusableError(
+                f"The model left out {field.name}. Run the step again, or make the instruction for {field.name} clearer."
+            )
         value = answer[field.name]
-        if isinstance(value, str) and len(value) > MAX_TEXT_VALUE_CHARS:
+        if field.type == ExtractionFieldType.STRING and isinstance(value, str) and len(value) > MAX_TEXT_VALUE_CHARS:
             raise ExtractionUnusableError(
                 f"The model returned more than {MAX_TEXT_VALUE_CHARS} characters for {field.name}. "
                 "Ask for a shorter value in its instruction."
             )
         if not _matches_type(value, field.type):
             raise ExtractionUnusableError(
-                f"The model returned a value for {field.name} that is not {_TYPE_PHRASES[field.type]}."
+                f"The model returned a value for {field.name} that is not {_TYPE_PHRASES[field.type]}. "
+                f"Run the step again, or make the instruction for {field.name} clearer."
             )
         values[field.name] = value
     return values

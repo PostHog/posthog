@@ -95,6 +95,37 @@ describe('postHogExtract', () => {
         expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: TASK_RUN_ID })
     })
 
+    it('fails rather than guess the type of a result path that is not a field name', async () => {
+        const arrayPath = {
+            ...hogFlow,
+            actions: [{ id: 'extract_1', output_variable: [{ key: 'changed', result_path: ['files_changed'] }] }],
+        }
+
+        await expect(invokeLive(payload, arrayPath as unknown as typeof hogFlow)).rejects.toThrow(
+            /result path of changed/
+        )
+        expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores a stale mapping whose result path is no longer a field', async () => {
+        const staleMapping = {
+            ...hogFlow,
+            actions: [
+                {
+                    id: 'extract_1',
+                    output_variable: [
+                        { key: 'pr_url', result_path: 'renamed_field' },
+                        { key: 'changed', result_path: 'renamed_field' },
+                    ],
+                },
+            ],
+        }
+
+        await invokeLive(payload, staleMapping)
+
+        expect(fetchSpy).toHaveBeenCalled()
+    })
+
     it('fails rather than store one field into variables of different types', async () => {
         const mixedTypes = {
             ...hogFlow,

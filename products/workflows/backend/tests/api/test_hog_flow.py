@@ -7447,13 +7447,23 @@ class TestExtractActionValidation(APIBaseTest):
     @parameterized.expand(
         [
             ("number_variable", [{"key": "pr_url", "type": "number"}], None),
-            ("result_path_that_is_not_text", None, [{"key": "pr_url", "result_path": ["pr_url"]}]),
+            ("whole_result", None, [{"key": "pr_url", "result_path": None}]),
         ]
     )
     def test_accepts_named_fields_mapped_into_typed_variables(self, _name, variables, mappings):
         response = self._post_flow({"pr_url": "The URL of the pull request"}, variables, mappings)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_rejects_a_result_path_that_is_not_a_field_name(self):
+        response = self._post_flow(
+            {"pr_url": "The URL of the pull request"},
+            [{"key": "pr_url", "type": "number"}],
+            [{"key": "pr_url", "result_path": ["pr_url"]}],
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions"
 
     @parameterized.expand(
         [
@@ -7474,17 +7484,18 @@ class TestExtractActionValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("json_variable", [{"key": "pr_url", "type": "json"}], None),
+            ("json_variable", [{"key": "pr_url", "type": "json"}], None, "pr_url into pr_url (json)"),
             (
                 "number_and_text_variables",
                 [{"key": "pr_url", "type": "string"}, {"key": "pr_count", "type": "number"}],
                 [{"key": "pr_url", "result_path": "pr_url"}, {"key": "pr_count", "result_path": "pr_url"}],
+                "pr_url into pr_count (number), pr_url (text)",
             ),
         ]
     )
-    def test_rejects_a_field_mapped_into_variable_types_it_cannot_fill(self, _name, variables, mappings):
+    def test_rejects_a_field_mapped_into_variable_types_it_cannot_fill(self, _name, variables, mappings, named):
         response = self._post_flow({"pr_url": "The URL of the pull request"}, variables, mappings)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions"
-        assert "pr_url" in response.json()["detail"]
+        assert named in response.json()["detail"]

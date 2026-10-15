@@ -582,15 +582,19 @@ def _output_mappings(action: dict) -> list[dict]:
     return [mapping for mapping in mappings if isinstance(mapping, dict)]
 
 
-def _extract_field_types(step: dict, variable_types: dict[str, str]) -> dict[str, set[str]]:
+def _extract_field_variables(step: dict, variable_types: dict[str, str]) -> dict[str, dict[str, str]]:
     fields = _extract_fields(step)
-    types: dict[str, set[str]] = {}
+    variables_by_field: dict[str, dict[str, str]] = {}
     for mapping in _output_mappings(step):
         field = mapping.get("result_path")
         variable_type = variable_types.get(mapping.get("key"))
         if isinstance(field, str) and field in fields and variable_type is not None:
-            types.setdefault(field, set()).add(variable_type)
-    return types
+            variables_by_field.setdefault(field, {})[mapping["key"]] = variable_type
+    return variables_by_field
+
+
+def _variable_type_label(variable_type: str) -> str:
+    return dict(ExtractionFieldType.choices).get(variable_type, variable_type).lower()
 
 
 def _extract_fields_in_unfillable_variables(actions: list[dict], variables: list[dict] | None) -> list[str]:
@@ -599,10 +603,16 @@ def _extract_fields_in_unfillable_variables(actions: list[dict], variables: list
     for step in actions:
         if (step.get("config") or {}).get("template_id") != _EXTRACT_TEMPLATE_ID:
             continue
-        for field, types in _extract_field_types(step, variable_types).items():
+        for mapping in _output_mappings(step):
+            if mapping.get("result_path") is not None and not isinstance(mapping["result_path"], str):
+                unfillable.append(f"{mapping['key']} (set its result path to the name of a field)")
+        for field, field_variables in _extract_field_variables(step, variable_types).items():
+            types = set(field_variables.values())
             if len(types) > 1 or not types <= set(ExtractionFieldType.values):
-                labels = sorted(dict(ExtractionFieldType.choices).get(type_, type_).lower() for type_ in types)
-                unfillable.append(f"{field} ({' and '.join(labels)} variables)")
+                targets = ", ".join(
+                    f"{key} ({_variable_type_label(type_)})" for key, type_ in sorted(field_variables.items())
+                )
+                unfillable.append(f"{field} into {targets}")
     return unfillable
 
 
