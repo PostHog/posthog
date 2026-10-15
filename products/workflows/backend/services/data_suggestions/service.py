@@ -29,6 +29,7 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestionsResult,
     MissingInput,
     NewWorkflowIdea,
+    WorkflowIdeaRecord,
 )
 from products.workflows.backend.facade.enums import WorkflowIdeaSource
 from products.workflows.backend.services.data_suggestions import team_context
@@ -59,7 +60,7 @@ from products.workflows.backend.services.data_suggestions.stages import (
     classify_event_stages,
 )
 from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
-from products.workflows.backend.services.workflow_ideas import create_ideas, list_open_ideas
+from products.workflows.backend.services.workflow_ideas import create_ideas, get_open_idea, list_open_ideas
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -469,8 +470,9 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
 
 
 def _cached_suggestion(team: Team, suggestion_id: str) -> DataSuggestion | None:
-    # A build saves a draft on the card's event, so the card must stay findable once that draft exists.
-    return next((item for item in _open_suggestions(team, hide_used_events=False) if item.id == suggestion_id), None)
+    # Read directly rather than through the ranked cards, which can hide the idea a person sees on the page.
+    idea = get_open_idea(team_id=team.id, idea_id=suggestion_id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+    return _to_suggestion(idea) if idea is not None else None
 
 
 def _store_ideas(team_id: int, suggestions: tuple[DataSuggestion, ...]) -> None:
@@ -505,20 +507,24 @@ def _idea_key(suggestion: DataSuggestion) -> str:
     return f"{suggestion.stage}:sha256:{hashlib.sha256(suggestion.trigger_event.encode()).hexdigest()}"
 
 
-def _open_suggestions(team: Team, *, hide_used_events: bool) -> tuple[DataSuggestion, ...]:
+def _to_suggestion(idea: WorkflowIdeaRecord) -> DataSuggestion:
+    return DataSuggestion(
+        id=str(idea.id),
+        name=idea.title,
+        description=idea.rationale,
+        reason=idea.evidence.get("reason", ""),
+        trigger_event=idea.evidence.get("trigger_event", ""),
+        weekly_count=int(idea.evidence.get("weekly_count") or 0),
+        stage=idea.evidence.get("stage", "other"),
+        step_outline=tuple(idea.evidence.get("step_outline") or ()),
+    )
+
+
+def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     """The stored ideas still waiting for a decision, ranked like a fresh run ranks its cards."""
-    used_events = team_context.used_trigger_events(team) if hide_used_events else set()
+    used_events = team_context.used_trigger_events(team)
     suggestions = [
-        DataSuggestion(
-            id=str(idea.id),
-            name=idea.title,
-            description=idea.rationale,
-            reason=idea.evidence.get("reason", ""),
-            trigger_event=idea.evidence.get("trigger_event", ""),
-            weekly_count=int(idea.evidence.get("weekly_count") or 0),
-            stage=idea.evidence.get("stage", "other"),
-            step_outline=tuple(idea.evidence.get("step_outline") or ()),
-        )
+        _to_suggestion(idea)
         for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
         if idea.evidence.get("trigger_event") not in used_events
     ]
@@ -530,7 +536,7 @@ def _with_open_ideas(team: Team, cached: DataSuggestionsResult) -> DataSuggestio
     # The cache still says whether a run finished and which events a build can use; the cards come from the ideas.
     if cached.status != "ready":
         return cached
-    return dataclasses.replace(cached, suggestions=_open_suggestions(team, hide_used_events=True))
+    return dataclasses.replace(cached, suggestions=_open_suggestions(team))
 
 
 @contextmanager

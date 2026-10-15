@@ -109,7 +109,7 @@ describe('workflowDataSuggestionsLogic', () => {
 
         expect(hogFlowsCreate).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ name: 'Welcome new users', status: 'draft', origin_product: 'ideas' }),
+            expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(workflowDataSuggestionsAccept).toHaveBeenCalledWith(

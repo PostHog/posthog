@@ -286,7 +286,6 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         {
                             ...(built.workflow as Record<string, unknown>),
                             status: 'draft',
-                            origin_product: 'ideas',
                         } as Parameters<typeof hogFlowsCreate>[1],
                         { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
                     )

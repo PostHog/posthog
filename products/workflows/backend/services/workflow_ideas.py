@@ -15,7 +15,6 @@ from products.workflows.backend.facade.contracts import (
     WorkflowIdeaRecord,
     WorkflowIdeaWorkflowMismatch,
 )
-from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.models import HogFlow, WorkflowIdea
 
 
@@ -39,6 +38,19 @@ def list_open_ideas(*, team_id: int, source: str) -> list[WorkflowIdeaRecord]:
     """Ideas from `source` still waiting for a decision, oldest first."""
     rows = WorkflowIdea.objects.for_team(team_id).filter(status=WorkflowIdea.Status.SUGGESTED, source=source)
     return [_record(row) for row in rows.order_by("created_at")]
+
+
+def get_open_idea(*, team_id: int, idea_id: str, source: str) -> WorkflowIdeaRecord | None:
+    try:
+        UUID(idea_id)
+    except ValueError:
+        return None
+    row = (
+        WorkflowIdea.objects.for_team(team_id)
+        .filter(id=idea_id, status=WorkflowIdea.Status.SUGGESTED, source=source)
+        .first()
+    )
+    return _record(row) if row is not None else None
 
 
 def create_ideas(
@@ -86,8 +98,9 @@ def accept_idea(*, team_id: int, idea_id: str, hog_flow_id: str, user_id: int) -
     """Records the draft a person created from the idea. The draft itself goes through the workflow API."""
     with transaction.atomic():
         row = _lock_open(team_id, idea_id)
-        hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).first()
-        if hog_flow is None or hog_flow.origin_product != HogFlowOriginProduct.IDEAS:
+        hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id, status=HogFlow.State.DRAFT).first()
+        # A draft can stand for one idea only, so an idea cannot claim a draft another idea already took.
+        if hog_flow is None or WorkflowIdea.objects.for_team(team_id).filter(hog_flow=hog_flow).exists():
             raise WorkflowIdeaWorkflowMismatch()
         row.status = WorkflowIdea.Status.ACCEPTED
         row.hog_flow = hog_flow

@@ -539,14 +539,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod
-                    .enum(['loops', 'broadcasts', 'ideas'])
-                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -1949,14 +1947,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ),
             origin_product: zod
                 .union([
-                    zod
-                        .enum(['loops', 'broadcasts', 'ideas'])
-                        .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
+                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -2833,14 +2829,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ),
         origin_product: zod
             .union([
-                zod
-                    .enum(['loops', 'broadcasts', 'ideas'])
-                    .describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'),
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `ideas` - Ideas'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -3234,7 +3228,9 @@ export const WorkflowDataSuggestionsAcceptBody = /* @__PURE__ */ zod.object({
     suggestion_id: zod.string().describe('The id of the suggestion the draft was built from.'),
     hog_flow_id: zod
         .uuid()
-        .describe("The draft workflow created from the built suggestion, with origin_product 'ideas'."),
+        .describe(
+            'The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion.'
+        ),
 })
 
 /**

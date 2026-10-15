@@ -135,7 +135,7 @@ class DataSuggestionDismissRequestSerializer(serializers.Serializer):
 class DataSuggestionAcceptRequestSerializer(serializers.Serializer):
     suggestion_id = serializers.CharField(help_text="The id of the suggestion the draft was built from.")
     hog_flow_id = serializers.UUIDField(
-        help_text="The draft workflow created from the built suggestion, with origin_product 'ideas'."
+        help_text="The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion."
     )
 
 
@@ -252,6 +252,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def build(self, request: Request, **kwargs: Any) -> Response:
         user = self._user_with_feature(request)
+        self._require_project()
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -275,6 +276,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def dismiss(self, request: Request, **kwargs: Any) -> Response:
         user = self._user_with_feature(request)
+        self._require_project()
         payload = DataSuggestionDismissRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -300,6 +302,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def accept(self, request: Request, **kwargs: Any) -> Response:
         user = self._user_with_feature(request)
+        self._require_project()
         payload = DataSuggestionAcceptRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -318,6 +321,11 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"detail": "This suggestion was already used or dismissed."}, status=status.HTTP_409_CONFLICT
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _require_project(self) -> None:
+        # Ideas are stored on the project, which a key scoped to one of its child environments may not change.
+        if self.team.parent_team_id is not None:
+            raise NotFound("Workflow suggestions are not available in this environment.")
 
     def _user_with_feature(self, request: Request) -> User:
         user = request.user

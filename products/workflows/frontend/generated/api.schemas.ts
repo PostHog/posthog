@@ -329,14 +329,12 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
- * * `ideas` - Ideas
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
-    Ideas: 'ideas',
 } as const
 
 /**
@@ -678,8 +676,7 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts
-     * * `ideas` - Ideas */
+     * * `broadcasts` - Broadcasts */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -780,8 +777,7 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts
-     * * `ideas` - Ideas */
+     * * `broadcasts` - Broadcasts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -882,8 +878,7 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts
-     * * `ideas` - Ideas */
+     * * `broadcasts` - Broadcasts */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2078,7 +2073,7 @@ export interface BlastRadiusApi {
 export interface DataSuggestionAcceptRequestApi {
     /** The id of the suggestion the draft was built from. */
     suggestion_id: string
-    /** The draft workflow created from the built suggestion, with origin_product 'ideas'. */
+    /** The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion. */
     hog_flow_id: string
 }
 
@@ -2481,7 +2476,6 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
-    Ideas: 'ideas',
     Loops: 'loops',
 } as const
 

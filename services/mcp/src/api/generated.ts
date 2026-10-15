@@ -30167,7 +30167,7 @@ export namespace Schemas {
     export interface DataSuggestionAcceptRequest {
       /** The id of the suggestion the draft was built from. */
       suggestion_id: string;
-      /** The draft workflow created from the built suggestion, with origin_product 'ideas'. */
+      /** The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion. */
       hog_flow_id: string;
     }
 
@@ -55208,7 +55208,6 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `ideas` - Ideas
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -55216,7 +55215,6 @@ export namespace Schemas {
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
-      Ideas: 'ideas',
     } as const;
 
     export interface HogFlowMasking {
@@ -55534,8 +55532,7 @@ export namespace Schemas {
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts
-       * * `ideas` - Ideas */
+       * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -56088,8 +56085,7 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts
-       * * `ideas` - Ideas */
+       * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -81766,8 +81762,7 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts
-       * * `ideas` - Ideas */
+       * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -125493,7 +125488,6 @@ export namespace Schemas {
 
     export const HogFlowsListOriginProduct = {
       Broadcasts: 'broadcasts',
-      Ideas: 'ideas',
       Loops: 'loops',
     } as const;
 

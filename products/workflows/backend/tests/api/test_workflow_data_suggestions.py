@@ -296,11 +296,13 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert "trial_started" not in dict(suggest_ideas.call_args.kwargs["context"].events)
 
+    @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_stored_card_is_dropped_once_a_workflow_starts_from_its_event(
-        self, suggest_ideas: MagicMock, _flag
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         assert [s["trigger_event"] for s in self._list()["suggestions"]] == ["trial_started"]
 
         HogFlow.objects.create(
@@ -310,8 +312,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             trigger={"type": "event", "filters": {"events": [{"id": "trial_started", "type": "events"}]}},
             actions=[],
         )
-
         assert self._list()["suggestions"] == []
+
+        suggest_ideas.return_value = [_idea("user_registered")]
+        [replacement] = self._list(refresh=True)["suggestions"]
+        built = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": replacement["id"]},
+            format="json",
+        )
+
+        assert replacement["trigger_event"] == "user_registered"
+        assert built.status_code == 200, built.json()
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_long_event_name_is_stored_under_a_key_that_fits(self, suggest_ideas: MagicMock, _flag) -> None:
@@ -326,10 +338,24 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert [s["trigger_event"] for s in result["suggestions"]] == [long_event]
         assert len(StoredIdea.objects.for_team(self.team.id).get().key) <= 200
 
-    def test_a_child_environment_gets_no_suggestions(self, _flag) -> None:
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_child_environment_cannot_read_or_change_project_suggestions(
+        self, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        [suggestion] = self._list()["suggestions"]
         child = Team.objects.create(organization=self.organization, name="Staging", parent_team=self.team)
+        flow = HogFlow.objects.create(team=self.team, name="Draft")
 
         assert get_data_suggestions(team=child).status == "unavailable"
+        for action, extra in [("build", {}), ("dismiss", {}), ("accept", {"hog_flow_id": str(flow.id)})]:
+            response = self.client.post(
+                f"/api/projects/{child.id}/workflow_data_suggestions/{action}/",
+                {"suggestion_id": suggestion["id"], **extra},
+                format="json",
+            )
+            assert response.status_code == 404, (action, response.json())
+        assert StoredIdea.objects.for_team(self.team.id).get().status == "suggested"
 
     @parameterized.expand(
         [
@@ -474,15 +500,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a draft made from the suggestion", "ideas", 204, "accepted"),
-            ("a workflow not made from a suggestion", None, 400, "suggested"),
+            ("an unclaimed draft", "draft", False, 204, "accepted"),
+            ("a live workflow", "active", False, 400, "suggested"),
+            ("a draft another suggestion already claimed", "draft", True, 400, "suggested"),
         ]
     )
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_accept_links_only_a_draft_made_from_the_suggestion(
+    def test_accept_links_only_an_unclaimed_draft(
         self,
         _name: str,
-        origin_product: str | None,
+        flow_status: str,
+        claimed: bool,
         status_code: int,
         idea_status: str,
         suggest_ideas: MagicMock,
@@ -490,7 +518,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         [suggestion] = self._list()["suggestions"]
-        flow = HogFlow.objects.create(team=self.team, name="Draft", origin_product=origin_product)
+        flow = HogFlow.objects.create(team=self.team, name="Draft", status=flow_status)
+        if claimed:
+            StoredIdea.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                key="other",
+                title="Other",
+                rationale="",
+                definition={},
+                status="accepted",
+                hog_flow=flow,
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/workflow_data_suggestions/accept/",
@@ -499,8 +537,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status_code
-        idea = StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"])
-        assert idea.status == idea_status
+        assert StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"]).status == idea_status
         assert (self._list()["suggestions"] == []) is (idea_status == "accepted")
 
     @patch(f"{SERVICE}.plan_steps")
