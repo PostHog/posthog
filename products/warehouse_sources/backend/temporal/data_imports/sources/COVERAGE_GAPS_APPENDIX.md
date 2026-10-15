@@ -10005,9 +10005,9 @@ Today (7): `bots`, `calendar_events`, `calendars`, `meeting_metadata`, `particip
 
 Diffed against: <https://docs.recall.ai/llms.txt>
 
-- [ ] `Desktop SDK uploads (GET /api/v1/sdk_upload/)` — resolve desktop_sdk_upload references on recordings and measure upload success or failure (high)
+- [x] `Desktop SDK uploads (GET /api/v1/sdk_upload/)` — resolve desktop_sdk_upload references on recordings and measure upload success or failure (high)
 - [ ] `Usage (GET /api/v1/billing/usage/)` — compare bot usage totals with recording activity and allocated costs (high)
-- [ ] `Meeting Direct Connects (GET /api/v1/meeting_direct_connect/)` — analyze connection status and recording activity for meetings captured without bots (medium)
+- [x] `Meeting Direct Connects (GET /api/v1/meeting_direct_connect/)` — analyze connection status and recording activity for meetings captured without bots (medium)
 
 Note: The official documentation index was fetched with curl, followed by the embedded OpenAPI definitions on the missing resource pages. The recording schema confirms desktop_sdk_upload references, and usage returns workspace bot totals for a requested period. Older calendar-user and calendar-meeting endpoints overlap the imported v2 calendar resources. Media downloads, OAuth credentials, and realtime delivery configuration are excluded.
 
@@ -10697,11 +10697,11 @@ Today (10): `blocks`, `bounces`, `global_unsubscribes`, `invalid_emails`, `marke
 Diffed against: <https://github.com/twilio/sendgrid-oai/tree/main/spec/json (official Twilio SendGrid OpenAPI specs; read tsg_stats_v3.json, tsg_mc_stats_v3.json, tsg_mc_contacts_v3.json, tsg_mc_singlesends_v3.json, tsg_suppressions_v3.json, tsg_email_activity_v3.json, tsg_subusers_v3.json and others)>
 
 - [x] `GET /v3/stats (global email statistics)` — SendGrid's headline metric — daily requests, delivered, opens, clicks, bounces, spam reports; the whole reason to sync SendGrid (high)
-- [ ] `GET /v3/marketing/stats/singlesends (+ /{id} and /{id}/links)` — Per-campaign send performance including click tracking by link (high)
-- [ ] `GET /v3/marketing/singlesends` — Single Send campaign records — the lookup that resolves the singlesend IDs in the stats endpoints (high)
+- [x] `GET /v3/marketing/stats/singlesends (+ /{id} and /{id}/links)` — Per-campaign send performance including click tracking by link (high)
+- [x] `GET /v3/marketing/singlesends` — Single Send campaign records — the lookup that resolves the singlesend IDs in the stats endpoints (high)
 - [x] `GET /v3/messages (Email Activity)` — Per-message event feed (delivered, opened, clicked, bounced) — the row-level fact table behind all aggregate stats (high)
 - [ ] `GET /v3/marketing/contacts (+ /contacts/exports)` — Contact records; no recipient dimension exists today so lists and suppressions cannot be joined to people (high)
-- [ ] `GET /v3/asm/groups/{group_id}/suppressions` — Membership rows linking email addresses to the unsubscribe_groups already synced — the join table is missing (high)
+- [x] `GET /v3/asm/groups/{group_id}/suppressions` — Membership rows linking email addresses to the unsubscribe_groups already synced — the join table is missing (high)
 - [ ] `GET /v3/categories/stats (and /v3/categories/stats/sums)` — Email stats broken down by category, the main way transactional senders segment performance (medium)
 - [ ] `GET /v3/categories` — Category lookup resolving the category tags used on stats and messages (medium)
 - [ ] `GET /v3/marketing/stats/automations (+ /{id}/links)` — Automation (journey) performance stats (medium)

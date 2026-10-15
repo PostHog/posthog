@@ -26,6 +26,7 @@ import structlog
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, slot_of
@@ -396,6 +397,11 @@ def _request(
         # Logs does not group, so its one row has the empty grouping key.
         incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
+        # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
+        source_alert_url=absolute_uri(f"/project/{check.team_id}/logs/alerts/{check.legacy_configuration_id}")
+        if check.legacy_configuration_id is not None
+        else None,
+        owned_by_platform=check.owned_by_platform,
     )
 
 

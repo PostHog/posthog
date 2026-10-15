@@ -40,10 +40,10 @@ from products.alerts_platform.backend.logic.platform_alert_events import announc
 
 logger = structlog.get_logger(__name__)
 
-# Whether the platform may contact a team's destinations. Only the platform reads it: the
-# production logs path keeps delivering regardless, so a team with this on receives the legacy
-# message and the native one. Flipping a team from one deliverer to the other is the cutover,
-# and it is not this.
+# Whether the platform may contact a team's destinations for an alert its source still owns. Only
+# the platform reads it: the source keeps delivering regardless, so a team with this on receives
+# the legacy message and the native one. An alert the platform owns never reads it, because the
+# source sends nothing for that alert and a flag-eval failure would silence it.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
@@ -160,7 +160,7 @@ class _WebhookTransports:
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not destinations_are_live(team):
+    if team is None or not (request.owned_by_platform or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
 
     announced = announcement(
@@ -216,6 +216,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     target=target,
                     announcement=replace(announced, transitions=transitions),
                     incident_action=action_by_event_id.get(event_id),
+                    source_alert_url=request.source_alert_url,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))

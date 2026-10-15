@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
+import { getAutoBoxPlotSettings } from '~/queries/nodes/DataVisualization/Components/Charts/sqlBoxPlotAdapter'
 import {
     BIConfig,
     BISort,
@@ -85,7 +86,9 @@ export function changeBIFilterOperator(filter: BIFilter, operator: BIFilterOpera
     return {
         ...filter,
         operator,
-        ...(isMultiple ? { values: filter.value ? [filter.value] : [] } : { value: filter.values?.[0] ?? '' }),
+        ...(isMultiple
+            ? { values: filter.values ?? (filter.value ? [filter.value] : []) }
+            : { value: filter.values?.[0] ?? '', values: filter.values?.slice(0, 1) }),
     }
 }
 
@@ -99,9 +102,30 @@ export interface BIQueryBuildResult {
     node: DataVisualizationNode
 }
 
+function mergeBIAxisLabel(
+    current: string | undefined,
+    previous: string | undefined,
+    generated: string | undefined
+): string | undefined {
+    return current !== previous ? (current ?? generated) : generated
+}
+
+function getBIChartColumnLabel(settings: ChartSettings | undefined, column: string): string | undefined {
+    if (settings?.xAxis?.column === column) {
+        return settings.xAxisLabel
+    }
+    const axis = settings?.yAxis?.find((axis) => axis.column === column)
+    return (
+        axis?.settings?.display?.label ??
+        (settings?.yAxis?.length === 1 ? settings.leftYAxisSettings?.label : undefined)
+    )
+}
+
 export function mergeBIChartSettings(
     current: ChartSettings | undefined,
-    generated: ChartSettings | undefined
+    generated: ChartSettings | undefined,
+    previousDefaults?: ChartSettings,
+    preserveNumericAxes = false
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -110,10 +134,64 @@ export function mergeBIChartSettings(
         }
         return current
     }
+    if (preserveNumericAxes && current?.xAxis?.column) {
+        const axes = [generated.xAxis, ...(generated.yAxis ?? [])].filter((axis) => axis?.column)
+        const selectedX = axes.find((axis) => axis?.column === current.xAxis?.column)
+        const selectedY = current.yAxis?.filter(
+            (axis) => axis.column !== selectedX?.column && axes.some((available) => available?.column === axis.column)
+        )
+        if (selectedX && selectedY?.length) {
+            return {
+                ...current,
+                ...generated,
+                xAxis: {
+                    ...selectedX,
+                    ...current.xAxis,
+                    settings: mergeBIMeasureSettings(current.xAxis.settings, selectedX.settings),
+                },
+                xAxisLabel: mergeBIAxisLabel(
+                    current.xAxisLabel,
+                    getBIChartColumnLabel(previousDefaults, selectedX.column),
+                    getBIChartColumnLabel(generated, selectedX.column)
+                ),
+                yAxis: selectedY.map((axis) => ({
+                    ...axis,
+                    settings: mergeBIMeasureSettings(
+                        axis.settings,
+                        axes.find((available) => available?.column === axis.column)?.settings
+                    ),
+                })),
+                leftYAxisSettings: {
+                    ...generated.leftYAxisSettings,
+                    ...current.leftYAxisSettings,
+                    label: mergeBIAxisLabel(
+                        current.leftYAxisSettings?.label,
+                        selectedY.length === 1
+                            ? getBIChartColumnLabel(previousDefaults, selectedY[0].column)
+                            : previousDefaults?.leftYAxisSettings?.label,
+                        selectedY.length === 1
+                            ? getBIChartColumnLabel(generated, selectedY[0].column)
+                            : generated.leftYAxisSettings?.label
+                    ),
+                },
+            }
+        }
+    }
     return {
         ...current,
         ...generated,
-        leftYAxisSettings: { ...current?.leftYAxisSettings, ...generated.leftYAxisSettings },
+        xAxisLabel:
+            current?.xAxis?.column === generated.xAxis?.column && current?.xAxisLabel !== previousDefaults?.xAxisLabel
+                ? (current?.xAxisLabel ?? generated.xAxisLabel)
+                : generated.xAxisLabel,
+        leftYAxisSettings: {
+            ...generated.leftYAxisSettings,
+            ...current?.leftYAxisSettings,
+            label:
+                current?.leftYAxisSettings?.label !== previousDefaults?.leftYAxisSettings?.label
+                    ? (current?.leftYAxisSettings?.label ?? generated.leftYAxisSettings?.label)
+                    : generated.leftYAxisSettings?.label,
+        },
         xAxis: generated.xAxis
             ? {
                   ...(current?.xAxis?.column === generated.xAxis.column ? current.xAxis : {}),
@@ -129,6 +207,7 @@ export function mergeBIChartSettings(
                     settings: mergeBIMeasureSettings(saved?.settings, axis.settings),
                 }
             }) ?? current?.yAxis,
+        boxPlot: current?.boxPlot || generated.boxPlot ? { ...generated.boxPlot, ...current?.boxPlot } : undefined,
         heatmap: current?.heatmap || generated.heatmap ? { ...current?.heatmap, ...generated.heatmap } : undefined,
     }
 }
@@ -243,6 +322,10 @@ export function isNumericBIField(field: BIField): boolean {
     return NUMERIC_FIELD_TYPES.has(field.type)
 }
 
+export function isNumericBIResultField(field: BIField): boolean {
+    return isNumericBIField(field) || !!field.datePart
+}
+
 export function isDateTimeBIField(field: BIField): boolean {
     return !field.datePart && (field.type === 'date' || field.type === 'datetime')
 }
@@ -255,8 +338,7 @@ export function isBIFieldCompatible(source: BIDataSource | null, field: BIField)
 }
 
 export function defaultAggregationForField(field: BIField): BIAggregation {
-    const baseTableName = field.source.table.replaceAll('`', '').split('.').pop() ?? field.source.table
-    if (['id', 'uuid', `${baseTableName}_id`].includes(field.name)) {
+    if (isIdentifierBIField(field)) {
         return 'count'
     }
 
@@ -265,17 +347,20 @@ export function defaultAggregationForField(field: BIField): BIAggregation {
 
 const IDENTIFIER_FIELD_NAME_REGEX = /(^|_)(id|uuid)$/i
 
-/** Numeric fields that are not identifiers aggregate by default, like measures in a BI tool. */
+function isIdentifierBIField(field: BIField): boolean {
+    return IDENTIFIER_FIELD_NAME_REGEX.test(
+        field.name
+            .split('.')
+            .pop()!
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    )
+}
+
 export function isBIMeasureField(field: BIField): boolean {
     if (field.localDefinition?.kind === 'expression') {
         return field.localDefinition.aggregate
     }
-    return (
-        !field.localDefinition &&
-        isNumericBIField(field) &&
-        defaultAggregationForField(field) !== 'count' &&
-        !IDENTIFIER_FIELD_NAME_REGEX.test(field.name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'))
-    )
+    return !field.localDefinition && (isNumericBIField(field) || isIdentifierBIField(field))
 }
 
 export const BI_SHELF_PILL_DRAG_MIME_TYPE = 'application/x-posthog-bi-shelf-pill'
@@ -384,6 +469,8 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
     const columnCount = config.columns.length
     const dimensionCount = rowCount + columnCount
     const hasDateDimension = [...config.rows, ...config.columns].some(isDateTimeBIField)
+    const numericColumnCount =
+        [...config.rows, ...config.columns].filter(isNumericBIResultField).length + Math.max(1, config.values.length)
 
     switch (chartType) {
         case ChartDisplayType.Auto:
@@ -394,6 +481,12 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
             }
         case ChartDisplayType.ActionsTable:
             return { fits: true, requirement: 'any combination of fields' }
+        case ChartDisplayType.ActionsProportionBar:
+            return { fits: numericColumnCount >= 1, requirement: 'at least 1 numeric column' }
+        case ChartDisplayType.ScatterPlot:
+            return { fits: numericColumnCount >= 2, requirement: 'at least 2 numeric columns, one for each axis' }
+        case ChartDisplayType.BoxPlot:
+            return { fits: numericColumnCount >= 6, requirement: '6 numeric summary columns' }
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsAreaGraph:
             return {
@@ -472,6 +565,7 @@ function parseBIFieldValue(value: unknown): BIField | null {
         (candidate.localDefinition !== undefined && !!localFieldError(candidate.localDefinition)) ||
         typeof candidate.id !== 'string' ||
         typeof candidate.name !== 'string' ||
+        (candidate.label !== undefined && typeof candidate.label !== 'string') ||
         typeof candidate.expression !== 'string' ||
         typeof candidate.type !== 'string' ||
         (candidate.localFieldId !== undefined && typeof candidate.localFieldId !== 'string') ||
@@ -821,9 +915,11 @@ export function getBIFilterValidationError(filter: BIFilter): string | null {
     const values =
         filter.operator === 'in' || filter.operator === 'not_in'
             ? (filter.values ?? [])
-            : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
-                  (value) => value.trim() !== ''
-              )
+            : filter.operator !== 'between' && filter.values
+              ? filter.values.slice(0, 1)
+              : [filter.value, ...(filter.operator === 'between' ? [filter.valueTo ?? ''] : [])].filter(
+                    (value) => value.trim() !== ''
+                )
     return values.some(
         (value) =>
             !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()) || !Number.isFinite(Number(value))
@@ -872,7 +968,11 @@ export function getBIFilterSummary(filter: BIFilter): string {
                 greater_than: '> ',
                 less_than: '< ',
             }[filter.operator]
-            return filter.value ? `${prefix}${filter.value}` : 'All values'
+            return filter.value
+                ? `${prefix}${filter.value}`
+                : ['equals', 'not_equals'].includes(filter.operator) && filter.values?.includes('')
+                  ? `${prefix}(empty string)`
+                  : 'All values'
         }
     }
 }
@@ -912,7 +1012,10 @@ function filterExpression(filter: BIFilter): string | null {
         ].filter(Boolean)
         return bounds.length ? `(${bounds.join(' AND ')})` : null
     }
-    if (!filter.value.trim()) {
+    if (
+        !filter.value.trim() &&
+        !(['equals', 'not_equals'].includes(filter.operator) && filter.values?.includes(filter.value))
+    ) {
         return null
     }
 
@@ -1256,6 +1359,9 @@ const PILL_AGGREGATION_PREFIXES: Record<Exclude<BIAggregation, 'custom'>, string
 }
 
 export function getBIFieldPillLabel(field: BIField): string {
+    if (field.label?.trim()) {
+        return field.label.trim()
+    }
     const name = field.name || field.expression.trim()
     if (!name) {
         return 'New calculation'
@@ -1268,6 +1374,9 @@ export function getBIFieldPillLabel(field: BIField): string {
 }
 
 export function getBIValuePillLabel(value: BIValue): string {
+    if (value.display?.label?.trim()) {
+        return value.display.label.trim()
+    }
     if (value.tableCalculation) {
         return `${BI_TABLE_CALCULATIONS.find((option) => option.value === value.tableCalculation?.type)?.label} · ${getBIValuePillLabel({ ...value, tableCalculation: undefined })}`
     }
@@ -1540,6 +1649,40 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
         }
     }
 
+    if (config.chartType === ChartDisplayType.ScatterPlot) {
+        const numericColumns = [
+            ...getBIResultDimensions(config)
+                .filter(({ field }) => isNumericBIResultField(field))
+                .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) })),
+            ...(configuredValues.length
+                ? configuredValues.map(({ alias, value }) => ({ column: alias, label: getBIValuePillLabel(value) }))
+                : [{ column: 'count', label: 'Count of rows' }]),
+        ]
+        const [x, ...ys] = numericColumns
+        seriesSettings = {
+            ...seriesSettings,
+            xAxis: x ? { column: x.column } : undefined,
+            xAxisLabel: x?.label,
+            yAxis: ys.map(({ column }) => ({
+                column,
+                ...calculatedFormats.find((format) => format.column === column),
+            })),
+            leftYAxisSettings: { label: ys.length === 1 ? ys[0].label : undefined },
+            seriesBreakdownColumn: undefined,
+        }
+    }
+
+    if (config.chartType === ChartDisplayType.BoxPlot) {
+        const columns = [
+            ...getBIResultDimensions(config).map(({ column, field }) => ({
+                name: column,
+                type: { isNumerical: isNumericBIResultField(field) },
+            })),
+            ...configuredValues.map(({ alias }) => ({ name: alias, type: { isNumerical: true } })),
+        ].map((column, dataIndex) => ({ ...column, dataIndex }))
+        seriesSettings = { ...seriesSettings, boxPlot: getAutoBoxPlotSettings(columns) }
+    }
+
     return {
         query,
         node: {
@@ -1552,7 +1695,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 filters: getBIQueryFilters(config),
             },
             display: config.chartType,
-            ...(calculatedFormats.length
+            ...(calculatedFormats.length || dimensions.length
                 ? {
                       tableSettings: {
                           columns: [
@@ -1565,9 +1708,24 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                                             ? dimension.alias
                                             : fieldExpression(dimension.field)
                                     )),
-                              ...configuredValues.map((value) => value.alias),
+                              ...(configuredValues.length ? configuredValues.map((value) => value.alias) : ['count']),
                               ...(comparing ? ['bi_comparison'] : []),
-                          ].map((column) => calculatedFormats.find((format) => format.column === column) ?? { column }),
+                          ].map((column) => {
+                              const dimension = dimensions.find(
+                                  (dimension) =>
+                                      (hasBIAnalysis(config) || comparing || hasSeriesBreakdown || isPivotTable
+                                          ? dimension.alias
+                                          : fieldExpression(dimension.field)) === column
+                              )
+                              return (
+                                  calculatedFormats.find((format) => format.column === column) ?? {
+                                      column,
+                                      ...(dimension
+                                          ? { settings: { display: { label: getBIFieldPillLabel(dimension.field) } } }
+                                          : {}),
+                                  }
+                              )
+                          }),
                       },
                   }
                 : {}),

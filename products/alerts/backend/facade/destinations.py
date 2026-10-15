@@ -26,7 +26,14 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 
-from ..logic import delivery_destinations, destination_configs, destinations, insight_alert_destinations
+from ..logic import (
+    delivery_destinations,
+    destination_configs,
+    destination_eligibility,
+    destinations,
+    insight_alert_destinations,
+)
+from .contracts import DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -219,3 +226,17 @@ def list_delivery_destination_groups(
     return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def classify_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
+    return destination_eligibility.classify_alert_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
+    """Enabled functions that take a source's alert events without being bound to one alert."""
+    return destination_eligibility.unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
