@@ -332,7 +332,7 @@ describe('useGroupList', () => {
             await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
         })
 
-        it('surfaces an error (not an empty result) when the server search fails, and refetch retries it', async () => {
+        it('surfaces an error (not an empty result) when the server search fails, and refetch retries only it', async () => {
             const firstPage = Array.from({ length: 100 }, (_, i) => ({ name: `Cohort ${i + 1}` }))
             apiGet.mockImplementation((url: string) => {
                 if (url.includes('search=needle')) {
@@ -358,10 +358,12 @@ describe('useGroupList', () => {
             expect(result.current.showEmptyState).toBe(false)
             expect(result.current.items).toEqual([])
 
+            // The cached first page is healthy, so a retry must not re-request it: if that
+            // request failed, it would hide the recovered search behind a new error.
             apiGet.mockImplementation((url: string) =>
                 url.includes('search=needle')
                     ? Promise.resolve({ results: [{ name: 'Needle cohort' }], count: 1 })
-                    : Promise.resolve({ results: firstPage, count: 150 })
+                    : Promise.reject(new Error('first page unavailable'))
             )
             await act(async () => {
                 await result.current.refetch()

@@ -556,10 +556,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         isExpanded,
         expand,
         refetch: () => {
-            const pending = [remote.refetch()]
-            if (serverSearchEnabled) {
-                pending.push(serverSearch.refetch())
-            }
+            const pending = [serverSearchEnabled ? serverSearch.refetch() : remote.refetch()]
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
                 pending.push(expandedCount.refetch())
             }
