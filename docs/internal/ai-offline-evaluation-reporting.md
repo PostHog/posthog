@@ -21,6 +21,18 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
 Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
 
+Each trial has a unique ID in engine metadata. Local logs and summaries use that ID, so repeated trials retain separate output and scores.
+The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
+Scorer traces and agent trace roots use the same ID to match each result to its own execution.
+Case names stay the same across trials.
+For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
+Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
+Compare completed coverage and infrastructure errors alongside named scores and duration.
+Trial metadata and local summaries also record phase durations in seconds.
+The scoring phase includes time waiting for the experiment results, rather than scorer execution alone.
+A failed final metadata upload produces a warning and keeps the completed results available locally.
+A scorer failure marks the case as an error. Statistics still include scores from other successful scorers.
+
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.

@@ -730,32 +730,32 @@
         "scope": "project"
     },
     "errorTracking": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingAlert": {
-        "template": "/error_tracking/alerts/{id}",
+        "template": "/error-tracking/alerts/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "errorTrackingAlertNew": {
-        "template": "/error_tracking/alerts/new/{templateId}",
+        "template": "/error-tracking/alerts/new/{templateId}",
         "params": ["templateId"],
         "scope": "project"
     },
     "errorTrackingConfiguration": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingFingerprint": {
-        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "template": "/error-tracking/fingerprint/{fingerprint}",
         "params": ["fingerprint"],
         "scope": "project"
     },
     "errorTrackingIssue": {
-        "template": "/error_tracking/{id}",
+        "template": "/error-tracking/{id}",
         "params": ["id"],
         "scope": "project"
     },
@@ -1314,10 +1314,20 @@
         "params": [],
         "scope": "project"
     },
+    "organizationLegalDocuments": {
+        "template": "/organization/legal",
+        "params": [],
+        "scope": "global"
+    },
     "organizationPendingDeletion": {
         "template": "/organization-pending-deletion",
         "params": [],
         "scope": "project"
+    },
+    "organizationStartups": {
+        "template": "/organization/startups",
+        "params": [],
+        "scope": "global"
     },
     "passwordReset": {
         "template": "/reset",

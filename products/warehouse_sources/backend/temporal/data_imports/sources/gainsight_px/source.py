@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResumeConfig]):
+    codebase_detection = detect(
+        env=("^(GAINSIGHT_PX|GAINSIGHTPX)_",),
+        script_hosts=("web-sdk.aptrinsic.com",),
+        maven=("com.gainsight.px:mobile-sdk", "com.gainsight.px:gainsight-px"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://px-apidocs.gainsight.com/"
 

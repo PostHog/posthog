@@ -36,11 +36,17 @@ Choose a connection in the **Data** panel, then select a table below it. **Run**
 
 **Charts** opens chart types and series controls in the right panel. **Analysis** and the visualization settings button replace that panel with their own controls. The panel starts closed. Close it after editing to return to the chart. The Series/Display settings use the same panel and scroll independently. Row filters appear once above the chart; click a filter to edit it. **AND / OR groups** opens the grouping dialog, and **Result filters** opens a popover. The left pane contains the selected source and its dimensions and measures; **Fields** hides or restores it. The toolbar wraps as the worksheet narrows, and the right panel overlays the chart when there is not enough space to dock it. These layout changes apply only to BI worksheets; SQL and other insights retain their existing settings layout.
 
-Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
+Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
-**Auto update** is off by default and remembers your choice. Selecting a table leaves a blank worksheet, even with auto-update enabled. Add a field to rows or columns before running. A worksheet with dimensions and no selected measure shows **Count of rows** on its shelf and value axis. Turning auto-update off keeps the current result; **Run** applies pending changes.
+Date dimensions sort oldest first by default, including in tables; explicit sorts still take precedence. Generated date dimensions retain their result-column identity, including expressions over column names containing spaces. Time charts show years centered below their date ticks. Clicking a bar opens the drill-down options for that result.
+
+**Auto update** is off by default and remembers your choice. Selecting a table leaves a blank worksheet, even with auto-update enabled. The blank worksheet offers **Start with daily row count** when a date field is available, or **Start with row count** otherwise. The suggestion adds fields only when clicked and respects auto-update. Identifier fields such as `person_id`, `distinct_id`, and `user_id` appear as measures and default to Count; their shelf menu can convert them to dimensions or change the aggregation. A worksheet with dimensions and no selected measure shows **Count of rows** on its shelf and value axis. Turning auto-update off keeps the current result; **Run** applies pending changes.
+
+Choose **Rename** from a shelf field's menu to change its worksheet label without changing the source expression. Labels persist in saved charts and tables without changing dashboard filter bindings or custom axis titles. Click an axis on a line, area, or bar chart to edit its label and tick visibility directly; value axes also offer scale and zero-baseline controls. **Save axis** applies chart settings to the displayed result without running pending shelf or filter changes. Cancel or the close button discards the draft. The same labels remain editable in visualization settings.
 
 **Clear sheet** clears shelves, filters, chart settings, and results while retaining the selected table, connection, date scope, and worksheet-local field definitions. Drag pills onto another pill to reorder them. **Swap rows and columns** exchanges dimensions and measure placement, preserving calculations and sort choices; bar charts switch between vertical and horizontal orientation. The **Charts** picker offers chart types suited to the selected fields.
+
+The **Charts** picker also includes proportion bars, scatter plots, and box plots. Scatter plots initialize numeric axes and need at least two numeric columns; box plots need six numeric summary columns.
 
 Drag the right edge of the fields pane to resize it. Docked panes each take at most a quarter of a wide worksheet, leaving at least half the width for the chart. Less frequent worksheet actions, including **Save a copy**, **Save as SQL view**, and **Discard changes**, are in the worksheet actions menu beside **Share**.
 
@@ -52,7 +58,7 @@ For older saves without worksheet configuration, discarding query edits preserve
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
-Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
+Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Member aliases, filter labels, ungrouped member handling, and hierarchy drill paths are optional saved definitions; existing worksheets keep their defaults. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
 
 Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
 
@@ -84,32 +90,29 @@ Pivot tables display every measure beneath nested column headers. Expand or coll
 
 The **Analysis** card ranks **Top N** categories by a selected measure across the full current date range. **Include "Other"** combines the remaining source rows and re-aggregates them, including averages and distinct counts. Removing the ranking measure turns Top N off. Previous-period comparisons use the current period's category selection. Tables offer a grand total; pivot tables offer row and column grand totals. Both support hierarchy subtotals when an axis has multiple dimensions. Totals re-aggregate source rows; table-calculation cells remain blank on total rows. Summary rows can occupy at most half the result limit, reserving room for detail cells. The BI visualization requests an extra row to determine whether more results exist, then removes it before building tables and charts. Saved SQL and exports retain the worksheet's configured limit. A notice appears only when the response confirms more results beyond that limit, which also applies across comparison periods. Cached results and execution caps may prevent the extra row from being returned.
 
-Each measure's **Format and display** dialog sets its label, currency, decimal precision, abbreviation, percentage format, and suffix. Percentage formatting expects fractional values (0.25 displays as 25%); percent-of-total and percent-change calculations produce that scale automatically. Formats persist in saved insights and apply to charts, tables, and pivot cells. Bar, line, and area charts support a separate series style and left/right axis for each measure. **Combine line + bar** assigns two measures to separate axes with bar and line styles.
+Each measure's **Format and display** dialog sets its label, currency, decimal precision, abbreviation, percentage format, and suffix. Percentage formatting expects fractional values (0.25 displays as 25%); percent-of-total and percent-change calculations produce that scale automatically. Formats persist in saved insights and apply to charts, tables, and pivot cells. The **Charts** panel exposes series style and left/right axis selectors for each measure. Bar, line, and area charts support these mixed styles and axes. **Combine line + bar** assigns two measures to separate axes with bar and line styles.
 
 Click a bar, line point, table cell, or pivot cell to explore its source rows. **Filter in new worksheet** preserves the original insight and adds the selected dimensions to a new worksheet. **View underlying rows** loads up to 1,000 matching source rows before aggregation; **Open in SQL editor** carries the same conditions, connection, and effective dashboard filters. When adding a drill-down condition would exceed the filter-group nesting limit, use **View underlying rows** or **Open in SQL editor**. Total cells omit rolled-up dimensions, and **Other** selects the categories outside the current Top N. Comparison-period points open rows from their original dates; their filtered-worksheet action is disabled to avoid combining current dates with prior-period conditions. These actions are unavailable on public shared insights.
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
-With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
+With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
 
 Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 
-The result footer reports distinct dimension groups and non-empty measure values (marks), rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
+The result footer reports distinct dimension groups and non-empty measure values, rather than source-row counts. It excludes total rows and marks truncated results as limited. The grouping labels describe the executed query while edits await Run.
 
 Date and timestamp drops start with daily buckets. A date pill offers **Timeline (keeps the year)** buckets and **Date part (combines years)** choices: month of year, quarter of year, and day of week. **Duplicate** creates an independently configurable shelf field, so the same date can appear at two granularities. Hold **Alt** (**Option** on Mac) while dragging a dimension or measure to copy it to another shelf or position. Copies retain calculations and settings; dropping with the modifier outside a shelf leaves the original in place.
 
-**Marks → Color** separates series coloring from shelf grouping. **Single color** preserves every group and series while using one color; switching back restores automatic or customized colors. With two categorical dimensions, select either field to define the colored series and use the other on the axis. Date dimensions remain on the timeline. Automatic uses lines for dates, grouped bars for one or two categorical dimensions, and a number for a single total. Explicit chart choices remain selected. **New worksheet** is available directly in the worksheet header.
+**Charts → Series → Color** separates series coloring from shelf grouping. **Single color** preserves every group and series while using one color; switching back restores automatic or customized colors. With two categorical dimensions, select either field to define the colored series and use the other on the axis. Date dimensions remain on the timeline. Automatic uses lines for dates, grouped bars for one or two categorical dimensions, and a number for a single total. Explicit chart choices remain selected. **New worksheet** is available directly in the worksheet header.
 
 ## Filters in BI mode
 
-Drop a field onto the compact Filters shelf beside or below the data pane. Quick filters on the right
-show the current selection; click a value to edit it, or use the checkbox beside its name to toggle it.
-Wider worksheets show quick filters in two columns. In tight scenes, click a filter pill on the left
-to edit its values and settings. String fields start with
+Drop a field onto **Row filters** above the chart. Click its pill to edit values and settings. String fields start with
 **Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
 selected values. An empty selection leaves all values included. Suggestions load when the picker
 opens, respect the other applied filters, and show up to 100 distinct values; additional values can
-always be entered manually.
+always be entered manually. Single-value conditions, including **Equals**, offer the same searchable suggestions for text and numeric fields. Date conditions retain their calendar picker, and ranges retain separate bounds.
 
 Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
 for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** in the editor to temporarily
@@ -310,6 +313,12 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+When groups preserve ungrouped values, named groups and original members retain distinct identities. An ungrouped member whose label matches a group is shown with “(ungrouped)”. Null member aliases also survive saves through MCP. Optional worksheet definitions restore as unset when omitted or null. Saved numeric scatter dimensions remain available as axes even when measure defaults are preferred. Scatter selections require every detail dimension to be representable as a filter; unsupported values cannot broaden a “Keep only” selection.
+
+Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
+
+BI chart settings preserve custom scatter axes and implicit count formatting. Numeric date parts can be used as scatter axes. Switching to a box plot initializes statistic mappings from matching result column names. Generated axis labels follow field renames, while custom axis labels remain unchanged.
 
 ## Connected fields in BI mode
 

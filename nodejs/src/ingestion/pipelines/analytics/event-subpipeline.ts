@@ -126,6 +126,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
+        // From here on the event writes persons, groups and itself, so finishing costs less than redelivering.
+        .timeoutBarrier()
         .pipe(
             createProcessPersonlessStep(
                 options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
