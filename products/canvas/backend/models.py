@@ -109,22 +109,24 @@ class Canvas(FileSystemSyncMixin, TeamScopedRootMixin, UUIDModel):
             ),
         ]
 
+    # What makes a canvas a thing a person opens from the project tree: a live, standalone freeform
+    # canvas. Components and grids are widgets, and notebook widgets belong to their notebook. The
+    # unfiled sweep filters on this mapping and `is_filed_analysis` compares an instance to it, so the
+    # two never drift apart.
+    FILED_ANALYSIS_FILTER: dict[str, object] = {
+        "deleted": False,
+        "kind": KIND_FREEFORM,
+        "source_policy": SOURCE_POLICY_STANDARD,
+    }
+
     @property
     def is_filed_analysis(self) -> bool:
-        """Only standalone freeform canvases are things a person opens from the project tree.
-        Components and grids are widgets, and notebook widgets belong to their notebook."""
-        return (
-            not self.deleted
-            and self.kind == self.KIND_FREEFORM
-            and self.source_policy != self.SOURCE_POLICY_NOTEBOOK_WIDGET
-        )
+        return all(getattr(self, field) == value for field, value in self.FILED_ANALYSIS_FILTER.items())
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Canvas"]:
         # The unfiled sweep runs outside a request, so the fail-closed manager needs the team spelled out.
-        base_qs = cls.objects.for_team(team.id).filter(
-            deleted=False, kind=cls.KIND_FREEFORM, source_policy=cls.SOURCE_POLICY_STANDARD
-        )
+        base_qs = cls.objects.for_team(team.id).filter(**cls.FILED_ANALYSIS_FILTER)
         return cls._filter_unfiled_queryset(base_qs, team, type="canvas", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:

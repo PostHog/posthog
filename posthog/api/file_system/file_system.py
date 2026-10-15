@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, Func, IntegerField, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -332,7 +332,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if team_access.has_project_access
         }
 
+    def _filter_by_product_visibility(self, queryset: QuerySet) -> QuerySet:
+        """Drop rows whose product hides the object from this person, beyond project RBAC.
+
+        Canvas visibility follows the channel (personal, private or public), which the file system
+        knows nothing about, so a canvas row lists only when its channel lets this person see it.
+        Evaluated on every read, so a channel's type or membership changing needs no resync.
+        """
+        from products.canvas.backend.facade import (
+            access as canvas_facade,  # noqa: PLC0415 — keeps canvas off django.setup()
+        )
+
+        user_id = getattr(self.request.user, "id", None)
+        visible_canvas = canvas_facade.visible_canvas_refs(user_id).filter(
+            team_id=OuterRef("team_id"), ref=OuterRef("ref")
+        )
+        return queryset.filter(~Q(type="canvas") | Exists(visible_canvas))
+
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
+        queryset = self._filter_by_product_visibility(queryset)
         if not self.user_access_control:
             return queryset
         accessible_team_ids = self._accessible_team_ids

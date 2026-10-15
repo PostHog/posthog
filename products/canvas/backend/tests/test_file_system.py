@@ -1,10 +1,11 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 from parameterized import parameterized
 
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.models import Channel
@@ -53,3 +54,70 @@ class TestCanvasFileSystem(BaseTest):
 
         self.assertEqual([entry.ref for entry in created], [str(canvas.id)])
         self.assertEqual(self._entry(canvas).path, "Unfiled/Canvases/Older")  # type: ignore[union-attr]
+
+
+class TestCanvasFileSystemVisibility(APIBaseTest):
+    """The file system only applies project RBAC, so canvas rows follow the channel's visibility on read."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(team_scope(self.team.id))
+        self.other = User.objects.create_and_join(self.organization, "other@example.com", "pwd")
+        self.public_channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        self.personal_channel = Channel.objects.create(
+            team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+        )
+        self.public_canvas = Canvas.objects.create(
+            team=self.team, channel=self.public_channel, name="Shared", created_by=self.user
+        )
+        self.personal_canvas = Canvas.objects.create(
+            team=self.team, channel=self.personal_channel, name="Mine", created_by=self.user
+        )
+
+    def _refs(self, query: str) -> set[str]:
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/{query}")
+        self.assertEqual(response.status_code, 200, response.content)
+        return {entry["ref"] for entry in response.json()["results"] if entry["type"] == "canvas"}
+
+    @parameterized.expand(
+        [
+            ("list", "?type=canvas"),
+            ("search", "?search=Mine&type=canvas"),
+            ("folder", "?parent=Unfiled/Canvases&depth=3"),
+        ]
+    )
+    def test_personal_canvas_lists_for_its_owner_only(self, _name: str, query: str) -> None:
+        self.assertIn(str(self.personal_canvas.id), self._refs(query))
+
+        self.client.force_login(self.other)
+        refs = self._refs(query)
+        self.assertNotIn(str(self.personal_canvas.id), refs)
+        if "search" not in query:
+            self.assertIn(str(self.public_canvas.id), refs)
+
+    def test_personal_canvas_stays_out_of_another_members_recents(self) -> None:
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.force_login(self.other)
+        self.client.post(
+            f"{base}/log_view/",
+            {"type": "canvas", "ref": str(self.personal_canvas.id), "viewed_at": "2026-09-01T00:00:00Z"},
+        )
+        recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=5").json()
+        self.assertNotIn(str(self.personal_canvas.id), {entry["ref"] for entry in recents["results"]})
+
+    def test_deleting_the_row_soft_deletes_the_canvas_for_someone_who_may_see_it(self) -> None:
+        entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["deleted"][0]["mode"], "soft")
+        self.public_canvas.refresh_from_db()
+        self.assertTrue(self.public_canvas.deleted)
+        self.assertFalse(FileSystem.objects.filter(id=entry.id).exists())
+
+    def test_deleting_a_hidden_canvas_row_is_refused(self) -> None:
+        entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.personal_canvas.id))
+        self.client.force_login(self.other)
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertIn(response.status_code, (403, 404), response.content)
+        self.personal_canvas.refresh_from_db()
+        self.assertFalse(self.personal_canvas.deleted)

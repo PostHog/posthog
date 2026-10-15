@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { ProjectTreeRef, UserBasicType } from '~/types'
 
@@ -475,6 +476,21 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
+/**
+ * Whether a row's type is open to this person. A file system type can carry a feature flag; its rows
+ * come from the API regardless, so the tree drops them while the flag is off.
+ */
+export function isFileSystemEntryTypeEnabled(
+    entry: Pick<FileSystemEntry, 'type'>,
+    featureFlags: Record<string, unknown>
+): boolean {
+    const baseType = entry.type?.split('/')[0] ?? ''
+    const flag = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as { flag?: string }).flag
+        : undefined
+    return !flag || !!featureFlags[flag]
+}
+
 export function splitPath(path: string | null | undefined): string[] {
     if (!path) {
         return []

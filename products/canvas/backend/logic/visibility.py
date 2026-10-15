@@ -8,7 +8,8 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import Max, Q, QuerySet
+from django.db.models import Max, Q, QuerySet, TextField
+from django.db.models.functions import Cast
 
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.models import Canvas
@@ -107,6 +108,24 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
         source_policy=Canvas.SOURCE_POLICY_STANDARD,
     )
     return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
+
+
+def visible_canvas_refs(user_id: int | None) -> QuerySet:
+    """The canvases a person may open, as `(team_id, ref)` rows for the file system to correlate on.
+
+    Cross-team by design, hence `unscoped()`: the project tree lists rows from every environment in
+    the project, and the caller narrows to the row's own team through `OuterRef`.
+    """
+    return (
+        Canvas.objects.unscoped()
+        .filter(
+            tasks_facade.visible_channels_q(user_id, relation="channel"),
+            deleted=False,
+            source_policy=Canvas.SOURCE_POLICY_STANDARD,
+        )
+        .annotate(ref=Cast("id", TextField()))
+        .values("team_id", "ref")
+    )
 
 
 def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:

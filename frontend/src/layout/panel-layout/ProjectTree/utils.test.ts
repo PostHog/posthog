@@ -12,6 +12,7 @@ import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defau
 import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    isFileSystemEntryTypeEnabled,
     isProjectTreeItemActive,
     joinPath,
     matchesRefType,
@@ -257,5 +258,17 @@ describe('project tree utils', () => {
                 )
             }
         )
+    })
+})
+
+describe('isFileSystemEntryTypeEnabled', () => {
+    it.each([
+        ['a flagged type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
+        ['a flagged type with its flag off', 'canvas', {}, false],
+        ['an unflagged type', 'dashboard', {}, true],
+        ['a subtype of an unflagged type', 'insight/trends', {}, true],
+        ['a folder', 'folder', {}, true],
+    ])('keeps %s: %s', (_label, type, featureFlags, expected) => {
+        expect(isFileSystemEntryTypeEnabled({ type }, featureFlags)).toBe(expected)
     })
 })

@@ -41,6 +41,7 @@ import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
+    isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
     matchesRefType,
@@ -1332,9 +1333,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         savedItems: [
-            (s) => [s.folders],
-            (folders: Record<string, FileSystemEntry[]>): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
+            (s) => [s.folders, s.featureFlags],
+            (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet): FileSystemEntry[] =>
+                Object.entries(folders)
+                    .reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[])
+                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags)),
         ],
         // Maps each top-level Starred row's tree id to the underlying FileSystemEntry id, so the
         // drag handler can resolve sibling drops without rebuilding the lookup on every render.
