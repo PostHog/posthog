@@ -781,7 +781,7 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
         assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
 
-    @parameterized.expand(["emit_tally", "task_run_settles", "report_deleted", "new_run"])
+    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
     def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         run = _make_run(self.team, emitted_report_ids=[str(report.id)])
@@ -794,6 +794,9 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         elif change == "task_run_settles":
             run.task_run.status = run.task_run.Status.COMPLETED
             run.task_run.save(update_fields=["status"])
+        elif change == "total_spend":
+            run.total_spend = Decimal("16.3456")
+            run.save(update_fields=["total_spend"])
         elif change == "report_deleted":
             SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
         else:
@@ -802,6 +805,8 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
         assert second.status_code == status.HTTP_200_OK
         assert second["ETag"] != first["ETag"]
+        if change == "total_spend":
+            assert second.json()[0]["total_spend"] == 16.3456
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
