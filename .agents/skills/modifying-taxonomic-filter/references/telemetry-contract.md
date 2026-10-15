@@ -8,15 +8,12 @@ property shapes as a public API.
 - **Renaming or repurposing silently** is the worst case. Dashboards keep
   working and start lying.
 
-Most `taxonomic filter *` events carry `surface` (`legacy-pill` or
-`rebuild-menu`). The legacy stamp comes from `legacyTaxonomicSurface()` in
+The legacy stamp `legacy-pill` comes from `legacyTaxonomicSurface()` in
 `taxonomicFilterSurface.ts`. The rebuild stamps `rebuild-menu` from
-`menu/TaxonomicFilterMenu.tsx`. These events have no `surface`:
-`category selected`, `category dropdown opened`, `category rail toggled`,
-`include stale toggled`, `pin toggled`, `default pins seeded`, and the
-server-side `event match answered`. Older data also has `legacy-control` and empty
-values. A filter such as `surface = 'legacy-pill'` drops all of those
-rows.
+`TAXONOMIC_FILTER_SURFACE` in `menu/types.ts`. Only the events marked
+"with `surface`" below carry it. Older data also has `legacy-control` and
+empty values. A filter such as `surface = 'legacy-pill'` drops every row
+without the property, so check the list before you filter.
 
 ## `groupType` vs `sourceGroupType`
 
@@ -39,70 +36,87 @@ Suggested will seem to shrink as rebuild use grows.
 ## Shared events (both surfaces)
 
 Keep these comparable across arms. Add a property to both emitters or
-neither.
+neither. All carry `surface`.
 
-- `taxonomic filter closed`: `surface`, `dwellMs`, `hadSelection`,
+- `taxonomic filter closed`: `dwellMs`, `hadSelection`,
   `categoryRailDocked`. Legacy also sends `groupType`; the rebuild omits
   it because there is no single active tab at close. Legacy sends it only
   when `hadInteraction` is true. The rebuild sends it on every close, so
   their selection rates have different denominators.
-- `taxonomic filter item selected`: `surface`, `groupType`,
-  `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`,
-  `wasQuickFilter`, `hadSearchInput`, `position`, `query`, `wasStale`.
-
-## Search and results
-
+- `taxonomic filter item selected`: `groupType`, `sourceGroupType`,
+  `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
+  `hadSearchInput`, `position`, `query`, `wasStale`,
+  `wasUrlContainsShortcut`. Legacy sends `wasUrlContainsShortcut` only on
+  a quick filter, with `filterName`, `propertyKey`, `operator`,
+  `filterValue`, `propertyFilterType` and `eventName`. The rebuild always
+  sends `wasUrlContainsShortcut` and none of the others.
 - `taxonomic_filter_search_query`: `searchQuery`, `groupType`,
-  `inputMode`, `pastedFraction`. Both surfaces send it (the rebuild from
-  `menu/Combobox.tsx`), so filter by `surface`.
-- `taxonomic filter empty result`: `groupType`, `searchQuery`, `surface`.
-  Legacy sends it only from a remote list on the active tab. Suggested is
-  a local list, so its empty state sends nothing. Add coverage there
-  before you measure a change to the Suggested empty state.
+  `inputMode`, `pastedFraction`, `excludeStale`.
+- `taxonomic filter empty result`: `groupType`, `searchQuery`. Legacy
+  sends it only from a remote list on the active tab. Suggested is a
+  local list, so its empty state sends nothing. Add coverage there before
+  you measure a change to the Suggested empty state.
+- `taxonomic filter include stale toggled`: `includeStaleEvents`,
+  `groupType`, `searchQuery`. Only the rebuild sends `surface` on this
+  one.
+
+## Legacy only, with `surface`
+
 - `taxonomic filter search latency`: `groupType`, `searchQuery`,
-  `resultCount`, `time_to_see_data_ms`, `surface`. Legacy only: the
-  rebuild does not send it yet (see `hooks/useGroupList.ts`).
-- `taxonomic filter fetch failed`: `groupType`, `searchQuery`, `surface`.
-  It has also fired on first-load failures since 2026-09-13. Rates from
-  before then are not comparable.
-
-## Navigation and preferences
-
-- `taxonomic filter add filter clicked`: fires only when a property
-  filter row opens with no valid filter yet. Most opens do not send it,
-  so do not use it to split sessions into opens. Split after each legacy
-  `taxonomic filter closed` instead.
-- `taxonomic filter category selected`: `groupType`.
-- `taxonomic filter category dropdown opened`: legacy pill only.
-- `taxonomic filter category rail toggled`: `docked`.
-- `taxonomic filter pin toggled`: `groupType`, `pinned`.
-- `taxonomic filter include stale toggled`.
-- `taxonomic filter default pins seeded`.
-
-## Assistive features
-
+  `resultCount`, `time_to_see_data_ms`. The rebuild does not send it yet
+  (see `hooks/useGroupList.ts`).
+- `taxonomic filter fetch failed`: `groupType`, `searchQuery`. It has
+  also fired on first-load failures since 2026-09-13. Rates from before
+  then are not comparable. The rebuild does not send it.
 - `taxonomic filter search intent predicted`: `query`, `activeTab`,
   `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`,
-  `wouldPromote`, `promptVersion`, `source`, `surface`, `variant`,
-  `inTime`, `shown`. The banner funnel in
+  `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`,
+  `shown`. The banner funnel in
   [refreshing-product-reality](refreshing-product-reality.md) reads
   `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`,
-  `toGroupType`, `surface`.
+  `toGroupType`.
+- `taxonomic filter event match suggested`: `suggestedEvents`, `tab`.
+- `taxonomic filter event match selected`: `eventName`, `position`,
+  `tab`.
+
+Read the event match events as a funnel: answered, then suggested, then
+selected.
+
+## Legacy only, without `surface`
+
+- `taxonomic filter add filter clicked`: `eventName`. Fires only when a
+  property filter row opens with no valid filter yet. Most opens do not
+  send it, so do not use it to split sessions into opens. Split after
+  each legacy `taxonomic filter closed` instead.
+- `taxonomic filter category selected`: `groupType`, `eventName`.
+- `taxonomic filter category dropdown opened`: `variant`.
+- `taxonomic filter category rail toggled`: `docked`.
+- `taxonomic filter pin toggled`: `groupType`, `value`, `pinned`.
+- `taxonomic filter default pins seeded`: `values`.
 - `taxonomic filter event match answered`: `outcome`. Emitted server
   side.
-- `taxonomic filter event match suggested`: `suggestedEvents`, `tab`,
-  `surface`.
-- `taxonomic filter event match selected`: `eventName`, `position`,
-  `tab`, `surface`.
 
-Read these as funnels: answered, then suggested, then selected.
+## Rebuild only, without `surface`
 
-## Rebuild-only menu events
+Every event here comes from the rebuild, so no `surface` filter is
+needed. Do not add `surface = 'rebuild-menu'` to a query on them: it
+returns no rows.
 
-`taxonomic filter menu opened` / `drilled` / `closed` / `option clicked` /
-`item selected` / `category changed` / `preference changed` /
-`pin toggled`.
+- `taxonomic filter menu opened`: `openedTo`, `hadSelection`,
+  `triggerLabel`, `reopenedQuickly`.
+- `taxonomic filter menu drilled`: `fromState`, `toState`.
+- `taxonomic filter menu closed`: `dwellMs`, `hadCommit`, `lastState`.
+- `taxonomic filter menu option clicked`: `option`.
+- `taxonomic filter menu item selected`: `groupType`, `hadSearchInput`,
+  `query`, `hadExtras`, `fromState`.
+- `taxonomic filter menu category changed`: `fromChip`, `toChip`, `via`,
+  and `direction` when `via` is `tab`.
+- `taxonomic filter menu pin toggled`: `groupType`.
+
+`taxonomic filter menu preference changed` (`useNewMenu`, no `surface`)
+comes from the classic/new toggle. It fires on either surface for users
+who have the rebuild flag.
 
 ## Before changing telemetry
 

@@ -6,10 +6,12 @@ A behavior change usually has to land in both, or the two arms diverge.
 
 ## Two surfaces
 
-A feature flag and a per-user toggle select between them. The flag
-`TAXONOMIC_FILTER_MENU_REBUILD` makes the rebuild available. The user's
-saved choice in `taxonomicMenuPreferenceLogic.useNewMenu` (the "Switch to
-the classic filter" toggle) then decides which one renders. A bug report
+A feature flag and a per-user toggle select between them in the shared
+wrappers. The flag `TAXONOMIC_FILTER_MENU_REBUILD` makes the rebuild
+available. The user's saved choice in
+`taxonomicMenuPreferenceLogic.useNewMenu` (the "Switch to the classic
+filter" toggle) then decides which one renders. It defaults to on, so a
+flag-on user gets the rebuild until they switch back. A bug report
 that doesn't reproduce locally is almost always a surface mismatch.
 Confirm which surface the reporter is on first: most `taxonomic filter *`
 events carry `surface` (see [telemetry-contract](telemetry-contract.md)
@@ -30,11 +32,19 @@ for the exceptions).
   `headless/UX_SPEC.md` for its design source of truth. Some customers
   still see it, so treat it as live.
 
-The rebuild is opt-in in exactly **two consumer wrappers**:
+Two **shared consumer wrappers** choose a surface:
 `TaxonomicPopover.tsx` and
 `PropertyFilters/components/TaxonomicPropertyFilter.tsx`. Both check
-`TAXONOMIC_FILTER_MENU_REBUILD` and render `<TaxonomicFilterMenu>` or the
-legacy `<TaxonomicFilter>`.
+`TAXONOMIC_FILTER_MENU_REBUILD` and `useNewMenu`, then render
+`<TaxonomicFilterMenu>` or the legacy `<TaxonomicFilter>`.
+
+Some call sites mount the rebuild directly and skip both checks. Today
+that is Error Tracking's issue filters
+(`products/error_tracking/frontend/components/IssueFilters/FilterGroup.tsx`),
+which mounts `TaxonomicFilterHeadless.Root` and `TaxonomicFilterMenu`. Every
+user there is on the rebuild, whatever the flag or toggle says. Find
+others with a search for direct imports of `menu/TaxonomicFilterMenu` or
+`headless` outside `TaxonomicFilter/` and `TaxonomicPopover/`.
 
 A call site reaching one of those wrappers can still land on the legacy
 path. `TaxonomicPopover` renders the rebuild only when

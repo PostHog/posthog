@@ -56,17 +56,21 @@ ORDER BY share_pct DESC
 ### 3. Top empty-result searches
 
 Reveals scope mismatches. Write back the qualitative finding (which terms
-are empty in which groups), not counts.
+are empty in which groups), not counts. The rebuild sends no `groupType`
+for its `all`, `recent` and `pinned` scopes, so the query splits by
+`surface`. Read an empty `group_type` on a `rebuild-menu` row as one of
+those scopes, not as a group.
 
 ```sql
 SELECT
   lower(trim(toString(properties.searchQuery))) AS q,
+  properties.surface AS surface,
   properties.groupType AS group_type,
   count() AS empties
 FROM events
 WHERE event = 'taxonomic filter empty result'
   AND timestamp >= now() - INTERVAL 90 DAY
-GROUP BY q, group_type
+GROUP BY q, surface, group_type
 ORDER BY empties DESC
 LIMIT 40
 ```
@@ -76,8 +80,8 @@ LIMIT 40
 Measures engaged opens only. The legacy picker sends `taxonomic filter
 closed` only after the user interacts, so untouched dismissals are
 missing. The rebuild sends it on every close, so the query splits by
-`surface`. Write back the legacy rows (`legacy-pill`, `legacy-control`)
-as the engaged-open rate. Never pool the rebuild row with them.
+`surface`. Write back the `legacy-pill` row as the engaged-open rate.
+`legacy-control` and empty values come only from older clients. Never pool the rebuild row with them.
 
 ```sql
 SELECT
@@ -109,11 +113,15 @@ WHERE event = 'taxonomic filter item selected'
 
 ### 6. Position distribution
 
+Legacy only. On the rebuild's merged `all` scope, `position` counts the
+recents and pinned rows at the top, so it does not match legacy rows.
+
 ```sql
 WITH positions AS (
   SELECT toInt(properties.position) AS pos
   FROM events
   WHERE event = 'taxonomic filter item selected'
+    AND coalesce(toString(properties.surface), '') != 'rebuild-menu'
     AND timestamp >= now() - INTERVAL 90 DAY
     AND properties.position IS NOT NULL
 )
