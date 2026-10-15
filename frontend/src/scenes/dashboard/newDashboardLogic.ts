@@ -26,7 +26,6 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import {
@@ -391,8 +390,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
-                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    dashboardsModel.actions.addDashboardSuccess(result)
                     actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard, openAI)
                     if (titleMentionsMCP(result.name)) {
                         tryShowMCPAnalyticsNudge('dashboard')
@@ -497,8 +495,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
 
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
-                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    dashboardsModel.actions.addDashboardSuccess(result)
                     actions.submitNewDashboardSuccessWithResult(result, variables, setAsHomeTabDashboard)
 
                     posthog.capture('dashboard created from template', {

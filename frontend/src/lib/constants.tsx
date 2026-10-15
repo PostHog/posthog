@@ -642,6 +642,7 @@ export const FEATURE_FLAGS = {
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_RUN_SCOUT_ACTION: 'workflow-run-scout-action', // owner: #team-workflows
+    WORKFLOWS_AI_EMAIL_DRAFT: 'workflows-ai-email-draft', // owner: @dmarchuk #team-workflows, AI first draft for cross-product entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_BROADCAST_RECIPIENT_LISTS: 'workflows-broadcast-recipient-lists', // owner: @mayteio #team-workflows
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
