@@ -29,10 +29,12 @@ async function loadAnalytics() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPosthog.onFeatureFlags.mockReturnValue(vi.fn());
   vi.stubEnv("VITE_POSTHOG_API_KEY", "test-key");
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
 });
 
@@ -41,14 +43,17 @@ describe("onFeatureFlagsLoaded", () => {
     const { initializePostHog, onFeatureFlagsLoaded } = await loadAnalytics();
 
     const cb = vi.fn();
-    onFeatureFlagsLoaded(cb);
+    const off = onFeatureFlagsLoaded(cb);
 
     expect(mockPosthog.onFeatureFlags).not.toHaveBeenCalled();
 
     initializePostHog();
 
     expect(mockPosthog.onFeatureFlags).toHaveBeenCalledTimes(1);
-    expect(mockPosthog.onFeatureFlags).toHaveBeenCalledWith(cb);
+    expect(mockPosthog.onFeatureFlags).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
+    off();
   });
 
   it("does not register a buffered listener that unsubscribed before init", async () => {
@@ -86,8 +91,50 @@ describe("onFeatureFlagsLoaded", () => {
     const cb = vi.fn();
     const off = onFeatureFlagsLoaded(cb);
 
-    expect(mockPosthog.onFeatureFlags).toHaveBeenCalledWith(cb);
+    expect(mockPosthog.onFeatureFlags).toHaveBeenCalledWith(
+      expect.any(Function),
+    );
 
+    off();
+    expect(realUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back when the initial request stalls and delivers later updates", async () => {
+    vi.useFakeTimers();
+    const realUnsub = vi.fn();
+    mockPosthog.onFeatureFlags.mockReturnValue(realUnsub);
+
+    const { initializePostHog, onFeatureFlagsLoaded } = await loadAnalytics();
+    initializePostHog();
+
+    const cb = vi.fn();
+    const off = onFeatureFlagsLoaded(cb);
+
+    expect(cb).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    const posthogCallback = mockPosthog.onFeatureFlags.mock.calls[0][0];
+    posthogCallback();
+    expect(cb).toHaveBeenCalledTimes(2);
+
+    off();
+    expect(realUnsub).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles pre-init subscribers when the initial flag request stalls", async () => {
+    vi.useFakeTimers();
+    const realUnsub = vi.fn();
+    mockPosthog.onFeatureFlags.mockReturnValue(realUnsub);
+
+    const { initializePostHog, onFeatureFlagsLoaded } = await loadAnalytics();
+    const cb = vi.fn();
+    const off = onFeatureFlagsLoaded(cb);
+    initializePostHog();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(cb).toHaveBeenCalledTimes(1);
     off();
     expect(realUnsub).toHaveBeenCalledTimes(1);
   });

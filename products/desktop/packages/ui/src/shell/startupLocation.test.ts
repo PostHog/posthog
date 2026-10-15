@@ -104,24 +104,30 @@ describe("startup location", () => {
     expect(client.startOnboardingSession).not.toHaveBeenCalled();
   });
 
-  it("lands a first-run user on the general space home", async () => {
-    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
-    const client = {
-      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
-        channels: [personal, general],
-        personal_created: true,
-        general_created: true,
-      }),
-      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
-    };
+  it.each([
+    [false, "/spaces/general-id/tasks/session-id"],
+    [true, "/spaces/general-id/new?guided=true"],
+  ])(
+    "lands a first-run user on the expected general space route when guided is %s",
+    async (guidedFirstTaskEnabled, expectedHref) => {
+      vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+      const client = {
+        provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
+          channels: [personal, general],
+          personal_created: true,
+          general_created: true,
+        }),
+        startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
+      };
 
-    await expect(
-      resolveStartupLocation(identity, client, true),
-    ).resolves.toEqual({
-      href: "/spaces/general-id/tasks/session-id",
-      firstRun: { generalChannelId: "general-id" },
-    });
-  });
+      await expect(
+        resolveStartupLocation(identity, client, true, guidedFirstTaskEnabled),
+      ).resolves.toEqual({
+        href: expectedHref,
+        firstRun: { generalChannelId: "general-id" },
+      });
+    },
+  );
 
   it("opens the session when only #general is new", async () => {
     // Creating a task ensures the personal space, so someone who reached the composer before

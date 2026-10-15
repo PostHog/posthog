@@ -10,6 +10,9 @@ import {
 } from "@phosphor-icons/react";
 import type { SuggestedPrompt } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 
+export const GUIDED_FIRST_TASK_PROMPT =
+  "Review my PostHog project and identify one useful next step. Use the data and configuration that are already available. Explain what you find, then help me take that step.";
+
 // Starter prompts shown as cards on the channels (project-bluebird) new-task
 // screen. Clicking a card drops its `prompt` into the composer, ready to
 // edit/send. Each prompt ends with a "User input:" block of fill-in lines the

@@ -232,6 +232,17 @@ Local development can enable the panel with the renderer override:
 posthog.featureFlags.override({ "posthog-desktop-onboarding-test-tools": true })
 ```
 
+The `posthog-desktop-guided-first-task` flag sends a new user to a prefilled,
+repo-independent task in `#general` after onboarding. Test the combined path by
+resetting onboarding in the panel and enabling both flags:
+
+```js
+posthog.featureFlags.override({
+  "posthog-desktop-onboarding-test-tools": true,
+  "posthog-desktop-guided-first-task": true,
+})
+```
+
 ## Troubleshooting
 
 ### Feature flags never enabled (flag-gated UI missing)

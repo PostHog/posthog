@@ -110,9 +110,40 @@ type PendingFlagListener = {
 // Subscribers added before initializePostHog runs.
 const pendingFlagListeners = new Set<PendingFlagListener>();
 
+// A failed initial flag request can leave the posthog-js callback pending indefinitely.
+const FEATURE_FLAG_LOAD_TIMEOUT_MS = 10_000;
+
 // A build with no project key: flags keep their defaults and no remote answer
 // is coming, which counts as resolved for anything waiting on them.
 let flagsUnavailable = false;
+
+function subscribeToFeatureFlags(callback: () => void): () => void {
+  let fallbackPending = true;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const handleFlags = (): void => {
+    if (fallbackPending) {
+      fallbackPending = false;
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+    }
+    callback();
+  };
+
+  const unsubscribe = posthog.onFeatureFlags(handleFlags);
+  if (fallbackPending) {
+    timeout = setTimeout(handleFlags, FEATURE_FLAG_LOAD_TIMEOUT_MS);
+  }
+
+  return () => {
+    fallbackPending = false;
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    unsubscribe();
+  };
+}
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
@@ -263,7 +294,7 @@ export function initializePostHog(sessionId?: string) {
   registerPersistentSuperProperties();
 
   for (const listener of pendingFlagListeners) {
-    listener.unsubscribe = posthog.onFeatureFlags(listener.callback);
+    listener.unsubscribe = subscribeToFeatureFlags(listener.callback);
   }
   pendingFlagListeners.clear();
 }
@@ -499,7 +530,7 @@ export function isFeatureFlagEnabled(flagKey: string): boolean {
  */
 export function onFeatureFlagsLoaded(callback: () => void): () => void {
   if (isInitialized) {
-    return posthog.onFeatureFlags(callback);
+    return subscribeToFeatureFlags(callback);
   }
 
   if (flagsUnavailable) {

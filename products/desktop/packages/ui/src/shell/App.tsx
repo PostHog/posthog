@@ -1,6 +1,10 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { ToastProvider } from "@posthog/quill";
-import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
+import {
+  EXTERNAL_LINKS,
+  GUIDED_FIRST_TASK_FLAG,
+  isNotAuthenticatedError,
+} from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
@@ -22,6 +26,8 @@ import { ConnectivityBanner } from "@posthog/ui/features/connectivity/Connectivi
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useFeatureFlagsLoaded } from "@posthog/ui/features/feature-flags/useFeatureFlagsLoaded";
 import { FeedbackHost } from "@posthog/ui/features/feedback/FeedbackHost";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { NewLoopDialog } from "@posthog/ui/features/loops/components/NewLoopDialog";
@@ -145,6 +151,8 @@ function App({ devToolbar }: AppProps) {
   );
 
   const spacesLayoutEnabled = useChannelsLayout();
+  const guidedFirstTaskEnabled = useFeatureFlag(GUIDED_FIRST_TASK_FLAG);
+  const featureFlagsLoaded = useFeatureFlagsLoaded();
   // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
   // a route the user has already moved off.
   const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
@@ -175,6 +183,7 @@ function App({ devToolbar }: AppProps) {
       setInitialRouteLoaded(false);
       return;
     }
+    if (!featureFlagsLoaded) return;
     if (initialRouteLoaded) return;
     if (!startupIdentity || !authenticatedClient) return;
 
@@ -185,7 +194,9 @@ function App({ devToolbar }: AppProps) {
           startupIdentity,
           authenticatedClient,
           spacesLayoutEnabledRef.current,
+          guidedFirstTaskEnabled,
         );
+        if (cancelled) return;
         if (firstRun) {
           showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
@@ -206,9 +217,11 @@ function App({ devToolbar }: AppProps) {
     };
   }, [
     readyForMainApp,
+    featureFlagsLoaded,
     initialRouteLoaded,
     startupIdentity,
     authenticatedClient,
+    guidedFirstTaskEnabled,
   ]);
 
   useEffect(() => {
