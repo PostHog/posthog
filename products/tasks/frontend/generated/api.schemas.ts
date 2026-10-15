@@ -5535,31 +5535,31 @@ export const TasksListPrState = {
 } as const
 
 /**
- * * `autoresearch` - Autoresearch
- * * `error_tracking` - Error Tracking
- * * `eval_clusters` - Eval Clusters
- * * `experiments` - Experiments
- * * `hogdesk` - Hogdesk
- * * `image_builder` - Image Builder
- * * `loop` - Loop
- * * `mcp_analytics` - Mcp Analytics
- * * `onboarding` - Onboarding
- * * `posthog_ai` - Posthog Ai
- * * `posthog_desktop` - Posthog Desktop
- * * `posthog_mobile` - Posthog Mobile
- * * `posthog_web` - Posthog Web
- * * `review_hog` - Review Hog
- * * `scout_suggestions` - Scout Suggestions
- * * `session_summaries` - Session Summaries
- * * `signal_report` - Signal Report
- * * `signals_chat` - Signals Chat
- * * `signals_scout` - Signals Scout
- * * `slack` - Slack
- * * `space_setup` - Space Setup
- * * `support_queue` - Support Queue
- * * `support_reply` - Support Reply
- * * `task_analysis` - Task Analysis
- * * `workflow` - Workflow
+ * * `autoresearch` - autoresearch
+ * * `error_tracking` - error_tracking
+ * * `eval_clusters` - eval_clusters
+ * * `experiments` - experiments
+ * * `hogdesk` - hogdesk
+ * * `image_builder` - image_builder
+ * * `loop` - loop
+ * * `mcp_analytics` - mcp_analytics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ * * `posthog_desktop` - posthog_desktop
+ * * `posthog_mobile` - posthog_mobile
+ * * `posthog_web` - posthog_web
+ * * `review_hog` - review_hog
+ * * `scout_suggestions` - scout_suggestions
+ * * `session_summaries` - session_summaries
+ * * `signal_report` - signal_report
+ * * `signals_chat` - signals_chat
+ * * `signals_scout` - signals_scout
+ * * `slack` - slack
+ * * `space_setup` - space_setup
+ * * `support_queue` - support_queue
+ * * `support_reply` - support_reply
+ * * `task_analysis` - task_analysis
+ * * `workflow` - workflow
  */
 export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
 

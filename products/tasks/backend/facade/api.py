@@ -6936,7 +6936,8 @@ DEFAULT_TASK_LIST_ORDERING = "-created_at"
 TaskListSource = TextChoices(  # type: ignore[call-overload]
     "TaskListSource",
     [
-        (source.upper(), source)
+        # The value is also the label, so the API docs show "posthog_ai", not a title-cased "Posthog Ai".
+        (source.upper(), (source, source))
         for source in sorted(
             {
                 *TaskClientProvenance.values,
