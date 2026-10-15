@@ -43,7 +43,8 @@ RepairVerb = Literal["republish", "merge_stale", "bury", "restore", "fold", "mer
 # Keyed by (flavor, sub_flavor). A ghost's or diverged mapping's sub-flavor decides between restore,
 # fold and merge. None means the state is accepted as it is.
 PERSON_VERBS: dict[tuple[str, str | None], RepairVerb | None] = {
-    ("ghost", "team_gone"): "bury",
+    # Ghosts of deleted teams are historical stock that no query reads; cleaning them up is out of scope.
+    ("ghost", "team_gone"): None,
     ("ghost", "after_purge"): "restore",
     ("ghost", "historical"): None,
     ("deleted_visible", None): "bury",

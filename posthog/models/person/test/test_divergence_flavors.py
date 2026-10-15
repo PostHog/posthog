@@ -51,7 +51,7 @@ class TestClassifyPerson(SimpleTestCase):
             ("ch_only_tombstoned", None, _ch(tomb=3), True, _v("ok_deleted", None, None)),
             ("ch_only_swept", None, _ch(live=3, visible_rows=0), True, _v("ok_deleted", None, None)),
             ("ghost_historical", None, _ch(live=3), True, _v("ghost", "historical", None)),
-            ("ghost_of_deleted_team", None, _ch(live=3), False, _v("ghost", "team_gone", "bury")),
+            ("ghost_of_deleted_team", None, _ch(live=3), False, _v("ghost", "team_gone", None)),
             (
                 "deleted_and_ch_newer",
                 _pg(2, deleted=True),
