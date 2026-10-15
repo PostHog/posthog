@@ -46,12 +46,15 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
+import { TransactionalEmailRequestSchema } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
+import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -158,6 +161,7 @@ export class CdpApi {
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
+    private transactionalEmailJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -224,6 +228,10 @@ export class CdpApi {
         this.stepResumeJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
             config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
+        )
+        this.transactionalEmailJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+            config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
     }
 
@@ -306,6 +314,10 @@ export class CdpApi {
             asyncHandler(this.postHogFlowCancelBatchJob)
         )
         router.post('/api/projects/:team_id/workflow_steps/resume', asyncHandler(this.postWorkflowStepResume))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/transactional_email',
+            asyncHandler(this.postTransactionalEmail)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -1072,6 +1084,88 @@ export class CdpApi {
     // narrower claims via extraClaims and every one must match too; a route without a workflow
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
     // and returns false on any mismatch.
+    // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
+    // once per send. The job goes straight onto the email queue's fast lane.
+    //
+    // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
+    // never the fleet-wide internal secret.
+    private postTransactionalEmail = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.transactionalEmailJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                })
+            }
+            if (!this.verifyScopedWorkflowJwt(this.transactionalEmailJwt, req, res, 'transactional email')) {
+                return
+            }
+            const parsed = TransactionalEmailRequestSchema.safeParse(req.body)
+            if (!parsed.success) {
+                return res.status(400).json({ error: parsed.error.message })
+            }
+            const { to, distinct_id: distinctId, variables } = parsed.data
+
+            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+            const hogFlow = await this.hogFlowManager.getHogFlow(req.params.id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active') {
+                return res.status(400).json({ error: 'Workflow is not an active transactional email' })
+            }
+            const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)
+            if (isLimited) {
+                return res.status(429).json({ error: 'quota_limited' })
+            }
+
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: new UUIDT().toString(),
+                event: '$transactional_email',
+                distinct_id: distinctId,
+                timestamp: DateTime.now().toISO(),
+                url: '',
+                // The email step's recipient reads this.
+                properties: { to },
+                elements_chain: '',
+            }
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables,
+            }
+            const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
+
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            // Straight to the email queue: the flow's only step is the email, so a hop through the
+            // workflow queue would only add latency to a password reset or a verification code.
+            invocation.queue = 'email'
+            invocation.queuePriority = EMAIL_QUEUE_PRIORITY.fast
+
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+            try {
+                await this.hogflowQueue.queueInvocations([invocation])
+            } catch (error) {
+                this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
+                throw error
+            }
+            await this.invocationResultsService.invocationResultsRowsService.flush()
+
+            return res.status(202).json({ status: 'queued', invocation_id: invocation.id })
+        } catch (e) {
+            logger.error('Error queueing transactional email', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
     private verifyScopedWorkflowJwt(
         jwt: ScopedServiceJwt,
         req: ModifiedRequest,
