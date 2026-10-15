@@ -67,6 +67,7 @@ describe('postHogExtract', () => {
         expect(url).toMatch(/\/api\/projects\/1\/workflow_extractions\/$/)
         expect(parseJSON(options.body)).toEqual({
             context: payload.context,
+            task_run_id: null,
             output_fields: [
                 { name: 'pr_url', type: 'string', instruction: 'The URL of the pull request' },
                 { name: 'files_changed', type: 'number', instruction: 'How many files the pull request changes' },
@@ -83,6 +84,12 @@ describe('postHogExtract', () => {
             algorithms: ['HS256'],
         }) as jwt.JwtPayload
         expect(claims).toMatchObject({ team_id: 1, hog_flow_id: 'flow-1' })
+    })
+
+    it('sends the AI task run so Django reads its full report in place of the text', async () => {
+        await invokeLive({ ...payload, context: null, task_run_id: 'run-1' })
+
+        expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: 'run-1' })
     })
 
     it('returns no value for any field when mocked', () => {
@@ -116,6 +123,7 @@ describe('postHogExtract', () => {
             /instructions to 500 characters or fewer/,
         ],
         ['an oversized context', { ...payload, context: { message: 'x'.repeat(65_536) } }, /65536 characters of JSON/],
+        ['no text and no AI task run', { ...payload, context: null }, /Enter the text to read, or an AI task run/],
     ])('rejects %s in both mocked and live calls', async (_name, args, expected) => {
         expect(() => getAsyncFunctionHandler('postHogExtract')!.mock([args], [] as MinimalLogEntry[])).toThrow(expected)
         await expect(invokeLive(args)).rejects.toThrow(expected)

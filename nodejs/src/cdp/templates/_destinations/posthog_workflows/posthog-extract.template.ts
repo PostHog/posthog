@@ -18,6 +18,7 @@ ${hogApiErrorMessageFn}
 
 let response := postHogExtract({
   'context': inputs.context,
+  'task_run_id': inputs.task_run_id,
   'fields': inputs.fields
 })
 
@@ -29,13 +30,22 @@ return response.body.values
 `,
     inputs_schema: [
         {
+            key: 'task_run_id',
+            type: 'string',
+            label: 'AI task run',
+            required: false,
+            default: '{variables.task.run_id}',
+            description:
+                'The run of an AI task step earlier in this workflow. The model reads its full final message, which the task variable cuts short. Leave it empty to read the text below.',
+        },
+        {
             key: 'context',
             type: 'json',
             label: 'Text to read',
-            required: true,
+            required: false,
             default: { message: '{variables.task.final_message}' },
             description:
-                'The output the model reads, such as an AI task message or a webhook response. Use variables from earlier steps.',
+                'The output the model reads when no AI task run is set, such as a webhook response. Use variables from earlier steps.',
         },
         {
             key: 'fields',

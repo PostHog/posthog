@@ -1,7 +1,7 @@
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -23,6 +23,9 @@ from products.workflows.backend.presentation.views.workflow_extractions import (
 
 SECRET = "test-workflow-extract-jwt"
 _BUILD_CLIENT = "products.workflows.backend.services.ai_extraction.build_ai_gateway_anthropic_client"
+_READ_TASK_REPORT = (
+    "products.workflows.backend.presentation.views.workflow_extractions.get_workflow_task_run_final_message"
+)
 FIELDS = [
     {"name": "pr_url", "type": "string", "instruction": "The URL of the pull request the agent opened"},
     {"name": "files_changed", "type": "number", "instruction": "How many files the pull request changes"},
@@ -31,9 +34,14 @@ FIELDS = [
 AGENT_MESSAGE = "Opened https://github.com/example/repo/pull/7 touching 3 files. Please take a look."
 
 
-def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_EXTRACT) -> str:
+def _token(
+    team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_EXTRACT, hog_flow_id: str | None = None
+) -> str:
     return encode_jwt(
-        {"team_id": team_id, "hog_flow_id": str(uuid4())}, timedelta(minutes=5), audience, signing_key=SECRET
+        {"team_id": team_id, "hog_flow_id": hog_flow_id or str(uuid4())},
+        timedelta(minutes=5),
+        audience,
+        signing_key=SECRET,
     )
 
 
@@ -161,6 +169,38 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    def test_reads_the_full_report_of_an_ai_task_run_in_place_of_the_text(self) -> None:
+        hog_flow_id, run_id = str(uuid4()), str(uuid4())
+        report = "Fixed the parser. " * 400 + "Opened https://github.com/example/repo/pull/7"
+        client = _fake_client(
+            _tool_reply({"pr_url": "https://github.com/example/repo/pull/7", "files_changed": 3, "needs_review": True})
+        )
+        with patch(_READ_TASK_REPORT, return_value=report) as read_report, patch(_BUILD_CLIENT, return_value=client):
+            response = self._post(
+                {"context": None, "task_run_id": run_id}, token=_token(self.team.id, hog_flow_id=hog_flow_id)
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert read_report.call_args.kwargs == {
+            "team_id": self.team.id,
+            "hog_flow_id": UUID(hog_flow_id),
+            "run_id": UUID(run_id),
+        }
+        assert report in client.with_options.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+
+    @parameterized.expand(
+        [
+            ("not_from_this_workflow", None),
+            ("longer_than_the_context_limit", "x" * 65_536),
+        ]
+    )
+    def test_fails_the_step_when_the_ai_task_report_cannot_be_read(self, _name: str, report: str | None) -> None:
+        with patch(_READ_TASK_REPORT, return_value=report), patch(_BUILD_CLIENT) as build_client:
+            response = self._post({"task_run_id": str(uuid4())})
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
+        build_client.assert_not_called()
+
     def test_rejects_invalid_fields_before_calling_the_model(self) -> None:
         with patch(_BUILD_CLIENT) as build_client:
             response = self._post({"output_fields": []})
@@ -186,6 +226,8 @@ class TestWorkflowExtractionRequestValidation(SimpleTestCase):
             ("blank_instruction", {"output_fields": [{**FIELDS[0], "instruction": " "}]}),
             ("long_instruction", {"output_fields": [{**FIELDS[0], "instruction": "x" * 501}]}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
+            ("no_text_and_no_task_run", {"context": None}),
+            ("task_run_that_is_not_an_id", {"task_run_id": "latest"}),
         ]
     )
     def test_rejects_inputs_the_model_cannot_answer(self, _name: str, body: dict) -> None:

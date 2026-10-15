@@ -30,7 +30,7 @@ const MAX_INSTRUCTION_LENGTH = 500
 type FieldType = 'string' | 'number' | 'boolean'
 const FIELD_TYPES: ReadonlySet<string> = new Set<FieldType>(['string', 'number', 'boolean'])
 
-type ExtractPayload = { context: unknown; fields: Record<string, string> }
+type ExtractPayload = { context: unknown; taskRunId: string | null; fields: Record<string, string> }
 
 // The step test panel mocks async functions by default, so `mock` runs these checks too.
 const parseExtractPayload = (args: any[]): ExtractPayload => {
@@ -55,8 +55,13 @@ const parseExtractPayload = (args: any[]): ExtractPayload => {
             throw new Error(`Keep field instructions to ${MAX_INSTRUCTION_LENGTH} characters or fewer`)
         }
     }
-    assertWorkflowContextFits(payload.context)
-    return { context: payload.context, fields: fields as Record<string, string> }
+    const taskRunId = typeof payload.task_run_id === 'string' && payload.task_run_id ? payload.task_run_id : null
+    const context = payload.context ?? null
+    if (context === null && taskRunId === null) {
+        throw new Error('Enter the text to read, or an AI task run to read')
+    }
+    assertWorkflowContextFits(context)
+    return { context, taskRunId, fields: fields as Record<string, string> }
 }
 
 const fieldTypesFromOutputVariables = (
@@ -101,6 +106,7 @@ registerAsyncFunction('postHogExtract', {
             entityClaims: { hog_flow_id: hogFlow.id },
             body: JSON.stringify({
                 context: payload.context,
+                task_run_id: payload.taskRunId,
                 output_fields: Object.entries(payload.fields).map(([name, instruction]) => ({
                     name,
                     type: types.get(name) ?? 'string',

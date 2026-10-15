@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -12,6 +13,7 @@ from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.models import Team
 
 from products.cdp.backend.presentation.hog_functions import gated_template_enabled
+from products.tasks.backend.facade.workflow_tasks import get_workflow_task_run_final_message
 from products.workflows.backend.facade.service_jwt import WORKFLOW_EXTRACT_PURPOSE
 from products.workflows.backend.presentation.views.workflow_classifications import (
     MAX_CONTEXT_CHARS,
@@ -67,7 +69,16 @@ class WorkflowExtractionFieldSerializer(serializers.Serializer):
 
 class WorkflowExtractionRequestSerializer(serializers.Serializer):
     context = serializers.JSONField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
-        help_text=f"The output of an earlier step to read, such as an AI task's final message. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON and {MAX_CONTEXT_DEPTH} levels of nesting."
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=f"The output of an earlier step to read, such as a webhook response. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON and {MAX_CONTEXT_DEPTH} levels of nesting. Required unless task_run_id is set.",
+    )
+    task_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="The run of an AI task step earlier in this workflow. When set, the model reads that run's full final message in place of context.",
     )
     output_fields = WorkflowExtractionFieldSerializer(
         many=True, help_text=f"The fields to fill, each with its own instruction. 1 to {MAX_FIELDS} fields."
@@ -75,6 +86,11 @@ class WorkflowExtractionRequestSerializer(serializers.Serializer):
 
     def validate_context(self, value: Any) -> Any:
         return validate_workflow_context(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not self.partial and attrs.get("context") is None and attrs.get("task_run_id") is None:
+            raise serializers.ValidationError({"context": "Enter the text to read, or an AI task run to read."})
+        return attrs
 
     def validate_output_fields(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if not 1 <= len(value) <= MAX_FIELDS:
@@ -144,6 +160,14 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
 
+        hog_flow_id = str(cast(dict[str, Any], request.auth)["hog_flow_id"])
+        context = data["context"]
+        if data["task_run_id"] is not None:
+            try:
+                context = _task_report_context(team.id, UUID(hog_flow_id), data["task_run_id"])
+            except _TaskReportUnreadable as error:
+                return _error(str(error), status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         fields = [
             ExtractionField(
                 name=field["name"], type=ExtractionFieldType(field["type"]), instruction=field["instruction"]
@@ -153,8 +177,8 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
         try:
             values = extract_fields(
                 team_id=team.id,
-                hog_flow_id=str(cast(dict[str, Any], request.auth)["hog_flow_id"]),
-                context=data["context"],
+                hog_flow_id=hog_flow_id,
+                context=context,
                 fields=fields,
             )
         except ExtractionUnavailableError:
@@ -175,6 +199,26 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         return Response(WorkflowExtractionResponseSerializer({"values": values}).data)
+
+
+class _TaskReportUnreadable(Exception):
+    pass
+
+
+def _task_report_context(team_id: int, hog_flow_id: UUID, run_id: UUID) -> dict[str, str]:
+    report = get_workflow_task_run_final_message(team_id=team_id, hog_flow_id=hog_flow_id, run_id=run_id)
+    if report is None:
+        raise _TaskReportUnreadable(
+            "This AI task run has no final message, or an AI task step in another workflow started it."
+        )
+    context = {"final_message": report}
+    try:
+        validate_workflow_context(context)
+    except serializers.ValidationError:
+        raise _TaskReportUnreadable(
+            f"The AI task report is longer than the {MAX_CONTEXT_CHARS} characters this step reads."
+        )
+    return context
 
 
 def _error(detail: str, http_status: int) -> Response:

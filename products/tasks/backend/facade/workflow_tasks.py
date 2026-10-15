@@ -28,6 +28,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskTeamRateCapped,
     WorkflowTaskUsageLimited,
     create_workflow_task,
+    get_workflow_task_run_final_message,
     resolve_connectors,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "WorkflowTaskUsageLimited",
     "build_output_schema",
     "create_workflow_task",
+    "get_workflow_task_run_final_message",
     "resolve_connectors",
     "validate_skill_names",
 ]

@@ -8,6 +8,7 @@ describe('posthog extract template', () => {
     const tester = new TemplateTester(template)
     const workflowOptions = { hogFlow: { id: '0198c9f1-0000-0000-0000-000000000001' }, actionId: 'action_1' }
     const inputs = {
+        task_run_id: null,
         context: { message: 'Opened https://github.com/example/repo/pull/7' },
         fields: { pr_url: 'The URL of the pull request' },
     }
@@ -38,13 +39,15 @@ describe('posthog extract template', () => {
         expect(response.execResult).toEqual({ pr_url: 'https://github.com/example/repo/pull/7' })
     })
 
-    it('reads the final message of the default AI task step by default', async () => {
+    it.each([
+        ['the run of the default AI task step', { run_id: 'run-1', final_message: 'Opened a pull request' }, 'run-1'],
+        ['no AI task step', undefined, null],
+    ])('asks Django to read the full report of %s', async (_name, task, expectedRunId) => {
         fetchSpy.mockResolvedValue(internalResponse(200, { values: { pr_url: null, summary: null } }))
-        const completedTask = { run_id: 'run-1', output: {}, final_message: 'Opened a pull request' }
 
-        await tester.invoke({}, { variables: { task: completedTask } }, workflowOptions)
+        await tester.invoke({}, { variables: { task } }, workflowOptions)
 
-        expect(parseJSON(fetchSpy.mock.calls[0][1].body).context).toEqual({ message: 'Opened a pull request' })
+        expect(parseJSON(fetchSpy.mock.calls[0][1].body).task_run_id).toEqual(expectedRunId)
     })
 
     it('fails the step with the reason when the model gives an unusable answer', async () => {
