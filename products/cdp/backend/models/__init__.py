@@ -2,6 +2,7 @@ from .hog_function_template import HogFunctionTemplate
 from .hog_functions import HogFunction, HogFunctionRevision
 from .hog_functions.hog_function import HogFunctionState
 from .hook import Hook
+from .mcp_event_subscription import MCPEventSubscription
 from .plugin import (
     Plugin,
     PluginAttachment,
@@ -19,6 +20,7 @@ __all__ = [
     "HogFunctionState",
     "HogFunctionTemplate",
     "Hook",
+    "MCPEventSubscription",
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
