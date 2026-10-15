@@ -39,6 +39,7 @@ export function QuillSceneTitleSection({
     noPadding = false,
     actions,
     forceBackTo,
+    scope,
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
@@ -92,7 +93,13 @@ export function QuillSceneTitleSection({
                 back={
                     <QuillSceneTrail
                         lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
-                        parent={backTo && backPath ? { name: backTo.name, path: backPath } : undefined}
+                        parent={
+                            backTo && backPath
+                                ? { name: backTo.name, path: backPath }
+                                : scope && !titleInPhoneHeader
+                                  ? { name: scope }
+                                  : undefined
+                        }
                         icon={resourceIcon}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />
