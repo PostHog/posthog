@@ -7164,22 +7164,25 @@ class TestCohortTypeIntegration(APIBaseTest):
 
     def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):
         included_id = self._create_realtime_cohort()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts/",
-            {
-                "name": "Includes realtime",
-                "filters": {
-                    "properties": {
-                        "type": "AND",
-                        "values": [{"type": "cohort", "key": "id", "value": included_id}],
-                    }
+        including_id = included_id
+        for name in ("Includes realtime", "Includes that one"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {
+                    "name": name,
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"type": "cohort", "key": "id", "value": including_id}],
+                        }
+                    },
                 },
-            },
-            format="json",
-        )
-        assert response.status_code == 201, response.json()
-        assert response.json()["cohort_type"] == CohortType.REALTIME
-        self._create_workflow_using_cohort(response.json()["id"], "trigger", "active")
+                format="json",
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["cohort_type"] == CohortType.REALTIME
+            including_id = response.json()["id"]
+        self._create_workflow_using_cohort(including_id, "trigger", "active")
         filters = {
             "properties": {
                 "type": "AND",

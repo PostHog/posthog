@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import hashlib
+from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
@@ -98,7 +99,10 @@ from products.cohorts.backend.models.cohort import (
     CohortType,
     Group,
 )
-from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
+from products.cohorts.backend.models.dependencies import (
+    extract_cohort_dependencies,
+    get_flag_excluded_behavioral_cohort_ids,
+)
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     cohort_filters_have_values,
@@ -133,15 +137,21 @@ from products.workflows.backend.facade.contracts import CohortDependentWorkflow,
 
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
     # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
-    # also relies on this one. Walk the references in the project, like the feature flag lock does.
+    # also relies on this one. Load the project's cohort references in one query and walk them in memory.
+    project_id = cohort.team.project_id
+    dependents: defaultdict[int, set[int]] = defaultdict(set)
+    for other in Cohort.objects.filter(team__project_id=project_id, deleted=False).only(
+        "id", "filters", "groups", "deleted"
+    ):
+        for dependency_id in extract_cohort_dependencies(other):
+            dependents[dependency_id].add(other.id)
     cohort_ids = {cohort.id}
-    pending = [cohort]
+    pending = [cohort.id]
     while pending:
-        for dependent in get_cohorts_using_cohort(pending.pop()):
-            if dependent.id not in cohort_ids:
-                cohort_ids.add(dependent.id)
-                pending.append(dependent)
-    return get_active_workflows_using_realtime_cohort(project_id=cohort.team.project_id, cohort_ids=cohort_ids)
+        for dependent_id in dependents[pending.pop()] - cohort_ids:
+            cohort_ids.add(dependent_id)
+            pending.append(dependent_id)
+    return get_active_workflows_using_realtime_cohort(project_id=project_id, cohort_ids=cohort_ids)
 
 
 def _workflow_names_suffix(
