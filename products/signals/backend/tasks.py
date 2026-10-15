@@ -21,7 +21,6 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
@@ -1048,7 +1047,7 @@ def build_signal_project_profile(team_id: int) -> None:
     # The `tools` package imports this module through `slack_delivery_queue`.
     from products.signals.backend.scout_harness.tools.profile import compute_project_profile  # noqa: PLC0415
 
-    team = Team.objects.get(id=resolve_effective_team_id(team_id))
+    team = Team.objects.get(id=team_id)
     compute_project_profile(team=team, force=True)
 
 

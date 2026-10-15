@@ -133,6 +133,7 @@ SURFACES_LOOKBACK_DAYS = 30
 # The total time the surface queries can take in one build. A surface that the budget leaves out
 # reads as `in_use: null`.
 SURFACES_TIME_BUDGET_S = 30
+_UNANSWERED_SURFACE: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
 
 
 def build_inventory(team: Team, *, surfaces: dict[str, dict[str, Any]] | None = None) -> Inventory:
@@ -146,9 +147,6 @@ def build_inventory(team: Team, *, surfaces: dict[str, dict[str, Any]] | None = 
     Returns a validated `Inventory` (see `schema.py`) rather than a bare dict — the shape
     is a contract the scout skills read by key, so validating it on the way out keeps the
     builders and consumers from drifting apart silently.
-
-    `surfaces` replaces the `build_surfaces` call, for a caller that must not wait for the
-    surface queries.
     """
     return Inventory.model_validate(
         {
@@ -939,9 +937,6 @@ def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
     entry is `in_use: null` when the query fails, when no member can act, or when the build runs
     out of `SURFACES_TIME_BUDGET_S`. `source` names the cause. Held-back scouts are left out, so
     the payload does not disclose them.
-
-    The queries can take up to `SURFACES_TIME_BUDGET_S`, so a synchronous read uses
-    `deferred_surfaces` and a background build calls this.
     """
     queries = canonical_precheck_queries()
     configs = {
@@ -952,34 +947,34 @@ def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
     deadline = time.monotonic() + SURFACES_TIME_BUDGET_S
     return {
         skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
-        for skill_name in sorted(queries.keys() - withheld_skills_for_team(team.id))
+        for skill_name in _surface_skill_names(team, queries)
     }
 
 
 def deferred_surfaces(team: Team, stored: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """The `surfaces` section without the queries: the `stored` entries, and `deferred` for the rest.
-
-    A scout that the team now holds back is left out, as in `build_surfaces`.
-    """
-    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "source": "deferred", "row_count": None}
+    """The `surfaces` section without the queries: the `stored` entries, and `deferred` for the rest."""
+    deferred = {**_UNANSWERED_SURFACE, "source": "deferred"}
     return {
-        skill_name: stored.get(skill_name) or unanswered
-        for skill_name in sorted(canonical_precheck_queries().keys() - withheld_skills_for_team(team.id))
+        skill_name: stored.get(skill_name) or deferred
+        for skill_name in _surface_skill_names(team, canonical_precheck_queries())
     }
+
+
+def _surface_skill_names(team: Team, queries: dict[str, str]) -> list[str]:
+    return sorted(queries.keys() - withheld_skills_for_team(team.id))
 
 
 def _surface_entry(
     team: Team, skill_name: str, query: str, config: SignalScoutConfig | None, now: datetime, deadline: float
 ) -> dict[str, Any]:
-    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
     # Each query gets at most the time left in the build, so one slow query cannot pass the budget.
     remaining_s = math.floor(deadline - time.monotonic())
     if remaining_s < 1:
-        return {**unanswered, "source": "time_budget"}
+        return {**_UNANSWERED_SURFACE, "source": "time_budget"}
     acting_user = resolve_scout_run_acting_user(team, skill_name, config)
     user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
     if user is None:
-        return {**unanswered, "source": "no_acting_user"}
+        return {**_UNANSWERED_SURFACE, "source": "no_acting_user"}
     try:
         result = run_precheck_query(
             team,
@@ -997,7 +992,7 @@ def _surface_entry(
             skill_name,
             exc_info=True,
         )
-        return {**unanswered, "source": "query_error"}
+        return {**_UNANSWERED_SURFACE, "source": "query_error"}
     return {
         "in_use": result.should_run,
         "evaluated_at": now.isoformat(),

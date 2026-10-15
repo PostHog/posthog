@@ -131,9 +131,6 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
     waiting up to `PROFILE_TTL` for natural expiry). The compute path still takes the
     advisory lock, so concurrent force-refreshes collapse into one build with the
     losers returning the winner's freshly persisted row.
-
-    The build-on-miss and `force_refresh` builds defer the surface queries (see
-    `compute_project_profile`), so a read never waits for them.
     """
     team_id = resolve_effective_team_id(team_id)
     if not force_refresh:
@@ -190,7 +187,7 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
             existing = _latest_profile(team_id=team.id)
             if existing is not None:
                 return _to_dataclass(existing)
-        if surfaces is None:
+        if defer_surfaces:
             surfaces = deferred_surfaces(team, _stored_surfaces(team_id=team.id))
             transaction.on_commit(partial(enqueue_project_profile_build, team.id))
         payload: dict[str, Any] = {"inventory": build_inventory(team, surfaces=surfaces).model_dump(mode="json")}
