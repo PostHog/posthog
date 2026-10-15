@@ -894,6 +894,7 @@ const eventMatchAnswerMock = (answer: Record<string, unknown>): ReturnType<typeo
     mswDecorator({
         get: {
             '/api/projects/:team_id/event_definitions': [],
+            '/api/projects/:team_id/property_definitions': { results: [], count: 0 },
         },
         post: {
             '/api/projects/:team_id/taxonomic_search_intent/match_events/': () => [200, answer],
