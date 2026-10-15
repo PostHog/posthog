@@ -348,9 +348,10 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
     """``obj``'s HogQL predicate compiled for the rows of ``target`` that have no copy in ``target.copied_from``.
 
     The predicate cannot run there when events reads any part of it from a property-group map,
-    which only the events tables have. A map decodes JSON escapes, so ``a"b`` reads as ``a"b``
-    there and as ``a\\"b`` from raw JSON. Its equality rewrite also compares a typed property as a
-    string, where a raw JSON read casts it to the defined type. So the two tables could match
+    which only the events tables have. The map decodes JSON escapes, so a stored ``"a\\"b"`` reads
+    as ``a"b`` from the map and as ``a\\"b`` from raw JSON. With ``propertyGroupsMode`` set to
+    ``optimized``, events also compares a map value as a string for ``=``, ``!=`` and ``IN``, where
+    a raw JSON read casts a typed property to its defined type. So the two tables could match
     different rows.
     """
     if target.uncopied_rows_hogql_table is None:

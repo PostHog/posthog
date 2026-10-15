@@ -529,9 +529,8 @@ def execute_hogql_event_deletion(
 
 
 _HOGQL_UNSWEEPABLE_REASON = (
-    "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
-    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
+    "the request carries a HogQL predicate, and this job compiles it against the events schema only, "
+    "so it cannot apply the predicate to this table. "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
     f"table never stores. See {COVERAGE_DOC}."
 )
@@ -540,6 +539,12 @@ _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON = (
     "the request carries a HogQL predicate and runs immediately, and these rows have no copy in the events "
     "table. An immediate request with a predicate does not delete rows here. To proceed, re-file the request "
     f"as deferred, which queues these rows. See {COVERAGE_DOC}."
+)
+
+_IMMEDIATE_HOGQL_RETRY_HINT = (
+    " A fresh run of a request whose earlier run already deleted events also refuses here, because those "
+    "events were the copies of these rows. To finish that request, use Re-execute from failure on the "
+    "earlier Dagster run, which does not run this check again."
 )
 
 
@@ -678,20 +683,22 @@ def _event_removal_placements(
     uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]] = []
     for placement in [p for p in unsweepable if p.target.copied_from is not None]:
         target = placement.target
-        predicate = uncopied_rows_predicate(deletion_request, target)
+        uncopied_predicate = uncopied_rows_predicate(deletion_request, target)
         # The copy check reads the uuid of every matching event, so it runs only when the target holds
         # matching rows in the request's window. This count also runs the compiled fragment before
         # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
-        if not count_surviving_rows(cluster, target, *predicate.narrow(criteria)):
+        if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
             continue
-        if predicate.compiled is None:
-            reason = _hogql_no_events_copy_reason(predicate.error)
+        if uncopied_predicate.compiled is None:
+            reason = _hogql_no_events_copy_reason(uncopied_predicate.error)
         elif reaches_target_through_event_uuids(deletion_request, target):
-            uncopied.append((placement, predicate))
+            uncopied.append((placement, uncopied_predicate))
             continue
         else:
             reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
-        for window in predicate.windows(deletion_request, target):
+        if deletion_request.execution_mode != ExecutionMode.DEFERRED.value:
+            reason += _IMMEDIATE_HOGQL_RETRY_HINT
+        for window in uncopied_predicate.windows(deletion_request, target):
             _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)
     return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
@@ -767,9 +774,10 @@ def _queue_events_for_deferred_deletion(
         )
     events_where = event_removal_where(deletion_request)
     reads = [(p.target.data_table, *events_where) for p in swept]
-    for placement, predicate in placements.uncopied:
+    for placement, uncopied_predicate in placements.uncopied:
         reads += [
-            (placement.target.data_table, *window) for window in predicate.windows(deletion_request, placement.target)
+            (placement.target.data_table, *window)
+            for window in uncopied_predicate.windows(deletion_request, placement.target)
         ]
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)

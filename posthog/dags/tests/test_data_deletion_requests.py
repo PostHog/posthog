@@ -2614,25 +2614,37 @@ def _deferred_hogql_flag_request(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "hogql_predicate",
+    [
+        pytest.param("properties.$browser = 'Chrome'", id="predicate_runs_on_flag_evaluations"),
+        pytest.param(
+            "properties.$browser = 'Chrome' AND properties.plan = 'pro'",
+            id="predicate_cannot_run_on_flag_evaluations",
+        ),
+    ],
+)
 def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_through_event_uuids(
-    cluster: ClickhouseCluster, materialized_browser: None
+    cluster: ClickhouseCluster, materialized_browser: None, hogql_predicate: str
 ) -> None:
     from posthog.models.data_deletion_request import verify_queued_request
 
-    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-copies")
+    request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-copies", hogql_predicate)
     _assert_events_reads_materialized_browser(request)
     now = datetime.now(UTC)
     earlier = now - timedelta(days=10)
     chrome, firefox, earlier_chrome, drifted = uuid4(), uuid4(), uuid4(), uuid4()
+    # Both predicates match these properties, so both cases queue the same uuids.
+    chrome_pro = '{"$browser": "Chrome", "plan": "pro"}'
     cluster.any_host(_truncate_adhoc_events_deletion).result()
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
             _insert_events_with_properties,
             [
-                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, '{"$browser": "Chrome"}'),
+                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, chrome, now, chrome_pro),
                 (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, firefox, now, '{"$browser": "Firefox"}'),
-                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, earlier_chrome, earlier, '{"$browser": "Chrome"}'),
+                (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, earlier_chrome, earlier, chrome_pro),
                 (ctx.team_id, FLAG_EVALUATIONS_SOURCE_EVENT, drifted, now, '{"$browser": "Firefox"}'),
             ],
         )
@@ -2641,12 +2653,12 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
         partial(
             _insert_flag_evaluations_with_properties,
             [
-                (ctx.team_id, "", '{"$browser": "Chrome"}', str(chrome), now, now),
+                (ctx.team_id, "", chrome_pro, str(chrome), now, now),
                 (ctx.team_id, "", '{"$browser": "Firefox"}', str(firefox), now, now),
-                (ctx.team_id, "", '{"$browser": "Chrome"}', str(earlier_chrome), earlier, earlier),
+                (ctx.team_id, "", chrome_pro, str(earlier_chrome), earlier, earlier),
                 # The predicate matches this flag row and not its events copy. The drain deletes a queued
                 # uuid from every table, so queueing it would also delete an events row the predicate excludes.
-                (ctx.team_id, "", '{"$browser": "Chrome"}', str(drifted), now, now),
+                (ctx.team_id, "", chrome_pro, str(drifted), now, now),
             ],
         )
     ).result()
@@ -3062,6 +3074,14 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
             False,
             "elements_chain",
             id="hogql_predicate_that_cannot_run_on_flag_evaluations_refuses_rows_without_an_events_copy",
+        ),
+        pytest.param(
+            [FLAG_EVALUATIONS_SOURCE_EVENT],
+            False,
+            "properties.$browser = 'Chrome' AND NOT elements_chain ILIKE '%checkout%'",
+            True,
+            None,
+            id="hogql_predicate_that_cannot_run_on_flag_evaluations_leaves_rows_with_an_events_copy_to_the_ttl",
         ),
     ],
 )

@@ -222,6 +222,9 @@ A row with no events copy is checked instead.
 The request refuses while such a row matches the predicate compiled for this table (below), or matches the request's other criteria when the predicate cannot run on this table.
 That turns a request from an org on `flag_evaluations_mode` 2, whose flag calls have no events copy, into a refusal rather than a completed request that leaves every flag call behind.
 Re-filing the request as deferred deletes those rows.
+A fresh run of a request whose earlier run already deleted events also refuses, because those events were the copies of matching rows.
+The admin Retry button starts such a fresh run.
+"Re-execute from failure" on the earlier Dagster run finishes the request, because it reuses the output of `get_event_removal_shards` and does not run the check again.
 An immediate request without a predicate sweeps the table and verifies it like the events tables, because its delete predicate names only `team_id`, `timestamp` and `event`.
 
 ### Event removal with a HogQL predicate on `flag_evaluations`
@@ -238,6 +241,11 @@ An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluati
 The compile adds that table even when the org flag hides it from queries.
 The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
 A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
+The check for an events copy reads `sharded_events` only.
+A flag row can keep a copy in `sharded_events_json` after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
+The compiled predicate then decides for that row, and the drain deletes its `sharded_events_json` copy too, even when the native-JSON compile of the predicate excludes it.
+The check does not read `sharded_events_json`, because that table can sit on another cluster.
+A shard-local subquery cannot reach it there, and the `events_json` proxy can read an empty table.
 
 The compiled predicate never decides for a row that has an events copy.
 The drain deletes a queued uuid from every target, so a flag row that matched the flag-compiled predicate would take its events copy with it, even where the events-compiled predicate does not name that event.
