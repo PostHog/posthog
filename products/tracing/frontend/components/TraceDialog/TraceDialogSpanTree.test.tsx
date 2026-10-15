@@ -55,7 +55,7 @@ describe('TraceDialogSpanTree', () => {
         const logic = traceDialogLogic()
         logic.mount()
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A' })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A' }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
         const { container } = render(
