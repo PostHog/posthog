@@ -89,7 +89,16 @@ describe('watchPicksLogic', () => {
 
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3, shown_count: 1 }])
+            expect(shownEvents()).toEqual([
+                expect.objectContaining({
+                    view: 'list',
+                    count: 3,
+                    unwatched_count: 3,
+                    shown_count: 1,
+                    feed_load_id: logic.values.picksLoad?.feedLoadId,
+                    observation_ids: ['o1', 'o2', 'o3'],
+                }),
+            ])
         })
 
         it.each([

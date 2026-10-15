@@ -137,6 +137,8 @@ export interface PlayerTimeTracking {
 }
 
 export interface RecordingViewedSummaryAnalytics {
+    // which recording was viewed, so the summary joins to whatever opened it (e.g. a What to watch click)
+    recording_id?: string
     // how long was the player session mounted for
     viewed_time_ms?: number
     // how long was the video playing for
@@ -4010,6 +4012,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
+            recording_id: props.sessionRecordingId,
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
             play_time_ms: playTimeMs,
             buffer_time_ms: values.playingTimeTracking.bufferTime || 0,

@@ -1,5 +1,6 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useRef } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -22,7 +23,10 @@ import type {
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
+import { useCardImpression } from '../useCardImpression'
 import { watchFeedLogic } from '../watchFeedLogic'
+import { cardProperties } from '../watchFeedTelemetry'
+import { WatchFeedDismissButton } from './WatchFeedDismissButton'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -339,6 +343,10 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
+    const { feedLoad } = useValues(watchFeedLogic)
+    const { cardSeen, dismissItem } = useActions(watchFeedLogic)
+    const rowRef = useRef<HTMLElement>(null)
+    useCardImpression(rowRef, () => cardSeen(item, position))
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like watchCardHeadline.
     const scannerType =
@@ -357,17 +365,14 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
-            scanner_id: observation.scanner_id,
+            ...cardProperties(feedLoad, item, position, 'feed_tab'),
             scanner_type: scannerType,
-            observation_id: observation.id,
-            position,
-            reason_kind: reason.kind,
             has_key_moment: keyMomentMs !== null,
             target: 'observation',
         })
     }
     return (
-        <article className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
+        <article ref={rowRef} className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
             <div className="relative w-36 shrink-0 self-start overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent @xl:w-80">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
                 <ObservationThumbnail observation={observation} className="rounded-none border-0" />
@@ -413,6 +418,9 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         </span>
                     </p>
                 </div>
+            </div>
+            <div className="relative z-10 shrink-0 self-start">
+                <WatchFeedDismissButton onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)} />
             </div>
         </article>
     )

@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
@@ -12,9 +12,11 @@ import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
+import { useCardImpression } from '../useCardImpression'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
+import { WatchFeedDismissButton } from './WatchFeedDismissButton'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -29,14 +31,17 @@ const SCORE_DOTS = 5
 
 export function WatchPickRankedCard({ item, position, surface, rank }: WatchPickRankedCardProps): JSX.Element {
     const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
-    const { watchPick } = useActions(watchPicksLogic)
+    const { watchPick, cardSeen, dismissItem } = useActions(watchPicksLogic)
     const { observation, reason } = item
+    const cardRef = useRef<HTMLDivElement>(null)
+    useCardImpression(cardRef, () => cardSeen(item, position))
     const { title, scannerName, scannerType } = watchPickSummary(observation)
     const signalsCount = reason.signals_count ?? 0
     const notability = typeof reason.notability === 'number' ? reason.notability : null
 
     return (
         <div
+            ref={cardRef}
             className="group relative"
             data-attr="vision-watch-ranked-card"
             onMouseEnter={() => setHasOpenedPreview(true)}
@@ -117,6 +122,12 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                 )}
             >
                 {hasOpenedPreview && <WatchPickPreview item={item} className="w-full" />}
+            </div>
+            {/* Outside the poster button, since a button cannot hold another, and above the hover preview. */}
+            <div className="absolute bottom-0 right-0 z-30">
+                <WatchFeedDismissButton
+                    onDismiss={(dismissalReason) => dismissItem(item, position, surface, dismissalReason)}
+                />
             </div>
         </div>
     )
