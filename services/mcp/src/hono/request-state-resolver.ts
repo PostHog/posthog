@@ -1,5 +1,6 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
@@ -196,15 +197,25 @@ export class RequestStateResolver {
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags = { ...allFlags, ...overrides }
+        let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        if (
+            recruitmentPayload === undefined &&
+            isLocalApi() &&
+            (env.NODE_ENV === 'development' || env.NODE_ENV === 'test') &&
+            overrides[MCP_INTERVIEW_RECRUITMENT_FLAG]
+        ) {
+            try {
+                recruitmentPayload = JSON.parse(env.MCP_INTERVIEW_RECRUITMENT_PAYLOAD ?? '')
+            } catch {
+                // Local opt-in still requires explicit, valid invitation content.
+            }
+        }
         const interviewRecruitmentConfig =
             source === EVENT_SOURCE.MCP &&
             !_apiKey?.scopes?.includes('internal_run:read') &&
             !props.taskId &&
             !props.taskOriginProduct
-                ? resolveInterviewRecruitmentConfig(
-                      mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG],
-                      payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
-                  )
+                ? resolveInterviewRecruitmentConfig(mergedFlags[MCP_INTERVIEW_RECRUITMENT_FLAG], recruitmentPayload)
                 : undefined
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.

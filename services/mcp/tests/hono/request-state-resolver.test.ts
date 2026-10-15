@@ -612,16 +612,40 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
     })
 
-    it('keeps local interview recruitment off unless explicitly overridden', async () => {
+    it.each([
+        { mode: 'development', override: undefined, payload: 'valid', enabled: false },
+        { mode: 'development', override: true, payload: undefined, enabled: false },
+        { mode: 'development', override: true, payload: '{', enabled: false },
+        { mode: 'development', override: true, payload: '{}', enabled: false },
+        { mode: 'development', override: true, payload: 'valid', enabled: true },
+        { mode: 'development', override: 'other-study', payload: 'valid', enabled: true },
+        { mode: 'test', override: true, payload: 'valid', enabled: true },
+        { mode: 'production', override: true, payload: 'valid', enabled: false },
+    ])('requires explicit local recruitment opt-in and payload: %j', async ({ mode, override, payload, enabled }) => {
         vi.stubEnv('POSTHOG_API_BASE_URL', 'http://localhost:8000')
+        vi.stubEnv('NODE_ENV', mode)
+        vi.stubEnv(
+            'MCP_INTERVIEW_RECRUITMENT_PAYLOAD',
+            payload === 'valid'
+                ? JSON.stringify({ message: 'Synthetic local interview', booking_url: 'https://example.com/book' })
+                : payload
+        )
         try {
-            expect((await makeResolver().resolve(makeProps())).toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(
-                false
-            )
-            vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
-            expect((await makeResolver().resolve(makeProps())).toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(
-                true
-            )
+            if (override) {
+                vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({
+                    [MCP_INTERVIEW_RECRUITMENT_FLAG]: override,
+                })
+            }
+            const result = await makeResolver().resolve(makeProps())
+            if (enabled) {
+                expect(result.interviewRecruitmentConfig).toMatchObject({
+                    campaign_id: typeof override === 'string' ? override : 'mcp-research',
+                    message: 'Synthetic local interview',
+                    booking_url: 'https://example.com/book',
+                })
+            } else {
+                expect(result.interviewRecruitmentConfig).toBeUndefined()
+            }
         } finally {
             vi.unstubAllEnvs()
         }

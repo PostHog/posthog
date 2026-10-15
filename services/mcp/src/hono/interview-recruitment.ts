@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { getPostHogClient } from '@/lib/posthog'
 import { META_CLIENT_CAPABILITIES } from '@/lib/stateless-protocol'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import { parseExecCallInnerToolName } from '@/tools/exec'
 
 import type { RedisLike } from './cache/RedisCache'
@@ -193,6 +194,7 @@ export class InterviewRecruitment {
         return (
             typeof name === 'string' &&
             name !== 'docs-search' &&
+            !isPrivateScoutTrialTool(name) &&
             !/^skills?-/.test(name) &&
             state.allTools.some((tool) => tool.name === name)
         )
@@ -244,6 +246,9 @@ export class InterviewRecruitment {
             return
         }
         try {
+            if ((await this.redis.get(this.preferenceKey(state))) !== null) {
+                return
+            }
             await this.redis.eval(
                 OBSERVE_CONVERSATION,
                 1,
@@ -351,6 +356,9 @@ export class InterviewRecruitment {
         const linkKey = this.bookingLinkKey(invitationId)
         const preferenceKey = this.preferenceKey(state)
         try {
+            if ((await this.redis.get(preferenceKey)) !== null) {
+                return undefined
+            }
             const now = Date.now()
             const progress = z
                 .tuple([z.number(), z.number()])

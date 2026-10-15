@@ -67,6 +67,20 @@ The implementation is [src/hono/interview-recruitment.ts](src/hono/interview-rec
 The request resolver passes the evaluated flag value and payload into its configuration parser.
 Adding an ordinary study requires flag configuration, not another code path.
 
+For a localhost development server, supply an explicit payload alongside the existing flag override:
+
+```sh
+export NODE_ENV=development
+export FEATURE_FLAG_OVERRIDES='{"mcp-interview-recruitment":"mcp-research"}'
+export MCP_INTERVIEW_RECRUITMENT_PAYLOAD='{"message":"Synthetic interview invitation","booking_url":"https://example.com/book","min_completed_tool_calls":0,"min_session_age_seconds":0}'
+```
+
+Start or restart the local MCP server with those variables. This payload is accepted only for a localhost
+API in `development` or `test`, with an explicit recruitment override. Production ignores it.
+Missing, malformed, or incomplete payloads skip recruitment. The example disables warmup only for
+local testing; production timing still comes from the flag payload. To verify event ingestion too,
+configure the existing analytics API key and host for your local PostHog project.
+
 For code changes, run the existing regression suites:
 
 ```sh

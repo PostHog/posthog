@@ -250,9 +250,13 @@ describe('MCP interview recruitment', () => {
                 min_completed_tool_calls: 0,
                 min_session_age_seconds: 0,
             })
+            vi.mocked(storage.redis.set).mockClear()
+            vi.mocked(storage.redis.eval).mockClear()
             expect((await call(reconnected, callParams(), { ...props, userHash: 'new-token' })).result).toMatchObject(
                 toolResult
             )
+            expect(storage.redis.set).not.toHaveBeenCalled()
+            expect(storage.redis.eval).not.toHaveBeenCalled()
             storage.entries.delete(key)
             expect((await call(reconnected)).result?.resultType).toBe('input_required')
         }
@@ -305,6 +309,25 @@ describe('MCP interview recruitment', () => {
             expect(storage.entries.size).toBe(0)
         }
     )
+
+    it.each([
+        ['exec', 'scout-trial-get'],
+        ['direct', 'scout-trial-get'],
+        ['exec', 'scout-rubric-get'],
+        ['direct', 'scout-rubric-get'],
+    ])('excludes private %s calls to %s from invitations, progress, and analytics', async (mode, toolName) => {
+        state.allTools.push({ name: toolName } as (typeof state.allTools)[number])
+        const params = callParams()
+        if (mode === 'exec') {
+            params.arguments = { command: `call ${toolName} {}` }
+        } else {
+            params.name = toolName
+            params.arguments = {}
+        }
+        expect((await call(dispatcher, params)).result).toMatchObject(toolResult)
+        expect(storage.entries.size).toBe(0)
+        expect(captureRecruitment).not.toHaveBeenCalled()
+    })
 
     it('waits for three completed product calls and two minutes in the same conversation', async () => {
         vi.useFakeTimers()

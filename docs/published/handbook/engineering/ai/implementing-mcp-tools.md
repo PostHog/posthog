@@ -104,7 +104,8 @@ Each variant key identifies a campaign and has its own invitation payload.
 To add an approved study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
 Create the flag in the MCP server's analytics project and manage its audience and rollout there.
 A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
-development flag override explicitly enables it.
+development flag override explicitly enables it with an explicit `MCP_INTERVIEW_RECRUITMENT_PAYLOAD`.
+See the [local testing instructions](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md#code-and-checks).
 
 Set each variant's JSON payload to customize its invitation without deploying:
 
@@ -129,7 +130,7 @@ one campaign; no invitation queue is created for overlapping audiences.
 
 By default, an eligible conversation must complete three successful product tool calls and have been
 observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
-thresholds are met. Discovery commands, skills, documentation lookups, and failed calls do not count.
+thresholds are met. Discovery commands, skills, documentation lookups, private scout tools, and failed calls do not count.
 The timer starts at the first eligible product request; it does not measure when the chat UI opened.
 The payload accepts 0–1,000 completed calls and 0–86,400 seconds. Setting both to zero permits an
 immediate invitation for testing.
@@ -183,6 +184,7 @@ to inspect responses. This implementation records the invitation response; it do
 Accepted-link and opted-out records have no TTL. They remain suppressed until reset, provided Redis
 retains the records; this is not a separate durable database. Do not put these keys behind an
 expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
+Already-suppressed users skip progress writes and booking-link creation; the final reservation remains atomic.
 Redis failures skip new invitations. A response write must succeed before the original tool runs;
 the client can retry the continuation if that write fails.
 
