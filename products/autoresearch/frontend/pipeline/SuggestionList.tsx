@@ -30,44 +30,34 @@ const SUGGESTION_PRIORITY: Record<AutoresearchSuggestionPriorityEnumApi, string>
 export function SuggestionList(): JSX.Element {
     const { suggestions, suggestionsLoading, suggestionsError } = useValues(autoresearchPipelineLogic)
     const { loadSuggestions } = useActions(autoresearchPipelineLogic)
-    return (
-        <>
-            {suggestionsLoading ? (
-                <Spinner />
-            ) : suggestionsError ? (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Retry',
-                        onClick: () => loadSuggestions(),
-                        'data-attr': 'autoresearch-model-suggestions-retry',
-                    }}
-                >
-                    Couldn't load the suggestions. Try again, and if it keeps happening contact support.
-                </LemonBanner>
-            ) : suggestions.length === 0 ? (
-                <div className="text-muted text-sm">No suggestions yet. Send one above to steer the next run.</div>
-            ) : (
-                <div className="space-y-2">
-                    {suggestions.map((s: AutoresearchSuggestionApi) => (
-                        <div key={s.id} className="rounded bg-surface-secondary p-3 space-y-1">
-                            <div className="flex items-center gap-2">
-                                <LemonTag type={SUGGESTION_STATUS[s.status].type}>
-                                    {SUGGESTION_STATUS[s.status].label}
-                                </LemonTag>
-                                <span className="text-xs text-muted">
-                                    {s.priority ? SUGGESTION_PRIORITY[s.priority] : ''}
-                                </span>
-                                <span className="text-xs text-muted">{dayjs(s.created_at).fromNow()}</span>
-                            </div>
-                            <div className="text-sm">{s.prompt}</div>
-                            {s.agent_response && (
-                                <div className="text-sm text-muted italic">Agent: {s.agent_response}</div>
-                            )}
-                        </div>
-                    ))}
+    return suggestionsLoading ? (
+        <Spinner />
+    ) : suggestionsError ? (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Retry',
+                onClick: () => loadSuggestions(),
+                'data-attr': 'autoresearch-model-suggestions-retry',
+            }}
+        >
+            Couldn't load the suggestions. Try again, and if it keeps happening contact support.
+        </LemonBanner>
+    ) : suggestions.length === 0 ? (
+        <div className="text-muted text-sm">No suggestions yet. Send one above to steer the next run.</div>
+    ) : (
+        <div className="space-y-2">
+            {suggestions.map((s: AutoresearchSuggestionApi) => (
+                <div key={s.id} className="rounded bg-surface-secondary p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                        <LemonTag type={SUGGESTION_STATUS[s.status].type}>{SUGGESTION_STATUS[s.status].label}</LemonTag>
+                        <span className="text-xs text-muted">{s.priority ? SUGGESTION_PRIORITY[s.priority] : ''}</span>
+                        <span className="text-xs text-muted">{dayjs(s.created_at).fromNow()}</span>
+                    </div>
+                    <div className="text-sm">{s.prompt}</div>
+                    {s.agent_response && <div className="text-sm text-muted italic">Agent: {s.agent_response}</div>}
                 </div>
-            )}
-        </>
+            ))}
+        </div>
     )
 }
