@@ -149,6 +149,26 @@ class TestConfluenceSource:
     def test_partition_key_matches_endpoint(self, endpoint: str, expected_partition: str | None) -> None:
         assert CONFLUENCE_ENDPOINTS[endpoint].partition_key == expected_partition
 
+    @parameterized.expand(
+        [
+            ("spaces", {"description-format": ("plain",), "include-icon": ("true",)}),
+            ("pages", {"body-format": ("storage",)}),
+            ("blogposts", {"body-format": ("storage",)}),
+            ("attachments", {}),
+            ("tasks", {"body-format": ("storage",)}),
+            ("labels", {}),
+            ("footer_comments", {"body-format": ("storage",)}),
+            ("inline_comments", {"body-format": ("storage",)}),
+        ]
+    )
+    def test_requests_complete_resource_representations(
+        self, endpoint: str, expected_response_params: dict[str, tuple[str, ...]]
+    ) -> None:
+        result = _driver().run(endpoint, [_response([])])
+
+        assert result.raised is None
+        assert result.queries == [{"limit": (str(CONFLUENCE_ENDPOINTS[endpoint].limit),), **expected_response_params}]
+
 
 class TestPagination:
     def test_paginates_until_no_next_and_saves_state(self) -> None:
@@ -162,10 +182,12 @@ class TestPagination:
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2", "3"]
-        # First request hits the base path with the page limit; params carry limit only.
         assert result.requests[0].path == "/wiki/api/v2/pages"
         assert result.requests[0].origin == "https://acme.atlassian.net"
-        assert result.queries[0] == {"limit": (str(CONFLUENCE_ENDPOINTS["pages"].limit),)}
+        assert result.queries[0] == {
+            "limit": (str(CONFLUENCE_ENDPOINTS["pages"].limit),),
+            "body-format": ("storage",),
+        }
         # State saved once, after the first page (which has a next cursor), pointing at the
         # relative next link resolved to an absolute site URL.
         assert result.saved_states == [
@@ -192,6 +214,7 @@ class TestPagination:
         assert result.requests[1].path == "/wiki/api/v2/pages"
         assert result.requests[1].origin == "https://acme.atlassian.net"
         assert result.requests[1].param("cursor") == expected_url.split("cursor=", 1)[1]
+        assert result.requests[1].param("body-format") == "storage"
         assert result.saved_states == [ConfluenceResumeConfig(next_url=expected_url)]
 
     def test_resumes_from_saved_state(self) -> None:
@@ -205,6 +228,7 @@ class TestPagination:
         assert result.requests[0].path == "/wiki/api/v2/pages"
         assert result.requests[0].origin == "https://acme.atlassian.net"
         assert result.requests[0].param("cursor") == "resumed"
+        assert result.requests[0].param("body-format") == "storage"
 
     @pytest.mark.parametrize(
         "next_path,expected_url",
