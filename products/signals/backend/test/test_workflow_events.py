@@ -1,14 +1,17 @@
 import json
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from confluent_kafka import KafkaException
 from parameterized import parameterized
 
+from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.signal_metadata import ReportSignalMeta
-from products.signals.backend.workflow_events import INBOX_REPORT_READY_EVENT, emit_inbox_report_ready_event
+from products.signals.backend.workflow_events import emit_inbox_report_ready_event
 
 
 class TestEmitInboxReportReadyEvent(BaseTest):
@@ -91,10 +94,21 @@ class TestEmitInboxReportReadyEvent(BaseTest):
         [event] = self._produced_events()
         assert event.properties["source_products"] == []
 
-    def test_a_failed_publish_lets_the_next_settle_try_again(self) -> None:
-        self.produce.side_effect = [RuntimeError("broker down"), MagicMock()]
+    @parameterized.expand(
+        [
+            ("rejected_on_produce", RuntimeError("broker down"), None),
+            ("rejected_on_delivery", None, KafkaException("message timed out")),
+        ]
+    )
+    def test_a_failed_publish_raises_and_lets_a_retry_emit(
+        self, _name: str, produce_error: Exception | None, delivery_error: Exception | None
+    ) -> None:
+        failed_delivery = MagicMock()
+        failed_delivery.get.side_effect = delivery_error
+        self.produce.side_effect = [produce_error or failed_delivery, MagicMock()]
 
-        self._emit()
+        with pytest.raises(type(produce_error or delivery_error)):
+            self._emit()
         self._emit()
 
         assert len(self._produced_events()) == 2

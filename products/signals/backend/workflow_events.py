@@ -12,7 +12,12 @@ from django.utils import timezone
 
 import structlog
 
-from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
+from products.cdp.backend.internal_events import (
+    INBOX_REPORT_READY_EVENT,
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
@@ -20,22 +25,22 @@ from products.signals.backend.signal_metadata import fetch_source_products_for_r
 
 logger = structlog.get_logger(__name__)
 
-INBOX_REPORT_READY_EVENT = "$inbox_report_ready"
-
 # Fixed namespace so a report always maps to the same event uuid, whichever producer settled it.
 _INBOX_REPORT_EVENT_NAMESPACE = uuid.UUID("0b5e7c1a-4f3d-4e8b-9a2c-6d1f8e3b7a90")
+
+_DELIVERY_TIMEOUT_SECONDS = 10
 
 
 def emit_inbox_report_ready_event(*, team_id: int, report_id: str) -> None:
     """Write the report out once, the first time it settles as ready.
 
-    Never raises. Both producers call this after the report is already ready, so a failure here
-    must cost the report nothing. A failed publish gives the claim back, so the next settle retries.
+    Waits for the broker to accept the event, because the claim is what stops a second attempt.
+    A failure gives the claim back and raises, so the caller can retry.
     """
     if not _claim_ready_event(team_id, report_id):
         return
     try:
-        produce_internal_event(
+        delivery = produce_internal_event(
             team_id,
             InternalEventEvent(
                 event=INBOX_REPORT_READY_EVENT,
@@ -44,9 +49,11 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str) -> None:
                 uuid=str(uuid.uuid5(_INBOX_REPORT_EVENT_NAMESPACE, f"{team_id}:{report_id}")),
             ),
         )
+        flush_internal_events_producer(_DELIVERY_TIMEOUT_SECONDS)
+        delivery.get(timeout=0)
     except Exception:
-        logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
         _release_ready_event_claim(team_id, report_id)
+        raise
 
 
 def _claim_ready_event(team_id: int, report_id: str) -> bool:

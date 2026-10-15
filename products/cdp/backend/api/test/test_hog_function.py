@@ -217,15 +217,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(response.json()["attr"], "filters")
         self.assertIn("managed through the alert API", response.json()["detail"])
 
-    def test_generic_api_cannot_subscribe_to_reserved_internal_events(self):
+    @parameterized.expand([("workflow_result", "$workflow_step_resume"), ("inbox_report", "$inbox_report_ready")])
+    def test_generic_api_cannot_subscribe_to_reserved_internal_events(self, _name: str, event_id: str):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Workflow result exfiltration",
+                "name": "Reserved event exfiltration",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$workflow_step_resume", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
