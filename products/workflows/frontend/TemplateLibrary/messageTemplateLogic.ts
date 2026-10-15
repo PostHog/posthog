@@ -12,6 +12,7 @@ import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/a
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { messagingTemplatesMakeTransactionalCreate } from 'products/messaging/frontend/generated/api'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
@@ -19,6 +20,8 @@ import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { MessageTemplate } from './types'
+
+export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
 
 export interface MessageTemplateLogicProps {
     id: string
@@ -32,6 +35,7 @@ export interface messageTemplateLogicValues {
     deferredExternalEdit: ResourceEditedEvent | null
     externallyEdited: boolean
     isSyncingExternalEdit: boolean
+    isMakingTransactional: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
     logicProps: MessageTemplateLogicProps
@@ -63,6 +67,8 @@ export interface messageTemplateLogicValues {
     templatePickerOpen: boolean
     templateTouched: boolean
     templateTouches: Record<string, boolean>
+    transactionalHogFlowId: string | null
+    transactionalTab: TransactionalTemplateTab
     templateValidationErrors: DeepPartialMap<
         {
             content: {
@@ -93,6 +99,15 @@ export interface messageTemplateLogicActions {
     }
     keepMyTemplateVersion: () => {
         value: true
+    }
+    makeTransactional: () => {
+        value: true
+    }
+    makeTransactionalDone: (hogFlowId: string | null) => {
+        hogFlowId: string | null
+    }
+    setTransactionalTab: (tab: TransactionalTemplateTab) => {
+        tab: TransactionalTemplateTab
     }
     loadMessage: () => any
     loadMessageFailure: (
@@ -298,6 +313,7 @@ export interface messageTemplateLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
+        transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
     }
 }
 
@@ -329,11 +345,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         keepMyTemplateVersion: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
+        makeTransactional: true,
+        makeTransactionalDone: (hogFlowId: string | null) => ({ hogFlowId }),
+        setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
     }),
     selectors({
         logicProps: [
             () => [(_, props: MessageTemplateLogicProps) => props],
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
+        ],
+        // The saved state decides it: an unsaved template can't be transactional yet.
+        transactionalHogFlowId: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
         ],
     }),
     forms(({ actions }) => ({
@@ -368,6 +392,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 loadTemplateSuccess: (_, { template }) => {
                     return template
                 },
+            },
+        ],
+        isMakingTransactional: [
+            false,
+            {
+                makeTransactional: () => true,
+                makeTransactionalDone: () => false,
+            },
+        ],
+        transactionalTab: [
+            'design' as TransactionalTemplateTab,
+            {
+                setTransactionalTab: (_, { tab }) => tab,
             },
         ],
         templatePickerOpen: [
@@ -463,6 +500,23 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
+        },
+        makeTransactional: async () => {
+            try {
+                const updated = await messagingTemplatesMakeTransactionalCreate(
+                    String(values.currentTeamIdStrict),
+                    props.id,
+                    {}
+                )
+                const hogFlowId = updated.transactional_hog_flow_id ?? null
+                actions.setOriginalTemplate({ ...values.originalTemplate, transactional_hog_flow_id: hogFlowId })
+                actions.setTemplateValue('transactional_hog_flow_id', hogFlowId)
+                actions.makeTransactionalDone(hogFlowId)
+                lemonToast.success('Template is now transactional. You can send it over the API.')
+            } catch (error: any) {
+                actions.makeTransactionalDone(null)
+                lemonToast.error(error?.detail ?? 'Could not make the template transactional.')
+            }
         },
         loadTemplateFailure: () => {
             // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.

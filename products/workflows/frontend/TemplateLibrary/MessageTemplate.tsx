@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonDivider, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
@@ -15,6 +17,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
+import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
+import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -22,6 +27,7 @@ import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
+import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
@@ -45,6 +51,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
+        makeTransactional,
+        setTransactionalTab,
     } = useActions(logic)
     const {
         template,
@@ -56,7 +64,12 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
+        transactionalHogFlowId,
+        transactionalTab,
+        isMakingTransactional,
     } = useValues(logic)
+    const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
@@ -88,6 +101,24 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         )
     }
 
+    const editor = (
+        <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
+            {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
+            {isSyncingExternalEdit && <SpinnerOverlay />}
+            {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
+                <Spinner className="text-lg" />
+            ) : (
+                <EmailTemplater
+                    value={template?.content.email}
+                    onChange={(value) => setTemplateValue('content.email', value)}
+                    onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
+                    type="native_email_template"
+                    layout="inline"
+                />
+            )}
+        </div>
+    )
+
     return (
         <Form
             logic={messageTemplateLogic}
@@ -117,6 +148,28 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
+                            {showTransactional &&
+                                (transactionalHogFlowId ? (
+                                    <LemonTag type="success">Transactional</LemonTag>
+                                ) : (
+                                    <LemonButton
+                                        data-attr="make-message-template-transactional"
+                                        type="secondary"
+                                        size="small"
+                                        onClick={makeTransactional}
+                                        loading={isMakingTransactional}
+                                        tooltip="Send this template from your code over the API, with its own metrics and send history."
+                                        disabledReason={
+                                            templateChanged
+                                                ? 'Save your changes first'
+                                                : !template.content.email?.subject
+                                                  ? 'Add a subject first'
+                                                  : undefined
+                                        }
+                                    >
+                                        Make transactional
+                                    </LemonButton>
+                                ))}
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
@@ -215,23 +268,38 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     </LemonBanner>
                 )}
 
-                <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
-                    {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
-                    {isSyncingExternalEdit && <SpinnerOverlay />}
-                    {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
-                        <Spinner className="text-lg" />
-                    ) : (
-                        <EmailTemplater
-                            value={template?.content.email}
-                            onChange={(value) => setTemplateValue('content.email', value)}
-                            onChangeTemplating={(templating) =>
-                                setTemplateValue('content.email.templating', templating)
-                            }
-                            type="native_email_template"
-                            layout="inline"
-                        />
-                    )}
-                </div>
+                {showTransactional && transactionalHogFlowId ? (
+                    <LemonTabs
+                        activeKey={transactionalTab}
+                        onChange={setTransactionalTab}
+                        className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
+                        tabs={[
+                            { key: 'design', label: 'Design', content: editor },
+                            {
+                                key: 'metrics',
+                                label: 'Metrics',
+                                content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                            },
+                            {
+                                key: 'sends',
+                                label: 'Sends',
+                                content: <WorkflowInvocations id={transactionalHogFlowId} />,
+                            },
+                            {
+                                key: 'versions',
+                                label: 'Versions',
+                                content: <WorkflowRevisions id={transactionalHogFlowId} />,
+                            },
+                            {
+                                key: 'api',
+                                label: 'API',
+                                content: <TransactionalEmailApiExample templateId={props.id} />,
+                            },
+                        ]}
+                    />
+                ) : (
+                    editor
+                )}
             </SceneContent>
         </Form>
     )
