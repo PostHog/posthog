@@ -5,8 +5,11 @@ from typing import Any
 import pytest
 import time_machine
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -33,6 +36,11 @@ def frozen_clock() -> Iterator[None]:
 def _run(endpoint: str, script: Any, organization_id: str = "5772916123937", **inputs: Any) -> DriveResult:
     config = UnityAdsSourceConfig(organization_id=organization_id, key_id="kid", secret_key="ksecret")
     return SourceDriver(UnityAdsSource(), config).run(endpoint, script, **inputs)
+
+
+def _window_days(request: RecordedRequest) -> int:
+    start, end = str(request.param("start"))[:10], str(request.param("end"))[:10]
+    return (date.fromisoformat(end) - date.fromisoformat(start)).days
 
 
 def _rows(*rows: dict[str, Any]) -> ScriptedResponse:
@@ -89,6 +97,25 @@ class TestWindows:
         assert result.raised is None
         assert result.params("start")[0] == "2025-10-15T00:00:00Z"
         assert len(result.requests) == requests
+
+    def test_a_window_that_keeps_timing_out_is_halved_until_it_answers(self) -> None:
+        # Unity's report for a large account can outlast the read timeout on every retry of the same window.
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if _window_days(request) > 8:
+                raise requests.ReadTimeout("read timed out")
+            return _rows({"timestamp": str(request.param("start"))[:10], "campaignId": "c1", "country": "AU"})
+
+        result = _run(
+            "campaigns_daily_by_country",
+            respond,
+            resume_state=UnityAdsResumeConfig(next_window_start="2026-09-15"),
+        )
+
+        assert result.raised is None
+        answered = [(str(r.param("start")), str(r.param("end"))) for r in result.requests if _window_days(r) <= 8]
+        assert answered[0] == ("2026-09-15T00:00:00Z", "2026-09-22T00:00:00Z")
+        assert answered[-1][1] == "2026-10-16T00:00:00Z"
+        assert [row["timestamp"] for row in result.rows] == [start[:10] for start, _ in answered]
 
     @pytest.mark.parametrize("organization_id", ["../../other", "org-1", ""])
     def test_a_non_numeric_organization_id_never_reaches_the_url(self, organization_id: str) -> None:

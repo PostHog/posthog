@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from requests import Timeout
 from requests.auth import HTTPBasicAuth
 
 from posthog.dataclasses import frozen
@@ -11,7 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClient,
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.settings import (
@@ -56,25 +60,35 @@ def _windows(
     manager: ResumableSourceManager[UnityAdsResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     window = start
+    span = window_days
     while window <= today:
-        last_day = min(window + timedelta(days=window_days - 1), today)
+        last_day = min(window + timedelta(days=span - 1), today)
         rows: list[dict[str, Any]] = []
-        # A 204 for a window with no data parses as an empty page.
-        for page in client.paginate(
-            url,
-            params={
-                "start": _iso(window),
-                # `end` is exclusive.
-                "end": _iso(last_day + timedelta(days=1)),
-                "scale": "day",
-                "metrics": ",".join(METRICS),
-                "breakdowns": ",".join(breakdowns),
-                "format": "json",
-            },
-            paginator=SinglePagePaginator(),
-            data_selector="data",
-        ):
-            rows.extend(page)
+        try:
+            # A 204 for a window with no data parses as an empty page.
+            for page in client.paginate(
+                url,
+                params={
+                    "start": _iso(window),
+                    # `end` is exclusive.
+                    "end": _iso(last_day + timedelta(days=1)),
+                    "scale": "day",
+                    "metrics": ",".join(METRICS),
+                    "breakdowns": ",".join(breakdowns),
+                    "format": "json",
+                },
+                paginator=SinglePagePaginator(),
+                data_selector="data",
+            ):
+                rows.extend(page)
+        except RESTClientRetryableError as error:
+            # A report too large for the read timeout fails the same way on every retry, so ask for
+            # half the days instead. A single day that still times out fails the run.
+            if not isinstance(error.__cause__, Timeout) or last_day == window:
+                raise
+            span = max(1, ((last_day - window).days + 1) // 2)
+            manager.safe_point()
+            continue
 
         next_window = last_day + timedelta(days=1)
         if next_window <= today:
