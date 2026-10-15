@@ -32,6 +32,9 @@ def incremental_type_for_declared_type(declared_type: str) -> IncrementalFieldTy
     upper = declared_type.upper()
     if "INT" in upper:
         return IncrementalFieldType.Integer
+    if "TIME" in upper and "DATE" not in upper and "TIMESTAMP" not in upper:
+        # A clock time alone has no date to compare against the pipeline's datetime watermark.
+        return None
     if "DATE" in upper and "TIME" not in upper:
         return IncrementalFieldType.Date
     if any(token in upper for token in ("DATE", "TIME")):

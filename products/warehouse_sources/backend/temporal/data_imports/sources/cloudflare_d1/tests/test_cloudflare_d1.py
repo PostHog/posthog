@@ -40,7 +40,12 @@ def d1(setup: str) -> Callable[[RecordedRequest], ScriptedResponse]:
         try:
             for statement in body["sql"].split("; "):
                 rows = connection.execute(statement, body.get("params") or []).fetchall()
-                results.append({"results": [dict(row) for row in rows], "success": True, "meta": {}})
+                # D1 answers a BLOB as a JSON array of byte values.
+                shaped = [
+                    {key: list(value) if isinstance(value, bytes) else value for key, value in dict(row).items()}
+                    for row in rows
+                ]
+                results.append({"results": shaped, "success": True, "meta": {}})
         except sqlite3.Error as error:
             return ScriptedResponse(
                 status=400,
@@ -173,6 +178,18 @@ def test_without_rowid_table_pages_by_primary_key_keyset() -> None:
     assert not any("OFFSET" in sql for sql in _page_sqls(result))
 
 
+def test_a_blob_primary_key_pages_by_offset_instead_of_a_keyset_it_cannot_bind() -> None:
+    setup = "CREATE TABLE files (digest BLOB PRIMARY KEY, name TEXT) WITHOUT ROWID;" + "".join(
+        f"INSERT INTO files VALUES (randomblob(8), 'f{i}');" for i in range(1200)
+    )
+
+    result = _driver().run("files", d1(setup))
+
+    assert result.raised is None
+    assert len(result.rows) == 1200
+    assert [state.offset for state in result.committed_states] == [1000, 1200]
+
+
 def test_a_view_without_keys_pages_by_offset() -> None:
     setup = (
         "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, updated_at TEXT);"
@@ -222,7 +239,7 @@ def test_a_dropped_incremental_column_fails_instead_of_syncing_nothing() -> None
 
 def test_schemas_hide_internal_tables_and_offer_only_comparable_columns() -> None:
     setup = """
-        CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, score REAL, created_at TIMESTAMP, born DATE, data BLOB);
+        CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, score REAL, created_at TIMESTAMP, born DATE, opens TIME, data BLOB);
         CREATE TABLE _cf_KV (key TEXT PRIMARY KEY, value BLOB);
         CREATE TABLE memberships (user_id INTEGER, team_id INTEGER, PRIMARY KEY (team_id, user_id));
         CREATE VIEW active_users AS SELECT id FROM users;

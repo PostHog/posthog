@@ -197,6 +197,11 @@ def watermark_like(sample: Any, watermark: Any, field_type: IncrementalFieldType
 def _keyset(table: D1Table, incremental_field: str | None) -> list[str]:
     alias = rowid_alias(table)
     tiebreak = [alias] if alias else list(table.primary_keys)
+    declared = {name: declared_type.upper() for name, declared_type, _ in table.columns}
+    if not alias and any(not declared.get(key) or "BLOB" in declared[key] for key in tiebreak):
+        # A key that can hold a BLOB can't be bound back from text: SQLite sorts every BLOB above
+        # every string, so the keyset would serve the first page forever. Page by offset instead.
+        return []
     if not tiebreak:
         return []
     return ([incremental_field] if incremental_field else []) + tiebreak
@@ -263,8 +268,10 @@ def iter_table_rows(
     bound = None
     if incremental_field is not None and watermark is not None:
         column = quote_identifier(incremental_field)
+        # The newest value shows the form the app writes today.
         sample = client.query(
-            f"SELECT {column} AS v FROM {quote_identifier(table.name)} WHERE {column} IS NOT NULL LIMIT 1"
+            f"SELECT {column} AS v FROM {quote_identifier(table.name)} WHERE {column} IS NOT NULL "
+            f"ORDER BY {column} DESC LIMIT 1"
         )
         rows = sample[0] if sample else []
         bound = watermark_like(rows[0]["v"] if rows else None, watermark, field_type)
