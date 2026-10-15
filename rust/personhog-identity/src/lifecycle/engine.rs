@@ -428,7 +428,10 @@ impl Engine {
                     // reports its full lifetime, not the last drive's.
                     common_metrics::histogram(
                         OP_DURATION_MS,
-                        &[("op_type".to_string(), row.op_type.clone())],
+                        &[
+                            ("op_type".to_string(), row.op_type.clone()),
+                            ("final_step".to_string(), row.step.clone()),
+                        ],
                         (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }
