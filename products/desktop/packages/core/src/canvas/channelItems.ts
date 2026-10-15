@@ -351,6 +351,16 @@ export function channelItemSources(
   return [...sources].sort();
 }
 
+/** The sources of a task list, in the source filter's words. Sorted so the menu is stable. */
+export function taskSources(tasks: readonly Task[]): string[] {
+  const sources = new Set<string>();
+  for (const task of tasks) {
+    const source = sourceOf(task);
+    if (source) sources.add(source);
+  }
+  return [...sources].sort();
+}
+
 export function filterChannelItems(
   items: readonly ChannelItemModel[],
   {

@@ -76,11 +76,15 @@ export function selectRecentWorkItems({
     }));
 }
 
-export function useRecentWorkItems(): {
+export function useRecentWorkItems({
+  sources,
+}: {
+  sources: readonly string[];
+}): {
   items: RecentWorkItem[];
   isLoading: boolean;
 } {
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks();
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks({ sources });
   const { data: pinnedTasks = [], isLoading: pinnedLoading } =
     usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();

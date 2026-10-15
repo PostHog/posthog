@@ -24,20 +24,30 @@ export function useTasks(
     repository?: string;
     showAllUsers?: boolean;
     showInternal?: boolean;
+    sources?: readonly string[];
   },
   options?: { enabled?: boolean; subscribed?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
   const internal = filters?.showInternal ? true : undefined;
+  const sources = filters?.sources?.length
+    ? [...filters.sources].sort()
+    : undefined;
 
   return useAuthenticatedQuery(
-    taskKeys.list({ repository: filters?.repository, createdBy, internal }),
+    taskKeys.list({
+      repository: filters?.repository,
+      createdBy,
+      internal,
+      sources,
+    }),
     (client) =>
       client.getTasks({
         repository: filters?.repository,
         createdBy,
         internal,
+        sources,
         // The server cuts the list at a fixed length. By creation date, a session started last
         // week and still in use is already off the list when scheduled runs create many tasks.
         ordering: "-last_activity_at",
