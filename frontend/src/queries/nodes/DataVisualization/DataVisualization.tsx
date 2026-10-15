@@ -423,17 +423,18 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 : undefined
         const aliasLabels = new Map<string, string>()
         let pieXData = pieData.xData
+        let pieYData = pieData.yData
         const memberFormatter =
             query.kind === NodeKind.BIVisualizationNode && pieDimension
                 ? createBIMemberFormatter(query.config, pieDimension.field)
                 : undefined
         if (memberFormatter) {
-            if (pieData.yData.some((series) => 'breakdownValue' in series)) {
-                for (const series of pieData.yData) {
-                    if ('breakdownValue' in series) {
-                        aliasLabels.set(series.name, series.settings?.display?.label ?? series.name)
-                    }
-                }
+            if (pieData.yData.every((series) => 'breakdownValue' in series)) {
+                pieYData = pieData.yData.map((series) => {
+                    const key = JSON.stringify([series.breakdownValue, series.name])
+                    aliasLabels.set(key, series.settings?.display?.label ?? series.name)
+                    return { ...series, name: key }
+                })
             } else if (pieXData && pieData.yData.length === 1) {
                 pieXData = {
                     ...pieXData,
@@ -451,7 +452,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-3"
                 xData={pieXData}
                 labelFormatter={aliasLabels.size ? (label) => aliasLabels.get(label) ?? label : undefined}
-                yData={pieData.yData}
+                yData={pieYData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}

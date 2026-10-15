@@ -97,13 +97,14 @@ describe('SqlBarGraph', () => {
                 memberAliases: [
                     {
                         field: {
-                            id: 'region',
-                            name: 'Region',
-                            expression: 'region',
-                            type: 'string',
+                            id: 'month',
+                            name: 'month',
+                            expression: 'timestamp',
+                            type: 'datetime',
                             source: { table: 'events' },
+                            dateBucket: 'month',
                         },
-                        aliases: [{ value: 'east', label: 'East region' }],
+                        aliases: [{ value: MONTHS[0], label: 'Campaign start' }],
                     },
                 ],
                 chartType,
@@ -134,6 +135,9 @@ describe('SqlBarGraph', () => {
             expect([...getHogChart().xTicks(), ...getHogChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(
                 false
             )
+            if (chartType !== ChartDisplayType.ActionsBarValue) {
+                expect((await sqlChart.hoverTooltip(HOVER, MONTHS.length)).label()).toBe('Dec 1, 00:00')
+            }
             await clickAtIndex(canvas.parentElement!, HOVER, MONTHS.length)
             expect(await screen.findByText('Explore this result')).toBeVisible()
             expect(screen.getByText('View underlying rows')).toBeVisible()

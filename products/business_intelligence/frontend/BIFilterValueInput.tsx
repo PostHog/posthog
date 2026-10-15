@@ -47,13 +47,17 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                 <LemonInputSelect
                     mode={multiple ? 'multiple' : 'single'}
                     value={filter.values ?? (multiple || !filter.value ? [] : [filter.value])}
-                    options={getBIMemberOptions(
-                        config,
-                        filter.field,
-                        options ?? [],
-                        filter.values ?? (filter.value ? [filter.value] : []),
-                        search
-                    )}
+                    options={
+                        multiple || filter.operator === 'equals' || filter.operator === 'not_equals'
+                            ? getBIMemberOptions(
+                                  config,
+                                  filter.field,
+                                  options ?? [],
+                                  filter.values ?? (filter.value ? [filter.value] : []),
+                                  search
+                              )
+                            : (options ?? []).map((value) => ({ key: value, label: value }))
+                    }
                     loading={optionsLoading}
                     status={validationError ? 'danger' : 'default'}
                     onFocus={() => setFocused(true)}

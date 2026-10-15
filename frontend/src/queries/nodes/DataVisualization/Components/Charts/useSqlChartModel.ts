@@ -89,14 +89,13 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
-        const formatLabel =
-            labelFormatter && visualizationType === ChartDisplayType.ActionsBarValue
-                ? (index: string): string => {
-                      const raw = xData.data[Number(index)]
-                      const label = labelFormatter(raw)
-                      return label === raw ? (config.tooltip?.labelFormatter?.(index) ?? label) : label
-                  }
-                : labelFormatter
+        const formatLabel = labelFormatter
+            ? (value: string): string => {
+                  const raw = visualizationType === ChartDisplayType.ActionsBarValue ? xData.data[Number(value)] : value
+                  const label = labelFormatter(raw)
+                  return label === raw ? (config.tooltip?.labelFormatter?.(value) ?? label) : label
+              }
+            : undefined
         return {
             ...config,
             ...(formatLabel && visualizationType === ChartDisplayType.ActionsBarValue
