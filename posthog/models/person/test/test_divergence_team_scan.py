@@ -230,7 +230,7 @@ class TestRegroup(SimpleTestCase):
 
         assert {r["key"]: (r["verb"], r["group"]) for r in final if r is not None} == expected
 
-    def test_ghost_mappings_of_a_deleted_team_are_buried(self):
+    def test_ghost_mappings_of_a_deleted_team_get_no_verb(self):
         plan = team_scan.ScanPlan(
             version=team_scan.PLAN_VERSION,
             team_id=1,
@@ -247,4 +247,4 @@ class TestRegroup(SimpleTestCase):
 
         final = team_scan._regroup(dict(row), groups, plan)
 
-        assert final is not None and final["verb"] == "bury"
+        assert final is not None and final["verb"] is None

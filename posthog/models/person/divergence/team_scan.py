@@ -781,7 +781,8 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
     elif flavor == "ghost":
         owner = row["evidence"]["ch"]["winner_person_uuid"]
         if not plan.team_exists:
-            row["verb"] = "bury"
+            # Like their owners, ghosts of a deleted team are left as they are.
+            row["verb"] = None
         elif sub == "owner_ghost":
             pair = groups.pair_for_old(owner)
             if pair is not None:
