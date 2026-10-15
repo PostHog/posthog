@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
-    OffsetPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -29,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plane.sett
     API_PATH,
     DEFAULT_BASE_URL,
     ENDPOINTS,
-    PlaneEndpointConfig,
 )
 
 INVALID_KEY_MESSAGE = "Plane rejected your API key. Create a new personal access token in Plane and reconnect."
@@ -103,10 +101,8 @@ def _client_config(base_url: str | None, api_key: str) -> ClientConfig:
     }
 
 
-def _paginator(endpoint: PlaneEndpointConfig) -> BasePaginator:
-    if endpoint.cursor_paginated:
-        return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
-    return OffsetPaginator(limit=endpoint.page_size, limit_param="per_page", total_path=None)
+def _paginator() -> BasePaginator:
+    return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
 
 
 def get_resource(
@@ -126,7 +122,6 @@ def get_resource(
     client = _client_config(base_url, api_key)
 
     if endpoint.fanout is not None:
-        parent = ENDPOINTS[endpoint.fanout.parent_name]
         return build_dependent_resource(
             endpoint_configs=ENDPOINTS,
             child_endpoint=endpoint_name,
@@ -137,8 +132,8 @@ def get_resource(
             job_id=job_id,
             db_incremental_field_last_value=None,
             page_size_param="per_page",
-            parent_endpoint_extra={"data_selector": "data", "paginator": _paginator(parent)},
-            child_endpoint_extra={"data_selector": "data", "paginator": _paginator(endpoint)},
+            parent_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
+            child_endpoint_extra={"data_selector": "data", "paginator": _paginator()},
             resume_hook=resume_hook,
             initial_paginator_state=initial_paginator_state,
         )
@@ -149,13 +144,12 @@ def get_resource(
         "params": params,
         "data_selector": "data",
         "data_selector_required": True,
-        "paginator": _paginator(endpoint),
+        "paginator": _paginator(),
     }
-    if endpoint.cursor_paginated:
-        # Cursor pages must name an ordering on the work item cursor allowlist, and an incremental
-        # walk must climb the field it filters on.
-        params["order_by"] = incremental_field or "created_at"
     if incremental_field is not None:
+        # An incremental walk climbs the field it filters on; both fields are cursor-eligible.
+        params["order_by"] = incremental_field
+    if incremental_field is not None and db_incremental_field_last_value is not None:
         incremental: IncrementalConfig = {
             "cursor_path": incremental_field,
             "start_param": f"{incremental_field}__gte",
@@ -234,15 +228,17 @@ def probe_workspace(base_url: str | None, api_key: str, workspace_slug: str) -> 
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     headers = {"X-Api-Key": api_key, "Accept": "application/json"}
     try:
-        me = session.get(f"{origin}/users/me/", headers=headers, timeout=REQUEST_TIMEOUT)
-        if me.status_code != 200:
-            return me.status_code
-        projects = session.get(
+        # Only the status matters; stream so a customer-chosen host can't make us buffer a large body.
+        with session.get(f"{origin}/users/me/", headers=headers, timeout=REQUEST_TIMEOUT, stream=True) as me:
+            if me.status_code != 200:
+                return me.status_code
+        with session.get(
             f"{origin}/workspaces/{slug}/projects/",
             params={"per_page": "1", "count": "false"},
             headers=headers,
             timeout=REQUEST_TIMEOUT,
-        )
+            stream=True,
+        ) as projects:
+            return projects.status_code
     except Exception:
         return None
-    return projects.status_code

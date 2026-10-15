@@ -21,9 +21,6 @@ class PlaneEndpointConfig:
     description: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     params: dict[str, Any] = field(default_factory=dict)
-    # Offset pages stop at row 10,000, so a list that can grow past that pages by cursor.
-    # Cursor pages need an ordering on the resource's cursor allowlist.
-    cursor_paginated: bool = False
     partition_key: str | None = "created_at"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
@@ -40,6 +37,10 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
+# Every list pages by cursor: offset pages stop at row 10,000. A cursor page needs an ordering on the
+# resource's cursor allowlist, and `created_at` and `id` are on every v2 list's allowlist.
+_CURSOR = {"paginate": "cursor", "order_by": "created_at"}
+
 # A per-project list inherits the project id, because its rows carry no project_id of their own.
 _PROJECT_FANOUT = DependentEndpointConfig(
     parent_name="projects",
@@ -47,8 +48,8 @@ _PROJECT_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=["id"],
     parent_field_renames={"id": "project_id"},
-    parent_params={"include_archived": "true", "order_by": "created_at", "count": "false"},
-    child_params={"include_archived": "true", "order_by": "created_at", "count": "false"},
+    parent_params={"include_archived": "true", **_CURSOR},
+    child_params={"include_archived": "true", **_CURSOR},
     # A project deleted between the parent page and its child request has nothing left to list.
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
@@ -58,15 +59,14 @@ ENDPOINTS: dict[str, PlaneEndpointConfig] = {
         name="projects",
         path="/workspaces/{slug}/projects/",
         description="Projects in the workspace, archived ones included.",
-        params={"include_archived": "true", "order_by": "created_at", "count": "false"},
+        params={"include_archived": "true", **_CURSOR},
     ),
     "work_items": PlaneEndpointConfig(
         name="work_items",
         path="/workspaces/{slug}/work-items/",
         description="Work items (issues) from every project in the workspace, archived ones included.",
         # `archived=true` lifts every default exclusion, drafts included, so drafts are asked out again.
-        params={"archived": "true", "is_draft": "false", "paginate": "cursor"},
-        cursor_paginated=True,
+        params={"archived": "true", "is_draft": "false", **_CURSOR},
         incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
         default_incremental_field="updated_at",
     ),
@@ -74,13 +74,14 @@ ENDPOINTS: dict[str, PlaneEndpointConfig] = {
         name="states",
         path="/workspaces/{slug}/states/",
         description="Workflow states of every project, or the workspace catalog when states are managed centrally.",
-        params={"order_by": "created_at", "count": "false"},
+        params=dict(_CURSOR),
     ),
     "members": PlaneEndpointConfig(
         name="members",
         path="/workspaces/{slug}/members/",
         description="Workspace memberships with each member's role and profile.",
-        params={"expand": "member", "count": "false"},
+        # A membership row has no created_at, so it walks by id, the other cursor-eligible ordering.
+        params={"expand": "member", "paginate": "cursor", "order_by": "id"},
         partition_key=None,
     ),
     "cycles": PlaneEndpointConfig(
@@ -105,8 +106,8 @@ ENDPOINTS: dict[str, PlaneEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "project_id"},
-            parent_params={"include_archived": "true", "order_by": "created_at", "count": "false"},
-            child_params={"order_by": "created_at", "count": "false"},
+            parent_params={"include_archived": "true", **_CURSOR},
+            child_params=dict(_CURSOR),
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

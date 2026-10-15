@@ -35,12 +35,6 @@ def cursor_page(rows: list[dict[str, Any]], next_cursor: str | None) -> Scripted
     )
 
 
-def offset_page(rows: list[dict[str, Any]], next_offset: int | None) -> ScriptedResponse:
-    return ScriptedResponse(
-        json={"data": rows, "next": next_offset, "previous": None, "pagination": {"style": "offset"}}
-    )
-
-
 def _driver(config: PlaneSourceConfig = CONFIG) -> SourceDriver:
     return SourceDriver(PlaneSource(), config)
 
@@ -92,17 +86,23 @@ def test_resume_continues_from_the_saved_cursor() -> None:
     assert [row["id"] for row in result.rows] == ["w9"]
 
 
-def test_offset_lists_page_until_a_short_page() -> None:
-    full_page = [{"id": f"p{i}"} for i in range(200)]
-
-    result = _driver().run("projects", [offset_page(full_page, 200), offset_page([{"id": "p200"}], None)])
+@pytest.mark.parametrize(("table", "order_by"), [("projects", "created_at"), ("members", "id")])
+def test_lists_walk_cursor_pages_on_a_cursor_eligible_ordering(table: str, order_by: str) -> None:
+    result = _driver().run(table, [cursor_page([{"id": "a"}], "c2"), cursor_page([{"id": "b"}], None)])
 
     assert result.raised is None
-    assert len(result.rows) == 201
-    assert result.params("offset") == ["0", "200"]
-    assert result.params("per_page") == ["200", "200"]
-    assert result.params("order_by") == ["created_at", "created_at"]
-    assert result.params("include_archived") == ["true", "true"]
+    assert [row["id"] for row in result.rows] == ["a", "b"]
+    assert result.params("cursor") == [None, "c2"]
+    assert result.params("paginate") == ["cursor", "cursor"]
+    assert result.params("order_by") == [order_by, order_by]
+
+
+def test_first_incremental_sync_sends_no_filter_but_orders_by_the_field() -> None:
+    result = _driver().run("work_items", [cursor_page([{"id": "w1"}], None)], incremental_field="updated_at")
+
+    assert result.raised is None
+    assert result.params("updated_at__gte") == [None]
+    assert result.params("order_by") == ["updated_at"]
 
 
 def test_cycles_fan_out_per_project_and_carry_the_project_id() -> None:
@@ -110,8 +110,8 @@ def test_cycles_fan_out_per_project_and_carry_the_project_id() -> None:
         "cycles",
         route(
             {
-                "/workspaces/my-team/projects/": [offset_page([{"id": "proj-1"}, {"id": "proj-2"}], None)],
-                "/projects/proj-1/cycles/": [offset_page([{"id": "cyc-1", "name": "Sprint 1"}], None)],
+                "/workspaces/my-team/projects/": [cursor_page([{"id": "proj-1"}, {"id": "proj-2"}], None)],
+                "/projects/proj-1/cycles/": [cursor_page([{"id": "cyc-1", "name": "Sprint 1"}], None)],
                 "/projects/proj-2/cycles/": [
                     ScriptedResponse(
                         status=404, json={"type": "not_found", "code": "not_found", "detail": "Not found."}
@@ -139,7 +139,7 @@ NOT_FOUND = {"type": "not_found", "code": "not_found", "detail": "The requested 
 @pytest.mark.parametrize(
     ("me", "projects", "expected"),
     [
-        (ScriptedResponse(json=ME), offset_page([], None), None),
+        (ScriptedResponse(json=ME), cursor_page([], None), None),
         (ScriptedResponse(status=401, json=UNAUTHORIZED), None, INVALID_KEY_MESSAGE),
         (ScriptedResponse(json=ME), ScriptedResponse(status=404, json=NOT_FOUND), WORKSPACE_MESSAGE),
     ],
