@@ -1,26 +1,33 @@
 """Transactional emails: a template made sendable over the API. Each one is backed by a workflow that runs once
 per send, so sends get the workflow's metrics, run history and versions."""
 
+import json
+import hashlib
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 
+import requests
 import structlog
+from urllib3.exceptions import NewConnectionError
 
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     reload_hog_flows_on_workers,
     send_transactional_email as run_transactional_workflow,
 )
+from posthog.redis import get_client
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
+    IdempotencyKeyReused,
     InvalidRecipient,
     MarketingTemplate,
     QueuedEmail,
     QuotaLimited,
     SenderUnavailable,
+    SendInProgress,
     TemplateNotSendable,
     TemplateNotTransactional,
     TransactionalEmailPaused,
@@ -37,6 +44,14 @@ from products.workflows.backend.facade.transactional_emails import (
 )
 
 logger = structlog.get_logger(__name__)
+
+IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+# Long enough to cover a request that cdp-api answers late, short enough that a lost answer does not block the send.
+IN_FLIGHT_TTL_SECONDS = 5 * 60
+_IN_FLIGHT = "in-flight"
+_OUTCOME_UNKNOWN = "outcome-unknown"
+# A gateway can return these after cdp-api queued the job. cdp-api's own 5xx always means nothing was queued.
+_AMBIGUOUS_STATUS_CODES = {502, 504}
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -160,6 +175,51 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
 
+def _idempotency_redis_key(team_id: int, idempotency_key: str) -> str:
+    digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
+    return f"messaging:transactional_email:idempotency:{team_id}:{digest}"
+
+
+def _request_fingerprint(template_id: UUID, request: dict[str, Any]) -> str:
+    canonical = json.dumps({"template_id": str(template_id), **request}, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _idempotency_value(fingerprint: str, message_id: str) -> str:
+    return json.dumps({"fingerprint": fingerprint, "message_id": message_id})
+
+
+def _replay(stored: bytes | str | None, fingerprint: str) -> QueuedEmail | None:
+    """The earlier send for this key, None when the key is unused, or an error while it can't be replayed."""
+    if stored is None:
+        return None
+    reservation = json.loads(stored)
+    if reservation["fingerprint"] != fingerprint:
+        raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
+    if reservation["message_id"] == _IN_FLIGHT:
+        raise SendInProgress("A request with this idempotency key is still in progress.")
+    if reservation["message_id"] == _OUTCOME_UNKNOWN:
+        raise SendInProgress(
+            "An earlier request with this idempotency key may have sent the email. Use a new key to send it again."
+        )
+    return QueuedEmail(message_id=reservation["message_id"], replayed=True)
+
+
+def _never_sent(error: Exception) -> bool:
+    # Only a failure to open the connection proves nothing was sent. A reset or a timeout on an open
+    # connection can come after cdp-api queued the job.
+    if isinstance(error, RuntimeError | requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(error, requests.ConnectionError):
+        reason = error.args[0] if error.args else None
+        return isinstance(getattr(reason, "reason", reason), NewConnectionError)
+    return False
+
+
+def _hold_unknown_outcome(redis: Any, redis_key: str, fingerprint: str) -> None:
+    redis.set(redis_key, _idempotency_value(fingerprint, _OUTCOME_UNKNOWN), ex=IDEMPOTENCY_TTL_SECONDS)
+
+
 def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
     if not template.transactional_hog_flow_id:
@@ -181,13 +241,37 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 
 def send_transactional_email(
-    team: Team, template_id: UUID, *, to: str, distinct_id: str | None, message_data: dict[str, Any]
+    team: Team,
+    template_id: UUID,
+    *,
+    to: str,
+    distinct_id: str | None,
+    message_data: dict[str, Any],
+    idempotency_key: str | None = None,
 ) -> QueuedEmail:
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
 
+    redis = get_client()
+    redis_key = _idempotency_redis_key(team.id, idempotency_key) if idempotency_key else None
+    # A key replays only the request it was first used for.
+    fingerprint = _request_fingerprint(
+        template_id, {"to": to, "distinct_id": distinct_id, "message_data": message_data}
+    )
+    # An accepted send replays even if the email has been paused since.
+    if redis_key and (replayed := _replay(redis.get(redis_key), fingerprint)):
+        return replayed
+
     hog_flow_id = _transactional_workflow_id(team.id, template_id)
+    if redis_key and not redis.set(
+        redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IN_FLIGHT_TTL_SECONDS
+    ):
+        # Another request with the key got in between the replay check and this reservation.
+        if replayed := _replay(redis.get(redis_key), fingerprint):
+            return replayed
+        raise SendInProgress("A request with this idempotency key is still in progress.")
+
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
@@ -197,10 +281,25 @@ def send_transactional_email(
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
     except Exception as e:
-        logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
+        if _never_sent(e):
+            # The request never reached cdp-api, so nothing is queued and a retry can send.
+            if redis_key:
+                redis.delete(redis_key)
+            logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
+        else:
+            # cdp-api can queue the email before the response is lost, and nothing downstream knows the key.
+            # The key stays spent, so a retry with it never sends a second email.
+            if redis_key:
+                _hold_unknown_outcome(redis, redis_key, fingerprint)
+            logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
 
     if response.status_code != 202:
+        if redis_key:
+            if response.status_code in _AMBIGUOUS_STATUS_CODES:
+                _hold_unknown_outcome(redis, redis_key, fingerprint)
+            else:
+                redis.delete(redis_key)
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")
         logger.error(
@@ -211,4 +310,7 @@ def send_transactional_email(
         )
         raise DeliveryUnavailable()
 
-    return QueuedEmail(message_id=str(response.json()["invocation_id"]))
+    message_id = str(response.json()["invocation_id"])
+    if redis_key:
+        redis.set(redis_key, _idempotency_value(fingerprint, message_id), ex=IDEMPOTENCY_TTL_SECONDS)
+    return QueuedEmail(message_id=message_id, replayed=False)

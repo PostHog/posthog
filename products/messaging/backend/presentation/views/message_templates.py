@@ -303,10 +303,13 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     message_id = serializers.CharField(
         help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
     )
+    replayed = serializers.BooleanField(
+        help_text="True when an earlier request with the same Idempotency-Key already queued this email."
+    )
 
 
 class TransactionalEmailRejected(exceptions.APIException):
-    STATUS_BY_CODE = {"quota_limited": 429}
+    STATUS_BY_CODE = {"quota_limited": 429, "idempotency_conflict": 409, "idempotency_key_reused": 422}
     # The caller has to change the request. Without this the error handler reports a server error.
     default_type = "invalid_request"
 
@@ -578,14 +581,19 @@ class MessageTemplatesViewSet(
                 description="The template isn't transactional or its email is paused, or the recipient can't be used"
             ),
             404: OpenApiResponse(description="Template not found"),
+            409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
+            422: OpenApiResponse(description="The Idempotency-Key was already used for a different request"),
             429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
-            503: OpenApiResponse(description="The email pipeline did not confirm the send"),
+            503: OpenApiResponse(
+                description="The email pipeline did not confirm the send. Retry with the same Idempotency-Key"
+            ),
         },
         summary="Send a transactional email",
         description=(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
-            "Transactional emails skip opt-outs and frequency caps."
+            "Transactional emails skip opt-outs and frequency caps. Pass an `Idempotency-Key` header to make "
+            "retries safe."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
@@ -605,8 +613,9 @@ class MessageTemplatesViewSet(
                 to=data["to"],
                 distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
                 message_data=data["message_data"],
+                idempotency_key=request.headers.get("Idempotency-Key") or None,
             )
-            outcome = {"outcome": "queued"}
+            outcome = {"outcome": "queued", "replayed": queued.replayed}
         except TransactionalEmailError as e:
             outcome = {"outcome": "rejected", "error_code": e.code}
             raise TransactionalEmailRejected(e)

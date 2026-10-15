@@ -8,17 +8,23 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.redis import get_client
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.services.transactional_email import make_transactional
+from products.messaging.backend.services.transactional_email import (
+    IN_FLIGHT_TTL_SECONDS,
+    _idempotency_redis_key,
+    make_transactional,
+)
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
 
@@ -96,7 +102,7 @@ class TestTransactionalEmail(APIBaseTest):
         response = self._psak_client(["hog_flow:write"]).post(self.url, body, format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "invocation-1"}
+        assert response.json() == {"message_id": "invocation-1", "replayed": False}
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
         )
@@ -167,20 +173,83 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("timeout", requests.ReadTimeout()),
-            ("cdp_api_error", MagicMock(status_code=500)),
+            ("same_request", {}, status.HTTP_202_ACCEPTED),
+            ("different_recipient", {"to": "someone-else@example.com"}, status.HTTP_422_UNPROCESSABLE_ENTITY),
+            (
+                "different_data",
+                {"message_data": {"link": "https://example.com/other"}},
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            ),
         ]
     )
-    def test_a_send_the_pipeline_does_not_confirm_is_unavailable(self, mock_post, _flag, _capture, _name, outcome):
+    def test_an_idempotency_key_replays_only_its_own_request(
+        self, mock_post, _flag, _capture, _name, changes, expected_status
+    ):
+        self._cdp_accepts(mock_post)
+        headers = {"Idempotency-Key": str(uuid4())}
+
+        first = self.client.post(self.url, self.body, format="json", headers=headers)
+        second = self.client.post(self.url, {**self.body, **changes}, format="json", headers=headers)
+
+        assert first.json() == {"message_id": "invocation-1", "replayed": False}
+        assert second.status_code == expected_status, second.json()
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert second.json() == {"message_id": "invocation-1", "replayed": True}
+        else:
+            assert second.json()["code"] == "idempotency_key_reused"
+        assert mock_post.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("timeout", requests.ReadTimeout(), status.HTTP_409_CONFLICT, 1),
+            ("gateway_timeout", MagicMock(status_code=504), status.HTTP_409_CONFLICT, 1),
+            ("cdp_api_error", MagicMock(status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE, 2),
+            (
+                "connection_refused",
+                requests.ConnectionError(MaxRetryError(MagicMock(), "/", reason=NewConnectionError(None, "refused"))),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                2,
+            ),
+            # The connection opened, so cdp-api may have queued the email before it dropped.
+            (
+                "connection_reset_after_send",
+                requests.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError())),
+                status.HTTP_409_CONFLICT,
+                1,
+            ),
+        ]
+    )
+    def test_a_retry_after_a_failed_send_sends_again_only_when_nothing_was_sent(
+        self, mock_post, _flag, _capture, _name, outcome, expected_retry_status, expected_calls
+    ):
         if isinstance(outcome, Exception):
             mock_post.side_effect = outcome
         else:
             mock_post.return_value = outcome
+        key = str(uuid4())
 
-        response = self.client.post(self.url, self.body, format="json")
+        first = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": key})
+        second = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": key})
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-        assert response.json()["code"] == "delivery_unavailable"
+        assert first.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert second.status_code == expected_retry_status
+        assert mock_post.call_count == expected_calls
+        # An unknown outcome spends the key for good, so a late retry can't send a second email either.
+        outcome_unknown = expected_retry_status == status.HTTP_409_CONFLICT
+        assert (get_client().ttl(_idempotency_redis_key(self.team.id, key)) > IN_FLIGHT_TTL_SECONDS) == outcome_unknown
+
+    def test_an_accepted_send_replays_after_the_email_is_paused(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        headers = {"Idempotency-Key": str(uuid4())}
+        first = self.client.post(self.url, self.body, format="json", headers=headers)
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"})
+
+        retry = self.client.post(self.url, self.body, format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+        assert retry.json() == {"message_id": "invocation-1", "replayed": True}
+        assert mock_post.call_count == 1
 
     @parameterized.expand(
         [
