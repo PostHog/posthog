@@ -228,6 +228,7 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
+        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -9989,6 +9990,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10000,7 +10002,8 @@ export namespace Schemas {
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
-        | "flag_variants_mismatch";
+        | "flag_variants_mismatch"
+        | "split_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10012,6 +10015,7 @@ export namespace Schemas {
         | "info";
     /**
      * * `open_feature_flag` - Open Feature Flag
+     * * `open_feature_flag_history` - Open Feature Flag History
      * * `adjust_distribution` - Adjust Distribution
      * * `use_first_seen_variant` - Use First Seen Variant
      * * `add_primary_metric` - Add Primary Metric
@@ -10021,6 +10025,7 @@ export namespace Schemas {
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
+        | "open_feature_flag_history"
         | "adjust_distribution"
         | "use_first_seen_variant"
         | "add_primary_metric"
@@ -10041,6 +10046,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `split_changed_mid_run` - Split Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10066,7 +10072,7 @@ export namespace Schemas {
         /**
          * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
          */
-        evidence: Record<string, string | number | null>;
+        evidence: Record<string, string | number | boolean | null>;
         /**
          * The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'.
          */
@@ -22864,6 +22870,33 @@ export namespace Endpoints {
                 pr_state: "open" | "draft" | "merged" | "closed";
                 repository: string;
                 search: string;
+                sources: Array<
+                    | "autoresearch"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "experiments"
+                    | "hogdesk"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "onboarding"
+                    | "posthog_ai"
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web"
+                    | "review_hog"
+                    | "scout_suggestions"
+                    | "session_summaries"
+                    | "signal_report"
+                    | "signals_chat"
+                    | "signals_scout"
+                    | "slack"
+                    | "space_setup"
+                    | "support_queue"
+                    | "support_reply"
+                    | "task_analysis"
+                    | "workflow"
+                >;
                 stage: string;
                 status:
                     | "not_started"

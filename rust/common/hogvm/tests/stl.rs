@@ -116,6 +116,18 @@ fn crypto_and_encoding_known_answers() {
 }
 
 #[test]
+fn hogql_sha1_returns_lowercase_hex_or_null() {
+    for (input, expected) in [
+        ("abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+        ("", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+        ("🦔", "b1495135295ac36752f6579e93ba02140604590f"),
+    ] {
+        assert_eq!(call_str("sha1", input), json!(expected));
+    }
+    assert_eq!(run(call("sha1", &[vec![json!(31)]])), Value::Null);
+}
+
+#[test]
 fn hmac_sha1_matches_rfc_2202_vectors() {
     // RFC 2202 HMAC-SHA1 test vectors. A two-element chain is a plain HMAC of key and message, so
     // these pin the sha1 dependency and the chain wiring to the standard answers.

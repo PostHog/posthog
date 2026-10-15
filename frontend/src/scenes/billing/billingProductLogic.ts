@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -11,8 +10,6 @@ import api from 'lib/api'
 import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     BillingPlan,
@@ -240,6 +237,13 @@ export interface billingProductLogicActions {
             [key: string]: number | null
         }
     } // billingLogic
+    upgradeProducts: (
+        products: string,
+        redirectPath: string | null
+    ) => {
+        products: string
+        redirectPath: string | null
+    } // paymentEntryLogic
     activateTrial: () => {
         value: true
     }
@@ -590,6 +594,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             ['featureFlags'],
         ],
         actions: [
+            paymentEntryLogic,
+            ['upgradeProducts'],
             billingLogic,
             [
                 'updateBillingLimits',
@@ -1304,32 +1310,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     lemonToast.info(values.selfServeBillingNotice)
                     return
                 }
-                const body: Record<string, string> = { products }
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                const response = await api.create('api/billing/activate', body)
-
-                if (response.success) {
-                    await billingLogic.asyncActions.loadBilling()
-                    if (redirectPath) {
-                        window.location.pathname = redirectPath
-                    } else {
-                        router.actions.push(router.values.location.pathname, {
-                            ...router.values.searchParams,
-                            upgraded: 'true',
-                            products,
-                        })
-                        organizationLogic.actions.loadCurrentOrganization()
-                        userLogic.actions.loadUser()
-                    }
-                } else if (response.must_setup_payment) {
-                    paymentEntryLogic.actions.setRedirectPath(redirectPath || null)
-                    paymentEntryLogic.actions.showPaymentEntryModal()
-                } else {
-                    lemonToast.error(response.error || 'Failed to activate subscription')
-                }
-            } catch (error) {
-                posthog.captureException(new Error('payment entry api error - product upgrade error', { cause: error }))
-                lemonToast.error('Failed to activate subscription. Please try again.')
+                await paymentEntryLogic.asyncActions.upgradeProducts(products, redirectPath || null)
             } finally {
                 actions.setBillingProductLoading(null)
             }

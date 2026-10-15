@@ -110,7 +110,7 @@ export type SwitchPlanPayload = {
 }
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
-const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+export const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
     if (!data) {
         return null
     }
@@ -1601,9 +1601,14 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
-        loadBillingSuccess: async (_, breakpoint) => {
+        loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
+            // Scoped payment refreshes update their organization's entitlements separately.
+            // The endpoints below read the server's selected organization.
+            if (payload) {
+                return
+            }
             actions.loadCreditOverview()
 
             // If the activation is successful, we reload the user/organization to get the updated available features

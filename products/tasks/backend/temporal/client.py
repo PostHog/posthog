@@ -10,11 +10,13 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from opentelemetry import trace
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import (
@@ -45,6 +47,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.run_trace import run_trace_context
@@ -62,6 +65,19 @@ _BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
     ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
     ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
 )
+
+
+def tag_startup_dispatch(task_run: TaskRun | None) -> None:
+    if task_run is not None and not task_run.task.is_scout_experiment:
+        posthoganalytics.tag("run_id", str(task_run.id))
+        posthoganalytics.tag("origin_product", task_run.task.origin_product)
+        posthoganalytics.tag("run_environment", task_run.environment)
+        trace.get_current_span().set_attributes(
+            {
+                "run_id": str(task_run.id),
+                "origin_product": task_run.task.origin_product or "unknown",
+            }
+        )
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -156,6 +172,7 @@ def _evaluate_boot_rollout_flag(
         return False
 
 
+@StepTimer("capture_dispatch_flags")
 def _capture_run_feature_flags(run_id: str) -> dict[str, Any]:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
@@ -274,6 +291,8 @@ async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
+@scoped_temporal(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch", status_tag="dispatch_status")
 async def execute_task_processing_workflow_async(
     task_id: str,
     run_id: str,
@@ -306,6 +325,7 @@ async def execute_task_processing_workflow_async(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         await Team.objects.select_related("organization").aget(id=team_id)
         run_state = await sync_to_async(_capture_run_feature_flags)(run_id)
@@ -329,7 +349,8 @@ async def execute_task_processing_workflow_async(
             extra={"workflow_id": workflow_id, "task_id": task_id, "run_id": run_id},
         )
 
-        client = await async_connect()
+        with StepTimer("temporal_connect"):
+            client = await async_connect()
         await start_process_task_workflow(
             client,
             workflow_input,
@@ -339,6 +360,7 @@ async def execute_task_processing_workflow_async(
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -352,6 +374,7 @@ async def execute_task_processing_workflow_async(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
@@ -371,6 +394,8 @@ async def execute_task_processing_workflow_async(
         )
 
 
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
+@StepTimer("dispatch", status_tag="dispatch_status")
 def execute_task_processing_workflow(
     task_id: str,
     run_id: str,
@@ -397,6 +422,7 @@ def execute_task_processing_workflow(
     task_run_for_metrics: TaskRun | None = None
     try:
         task_run_for_metrics = _get_task_run_for_metrics(run_id)
+        tag_startup_dispatch(task_run_for_metrics)
         observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
         logger.info(
             "execute_task_processing_workflow_called",
@@ -425,7 +451,8 @@ def execute_task_processing_workflow(
             extra={"task_id": task_id, "task_queue": settings.TASKS_TASK_QUEUE},
         )
 
-        client = sync_connect()
+        with StepTimer("temporal_connect"):
+            client = sync_connect()
 
         logger.info(
             "task_processing_temporal_connected",
@@ -443,6 +470,7 @@ def execute_task_processing_workflow(
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -456,6 +484,7 @@ def execute_task_processing_workflow(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",

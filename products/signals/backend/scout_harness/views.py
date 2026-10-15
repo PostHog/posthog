@@ -263,6 +263,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.tasks import enqueue_project_profile_build
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
@@ -2379,12 +2380,15 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         responses={
             200: OpenApiResponse(
                 response=ProjectProfileSerializer,
-                description="The team's current project profile (cached, or freshly built for the internal scout token).",
+                description=(
+                    "The team's current project profile: freshly built for the internal scout token, or the "
+                    "newest stored profile for other callers, with `stale=true` when it is past `expires_at`."
+                ),
             ),
             404: OpenApiResponse(
                 description=(
-                    "No profile has been built for this team yet, and the caller is not the internal scout "
-                    "token (which builds on cache miss). Public read callers never trigger a build."
+                    "The team has no project profile yet, and the caller is not the internal scout token "
+                    "(which builds on cache miss). A background build starts, so retry in a minute."
                 ),
             ),
         },
@@ -2396,9 +2400,11 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the "
             "response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache "
             "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
-            "callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none "
-            "has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on "
-            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+            "callers (session auth or a `signal_scout:read` PAK) get the newest stored profile whatever its age, "
+            "with `stale=true` when it is past `expires_at`. They never build inline: when the team has no "
+            "profile, the call starts a background build and returns 404, so retry in a minute. Read this at "
+            "the start of a run to orient on the team's product mix, integrations, warehouse sources, signal "
+            "coverage, and existing inbox surface."
         ),
     )
     @action(
@@ -2424,9 +2430,8 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # so both are gated to the internal scout token. A session-authenticated GET bypasses
         # CSRF (safe method), so letting it build would make the rebuild CSRF-triggerable; a
         # `signal_scout:read` PAK could likewise spam recomputes. Untrusted read callers get
-        # the newest cached profile, or a 404 if none exists — they never trigger a build. The
-        # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
-        # workflow builds out-of-band, so the build path stays covered.
+        # the newest stored profile of any age. When the team has none, they queue one deduped
+        # background build per team, which bounds what a forged GET can cost.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
         profile = get_project_profile(
@@ -2435,7 +2440,10 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             lazy_build=caller_is_internal_scout,
         )
         if profile is None:
-            raise exceptions.NotFound("No project profile has been built for this team yet.")
+            enqueue_project_profile_build(team_id)
+            raise exceptions.NotFound(
+                "No project profile has been built for this team yet. A build has started, so retry in a minute."
+            )
         body = profile.as_dict()
         _overlay_effective_emit_eligibility(
             body,
