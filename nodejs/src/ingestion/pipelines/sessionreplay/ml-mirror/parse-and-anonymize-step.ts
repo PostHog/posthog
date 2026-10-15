@@ -212,6 +212,9 @@ export function createParseAndAnonymizeMessageStep<
             if (result.reason && DLQ_REASONS.has(result.reason)) {
                 return dlq(result.reason, new Error(result.error ?? result.reason))
             }
+            if (result.reason === 'ml_mirror_non_web_replay') {
+                return drop('ml_mirror_non_web_replay')
+            }
             if (result.reason === 'message_contained_no_valid_rrweb_events') {
                 return drop(
                     'message_contained_no_valid_rrweb_events',
@@ -238,6 +241,10 @@ export function createParseAndAnonymizeMessageStep<
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
             MlMirrorMetrics.incrementMlAnonymizeFailed('rust')
             return drop('anonymize_failed')
+        }
+
+        if (!isWebReplay(meta.snapshotSource)) {
+            return drop('ml_mirror_non_web_replay')
         }
 
         const startDateTime = DateTime.fromMillis(meta.startTs)
@@ -315,6 +322,15 @@ export function createParseAndAnonymizeMessageStep<
 
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
+}
+
+/**
+ * The anonymizer scrubs the web rrweb shapes only. Mobile SDKs send wireframes and screenshots, which
+ * none of its scrubbers read, so only a web replay is mirrored. Capture writes `web` when a client
+ * sends no source, so a missing one never comes from capture.
+ */
+export function isWebReplay(snapshotSource: string | null | undefined): boolean {
+    return snapshotSource === 'web'
 }
 
 function recordImageSources(meta: AnonymizeMeta): void {

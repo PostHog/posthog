@@ -58,6 +58,8 @@ pub enum FailKind {
     NoValidEvents,
     /// An event could not be scrubbed — fail closed (drop `anonymize_failed`).
     AnonymizeFailed,
+    /// A mobile replay under [`AnonymizeOpts::web_only`] (drop `ml_mirror_non_web_replay`).
+    NonWebReplay,
 }
 
 impl FailKind {
@@ -69,6 +71,7 @@ impl FailKind {
             FailKind::NonSnapshotMessage => "received_non_snapshot_message",
             FailKind::NoValidEvents => "message_contained_no_valid_rrweb_events",
             FailKind::AnonymizeFailed => "anonymize_failed",
+            FailKind::NonWebReplay => "ml_mirror_non_web_replay",
         }
     }
 }
@@ -235,12 +238,27 @@ pub struct AnonymizeOpts {
     /// ([`crate::bytewalk`]) instead of a simd-json tree; anything the walk can't prove safe falls
     /// back to the parse per event. The differential tests pin both engines by toggling this.
     pub byte_walk: bool,
+    /// Refuse a replay whose `$snapshot_source` is not `web`. Mobile SDKs send wireframes and
+    /// screenshots, which none of the scrubbers read.
+    pub web_only: bool,
 }
 
 impl Default for AnonymizeOpts {
     fn default() -> Self {
-        Self { byte_walk: true }
+        Self {
+            byte_walk: true,
+            web_only: false,
+        }
     }
+}
+
+/// Capture writes `web` when a client sends no source, so a missing source never comes from capture.
+pub fn is_web_replay(snapshot_source: Option<&str>) -> bool {
+    snapshot_source == Some("web")
+}
+
+fn non_web_replay() -> Failure {
+    Failure::new(FailKind::NonWebReplay, "replay is not from a web SDK")
 }
 
 #[derive(Debug)]
@@ -554,6 +572,9 @@ fn anonymize_snapshot_data_inner(
             anonymize_via_tree_mut(&ctx, distinct_id, inner)?
         }
     };
+    if opts.web_only && !is_web_replay(msg.meta.snapshot_source.as_deref()) {
+        return Err(non_web_replay());
+    }
     msg.meta.url_declines = ctx
         .take_url_declines()
         .into_iter()

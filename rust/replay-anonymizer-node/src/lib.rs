@@ -281,7 +281,10 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let scrubbed = snapshot::anonymize_kafka_payload_collecting(
                     allow,
                     &mut payload,
-                    snapshot::AnonymizeOpts::default(),
+                    snapshot::AnonymizeOpts {
+                        web_only: true,
+                        ..Default::default()
+                    },
                     Some(&timings),
                     image_collection,
                     url_collection,

@@ -207,6 +207,33 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'anonymize_failed' })
     })
 
+    it.each([
+        ['web', PipelineResultType.OK],
+        ['mobile', PipelineResultType.DROP],
+        [null, PipelineResultType.DROP],
+    ])('mirrors only web replays (source %p)', async (snapshotSource, expected) => {
+        addonSuccess({ snapshotSource })
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result.type).toBe(expected)
+        if (expected === PipelineResultType.DROP) {
+            expect(result).toMatchObject({ reason: 'ml_mirror_non_web_replay' })
+        }
+    })
+
+    it('drops a replay the addon refused as non-web, without counting an anonymize failure', async () => {
+        mockAnonymizeKafkaPayload.mockResolvedValue({
+            failed: true,
+            reason: 'ml_mirror_non_web_replay',
+            error: 'replay is not from a web SDK',
+            lines: null,
+            images: null,
+            meta: null,
+            timings: null,
+        })
+        const result = await step({ message: kafkaMessage(), headers, team })
+        expect(result).toMatchObject({ type: PipelineResultType.DROP, reason: 'ml_mirror_non_web_replay' })
+    })
+
     it('drops messages whose timestamps are too far from now', async () => {
         const monthAgo = now - 30 * 24 * 60 * 60 * 1000
         addonSuccess({ startTs: monthAgo, endTs: monthAgo + 1000 })
@@ -409,7 +436,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
             distinctId: 'distinct-id',
             sessionId: 'session-id',
             windowId: 'w',
-            snapshotSource: null,
+            snapshotSource: 'web',
             snapshotLibrary: null,
             startTs: now,
             endTs: now,
