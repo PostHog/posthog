@@ -13,8 +13,8 @@ The calculation key includes the start date, so no reader needs `query_from` to 
 Rows written before calculation key version 2 carry the legacy key (`MetricCalculationConfig.legacy_key`), which leaves out
 several analytical inputs. No reuse check accepts them. The readers that show results (the run read, the cold-start
 read, the chart and the current outcome) fall back to them only where no row under the current key covers the same
-metric, window or day, and they mark such a result `legacy`. The run read does so only for a row that the run wrote
-itself. The daily significance check never reads them.
+metric, window or day, and they mark such a result `legacy`. The run read accepts them only for runs that used the
+legacy key version, including cache hits. The daily significance check never reads them.
 
 Every write also stores the legacy key of its calculation config in `display_key`, salted like the fingerprint on a
 run row. The legacy key hashes only inputs that the experiment owns. So after a team setting changes the current key, the chart
@@ -155,11 +155,9 @@ class MetricResultStore:
 
         A run from before key version 2 holds rows under the legacy keys. Such a row is returned as legacy when the
         metric has no row under its current key at the window, so that the results page shows the run complete
-        instead of starting a new run to fill the gaps. A run gets only the legacy rows that it wrote itself, which
-        are the rows written after it was created. No current writer files a run row under a legacy key, so the
-        write time of such a row does not change. A legacy row from before the run is the result of an earlier run
-        at the same window. Returning it would show a metric that the run did not compute as computed, for example
-        when a run under key version 2 failed without a row.
+        instead of starting a new run to fill the gaps. A legacy cache hit leaves the result's write time
+        unchanged, so it can predate the run. The run's key version distinguishes those cache hits from a run
+        under key version 2 that failed without a row. Runs without a recorded version used legacy keys.
         """
         if run.query_to is None:
             return []
@@ -194,7 +192,7 @@ class MetricResultStore:
                 "metric_uuid"
             )
         ]
-        return [item for item in stored if not item.legacy or item.row.updated_at >= run.created_at]
+        return [item for item in stored if not item.legacy or run.calculation_key_version in (None, 1)]
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
         """Whether a recalculation already stored a completed result for this calculation config at this window. A

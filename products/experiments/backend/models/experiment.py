@@ -603,6 +603,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     metric_retries = models.JSONField(default=dict)
     metric_uuids = models.JSONField(default=list)
 
+    # NULL preserves runs completed by workers that did not record their key version.
+    calculation_key_version = models.PositiveSmallIntegerField(null=True, blank=True)
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

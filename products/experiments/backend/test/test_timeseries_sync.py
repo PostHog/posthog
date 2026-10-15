@@ -9,7 +9,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_VERSION,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -112,6 +115,7 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         recalc = ExperimentMetricsRecalculation.objects.get(id=recalculation_id)
         assert recalc.status == ExperimentMetricsRecalculation.Status.COMPLETED
         assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC
+        assert recalc.calculation_key_version == CALCULATION_KEY_VERSION
         assert recalc.total_metrics == 2
         assert recalc.metric_uuids == ["m1", "m2"]
         assert recalc.completed_at is not None

@@ -342,14 +342,19 @@ class TestMetricResultStore(BaseTest):
     @parameterized.expand(
         [
             # A run from before key version 2 that finished after a daily write under the current key.
-            ("written_by_the_run", ExperimentMetricsRecalculation.Status.COMPLETED, 1, True, True),
+            ("written_by_the_run", None, ExperimentMetricsRecalculation.Status.COMPLETED, 1, True, True),
+            ("legacy_cache_hit", None, ExperimentMetricsRecalculation.Status.COMPLETED, -1, False, True),
+            ("legacy_partial_failure", None, ExperimentMetricsRecalculation.Status.FAILED, -1, False, True),
+            ("explicit_legacy_version", 1, ExperimentMetricsRecalculation.Status.COMPLETED, -1, False, True),
             # A later run at the same window that failed without a row of its own, before any current write.
-            ("written_before_the_run", ExperimentMetricsRecalculation.Status.FAILED, -1, False, False),
+            ("current_run_failed", 2, ExperimentMetricsRecalculation.Status.FAILED, -1, False, False),
+            ("legacy_write_during_current_run", 2, ExperimentMetricsRecalculation.Status.FAILED, 1, False, False),
         ]
     )
-    def test_a_run_shows_only_the_legacy_rows_that_it_wrote(
+    def test_only_legacy_runs_show_legacy_results_including_cache_hits(
         self,
         _name: str,
+        key_version: int | None,
         status: str,
         written_hours_after_the_run: int,
         daily_write_under_the_current_key: bool,
@@ -366,6 +371,7 @@ class TestMetricResultStore(BaseTest):
             query_to=_WINDOW,
             status=status,
             completed_at=run_created_at + timedelta(hours=2),
+            calculation_key_version=key_version,
         )
         ExperimentMetricsRecalculation.objects.filter(id=run.id).update(created_at=run_created_at)
         legacy_row = self._row(

@@ -21,7 +21,11 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_VERSION,
+    MetricCalculationConfig,
+    build_calculation_configs,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
@@ -121,6 +125,7 @@ def sync_timeseries_recalculation(
                 completed_at=now,
                 total_metrics=len(metric_uuids),
                 metric_uuids=metric_uuids,
+                calculation_key_version=CALCULATION_KEY_VERSION,
             )
             store.copy_into_sync_run(window, points.values(), query_from=experiment.start_date, completed_at=now)
             copied = len(points)

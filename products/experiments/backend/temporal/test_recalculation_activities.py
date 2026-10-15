@@ -20,7 +20,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_VERSION,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -29,6 +32,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.recalculation import get_run_results
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -213,6 +217,7 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.status == expected_status
 
         if expects_query_to:
+            assert recalc.calculation_key_version == CALCULATION_KEY_VERSION
             assert recalc.started_at is not None
             assert recalc.total_metrics == update_kwargs["total_metrics"]
             assert recalc.metric_uuids == update_kwargs["metric_uuids"]
@@ -727,11 +732,24 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert "s1" in recalc.metric_errors
 
-    def test_transient_failure_is_not_persisted_until_the_final_attempt(self):
+    @parameterized.expand([("no_prior_result", False), ("legacy_result_from_before_deploy", True)])
+    def test_transient_failure_is_not_persisted_until_the_final_attempt(self, _name: str, legacy_result: bool) -> None:
         # A retryable (transient) failure on a non-final attempt re-raises for Temporal to retry but must NOT
         # persist a FAILED row or a metric_errors entry, so the frontend keeps the metric loading instead of
         # flashing an error for a failure that may still succeed. The final attempt persists it.
         exp = self._experiment(flag_key="calc-transient", metrics=[_mean_metric("m1")])
+        if legacy_result:
+            calculation_config = get_metric_calculation_config(exp, "m1")
+            assert calculation_config is not None
+            ExperimentMetricResult.objects.create(
+                experiment=exp,
+                metric_uuid="m1",
+                fingerprint=_recalc_fingerprint(calculation_config.legacy_key()),
+                query_from=exp.start_date,
+                query_to=datetime.fromisoformat(_QUERY_TO),
+                status=ExperimentMetricResult.Status.COMPLETED,
+                result={"old": "result"},
+            )
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
@@ -742,7 +760,8 @@ class TestCalculateActivity(BaseTest):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
             recalc.refresh_from_db()
             assert recalc.metric_errors == {}
-            assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
+            assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").count() == int(legacy_result)
+            assert get_run_results(recalc) == []
 
             # Final attempt: now the failure is persisted for the UI.
             with pytest.raises(RuntimeError, match="transient blip"):
