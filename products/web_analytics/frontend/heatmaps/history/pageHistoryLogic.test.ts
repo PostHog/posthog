@@ -167,6 +167,48 @@ describe('pageHistoryLogic', () => {
             expect(scene.values.previewUnavailable).toBe(true)
         })
 
+        it('previews a complete range without changing the applied view until Apply', async () => {
+            await expectLogic(logic, () => logic.actions.selectCapture('cap-3')).toFinishAllListeners()
+            logic.actions.openRangeEditor()
+            logic.actions.setRangeDraft('cap-1', 'cap-3')
+            expect(logic.values.rangeDraftBackground?.id).toBe('cap-3')
+            expect(dataLogic.values.dateRangeOverride?.date_from).toBe('2024-05-03')
+            logic.actions.setRangeEditorOpen(false)
+            expect(dataLogic.values.dateRangeOverride?.date_from).toBe('2024-05-03')
+            logic.actions.openRangeEditor()
+            logic.actions.setRangeDraft('cap-1', 'cap-3')
+            await expectLogic(logic, () => logic.actions.applyRangeDraft()).toFinishAllListeners()
+            expect(logic.values.rangeEditorOpen).toBe(false)
+            expect(dataLogic.values.dateRangeOverride).toMatchObject({
+                date_from: '2024-05-01',
+                date_to: '2024-05-03',
+                timestamp_to: '2024-05-04T00:00:00Z',
+            })
+            await expectLogic(logic, () => logic.actions.browseCapture('cap-1')).toFinishAllListeners()
+            expect(logic.values.selectedDateRange).toMatchObject({ date_from: '2024-05-01', date_to: '2024-05-01' })
+        })
+
+        it.each([{ width: 1440 }, { timezone: 'America/New_York' }])(
+            'keeps the applied view when an incompatible range is drafted: %s',
+            async (difference) => {
+                await expectLogic(logic, () => {
+                    logic.actions.loadHistorySuccess(
+                        historyResponse([...captures, capture('cap-4', '2024-05-04', difference)])
+                    )
+                    logic.actions.selectCapture('cap-1')
+                }).toFinishAllListeners()
+                logic.actions.openRangeEditor()
+                logic.actions.setRangeDraft('cap-1', 'cap-4')
+                expect(logic.values.rangeDraftError).toContain('same screen width and timezone')
+                await expectLogic(logic, () => logic.actions.applyRangeDraft()).toFinishAllListeners()
+                expect(dataLogic.values.dateRangeOverride).toMatchObject({
+                    date_from: '2024-05-01',
+                    date_to: '2024-05-01',
+                })
+                expect(logic.values.rangeEditorOpen).toBe(true)
+            }
+        )
+
         it('preserves the shown day when a missing date is requested and explicitly identifies navigation gaps', async () => {
             await expectLogic(logic, () => logic.actions.selectCapture('cap-1')).toFinishAllListeners()
             await expectLogic(logic, () => logic.actions.browseCapture('cap-2')).toFinishAllListeners()
@@ -316,20 +358,23 @@ describe('pageHistoryLogic', () => {
             expect(logic.values.history).toEqual(historyResponse(captures))
         })
 
-        it.each(['cap-1', 'cap-3'])('explains recovery when the selected day expires: %s', async (expiredId) => {
-            await expectLogic(logic, () => logic.actions.selectCapture(expiredId)).toFinishAllListeners()
-            dataLogic.actions.setCommonFilters({ date_from: '-30d', filter_test_accounts: true })
-            await expectLogic(logic, () =>
-                logic.actions.loadHistorySuccess(
-                    historyResponse(captures.filter((capture) => capture.id !== expiredId))
-                )
-            ).toFinishAllListeners()
-            expect(logic.values.isSelectionActive).toBe(false)
-            expect(logic.values.navigationNotice).toContain('no longer available')
-            expect(logic.values.historyExpanded).toBe(true)
-            expect(dataLogic.values.dateRangeOverride).toBeNull()
-            expect(dataLogic.values.commonFilters).toEqual({ date_from: '-30d', filter_test_accounts: true })
-        })
+        it.each(['cap-1', 'cap-3'])(
+            'explains recovery when a combined-range endpoint expires: %s',
+            async (expiredId) => {
+                await expectLogic(logic, () => logic.actions.setSelectionRange('cap-1', 'cap-3')).toFinishAllListeners()
+                dataLogic.actions.setCommonFilters({ date_from: '-30d', filter_test_accounts: true })
+                await expectLogic(logic, () =>
+                    logic.actions.loadHistorySuccess(
+                        historyResponse(captures.filter((capture) => capture.id !== expiredId))
+                    )
+                ).toFinishAllListeners()
+                expect(logic.values.isSelectionActive).toBe(false)
+                expect(logic.values.navigationNotice).toContain('no longer available')
+                expect(logic.values.historyExpanded).toBe(true)
+                expect(dataLogic.values.dateRangeOverride).toBeNull()
+                expect(dataLogic.values.commonFilters).toEqual({ date_from: '-30d', filter_test_accounts: true })
+            }
+        )
 
         it.each(['exit history', 'edit the page URL', 'switch to an iframe'])(
             'restores current filters and width when users %s',

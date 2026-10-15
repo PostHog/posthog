@@ -11,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 
 import { pageHistoryLogic } from './pageHistoryLogic'
+import { PageHistoryRangeEditor } from './PageHistoryRangeEditor'
 import { PageHistoryTile } from './PageHistoryTile'
 import { formatCaptureDay, formatCaptureTimestamp, formatHistoryDateRange } from './pageHistoryUtils'
 
@@ -27,14 +28,22 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
         historyPageCount,
         historyExpanded,
         selectedDateRange,
+        isCombinedRange,
         selectedBackground,
         historyBrowseDisabledReason,
         missingCaptureDate,
         missingDateAlternatives,
         navigationNotice,
     } = useValues(logic)
-    const { browseCapture, clearSelection, loadHistory, setHistoryPage, setHistoryExpanded, setMissingCaptureDate } =
-        useActions(logic)
+    const {
+        browseCapture,
+        selectCapture,
+        clearSelection,
+        loadHistory,
+        setHistoryPage,
+        setHistoryExpanded,
+        setMissingCaptureDate,
+    } = useActions(logic)
     const { effectiveCommonFilters } = useValues(heatmapDataLogic({ context: 'in-app' }))
     const contextRef = useRef<HTMLElement | null>(null)
     const [browserMaxHeight, setBrowserMaxHeight] = useState(640)
@@ -167,6 +176,23 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                     ) : null}
                 </div>
             </div>
+            {isCombinedRange && selectedDateRange ? (
+                <LemonBanner
+                    type="warning"
+                    className="mt-2"
+                    action={{
+                        children: 'Review days individually',
+                        onClick: () => {
+                            if (selectedBackground) {
+                                selectCapture(selectedBackground.id)
+                            }
+                        },
+                    }}
+                >
+                    All interactions are positioned on this screenshot. Page changes during this period can move clicks
+                    onto different elements.
+                </LemonBanner>
+            ) : null}
             {historyLoadFailed ? (
                 <LemonBanner
                     type="error"
@@ -189,7 +215,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
             {missingCaptureDate ? (
                 <LemonBanner type="info" className="mt-2" onClose={() => setMissingCaptureDate(null)}>
                     <p className="mb-1">
-                        <span>{`No screenshot was saved for ${formatCaptureDay(missingCaptureDate)}. ${selectedBackground ? `Still viewing the ${dayjs(selectedBackground.captured_on).format('MMM D')} screenshot and its interaction day.` : 'Your current view is unchanged.'}`}</span>
+                        <span>{`No screenshot was saved for ${formatCaptureDay(missingCaptureDate)}. ${selectedBackground ? `Still viewing the ${dayjs(selectedBackground.captured_on).format('MMM D')} screenshot${isCombinedRange ? ' with your combined interaction dates' : ' and its interaction day'}.` : 'Your current view is unchanged.'}`}</span>
                     </p>
                     <p className="text-xs mb-2">A missing screenshot does not indicate whether interactions exist.</p>
                     <div className="flex flex-wrap gap-2">
@@ -319,6 +345,7 @@ export function PageHistoryStrip({ id }: { id: string }): JSX.Element {
                     </div>
                 </div>
             ) : null}
+            <PageHistoryRangeEditor id={id} />
         </section>
     )
 }

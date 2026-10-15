@@ -91,6 +91,7 @@ export interface pageHistoryLogicValues {
     historyLoading: boolean
     historyPage: number
     historyPageCount: number
+    isCombinedRange: boolean
     isSelectionActive: boolean
     missingCaptureDate: string | null
     missingDateAlternatives: HeatmapScreenshotHistoryItemApi[]
@@ -98,6 +99,14 @@ export interface pageHistoryLogicValues {
     nextCapture: HeatmapScreenshotHistoryItemApi | null
     pageHistoryEnabled: boolean
     previousCapture: HeatmapScreenshotHistoryItemApi | null
+    rangeDraft: {
+        fromId: string
+        toId: string
+    } | null
+    rangeDraftBackground: HeatmapScreenshotHistoryItemApi | null
+    rangeDraftCaptures: HeatmapScreenshotHistoryItemApi[]
+    rangeDraftError: string | null
+    rangeEditorOpen: boolean
     selectedBackground: HeatmapScreenshotHistoryItemApi | null
     selectedCaptures: HeatmapScreenshotHistoryItemApi[]
     selectedDateRange: HeatmapDateRangeOverride | null
@@ -129,6 +138,9 @@ export interface pageHistoryLogicActions {
     setType: (type: HeatmapType) => {
         type: HeatmapType
     } // heatmapLogic
+    applyRangeDraft: () => {
+        value: true
+    }
     applySelection: () => {
         value: true
     }
@@ -156,6 +168,9 @@ export interface pageHistoryLogicActions {
     navigateCapture: (direction: 'next' | 'previous') => {
         direction: 'next' | 'previous'
     }
+    openRangeEditor: () => {
+        value: true
+    }
     pageChanged: () => {
         value: true
     }
@@ -173,6 +188,23 @@ export interface pageHistoryLogicActions {
     }
     setNavigationNotice: (notice: string | null) => {
         notice: string | null
+    }
+    setRangeDraft: (
+        fromId: string,
+        toId: string
+    ) => {
+        fromId: string
+        toId: string
+    }
+    setRangeEditorOpen: (open: boolean) => {
+        open: boolean
+    }
+    setSelectionRange: (
+        anchorId: string,
+        extentId: string
+    ) => {
+        anchorId: string
+        extentId: string
     }
 }
 
@@ -201,6 +233,25 @@ export interface pageHistoryLogicMeta {
             usableCaptures: HeatmapScreenshotHistoryItemApi[],
             missingCaptureDate: string | null
         ) => HeatmapScreenshotHistoryItemApi[]
+        rangeDraftError: (
+            captures: HeatmapScreenshotHistoryItemApi[],
+            rangeDraft: {
+                fromId: string
+                toId: string
+            } | null,
+            historyBrowseDisabledReason: string | null
+        ) => string | null
+        rangeDraftCaptures: (
+            captures: HeatmapScreenshotHistoryItemApi[],
+            rangeDraft: {
+                fromId: string
+                toId: string
+            } | null,
+            rangeDraftError: string | null
+        ) => HeatmapScreenshotHistoryItemApi[]
+        rangeDraftBackground: (
+            rangeDraftCaptures: HeatmapScreenshotHistoryItemApi[]
+        ) => HeatmapScreenshotHistoryItemApi | null
         historyBrowseDisabledReason: (hasUnsavedChanges: boolean) => string | null
         selectedCaptures: (
             captures: HeatmapScreenshotHistoryItemApi[],
@@ -212,6 +263,7 @@ export interface pageHistoryLogicMeta {
             selectedCaptures: HeatmapScreenshotHistoryItemApi[]
         ) => HeatmapScreenshotHistoryItemApi | null
         isSelectionActive: (selectedCaptures: HeatmapScreenshotHistoryItemApi[]) => boolean
+        isCombinedRange: (selectedDateRange: HeatmapDateRangeOverride | null) => boolean
     }
 }
 
@@ -249,6 +301,11 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
         navigateCapture: (direction: 'previous' | 'next') => ({ direction }),
         setMissingCaptureDate: (date: string | null) => ({ date }),
         setNavigationNotice: (notice: string | null) => ({ notice }),
+        openRangeEditor: true,
+        setRangeEditorOpen: (open: boolean) => ({ open }),
+        setRangeDraft: (fromId: string, toId: string) => ({ fromId, toId }),
+        applyRangeDraft: true,
+        setSelectionRange: (anchorId: string, extentId: string) => ({ anchorId, extentId }),
         setHistoryPage: (page: number) => ({ page }),
         setHistoryExpanded: (expanded: boolean) => ({ expanded }),
         clearSelection: true,
@@ -271,6 +328,7 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
             null as string | null,
             {
                 selectCapture: (_, { id }) => id,
+                setSelectionRange: (_, { anchorId }) => anchorId,
                 clearSelection: () => null,
             },
         ],
@@ -278,6 +336,7 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
             null as string | null,
             {
                 selectCapture: (_, { id }) => id,
+                setSelectionRange: (_, { extentId }) => extentId,
                 clearSelection: () => null,
             },
         ],
@@ -286,7 +345,21 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
             {
                 setHistoryExpanded: (_, { expanded }) => expanded,
                 clearSelection: () => false,
+                openRangeEditor: () => false,
             },
+        ],
+        rangeEditorOpen: [
+            false,
+            {
+                setRangeEditorOpen: (_, { open }) => open,
+                openRangeEditor: () => true,
+                clearSelection: () => false,
+                selectCapture: () => false,
+            },
+        ],
+        rangeDraft: [
+            null as { fromId: string; toId: string } | null,
+            { setRangeDraft: (_, { fromId, toId }) => ({ fromId, toId }) },
         ],
         missingCaptureDate: [
             null as string | null,
@@ -363,6 +436,44 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
                 ].filter((capture): capture is HeatmapScreenshotHistoryItemApi => !!capture)
             },
         ],
+        rangeDraftError: [
+            (s) => [s.captures, s.rangeDraft, s.historyBrowseDisabledReason],
+            (
+                captures: HeatmapScreenshotHistoryItemApi[],
+                draft: { fromId: string; toId: string } | null,
+                disabledReason: string | null
+            ): string | null => {
+                if (disabledReason) {
+                    return disabledReason
+                }
+                const from = captures.find((capture) => capture.id === draft?.fromId)
+                const to = captures.find((capture) => capture.id === draft?.toId)
+                if (!from || !to || !isUsableCapture(from) || !isUsableCapture(to)) {
+                    return 'Choose available screenshots for both dates.'
+                }
+                if (from.captured_on > to.captured_on) {
+                    return 'Choose a start date on or before the end date.'
+                }
+                if (!selectCapturesBetween(captures, from.id, to.id).some((capture) => capture.id === to.id)) {
+                    return 'Combined days need screenshots with the same screen width and timezone.'
+                }
+                return null
+            },
+        ],
+        rangeDraftCaptures: [
+            (s) => [s.captures, s.rangeDraft, s.rangeDraftError],
+            (
+                captures: HeatmapScreenshotHistoryItemApi[],
+                draft: { fromId: string; toId: string } | null,
+                error: string | null
+            ): HeatmapScreenshotHistoryItemApi[] =>
+                draft && !error ? selectCapturesBetween(captures, draft.fromId, draft.toId) : [],
+        ],
+        rangeDraftBackground: [
+            (s) => [s.rangeDraftCaptures],
+            (captures: HeatmapScreenshotHistoryItemApi[]): HeatmapScreenshotHistoryItemApi | null =>
+                captures.at(-1) ?? null,
+        ],
         historyBrowseDisabledReason: [
             (s) => [s.hasUnsavedChanges],
             (hasUnsavedChanges: boolean): string | null =>
@@ -396,6 +507,10 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
         isSelectionActive: [
             (s) => [s.selectedCaptures],
             (captures: HeatmapScreenshotHistoryItemApi[]): boolean => captures.length > 0,
+        ],
+        isCombinedRange: [
+            (s) => [s.selectedDateRange],
+            (range: HeatmapDateRangeOverride | null): boolean => !!range && range.date_from !== range.date_to,
         ],
     }),
     listeners(({ actions, values, cache, key, props }) => {
@@ -465,6 +580,25 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
                     )
                 }
             },
+            openRangeEditor: () => {
+                const selected = values.selectedCaptures
+                const latest = values.usableCaptures.at(-1)
+                if (!latest) {
+                    actions.setRangeEditorOpen(false)
+                    return
+                }
+                actions.setRangeDraft(selected[0]?.id ?? latest.id, selected.at(-1)?.id ?? latest.id)
+            },
+            applyRangeDraft: () => {
+                const draft = values.rangeDraft
+                if (!draft || values.rangeDraftError) {
+                    return
+                }
+                actions.setSelectionRange(draft.fromId, draft.toId)
+                actions.setRangeEditorOpen(false)
+                actions.setMissingCaptureDate(null)
+                actions.setNavigationNotice(null)
+            },
             selectCapture: ({ id }) => {
                 const index = values.captures.findIndex((capture) => capture.id === id)
                 if (index >= 0) {
@@ -472,6 +606,7 @@ export const pageHistoryLogic = kea<pageHistoryLogicType>([
                 }
                 actions.applySelection()
             },
+            setSelectionRange: () => actions.applySelection(),
             applySelection: () => {
                 const background = values.selectedBackground
                 const range = values.selectedDateRange
