@@ -99,6 +99,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadInboxReportAccess', // The workflow trigger list shows the failure on the Inbox report tile and retries when it reopens
 ]
 
 /*

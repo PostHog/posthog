@@ -104,10 +104,12 @@ function TriggerTypeDropdown({
     items,
     selectedItem,
     onSelect,
+    onOpen,
 }: {
     items: TriggerOptionItem[]
     selectedItem: TriggerOptionItem | undefined
     onSelect: (value: string) => void
+    onOpen: () => void
 }): JSX.Element {
     const [popoverOpen, setPopoverOpen] = useState(false)
     const [search, setSearch] = useState('')
@@ -184,7 +186,16 @@ function TriggerTypeDropdown({
                 </div>
             }
         >
-            <LemonButton type="secondary" fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
+            <LemonButton
+                type="secondary"
+                fullWidth
+                onClick={() => {
+                    if (!popoverOpen) {
+                        onOpen()
+                    }
+                    setPopoverOpen(!popoverOpen)
+                }}
+            >
                 {selectedItem ? (
                     <span className="flex items-center gap-2">
                         {selectedItem.icon}
@@ -236,6 +247,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(inboxReportAccessLogic)
+    const { checkInboxReportAccess } = useActions(inboxReportAccessLogic)
 
     const type = node.data.config.type
     const displayType = getTriggerDisplayType(type, node.data.config)
@@ -351,7 +363,12 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             <span>What causes this workflow to begin?</span>
             <div className="flex items-center gap-2">
                 <LemonField.Pure error={validationResult?.errors?.type}>
-                    <TriggerTypeDropdown items={allTriggerItems} selectedItem={selectedItem} onSelect={handleSelect} />
+                    <TriggerTypeDropdown
+                        items={allTriggerItems}
+                        selectedItem={selectedItem}
+                        onSelect={handleSelect}
+                        onOpen={checkInboxReportAccess}
+                    />
                 </LemonField.Pure>
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>

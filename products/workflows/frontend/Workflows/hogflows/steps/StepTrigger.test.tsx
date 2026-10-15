@@ -6,6 +6,7 @@ import { BindLogic } from 'kea'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -50,6 +51,7 @@ describe('StepTriggerConfiguration', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         unmountWorkflowLogic?.()
         unmountWorkflowLogic = null
         cleanup()
@@ -96,11 +98,15 @@ describe('StepTriggerConfiguration', () => {
         })
     })
 
-    function enableInboxReportTrigger(): void {
+    function setInboxReportTriggerFlag(enabled: boolean): void {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER], {
-            [FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER]: true,
+        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER] : [], {
+            [FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER]: enabled,
         })
+    }
+
+    function enableInboxReportTrigger(): void {
+        setInboxReportTriggerFlag(true)
     }
 
     function inboxReportTile(): HTMLElement | null {
@@ -116,7 +122,7 @@ describe('StepTriggerConfiguration', () => {
         [
             'whose access to Tasks could not be checked',
             () => [500, { detail: 'Server error' }],
-            "Couldn't check your access to Tasks. Reopen the trigger to try again.",
+            "Couldn't check your access to Tasks. Open this list again to retry.",
         ],
     ])('disables the Inbox report ready tile for someone %s', async (_name, accessResponse, disabledReason) => {
         useMocks({ get: { '/api/projects/:team/hog_flows/inbox_report_access/': accessResponse } })
@@ -130,6 +136,48 @@ describe('StepTriggerConfiguration', () => {
         fireEvent.click(screen.getByText('Inbox report ready'))
 
         expect(await screen.findByText(disabledReason)).toBeInTheDocument()
+    })
+
+    function toggleTriggerList(): void {
+        fireEvent.click(screen.getAllByText('Event')[0])
+    }
+
+    it('retries a failed access check when the trigger list opens again, without an error toast', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        const responses: [number, object][] = [
+            [500, { detail: 'Server error' }],
+            [200, { can_use_inbox_reports: true }],
+        ]
+        useMocks({ get: { '/api/projects/:team/hog_flows/inbox_report_access/': () => responses.shift() } })
+        enableInboxReportTrigger()
+        renderTrigger([])
+
+        toggleTriggerList()
+        fireEvent.click(screen.getByText('Inbox report ready'))
+        expect(
+            await screen.findByText("Couldn't check your access to Tasks. Open this list again to retry.")
+        ).toBeInTheDocument()
+
+        toggleTriggerList()
+        toggleTriggerList()
+
+        await waitFor(() => {
+            expect(inboxReportTile()).not.toHaveAttribute('aria-disabled', 'true')
+        })
+        expect(toastError).not.toHaveBeenCalled()
+    })
+
+    it('checks access to Tasks when the Inbox report trigger flag turns on after the trigger opens', async () => {
+        useMocks({ get: { '/api/projects/:team/hog_flows/inbox_report_access/': { can_use_inbox_reports: true } } })
+        setInboxReportTriggerFlag(false)
+        renderTrigger([])
+
+        enableInboxReportTrigger()
+        toggleTriggerList()
+
+        await waitFor(() => {
+            expect(inboxReportTile()).not.toHaveAttribute('aria-disabled', 'true')
+        })
     })
 
     it('checks access to Tasks once when the trigger opens and keeps the tile disabled until it knows', async () => {
