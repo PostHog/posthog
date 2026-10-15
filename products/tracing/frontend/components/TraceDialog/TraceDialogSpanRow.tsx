@@ -211,7 +211,11 @@ export function TraceDialogSpanRow({
                         title={
                             <div className="flex flex-col gap-0.5 max-w-80">
                                 <span className="text-xs opacity-75">
-                                    Your log · {logTimingLabel(openedAtUs!, startUs, span.duration_nano / 1_000)} ·{' '}
+                                    {/* A missing parent has no real start or duration to measure the log against. */}
+                                    Your log ·{' '}
+                                    {isMissingParent
+                                        ? ''
+                                        : `${logTimingLabel(openedAtUs!, startUs, span.duration_nano / 1_000)} · `}
                                     {openedFrom.severity}
                                 </span>
                                 <span className="ph-replay-block ph-no-capture font-mono line-clamp-4" translate="no">
