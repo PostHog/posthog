@@ -380,3 +380,57 @@ export const InviteTeammates: Story = {
         return <App />
     },
 }
+
+// ==========================================
+// Simple flow (experiment arm)
+// ==========================================
+
+const CONNECTED_APP = {
+    id: '0197c2a2-0000-0000-0000-000000000001',
+    name: 'Claude Code',
+    logo_uri: null,
+    scopes: ['openid'],
+    authorized_at: '2023-05-25T00:00:00Z',
+    is_verified: true,
+    is_first_party: false,
+}
+
+export const SimpleFlowConnectMcp: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+
+        useStorybookMocks({ get: { '/api/oauth/connected-apps/': [] } })
+
+        useDelayedOnMountEffect(() => {
+            router.actions.push(urls.simpleOnboarding(), {
+                step: `${OnboardingStepKey.MCP}:${ProductKey.PRODUCT_ANALYTICS}`,
+            })
+        })
+
+        return <App />
+    },
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
+        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]' },
+    },
+}
+
+export const SimpleFlowMcpConnected: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+
+        useStorybookMocks({ get: { '/api/oauth/connected-apps/': [CONNECTED_APP] } })
+
+        useDelayedOnMountEffect(() => {
+            router.actions.push(urls.simpleOnboarding(), {
+                step: `${OnboardingStepKey.MCP}:${ProductKey.PRODUCT_ANALYTICS}`,
+            })
+        })
+
+        return <App />
+    },
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
+        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]' },
+    },
+}

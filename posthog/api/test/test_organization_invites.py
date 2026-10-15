@@ -1,3 +1,4 @@
+import time
 import random
 from datetime import timedelta
 
@@ -5,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -1761,7 +1763,15 @@ class TestOnboardingSkipAPI(APIBaseTest):
     def _skip_url(self) -> str:
         return "/api/users/@me/onboarding/skip/"
 
-    def test_skip_sets_timestamp_and_reason(self):
+    @parameterized.expand(
+        [("fresh_session", 0), ("session_older_than_sensitive_window", settings.SESSION_SENSITIVE_ACTIONS_AGE + 60)]
+    )
+    def test_skip_sets_timestamp_and_reason(self, _name: str, session_age_seconds: int):
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - session_age_seconds
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - session_age_seconds
+        session.save()
+
         response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.user.refresh_from_db()
