@@ -27,6 +27,7 @@ from deltalake.transaction import AddAction
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import (
+    hot_partitions as hot_partitions_module,
     repartition as repartition_module,
     repartition_swap as swap_module,
 )
@@ -34,7 +35,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hot_partitions import (
+    split_hot_partitions_in_place,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    HotPartitionSplit,
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
@@ -380,6 +385,103 @@ class TestSelectRepartitionTarget:
         )
         assert target is not None
         assert target.partition_count == 9
+
+
+class TestSelectHotSplitTarget:
+    @parameterized.expand(
+        [
+            ("first_split", None, {"2024-01-01T00": 5000, "2024-01-01T01": 100}, {"2024-01-01T00": 10}),
+            (
+                "split_partition_grows",
+                {"hash_keys": ["id"], "buckets": {"2024-01-01T00": 10}},
+                {"2024-01-01T00_0": 1200, "2024-01-01T00_1": 100},
+                {"2024-01-01T00": 11},
+            ),
+        ]
+    )
+    def test_finest_tier_splits_only_the_hot_partitions(self, _name, current, partition_bytes, expected_buckets):
+        schema = _schema(
+            partition_mode="datetime",
+            partition_format="hour",
+            partitioning_keys=["created_at"],
+            primary_key_columns=["id"],
+            partition_hot_split=current,
+        )
+
+        target, reason = select_repartition_target(schema, partition_bytes, 1000, allow_hot_split=True)
+
+        assert reason == "selected"
+        assert target is not None
+        assert (target.partition_mode, target.partition_format) == ("datetime", "hour")
+        assert target.hot_split == {"hash_keys": ["id"], "buckets": expected_buckets}
+
+
+class TestSplitHotPartitionsInPlace:
+    def _write(self, path: str, uids: list[str], hours: list[int]) -> deltalake.DeltaTable:
+        table = pa.table(
+            {
+                "uid": pa.array(uids),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, 1, hour, 5) for hour in hours], type=pa.timestamp("us")
+                ),
+            }
+        )
+        result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "hour", logger)
+        assert result is not None
+        deltalake.write_deltalake(path, result.table, partition_by=PARTITION_KEY)
+        return deltalake.DeltaTable(path)
+
+    def _split(self, live: deltalake.DeltaTable, current: dict | None, buckets: dict[str, int]) -> Mock:
+        target = RepartitionTarget(
+            partition_keys=["created_at"],
+            trigger_reason="t",
+            partition_mode="datetime",
+            partition_format="hour",
+            hot_split={"hash_keys": ["uid"], "buckets": buckets},
+        )
+        schema = _schema(id="s1", partition_hot_split=current)
+        with (
+            patch.object(hot_partitions_module, "stage_hot_partition_split", Mock(return_value=True)),
+            patch.object(hot_partitions_module, "finalize_hot_partition_split", Mock(return_value=True)) as finalize,
+            patch.object(hot_partitions_module, "_ensure_claim", new=AsyncMock()),
+        ):
+            result = asyncio.run(
+                split_hot_partitions_in_place(
+                    table_ref=_make_table_ref(get_delta_table=AsyncMock(return_value=live)),
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token="tok",
+                )
+            )
+        assert result["outcome"] == "completed"
+        return finalize
+
+    def _keys_by_uid(self, path: str) -> dict[str, str]:
+        rows = deltalake.DeltaTable(path).to_pyarrow_table(columns=["uid", PARTITION_KEY]).to_pylist()
+        return {row["uid"]: row[PARTITION_KEY] for row in rows}
+
+    def test_rewrites_only_the_hot_partition_under_the_keys_the_loader_computes(self, tmp_path):
+        path = str(tmp_path / "live")
+        uids = [f"u{index}" for index in range(40)]
+        live = self._write(path, uids, [10] * 30 + [11] * 10)
+        cold_files = {f for f in live.file_uris() if f"{PARTITION_KEY}=2024-01-01T11" in f}
+
+        for current, buckets in (
+            (None, {"2024-01-01T10": 3}),
+            ({"hash_keys": ["uid"], "buckets": {"2024-01-01T10": 3}}, {"2024-01-01T10": 5}),
+        ):
+            finalize = self._split(deltalake.DeltaTable(path), current, buckets)
+            assert finalize.call_args.kwargs["split"] == {"hash_keys": ["uid"], "buckets": buckets}
+
+            split = HotPartitionSplit(hash_keys=["uid"], buckets=buckets)
+            assert self._keys_by_uid(path) == {
+                uid: split.key_for("2024-01-01T10", [uid]) if index < 30 else "2024-01-01T11"
+                for index, uid in enumerate(uids)
+            }
+        assert {
+            f for f in deltalake.DeltaTable(path).file_uris() if f"{PARTITION_KEY}=2024-01-01T11" in f
+        } == cold_files
 
 
 class TestSelectCoarsenTarget:

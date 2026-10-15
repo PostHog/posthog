@@ -333,6 +333,8 @@ class PipelineV3(Generic[ResumableData]):
             "partition_keys": partition_keys,
             "partition_format": partition_format,
             "partition_mode": partition_mode,
+            # A reset keeps the split, so a table that this run replaces is written under it too.
+            "partition_hot_split": self._schema.partition_hot_split,
             "is_first_ever_sync": is_first_ever_sync,
         }
         self._pg_producer = self._build_producer(

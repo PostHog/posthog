@@ -47,8 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
+    HotPartitionSplit,
     append_cursor_partition_keys,
     append_partition_key_to_table,
+    next_hot_split,
     setup_partitioning,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -2093,6 +2095,81 @@ def test_append_partition_key_md5_hashes_only_the_key_values_in_key_order(partit
     assert result.table.column(PARTITION_KEY).to_pylist() == [
         str(int(hashlib.md5(value.encode()).hexdigest(), 16) % 45) for value in expected_hash_inputs
     ]
+
+
+def test_a_hot_split_sub_buckets_only_the_split_partitions_by_the_pinned_hash_keys():
+    table = pa.table(
+        {
+            "uid": pa.array(["a1", "b2", "c3", "d4"]),
+            "inserted_at": pa.array(
+                [
+                    datetime.datetime(2026, 10, 1, 10, 5),
+                    datetime.datetime(2026, 10, 1, 10, 40),
+                    datetime.datetime(2026, 10, 1, 11, 0),
+                    datetime.datetime(2026, 10, 1, 10, 59),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    split = HotPartitionSplit(hash_keys=["uid"], buckets={"2026-10-01T10": 3})
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=None,
+        partition_size=None,
+        partition_keys=["inserted_at"],
+        partition_mode="datetime",
+        partition_format="hour",
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+        hot_split=split,
+    )
+
+    assert result is not None
+    assert result.table.column(PARTITION_KEY).to_pylist() == [
+        f"2026-10-01T10_{int(hashlib.md5(b'a1').hexdigest(), 16) % 3}",
+        f"2026-10-01T10_{int(hashlib.md5(b'b2').hexdigest(), 16) % 3}",
+        "2026-10-01T11",
+        f"2026-10-01T10_{int(hashlib.md5(b'd4').hexdigest(), 16) % 3}",
+    ]
+    assert result.partition_keys == ["inserted_at"]
+
+
+@pytest.mark.parametrize(
+    "current,partition_bytes,expected",
+    [
+        pytest.param(None, {"2026-10-01T10": 400, "2026-10-01T11": 100}, None, id="nothing_over_budget"),
+        pytest.param(
+            None,
+            {"2026-10-01T10": 1650, "2026-10-01T11": 100, None: 9000},
+            {"2026-10-01T10": 7},
+            id="splits_only_the_hot_partition",
+        ),
+        pytest.param(
+            {"2026-10-01T10": 2},
+            {"2026-10-01T10_0": 600, "2026-10-01T10_1": 300, "2026-10-01T11": 100},
+            {"2026-10-01T10": 4},
+            id="grows_a_split_partition_by_its_total",
+        ),
+        pytest.param(
+            {"2026-10-01T10": 2},
+            {"2026-10-01T10_0": 300, "2026-10-01T10_1": 300, "2026-10-01T11": 700},
+            {"2026-10-01T10": 2, "2026-10-01T11": 3},
+            id="keeps_existing_splits_while_adding_one",
+        ),
+    ],
+)
+def test_next_hot_split_sizes_each_over_budget_partition_to_half_the_budget(current, partition_bytes, expected):
+    existing = HotPartitionSplit(hash_keys=["uid"], buckets=current) if current else None
+
+    split = next_hot_split(existing, partition_bytes, 500, hash_keys=["other"])
+
+    if expected is None:
+        assert split is None
+        return
+    assert split is not None
+    assert dict(split.buckets) == expected
+    assert split.hash_keys == (["uid"] if existing else ["other"])
 
 
 def test_billing_limit_exception_is_non_reportable_error():

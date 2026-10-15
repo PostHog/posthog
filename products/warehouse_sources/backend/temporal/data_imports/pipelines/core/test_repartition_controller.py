@@ -1250,6 +1250,30 @@ class TestRepartitionActivity:
         # The rewrite runs and resumes the swap, rather than the cap short-circuiting it.
         mocked.assert_awaited_once()
 
+    @pytest.mark.parametrize("pending_left", [True, False])
+    def test_a_staged_hot_split_is_resumed_whatever_the_attempt_cap_says(self, team, pending_left):
+        split = {"hash_keys": ["id"], "buckets": {"2024-01-01T10": 3}}
+        schema = _make_schema(team, {"repartition_hot_split_staged": {"state": "staged", "split": split}})
+        if pending_left:
+            schema.set_repartition_pending(
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partition_keys": ["created_at"],
+                    "trigger_reason": "proactive_threshold",
+                    "attempts": MAX_REPARTITION_ATTEMPTS,
+                    "hot_split": split,
+                }
+            )
+
+        split_mock = AsyncMock(return_value={"outcome": "completed"})
+        with patch.object(repartition_table, "split_hot_partitions_in_place", new=split_mock):
+            self._run(self._inputs(team, schema), AsyncMock())
+
+        split_mock.assert_awaited_once()
+        assert split_mock.await_args is not None
+        assert split_mock.await_args.kwargs["target"].hot_split == split
+
     def test_a_superseded_attempt_costs_no_attempt(self, team):
         # A zombie displaced by a newer claim is not evidence the rewrite is doomed.
         schema = _make_schema(team, {})

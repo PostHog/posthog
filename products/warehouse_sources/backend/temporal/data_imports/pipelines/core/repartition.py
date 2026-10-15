@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    finalize_hot_partition_split,
     finalize_repartition_scheme,
     save_repartition_checkpoint_if_claimed,
     save_repartition_swap_phase_if_claimed,
@@ -51,7 +52,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
+    HotPartitionSplit,
     append_partition_key_to_table,
+    next_hot_split,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     PartitionedFileWriter,
@@ -252,6 +255,7 @@ class RepartitionTarget:
     partition_format: PartitionFormat | None = None
     partition_count: int | None = None
     partition_size: int | None = None
+    hot_split: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -648,6 +652,8 @@ def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    allow_hot_split: bool = False,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the next finer partition scheme, returning (target, reason).
 
@@ -659,6 +665,9 @@ def select_repartition_target(
     `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
     hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
     `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+
+    With `allow_hot_split`, a datetime table out of tiers splits only its over-budget partitions into
+    md5 sub-buckets (see `next_hot_split`) instead of moving every row to md5.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -712,6 +721,21 @@ def select_repartition_target(
             hash_keys = schema.primary_key_columns or []
             if not hash_keys or set(hash_keys) == set(keys):
                 return None, "datetime_at_finest_tier"
+            if allow_hot_split:
+                split = next_hot_split(
+                    HotPartitionSplit.from_dict(schema.partition_hot_split),
+                    partition_bytes,
+                    target_partition_bytes,
+                    hash_keys=hash_keys,
+                )
+                if split is not None:
+                    return RepartitionTarget(
+                        partition_keys=keys,
+                        trigger_reason="",
+                        partition_mode="datetime",
+                        partition_format=current_format,
+                        hot_split=split.to_dict(),
+                    ), "selected"
             return RepartitionTarget(
                 partition_keys=hash_keys,
                 trigger_reason="",
@@ -1354,9 +1378,13 @@ async def defer_repartition_to_full_refresh(
     that sync to write (see `stage_partition_scheme_for_full_refresh`). Temp tables are not swept
     here: a newer claimant can begin a recovery while this activity awaits S3, and wildcard cleanup
     cannot be fenced by the database claim for the duration of that operation.
+
+    A hot-partition split is saved as it is, because the next sync writes every row under it.
     """
 
     def _write() -> bool:
+        if target.hot_split is not None:
+            return finalize_hot_partition_split(schema, split=target.hot_split, claim_token=claim_token)
         return stage_partition_scheme_for_full_refresh(
             schema,
             partitioning_keys=target.partition_keys,

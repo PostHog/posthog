@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import hashlib
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -35,6 +37,80 @@ NULL_NUMERICAL_PARTITION = "null"
 DATE_CURSOR_TYPES = frozenset(
     {IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date}
 )
+
+# Joins a datetime partition value and its md5 sub-bucket. Datetime values never contain it.
+HOT_BUCKET_SEPARATOR = "_"
+
+
+@frozen
+class HotPartitionSplit:
+    """The datetime partitions that are split further into md5 sub-buckets over `hash_keys`.
+
+    Only the partitions in `buckets` are split, so the rest of the table keeps its datetime layout.
+    `hash_keys` is pinned when the first partition is split. A row has to hash to the same sub-bucket
+    on every sync, or a merge looks for it in the wrong partition and inserts a duplicate.
+    """
+
+    hash_keys: list[str]
+    buckets: Mapping[str, int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"hash_keys": list(self.hash_keys), "buckets": dict(self.buckets)}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None) -> HotPartitionSplit | None:
+        if not data or not data.get("hash_keys") or not data.get("buckets"):
+            return None
+        return cls(hash_keys=list(data["hash_keys"]), buckets={str(k): int(v) for k, v in data["buckets"].items()})
+
+    def key_for(self, base: str, hash_values: list[Any]) -> str:
+        count = self.buckets.get(base)
+        if count is None:
+            return base
+        return f"{base}{HOT_BUCKET_SEPARATOR}{md5_bucket(hash_values, count)}"
+
+    def base_of(self, key: str) -> str:
+        base, separator, bucket = key.rpartition(HOT_BUCKET_SEPARATOR)
+        if separator and bucket.isdigit() and base in self.buckets:
+            return base
+        return key
+
+
+def next_hot_split(
+    current: HotPartitionSplit | None,
+    partition_bytes: Mapping[str | None, int],
+    budget: int,
+    *,
+    hash_keys: list[str],
+) -> HotPartitionSplit | None:
+    """The split that brings every over-budget partition under `budget`, or None when none is over.
+
+    A partition is sized to half the budget, so it has to double before it is split again. A split
+    partition with one sub-bucket over budget gets more sub-buckets, which rehashes that partition
+    only. The hash keys of an existing split never change.
+    """
+    buckets = dict(current.buckets) if current else {}
+    split = HotPartitionSplit(hash_keys=current.hash_keys if current else hash_keys, buckets=buckets)
+    totals: dict[str, int] = {}
+    over_budget: set[str] = set()
+    for key, size in partition_bytes.items():
+        if key is None:
+            continue
+        base = split.base_of(key)
+        totals[base] = totals.get(base, 0) + size
+        if size > budget:
+            over_budget.add(base)
+    if not over_budget:
+        return None
+    for base in over_budget:
+        current_count = buckets.get(base, 1)
+        buckets[base] = max(current_count + 1, math.ceil(totals[base] * 2 / budget))
+    return HotPartitionSplit(hash_keys=split.hash_keys, buckets=buckets)
+
+
+def md5_bucket(values: list[Any], count: int) -> int:
+    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+    return int(hashlib.md5("|".join(str(value) for value in values).encode()).hexdigest(), 16) % count
 
 
 def append_cursor_partition_keys(schema: ExternalDataSchema, *, table_is_replaced: bool = False) -> list[str] | None:
@@ -146,12 +222,15 @@ def append_partition_key_to_table(
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
+    hot_split: HotPartitionSplit | None = None,
 ) -> PartitionedTable | None:
     """
     Partitions the pyarrow table via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
     - datetime: Uses a stable timestamp, such as a created_at field, to partition the rows
     - numerical: Uses a numerical primary key to bucket the rows by count
+
+    In datetime mode, `hot_split` splits the listed partitions further into md5 sub-buckets.
     """
 
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -217,9 +296,10 @@ def append_partition_key_to_table(
 
     # The bucket of a row depends on its key columns alone. A row dict of every column costs one
     # Python object per cell, which is most of the time and memory of this function on a wide table.
+    hash_keys = [normalize_column_name(key) for key in hot_split.hash_keys] if hot_split else []
     key_column_indices = [
         table.schema.get_all_field_indices(key)[-1]
-        for key in dict.fromkeys(normalized_partition_keys)
+        for key in dict.fromkeys([*normalized_partition_keys, *hash_keys])
         if key in table.column_names
     ]
 
@@ -274,28 +354,24 @@ def append_partition_key_to_table(
                 elif partition_format == "month":
                     date_format = "%Y-%m"
 
+                value = "1970-01"
                 if isinstance(date, int):
                     try:
-                        partition_array.append(datetime.datetime.fromtimestamp(date).strftime(date_format))
+                        value = datetime.datetime.fromtimestamp(date).strftime(date_format)
                     except (ValueError, OverflowError, OSError):
                         # Not a timestamp in seconds, for example one in milliseconds.
-                        partition_array.append("1970-01")
-                elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime(date_format))
-                elif isinstance(date, datetime.date):
-                    partition_array.append(date.strftime(date_format))
+                        pass
+                elif isinstance(date, datetime.datetime | datetime.date):
+                    value = date.strftime(date_format)
                 elif isinstance(date, str) and date.strip():
                     try:
-                        date = parser.parse(date)
-                        partition_array.append(date.strftime(date_format))
+                        value = parser.parse(date).strftime(date_format)
                     except (ValueError, OverflowError):
                         # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
-                        partition_array.append("1970-01")
-                elif isinstance(date, str):
-                    # Empty string — treat as unknown date
-                    partition_array.append("1970-01")
-                else:
-                    partition_array.append("1970-01")
+                        pass
+                if hot_split is not None:
+                    value = hot_split.key_for(value, [row.get(key) for key in hash_keys])
+                partition_array.append(value)
             else:
                 raise ValueError(f"Partition mode '{mode}' not supported")
 

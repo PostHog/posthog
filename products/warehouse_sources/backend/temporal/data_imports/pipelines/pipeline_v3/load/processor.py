@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    HotPartitionSplit,
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
@@ -316,6 +317,7 @@ def _apply_partitioning(
         partition_mode=export_signal.partition_mode,
         partition_format=export_signal.partition_format,
         logger=logger,
+        hot_split=HotPartitionSplit.from_dict(export_signal.partition_hot_split),
     )
 
     if partition_result is not None:

@@ -85,6 +85,7 @@ class PostgresProducer:
         partition_keys: list[str] | None = None,
         partition_format: PartitionFormat | None = None,
         partition_mode: PartitionMode | None = None,
+        partition_hot_split: dict[str, Any] | None = None,
         is_first_ever_sync: bool = False,
         cdc_write_mode: str | None = None,
         cdc_table_mode: str | None = None,
@@ -108,6 +109,7 @@ class PostgresProducer:
         self._partition_keys = partition_keys
         self._partition_format = partition_format
         self._partition_mode = partition_mode
+        self._partition_hot_split = partition_hot_split
         self._is_first_ever_sync = is_first_ever_sync
         self._cdc_write_mode = cdc_write_mode
         self._cdc_table_mode = cdc_table_mode
@@ -305,6 +307,8 @@ class PostgresProducer:
             metadata["partition_format"] = self._partition_format
         if self._partition_mode is not None:
             metadata["partition_mode"] = self._partition_mode
+        if self._partition_hot_split is not None:
+            metadata["partition_hot_split"] = self._partition_hot_split
         if self._cdc_write_mode is not None:
             metadata["cdc_write_mode"] = self._cdc_write_mode
         if self._cdc_table_mode is not None:

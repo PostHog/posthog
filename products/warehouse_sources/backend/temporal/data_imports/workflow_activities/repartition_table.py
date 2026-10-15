@@ -16,6 +16,7 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
+import dataclasses
 from typing import Any
 
 from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
@@ -48,6 +49,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hot_partitions import (
+    split_hot_partitions_in_place,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
@@ -68,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
+    staged_hot_split,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -347,11 +352,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     pending = schema.repartition_pending
     swap = schema.repartition_swap
+    # A staged split holds the import until it is saved, so it is resumed before anything else and is
+    # never abandoned, the same as a staged swap.
+    split_staged = staged_hot_split(schema)
+    nothing_staged = pending is None and swap is None and split_staged is None
 
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (CDC).
     # Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Other tables fall through and measure the live size below.
-    if pending is None and swap is None and not needs_pre_extraction_detection(schema):
+    if nothing_staged and not needs_pre_extraction_detection(schema):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
@@ -390,7 +399,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
-    if pending is None and swap is None and _measurement_is_redundant(schema, job, logger):
+    if nothing_staged and _measurement_is_redundant(schema, job, logger):
         logger.info("repartition: no data reached the table since the last healthy measurement, nothing to do")
         return
 
@@ -399,9 +408,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         resource_name=resource_name, job=job, logger=logger, expect_missing=schema.table_id is None
     )
 
-    replaces_table = swap is None and _import_replaces_table(schema, job, inputs, logger)
+    replaces_table = swap is None and split_staged is None and _import_replaces_table(schema, job, inputs, logger)
 
-    if pending is None and swap is None:
+    if nothing_staged:
         if replaces_table and not schema.initial_sync_complete:
             # A reset that an earlier run started left a part of the table on disk. A target sized
             # from that part is too small for the full table, and the import deletes the part.
@@ -423,7 +432,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         swap = schema.repartition_swap
         pending = schema.repartition_pending or pending
         # The reset can be cleared in the same window, and the table then needs its rewrite.
-        replaces_table = swap is None and _import_replaces_table(schema, job, inputs, logger)
+        replaces_table = swap is None and split_staged is None and _import_replaces_table(schema, job, inputs, logger)
 
     # A pending marker carrying only bookkeeping (an attempt count written when nothing was queued)
     # has no keys to rebuild a target from, and `from_dict` would raise before the rewrite even
@@ -434,6 +443,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if pending is not None and pending.get("partition_keys") is not None
         else _target_from_schema(schema)
     )
+    if split_staged is not None and swap is None:
+        target = dataclasses.replace(target, hot_split=split_staged)
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
     # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
@@ -449,7 +460,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # Never while a swap is staged: an interrupted swap may already have deleted live, leaving temp
     # the only intact copy, and `_give_up` clears the marker that points at it. A ready swap has to be
     # completed however many attempts it took to get here.
-    if swap is None and _exhausted_attempts(pending, inputs.job_id):
+    if swap is None and split_staged is None and _exhausted_attempts(pending, inputs.job_id):
         # Re-read the markers before acting on them. They were read before the job fetch and the
         # Delta-log work above, and the attempts that got us here are by definition ones that died
         # without recording an outcome — a heartbeat timeout among them leaves a predecessor still
@@ -482,7 +493,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
-    if swap is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
+    if swap is None and split_staged is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
         # Stake a fresh claim on the way out, the same way `_give_up` does. A retry also starts when
         # the predecessor is only heartbeat-timed-out, and that one keeps running as a zombie holding
         # the claim it minted; standing down without rotating it would leave the zombie free to swap
@@ -548,15 +559,29 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 attempt=current_activity_attempt(),
             ),
         ):
-            result = async_to_sync(repartition_table_in_place)(
-                table_ref=table_ref,
-                schema=schema,
-                target=target,
-                logger=logger,
-                claim_token=claim_token,
-                deadline=_rewrite_deadline(activity_started),
-                should_stop=lambda: shutdown_monitor.is_worker_shutdown() or _activity_cancelled(),
-            )
+
+            def should_stop() -> bool:
+                return shutdown_monitor.is_worker_shutdown() or _activity_cancelled()
+
+            if target.hot_split is not None and swap is None:
+                result = async_to_sync(split_hot_partitions_in_place)(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token=claim_token,
+                    should_stop=should_stop,
+                )
+            else:
+                result = async_to_sync(repartition_table_in_place)(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token=claim_token,
+                    deadline=_rewrite_deadline(activity_started),
+                    should_stop=should_stop,
+                )
     except RepartitionStoppedError as e:
         # The rewrite stopped at a commit, or the swap between two groups of files. Temp and its
         # checkpoint or swap marker stay, so the next attempt copies only what is left. This is not

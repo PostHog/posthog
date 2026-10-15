@@ -1045,6 +1045,7 @@ class PendingBatch:
             "partition_keys": self.metadata.get("partition_keys"),
             "partition_format": self.metadata.get("partition_format"),
             "partition_mode": self.metadata.get("partition_mode"),
+            "partition_hot_split": self.metadata.get("partition_hot_split"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],

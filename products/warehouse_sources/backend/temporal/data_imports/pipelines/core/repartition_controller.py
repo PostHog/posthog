@@ -48,6 +48,11 @@ if TYPE_CHECKING:
 # the second is not a decision the first should make.
 WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
 
+# Gates splitting only the over-budget partitions of a datetime table at its finest tier. The loader
+# reads the split from the export signal, so it stays off until every extract and load worker runs the
+# code that carries it. Off, such a table falls back to md5 over the primary key.
+WAREHOUSE_HOT_PARTITION_SPLIT_FLAG = "data-warehouse-hot-partition-split"
+
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
 # coarsened table has to double before the finer path can claim it, and a freshly split one has to
@@ -190,6 +195,14 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
     return partition_measurement_holds(measurement, earlier_jobs)
 
 
+def staged_hot_split(schema: ExternalDataSchema) -> dict[str, Any] | None:
+    """The split a hot-partition rewrite staged and did not save yet, or None."""
+    staged = schema.hot_split_staged
+    if staged and staged.get("state") == "staged":
+        return staged.get("split")
+    return None
+
+
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
     """Whether the pre-extraction repartition activity would do more than log and return.
 
@@ -201,6 +214,8 @@ def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
     if schema.delta_revive_required is not None:
         return False
     if schema.repartition_swap is not None or schema.repartition_pending is not None:
+        return True
+    if staged_hot_split(schema) is not None:
         return True
     return needs_pre_extraction_detection(schema)
 
@@ -226,6 +241,8 @@ def repartition_import_hold_reason(
     is held never wipes the table.
     """
     swap = schema.repartition_swap
+    if staged_hot_split(schema) is not None:
+        return "swap_staged"
     if swap and swap.get("state") == "ready":
         # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
         # old settings. The merge computes each row's `_ph_partition_key` from those settings and
@@ -261,6 +278,14 @@ def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job
         "partition_count": schema.partition_count,
         "partition_size": schema.partition_size,
     }
+
+
+def _is_hot_split_enabled(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> bool:
+    try:
+        return is_schema_flag_enabled(schema, WAREHOUSE_HOT_PARTITION_SPLIT_FLAG)
+    except Exception:
+        logger.warning("Could not evaluate the hot partition split flag; using md5", exc_info=True)
+        return False
 
 
 def capture_repartition_event(event: str, props: dict[str, Any]) -> None:
@@ -335,6 +360,10 @@ async def maybe_flag_for_coarsening(
     # Never fight a rewrite that is already staged or mid-swap, however the evaluation was prompted.
     if schema.repartition_pending is not None or schema.repartition_swap is not None:
         return
+    # The split is keyed by the current tier, so a coarser tier cannot keep it, and the partitions it
+    # split are over half the budget by construction.
+    if schema.partition_hot_split is not None:
+        return _decline("hot_partitions_split")
 
     requested = schema.coarsen_requested
     if requested is None:
@@ -588,7 +617,9 @@ async def maybe_flag_for_repartition(
         # budget, while an OOM-triggered one targets roughly half its current largest partition to force
         # a meaningfully finer scheme (md5 grows buckets, numerical halves the row-size, datetime steps
         # one tier finer).
-        target, reason = select_repartition_target(schema, partition_bytes, split_budget)
+        target, reason = select_repartition_target(
+            schema, partition_bytes, split_budget, allow_hot_split=_is_hot_split_enabled(schema, logger)
+        )
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
