@@ -388,6 +388,7 @@ export const FEATURE_FLAGS = {
     JEV_CHART_AUTODETECTION: 'jev-chart-autodetection', // owner: #team-data-tools
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGACY_OAUTH_RECONNECT_WARNING: 'legacy-oauth-reconnect-warning', // owner: @jabahamondes #team-web-analytics — kill-switch for the retiring-OAuth-app reconnect banner
+    LEMON_UI_TO_QUILL: 'lemon-ui-to-quill', // owner: @adamleith, swaps migrated LemonUI view components for their quill versions, see https://github.com/PostHog/posthog/issues/117650
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LIVESTREAM_HOGQL: 'livestream-hogql', // owner: @benjackwhite #team-replay, swaps livestream service calls for HogQL queries
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
@@ -659,9 +660,12 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-// The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
+// The Today rail swaps out the whole navigation and the quill migration swaps out view components, so stories opt in to them explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
+    (flag) =>
+        flag !== FEATURE_FLAGS.TODAY_RAIL_NAV &&
+        flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET &&
+        flag !== FEATURE_FLAGS.LEMON_UI_TO_QUILL
 )
 
 export const INSIGHT_VISUAL_ORDER = {
