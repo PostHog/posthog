@@ -601,29 +601,6 @@ html[data-today-transition]::view-transition-new(root) {
     margin-bottom: 4px;
 }
 
-.TodayHome__refresh {
-    opacity: 0;
-    transition: opacity 0.12s var(--today-ease);
-
-    .TodayHome__greeting:hover &,
-    &:focus-visible {
-        opacity: 1;
-    }
-}
-
-.TodayHome__badge {
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-    padding: 2px 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--today-faint);
-    letter-spacing: 0;
-    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
-    border-radius: 999px;
-}
-
 .TodayJumpList {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

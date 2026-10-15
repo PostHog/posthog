@@ -727,7 +727,7 @@ def _build_template_context(
 
     if posthog_distinct_id:
         groups = {}
-        group_properties = {}
+        group_properties: dict[str, dict[str, str | int]] = {}
         person_properties = {}
         if request.user and request.user.is_authenticated:
             user = cast("User", request.user)
@@ -738,6 +738,13 @@ def _build_template_context(
                 group_properties["organization"] = {
                     "name": user.organization.name,
                     "created_at": user.organization.created_at.isoformat(),
+                }
+            if user.team:
+                groups["project"] = str(user.team.uuid)
+                group_properties["project"] = {
+                    "id": user.team.id,
+                    "uuid": str(user.team.uuid),
+                    "name": user.team.name,
                 }
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):

@@ -53,7 +53,7 @@ ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRu
 EVENT_PROMPT_MAX_CHARS = 16_000
 
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
-# `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
+# `x` replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
 
 # Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow

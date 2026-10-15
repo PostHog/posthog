@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -43,6 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
+    finish_row_tracking,
+    get_rows,
+    increment_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -513,13 +520,21 @@ class TestHandleCorruptedDeltaLog:
         schema, job = self._schema_and_job(team)  # sync_type_config has no repartition_swap → no salvage path
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
-        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph,
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            # The run registers its row estimate before the corruption check, while it is still billable.
+            async_to_sync(increment_rows)(team.pk, schema.id, 20)
             result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+            rows_counted_toward_the_limit = async_to_sync(get_rows)(team.pk, schema.id)
+            async_to_sync(finish_row_tracking)(team.pk, schema.id)
 
         assert result is True
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        assert rows_counted_toward_the_limit == 0
         # A revival must be observable, tagged with how it recovered and that the rebuild was made non-billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"

@@ -18,9 +18,9 @@ use super::key_queues::KeyRun;
 use super::state_machine::{BatcherStateMachine, Effects, FailureCause, SendRequest};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
-use crate::grpc_transport::GrpcTransport;
+use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
-use crate::transport::SendError;
+use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
@@ -57,8 +57,8 @@ pub(super) trait RequestSender: Send + Sync + 'static {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>>;
+        options: SendOptions,
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>>;
 }
 
 pub(super) trait Workers: Send + 'static {
@@ -79,9 +79,9 @@ impl RequestSender for GrpcTransport {
         &self,
         worker: &WorkerId,
         messages: Vec<SerializedKafkaMessage>,
-        replay: bool,
-    ) -> BoxFuture<'static, Result<u32, SendError>> {
-        self.begin_send(worker, &make_batch_id(), messages, replay)
+        options: SendOptions,
+    ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
+        self.begin_send_with(worker, &make_batch_id(), messages, options)
             .wait()
             .boxed()
     }
@@ -104,7 +104,7 @@ impl Workers for WorkerPoolSource {
     }
 }
 
-type Response = BoxFuture<'static, (RequestId, Result<u32, SendError>)>;
+type Response = BoxFuture<'static, (RequestId, Result<SendOutcome, SendError>)>;
 
 struct BatcherTask<S, W> {
     inputs: mpsc::UnboundedReceiver<Input>,
@@ -120,7 +120,7 @@ struct BatcherTask<S, W> {
 
 enum Event {
     Input(Input),
-    Response(RequestId, Result<u32, SendError>),
+    Response(RequestId, Result<SendOutcome, SendError>),
     Wakeup,
 }
 
@@ -261,9 +261,22 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 state.on_partitions_revoked(now, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
-            Event::Response(request, Ok(accepted)) => {
+            Event::Response(request, Ok(SendOutcome::Accepted(accepted))) => {
                 state.on_request_succeeded(now, &self.workers.candidates(), request, accepted)
             }
+            Event::Response(
+                request,
+                Ok(SendOutcome::Partial {
+                    accepted,
+                    unfinished,
+                }),
+            ) => state.on_request_partial(
+                now,
+                &self.workers.candidates(),
+                request,
+                accepted,
+                unfinished,
+            ),
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
@@ -366,7 +379,11 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
-        let response = self.sender.send(&send.worker, messages, send.class.replay);
+        let options = SendOptions {
+            replay: send.class.replay,
+            soft_budget: send.soft_budget,
+        };
+        let response = self.sender.send(&send.worker, messages, options);
         let request = send.request;
         self.responses
             .push(async move { (request, response.await) }.boxed());
@@ -382,7 +399,7 @@ async fn sleep_until(wakeup: Option<Instant>) {
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
 
     use tokio::sync::oneshot;
@@ -390,6 +407,7 @@ mod tests {
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
+    use crate::batcher::state_machine::RequestBudget;
     use crate::batcher::test_support::{message, offsets};
     use crate::batcher::worker_assigner::WorkerAssigner;
     use crate::routing::{Router, RoutingStrategy};
@@ -404,8 +422,9 @@ mod tests {
         worker: WorkerId,
         offsets: Vec<i64>,
         replay: bool,
+        soft_budget: Option<Duration>,
         fence_released: Option<bool>,
-        reply: oneshot::Sender<Result<u32, SendError>>,
+        reply: oneshot::Sender<Result<SendOutcome, SendError>>,
     }
 
     struct FakeSender {
@@ -423,8 +442,8 @@ mod tests {
             &self,
             worker: &WorkerId,
             messages: Vec<SerializedKafkaMessage>,
-            replay: bool,
-        ) -> BoxFuture<'static, Result<u32, SendError>> {
+            options: SendOptions,
+        ) -> BoxFuture<'static, Result<SendOutcome, SendError>> {
             let fence_released = self
                 .fence
                 .lock()
@@ -435,7 +454,8 @@ mod tests {
             self.sent.lock().unwrap().push(Sent {
                 worker: worker.clone(),
                 offsets: offsets(&messages),
-                replay,
+                replay: options.replay,
+                soft_budget: options.soft_budget,
                 fence_released,
                 reply,
             });
@@ -480,6 +500,14 @@ mod tests {
 
     impl Harness {
         fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
+            Self::budgeted(workers, max_requests_per_worker, None)
+        }
+
+        fn budgeted(
+            workers: &[&str],
+            max_requests_per_worker: usize,
+            budget: Option<RequestBudget>,
+        ) -> Self {
             let assigner =
                 WorkerAssigner::new(Router::new(RoutingStrategy::P2c), max_requests_per_worker)
                     .expect("valid request cap");
@@ -497,7 +525,8 @@ mod tests {
                 STALL,
                 tokio::time::Instant::now().into_std(),
             )
-            .expect("valid stall timeout");
+            .expect("valid stall timeout")
+            .with_request_budget(budget);
             let fake_workers = FakeWorkers::default();
             fake_workers.set_candidates(workers);
             let sender = Arc::new(FakeSender {
@@ -592,11 +621,51 @@ mod tests {
         assert!(!sent[0].replay);
 
         let send = sent.into_iter().next().unwrap();
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         settle().await;
         assert_eq!(h.completed_offsets(), vec![1]);
         assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
         assert_eq!(h.workers.idle(), vec![WorkerId::from("w")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_partial_response_resends_its_unfinished_messages_at_once_as_replay() {
+        let budget = Duration::from_millis(250);
+        let mut h = Harness::budgeted(
+            &["w"],
+            4,
+            Some(RequestBudget {
+                soft_budget: budget,
+                attempts: NonZeroU32::new(3).expect("nonzero attempts"),
+            }),
+        );
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        assert_eq!(send.soft_budget, Some(budget));
+
+        send.reply
+            .send(Ok(SendOutcome::Partial {
+                accepted: 0,
+                unfinished: vec![message("a", 0, 1)],
+            }))
+            .unwrap();
+        settle().await;
+        assert!(h.completed_offsets().is_empty());
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
+        let resend = h.take_sent();
+        assert_eq!(resend.len(), 1, "the resend waits for no retry delay");
+        assert!(resend[0].replay);
+        assert_eq!(resend[0].offsets, vec![1]);
+        assert_eq!(
+            resend[0].soft_budget, None,
+            "a request that finished nothing resends without a budget"
+        );
+
+        let resend = resend.into_iter().next().unwrap();
+        resend.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+        assert_eq!(h.completed_offsets(), vec![1]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -669,7 +738,7 @@ mod tests {
         settle().await;
         let send = h.take_sent().pop().unwrap();
 
-        send.reply.send(Ok(1)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
         h.driver
             .revoke_sender()
             .purge_revoked(&[("events".to_string(), 0)]);
@@ -720,13 +789,13 @@ mod tests {
         let accepted = |send: &Sent| send.offsets.len() as u32;
         let first = sent.remove(0);
         let count = accepted(&first);
-        first.reply.send(Ok(count)).unwrap();
+        first.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(!load.busy_workers.lock().unwrap().is_empty());
 
         let last = sent.remove(0);
         let count = accepted(&last);
-        last.reply.send(Ok(count)).unwrap();
+        last.reply.send(Ok(SendOutcome::Accepted(count))).unwrap();
         settle().await;
         assert!(load.busy_workers.lock().unwrap().is_empty());
         assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 0);
@@ -738,7 +807,7 @@ mod tests {
         h.submit(vec![run("a", &[1])]);
         settle().await;
         let send = h.take_sent().pop().unwrap();
-        send.reply.send(Ok(2)).unwrap();
+        send.reply.send(Ok(SendOutcome::Accepted(2))).unwrap();
         settle().await;
         assert!(h.outputs.errors.try_recv().is_ok());
     }
