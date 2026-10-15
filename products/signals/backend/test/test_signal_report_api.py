@@ -3686,7 +3686,9 @@ class TestSignalReportMergeAPI(APIBaseTest):
             "same support ticket",
         )
         dismissal = SignalReportArtefact.objects.get(report_id=source.id, type="dismissal")
-        assert Dismissal.model_validate_json(dismissal.content).reason == MERGE_DISMISSAL_REASON
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.reason == MERGE_DISMISSAL_REASON
+        assert feedback.state == "suppressed"
 
     def test_merge_moves_the_pull_request_so_the_dismissal_leaves_it_open(self):
         survivor = self._report()

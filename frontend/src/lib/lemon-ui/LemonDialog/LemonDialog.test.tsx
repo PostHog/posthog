@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
@@ -10,7 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { initKeaTests } from '~/test/init'
 
-import { LemonFormDialog } from './LemonDialog'
+import { LemonDialog, LemonFormDialog } from './LemonDialog'
 
 describe('LemonFormDialog', () => {
     let captureException: jest.SpyInstance
@@ -94,5 +94,22 @@ describe('LemonFormDialog', () => {
         await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it.each(['Cancel', 'Submit'])('calls the imperative form close callback after %s', async (button) => {
+        const onAfterClose = jest.fn()
+        act(() => {
+            LemonDialog.openForm({
+                title: 'Test dialog',
+                initialValues: {},
+                onSubmit: jest.fn(),
+                onAfterClose,
+            })
+        })
+
+        await userEvent.click(screen.getByText(button))
+
+        await waitFor(() => expect(onAfterClose).toHaveBeenCalledTimes(1))
+        expect(screen.queryByText('Test dialog')).not.toBeInTheDocument()
     })
 })

@@ -3847,6 +3847,7 @@ class SignalReportViewSet(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 content=Dismissal(
+                    state="resolved" if resolved_via_merged_pr else "suppressed",
                     reason="refunded",
                     note=note or None,
                     user_id=user.id if user.is_authenticated else None,
