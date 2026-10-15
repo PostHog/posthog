@@ -16,9 +16,10 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
     ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult,
     RaisePersonVersionFloorsRequest, ReadOptions, RestoreOutcome, RestorePersonsRequest,
-    RestoredPerson, SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest,
-    SplitPersonRequest, TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
-    VersionFloorOutcome, WriteDistinctIdsRequest,
+    RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
+    WriteDistinctIdsRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1996,6 +1997,10 @@ async fn test_repair_writes_round_trip_through_the_service() {
                 created_at_ms: 1_600_000_000_000,
                 is_identified: false,
                 version: 4,
+                distinct_ids: vec![RestoredDistinctId {
+                    distinct_id: "svc_repair_restored".to_string(),
+                    version: 3,
+                }],
             }],
         }))
         .await
@@ -2004,6 +2009,10 @@ async fn test_repair_writes_round_trip_through_the_service() {
         .results;
     assert_eq!(restored[0].outcome, RestoreOutcome::Inserted as i32);
     assert_eq!(restored[0].version, 4);
+    assert_eq!(
+        restored[0].restored_distinct_ids,
+        vec!["svc_repair_restored"]
+    );
 
     let written = ctx
         .service
@@ -2049,6 +2058,7 @@ enum BadRepairRequest {
     DuplicateFloorUuid,
     PropertiesNotJson,
     PropertiesNotAnObject,
+    DuplicateRestoredDistinctId,
     UnknownWriteAction,
 }
 
@@ -2057,6 +2067,7 @@ enum BadRepairRequest {
 #[case::duplicate_floor_uuid(BadRepairRequest::DuplicateFloorUuid)]
 #[case::properties_not_json(BadRepairRequest::PropertiesNotJson)]
 #[case::properties_not_an_object(BadRepairRequest::PropertiesNotAnObject)]
+#[case::duplicate_restored_distinct_id(BadRepairRequest::DuplicateRestoredDistinctId)]
 #[case::unknown_write_action(BadRepairRequest::UnknownWriteAction)]
 #[tokio::test]
 async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
@@ -2074,6 +2085,7 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
             created_at_ms: 0,
             is_identified: false,
             version: 1,
+            distinct_ids: vec![],
         }],
     };
     let status = match bad {
@@ -2105,6 +2117,18 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
             .restore_persons(Request::new(restore(b"[1, 2]")))
             .await
             .map(|_| ()),
+        BadRepairRequest::DuplicateRestoredDistinctId => {
+            let mut request = restore(b"{}");
+            let id = || RestoredDistinctId {
+                distinct_id: "svc_dup".to_string(),
+                version: 0,
+            };
+            request.persons[0].distinct_ids = vec![id(), id()];
+            ctx.service
+                .restore_persons(Request::new(request))
+                .await
+                .map(|_| ())
+        }
         BadRepairRequest::UnknownWriteAction => ctx
             .service
             .write_distinct_ids(Request::new(WriteDistinctIdsRequest {

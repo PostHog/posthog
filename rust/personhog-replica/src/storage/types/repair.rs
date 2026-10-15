@@ -26,6 +26,8 @@ pub struct RestoredPerson {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub is_identified: bool,
     pub version: i64,
+    /// Distinct ids and versions to insert on the person in the same transaction.
+    pub distinct_ids: Vec<(String, i64)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +35,7 @@ pub enum RestoreOutcome {
     Inserted,
     ExistsLive,
     ExistsTombstoned,
+    NoDistinctId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +44,7 @@ pub struct RestoreResult {
     pub outcome: RestoreOutcome,
     pub person_id: i64,
     pub version: i64,
+    pub restored_distinct_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

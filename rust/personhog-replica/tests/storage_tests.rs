@@ -4897,6 +4897,7 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
         created_at,
         is_identified: true,
         version: 7,
+        distinct_ids: Vec::new(),
     };
     let absent = Uuid::new_v4();
 
@@ -4956,6 +4957,92 @@ async fn test_restore_persons_inserts_only_absent_uuids() {
     );
     let (still_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
     assert!(still_deleted);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_restore_persons_inserts_the_listed_distinct_ids_or_not_the_person() {
+    let ctx = TestContext::new().await;
+    let holder = ctx.insert_person("rd_holder", None).await.unwrap();
+    for distinct_id in ["rdx_taken", "rdx_only_taken"] {
+        ctx.add_distinct_id_to_person(holder.id, distinct_id)
+            .await
+            .unwrap();
+    }
+    let live = ctx.insert_person("rd_live", None).await.unwrap();
+    let restored = |uuid: Uuid, ids: &[&str]| RestoredPerson {
+        uuid,
+        properties: serde_json::json!({}),
+        created_at: chrono::Utc::now(),
+        is_identified: false,
+        version: 4,
+        distinct_ids: ids.iter().map(|d| (d.to_string(), 6)).collect(),
+    };
+    let (partly, unreachable, without_ids) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+
+    let results = ctx
+        .storage
+        .restore_persons(
+            ctx.team_id,
+            &[
+                restored(partly, &["rdx_new", "rdx_taken"]),
+                restored(unreachable, &["rdx_only_taken"]),
+                restored(without_ids, &[]),
+                restored(live.uuid, &["rdx_for_live"]),
+            ],
+        )
+        .await
+        .expect("restore");
+
+    let summary: Vec<(Uuid, RestoreOutcome, Vec<String>)> = results
+        .iter()
+        .map(|r| (r.uuid, r.outcome, r.restored_distinct_ids.clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (
+                partly,
+                RestoreOutcome::Inserted,
+                vec!["rdx_new".to_string()]
+            ),
+            (unreachable, RestoreOutcome::NoDistinctId, vec![]),
+            (without_ids, RestoreOutcome::Inserted, vec![]),
+            (live.uuid, RestoreOutcome::ExistsLive, vec![]),
+        ]
+    );
+    let owners: Vec<(String, Uuid, i64)> = sqlx::query_as(
+        "SELECT d.distinct_id, p.uuid, d.version FROM posthog_persondistinctid d
+         JOIN posthog_person p ON p.id = d.person_id
+         WHERE d.team_id = $1 AND d.distinct_id LIKE 'rdx\\_%' ORDER BY d.distinct_id",
+    )
+    .bind(ctx.team_id)
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        owners,
+        vec![
+            ("rdx_new".to_string(), partly, 6),
+            ("rdx_only_taken".to_string(), holder.uuid, 0),
+            ("rdx_taken".to_string(), holder.uuid, 0),
+        ]
+    );
+    assert!(ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, unreachable)
+        .await
+        .unwrap()
+        .is_none());
+    let absent_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND uuid = $2")
+            .bind(ctx.team_id)
+            .bind(unreachable)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(absent_rows, 0);
 
     ctx.cleanup().await.ok();
 }

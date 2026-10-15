@@ -859,6 +859,39 @@ class TestFakePersonHogClientRepairWrites:
         restored = self.client.stored_person(self.TEAM_ID, self.MISSING)
         assert restored is not None and json.loads(restored.properties) == {"plan": "free"} and restored.version == 6
 
+    def test_restore_inserts_listed_distinct_ids_and_skips_a_person_none_of_them_could_reach(self):
+        self._write(
+            ("taken", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 0),
+            ("taken-2", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 0),
+        )
+        reachable, unreachable = "00000000-0000-0000-0000-000000000005", "00000000-0000-0000-0000-000000000006"
+
+        def ids(*dids: str) -> list[person_pb2.RestoredDistinctId]:
+            return [person_pb2.RestoredDistinctId(distinct_id=d, version=4) for d in dids]
+
+        response = self.client.restore_persons(
+            person_pb2.RestorePersonsRequest(
+                team_id=self.TEAM_ID,
+                persons=[
+                    person_pb2.RestoredPerson(
+                        person_uuid=reachable, properties=b"{}", distinct_ids=ids("new", "taken")
+                    ),
+                    person_pb2.RestoredPerson(person_uuid=unreachable, properties=b"{}", distinct_ids=ids("taken-2")),
+                ],
+            )
+        )
+
+        assert [(r.outcome, list(r.restored_distinct_ids)) for r in response.results] == [
+            (person_pb2.RESTORE_OUTCOME_INSERTED, ["new"]),
+            (person_pb2.RESTORE_OUTCOME_NO_DISTINCT_ID, []),
+        ]
+        assert self.client.stored_person(self.TEAM_ID, unreachable) is None
+        stored = self.client.get_distinct_id_rows(
+            person_pb2.GetDistinctIdRowsRequest(team_id=self.TEAM_ID, distinct_ids=["new", "taken"])
+        )
+        rows = {r.distinct_id: (r.person_uuid, r.version) for r in stored.rows}
+        assert rows == {"new": (reachable, 4), "taken": (self.LIVE, 0)}
+
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
         raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
