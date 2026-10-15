@@ -82,7 +82,13 @@ class SimSource(ResumableSource[SimSourceConfig, SimResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # usage_window rereads the watermark's whole day, and append does not deduplicate primary keys.
+            merge_only=("usage_events",),
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SimResumeConfig]:
         return ResumableSourceManager(inputs, SimResumeConfig)

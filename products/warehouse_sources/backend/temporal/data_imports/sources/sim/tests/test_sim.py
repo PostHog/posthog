@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sim.sim im
     AUTH_ERROR,
     PERMISSION_ERROR,
     USAGE_PERMISSION_ERROR,
+    USAGE_PROBE_ORGANIZATIONS,
     WORKSPACE_ERROR,
     SimResumeConfig,
     sim_source,
@@ -126,11 +127,46 @@ def test_credential_probe_maps_status_and_scopes(
     assert validate_credentials(config, "v2", schema) == expected
     assert http.call_count == 1
     assert http.last_request is not None
-    assert http.last_request.qs["limit"] == ["1"]
+    assert http.last_request.qs["limit"] == [str(USAGE_PROBE_ORGANIZATIONS) if schema == "usage_events" else "1"]
     assert http.last_request.qs.get("workspaceid") == (
         None if probe_path in ("workspaces", "organizations") else [config.workspace_id]
     )
     assert http.last_request.headers["X-API-Key"] == config.api_key
+
+
+@pytest.mark.parametrize(
+    "usage_statuses,organizations,expected",
+    [
+        ([403, 403], ["org-a", "org-b"], (False, USAGE_PERMISSION_ERROR)),
+        ([403, 200], ["org-a", "org-b"], (True, None)),
+        ([200], ["org-a"], (True, None)),
+        ([], [], (True, None)),
+    ],
+)
+def test_usage_probe_requires_admin_access_in_one_organization(
+    config: SimSourceConfig,
+    http: Mocker,
+    usage_statuses: list[int],
+    organizations: list[str],
+    expected: tuple[bool, str | None],
+) -> None:
+    http.get(
+        "https://www.sim.ai/api/v2/organizations",
+        json={"data": [{"id": organization} for organization in organizations], "nextCursor": None},
+    )
+    for organization, status in zip(organizations, usage_statuses, strict=True):
+        http.get(
+            f"https://www.sim.ai/api/v2/organizations/{organization}/usage/events",
+            status_code=status,
+            json={"data": [], "nextCursor": None},
+        )
+    assert validate_credentials(config, "v2", "usage_events") == expected
+
+
+def test_usage_events_is_merge_only(config: SimSourceConfig) -> None:
+    schemas = {schema.name: schema for schema in SimSource().get_schemas(config, 1)}
+    assert schemas["usage_events"].supports_incremental
+    assert not schemas["usage_events"].supports_append
 
 
 def test_invalid_request_is_not_reported_as_invalid_credentials(config: SimSourceConfig, http: Mocker) -> None:

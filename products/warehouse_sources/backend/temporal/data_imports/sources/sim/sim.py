@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sim.settin
     SimEndpoint,
 )
 
+# How many of a key's organizations validation tries before it concludes the key cannot read usage.
+USAGE_PROBE_ORGANIZATIONS = 10
+
 AUTH_ERROR = "Your Sim API key is invalid or expired. Create a new key in Sim settings and reconnect."
 PERMISSION_ERROR = "Your Sim API key cannot read this workspace. Check the key's workspace access and permissions."
 WORKSPACE_ERROR = "Sim could not find this workspace. Check the workspace ID and your API key's access."
@@ -113,13 +116,39 @@ def usage_window(inputs: SourceInputs, resume: SimResumeConfig | None) -> tuple[
     return start.isoformat(), end.isoformat()
 
 
+def _check_usage_access(client: RESTClient, endpoint: SimEndpoint, organizations: Any) -> tuple[bool, str | None]:
+    # Listing organizations succeeds for any key, but usage needs organization admin rights in at least one of them.
+    organization_ids = [organization["id"] for organization in organizations if organization.get("id")]
+    if not organization_ids:
+        return True, None
+    end = datetime.now(UTC).date()
+    start = end - timedelta(days=1)
+    for organization_id in organization_ids[:USAGE_PROBE_ORGANIZATIONS]:
+        try:
+            next(
+                client.paginate(
+                    path=endpoint.path.format(organization_id=organization_id),
+                    params={"limit": 1, "preset": "custom", "startDate": start.isoformat(), "endDate": end.isoformat()},
+                    data_selector="data",
+                    data_selector_required=True,
+                )
+            )
+        except HTTPError as error:
+            if error.response is not None and error.response.status_code in (403, 404):
+                continue
+            raise
+        return True, None
+    return False, USAGE_PERMISSION_ERROR
+
+
 def validate_credentials(
     config: SimSourceConfig, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
     endpoint = schema_for_resource(ENDPOINTS, schema_name or "workflows")
     # A fan-out table is readable when its parent list is, because the parent ids drive every child request.
     probe_name = endpoint.fanout.parent_name if endpoint.fanout else endpoint.name
-    probe = get_endpoint(config, probe_name, page_size=1)
+    is_usage = endpoint.name == "usage_events"
+    probe = get_endpoint(config, probe_name, page_size=USAGE_PROBE_ORGANIZATIONS if is_usage else 1)
     client_settings = client_config(config, api_version)
     client = RESTClient(
         base_url=client_settings["base_url"],
@@ -130,7 +159,7 @@ def validate_credentials(
         allow_redirects=False,
     )
     try:
-        next(
+        first_page = next(
             client.paginate(
                 path=cast(str, probe["path"]),
                 params=probe["params"],
@@ -138,6 +167,8 @@ def validate_credentials(
                 data_selector_required=True,
             )
         )
+        if is_usage:
+            return _check_usage_access(client, endpoint, first_page)
     except HTTPError as error:
         status = error.response.status_code if error.response is not None else None
         if status == 401:
