@@ -9,13 +9,14 @@ variant, so only the split counts here.
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.health.context import Split, SplitChange, SplitHistory, parse_variants
+from products.experiments.backend.health.context import Split, SplitChange, parse_variants
 
 
 class SplitChangeShape(StrEnum):
@@ -75,11 +76,11 @@ def split_shape(before: Split, after: Split) -> SplitChangeShape:
     return SplitChangeShape.REBALANCED
 
 
-def net_effect(history: SplitHistory) -> SplitNetEffect | None:
-    if not history.counted_changes:
+def net_effect(changes: Sequence[SplitChange]) -> SplitNetEffect | None:
+    if not changes:
         return None
-    first = history.counted_changes[0]
-    last = history.counted_changes[-1]
+    first = changes[0]
+    last = changes[-1]
     return SplitNetEffect(
         shape=(
             SplitChangeShape.REVERTED
@@ -90,7 +91,7 @@ def net_effect(history: SplitHistory) -> SplitNetEffect | None:
         to_split=last.after,
         first=first,
         last=last,
-        change_count=len(history.counted_changes),
+        change_count=len(changes),
     )
 
 

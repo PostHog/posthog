@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from datetime import datetime
+from enum import StrEnum
 
 from posthog.schema import MultipleVariantHandling
 
@@ -40,6 +41,26 @@ class SplitHistory:
     # Asked only when the last change sets the split back to what it was before the first. None when not
     # asked, or unknown.
     exposed_between: bool | None
+
+
+class SplitHistoryNotCheckedReason(StrEnum):
+    # pinned: the finding's `evidence.reason`.
+    NO_HISTORY_ACCESS = "no_history_access"
+    NO_QUERY_ACCESS = "no_query_access"
+    EXPOSURE_FILTERS = "exposure_filters"
+    EXPOSURE_ACTION = "exposure_action"
+    EXPOSURE_CRITERIA = "exposure_criteria"
+
+
+@frozen
+class SplitHistoryNotChecked:
+    """A split history that was not compared with the exposures, and the reason."""
+
+    reason: SplitHistoryNotCheckedReason
+    launched_at: datetime
+    team_timezone: str
+    # Every split change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
+    changes: tuple[SplitChange, ...]
 
 
 @frozen
@@ -90,7 +111,7 @@ class HealthContext:
     secondary_metric_count: int
     exposures: ExposureTotals | None
     # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
-    split_history: SplitHistory | None
+    split_history: SplitHistory | SplitHistoryNotChecked | None
 
 
 def parse_flag_state(
@@ -176,7 +197,7 @@ def load_health_context(
     experiment: Experiment,
     exposures: ExposureTotals | None = None,
     *,
-    split_history: SplitHistory | None = None,
+    split_history: SplitHistory | SplitHistoryNotChecked | None = None,
 ) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(

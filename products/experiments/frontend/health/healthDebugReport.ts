@@ -156,18 +156,26 @@ function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
 
 function splitChangedChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const finding = input.health?.findings.find(({ code }) => code === 'split_changed_mid_run')
-    const exposedBefore = finding?.evidence.exposed_before_change
     return [
         {
             check: 'split_changed_mid_run',
             source: 'server',
             result: serverResult(input.health, (code) => code === 'split_changed_mid_run'),
-            note: finding
-                ? `${finding.evidence.change_count} counted changes, from ${finding.evidence.from} to ${finding.evidence.to}. Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
-                : null,
+            note: finding ? splitChangedNote(finding) : null,
             differs: false,
         },
     ]
+}
+
+function splitChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    if (finding.subcode === 'not_checked') {
+        return evidence.change_count == null
+            ? `Not checked: ${evidence.reason}.`
+            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+    }
+    const exposedBefore = evidence.exposed_before_change
+    return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
 }
 
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {

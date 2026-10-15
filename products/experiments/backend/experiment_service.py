@@ -49,6 +49,7 @@ from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.health.context import load_health_context
@@ -340,6 +341,15 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
         filters,
         holdout_id=holdout.id if holdout else None,
         exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
+    # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
+    # string on `:`, so every field is present, empty when the finding has none.
+    reason = finding.evidence.get("reason")
+    return ":".join(
+        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
     )
 
 
@@ -1402,6 +1412,7 @@ class ExperimentService:
                     "health_finding_subcodes": [
                         f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
                     ],
+                    "health_findings": [_tracked_health_finding(finding) for finding in findings],
                     "health_finding_count": len(findings),
                 },
             )

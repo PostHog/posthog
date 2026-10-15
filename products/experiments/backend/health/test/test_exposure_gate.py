@@ -11,15 +11,17 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import TableAccessDeniedError
-
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
-from products.experiments.backend.health.context import SplitHistory
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.health.context import (
+    SplitHistory,
+    SplitHistoryNotChecked,
+    SplitHistoryNotCheckedReason,
+)
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
     load_split_history,
@@ -30,34 +32,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"
-_BY_COHORT: dict[str, Any] = {
-    "exposure_config": {
-        "kind": "ExperimentEventExposureConfig",
-        "event": "$feature_flag_called",
-        "properties": [{"key": "id", "value": 1, "type": "cohort"}],
-    }
-}
-_BY_RELATIVE_DATE: dict[str, Any] = {
-    "exposure_config": {
-        "kind": "ExperimentEventExposureConfig",
-        "event": "$feature_flag_called",
-        "properties": [{"key": "signup_date", "value": "-7d", "operator": "is_date_after", "type": "person"}],
-    }
-}
-_BY_HOGQL: dict[str, Any] = {
-    "exposure_config": {
-        "kind": "ExperimentEventExposureConfig",
-        "event": "$feature_flag_called",
-        "properties": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
-    }
-}
-_BY_PERSON_PROPERTY: dict[str, Any] = {
-    "exposure_config": {
-        "kind": "ExperimentEventExposureConfig",
-        "event": "$feature_flag_called",
-        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
-    }
-}
+FULL_ACCESS = ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=True)
 _BY_EVENT_PROPERTY: dict[str, Any] = {
     "exposure_config": {
         "kind": "ExperimentEventExposureConfig",
@@ -65,6 +40,8 @@ _BY_EVENT_PROPERTY: dict[str, Any] = {
         "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
     }
 }
+_BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
+_UNREADABLE: dict[str, Any] = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
 
 
 def _split(control: int, test: int) -> list[dict[str, Any]]:
@@ -122,12 +99,15 @@ class TestLoadSplitHistory(BaseTest):
         return changed_at
 
     def _load(
-        self, answers: list[bool | Exception] | Callable[..., bool], *, reader: User | None = None
-    ) -> tuple[SplitHistory | None, MagicMock]:
+        self,
+        answers: list[bool | Exception] | Callable[..., bool],
+        *,
+        reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
+    ) -> tuple[SplitHistory | SplitHistoryNotChecked | None, MagicMock]:
         with patch(
             "products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers
         ) as query:
-            history = load_split_history(self.experiment, reader=reader or self.user)
+            history = load_split_history(self.experiment, reader_access=reader_access)
         return history, query
 
     def test_changes_before_the_first_exposure_do_not_count(self) -> None:
@@ -135,7 +115,7 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([False, True])
 
-        assert history is not None
+        assert isinstance(history, SplitHistory)
         self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(
@@ -148,7 +128,97 @@ class TestLoadSplitHistory(BaseTest):
 
         history, _ = self._load([False, False])
 
-        assert history is not None
+        assert isinstance(history, SplitHistory)
+        self.assertEqual(history.counted_changes, ())
+
+    @parameterized.expand(
+        [
+            ("default_exposure", {}),
+            (
+                "custom_event_without_property_filters",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": []}},
+            ),
+            (
+                "activation_event_on_the_default_exposure",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "checkout",
+                        "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}],
+                    }
+                },
+            ),
+        ]
+    )
+    def test_criteria_that_name_an_event_are_checked_against_exposures(
+        self, _name: str, exposure_criteria: dict[str, Any]
+    ) -> None:
+        self.experiment.exposure_criteria = exposure_criteria
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+
+        history, query = self._load([True])
+
+        assert isinstance(history, SplitHistory)
+        self.assertIs(history.exposed_before_first, True)
+        self.assertEqual(query.call_count, 1)
+
+    @parameterized.expand(
+        [
+            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+            ("exposure_action", _BY_ACTION, True, True, SplitHistoryNotCheckedReason.EXPOSURE_ACTION),
+            ("exposure_criteria", _UNREADABLE, True, True, SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA),
+            ("no_query_access", {}, True, False, SplitHistoryNotCheckedReason.NO_QUERY_ACCESS),
+            (
+                "filters_without_query_access",
+                _BY_EVENT_PROPERTY,
+                True,
+                False,
+                SplitHistoryNotCheckedReason.EXPOSURE_FILTERS,
+            ),
+            ("no_history_access", {}, False, True, SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+        ]
+    )
+    def test_split_changes_that_cannot_be_checked(
+        self,
+        _name: str,
+        exposure_criteria: dict[str, Any],
+        can_read_flag_history: bool,
+        can_query_events: bool,
+        expected_reason: SplitHistoryNotCheckedReason,
+    ) -> None:
+        self.experiment.exposure_criteria = exposure_criteria
+        self.experiment.save()
+        changed_at = self._log_split_changes([_split(50, 50), _split(60, 40), _split(70, 30)])
+
+        history, query = self._load(
+            [True],
+            reader_access=ExperimentHealthReaderAccess(
+                can_read_flag_history=can_read_flag_history, can_query_events=can_query_events
+            ),
+        )
+
+        assert isinstance(history, SplitHistoryNotChecked)
+        self.assertEqual(history.reason, expected_reason)
+        expected_changes = changed_at if can_read_flag_history else []
+        self.assertEqual([change.changed_at for change in history.changes], expected_changes)
+        self.assertEqual(query.call_count, 0)
+
+    @parameterized.expand(
+        [
+            ("exposure_filters", _BY_EVENT_PROPERTY, FULL_ACCESS),
+            ("no_query_access", {}, ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=False)),
+        ]
+    )
+    def test_flag_without_split_changes_needs_no_check(
+        self, _name: str, exposure_criteria: dict[str, Any], reader_access: ExperimentHealthReaderAccess
+    ) -> None:
+        self.experiment.exposure_criteria = exposure_criteria
+        self.experiment.save()
+
+        history, _ = self._load([], reader_access=reader_access)
+
+        assert isinstance(history, SplitHistory)
         self.assertEqual(history.counted_changes, ())
 
     @parameterized.expand(
@@ -164,16 +234,15 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True, False])
 
-        assert history is not None
+        assert isinstance(history, SplitHistory)
         self.assertIs(history.exposed_between, False)
         self.assertEqual(
             query.call_args.kwargs,
             {
                 "window_start": changed_at[0],
                 "window_end": changed_at[1],
-                "variant_keys": ["control", "test"],
+                "variant_keys": ("control", "test"),
                 "default_exposure_event": ANY,
-                "user": self.user,
             },
         )
 
@@ -181,7 +250,6 @@ class TestLoadSplitHistory(BaseTest):
         [
             ("scan_too_expensive", ClickHouseQueryTimeOut(), False, 0),
             ("transient_memory_pressure", ClickHouseClusterMemoryLimitExceeded(), False, 1),
-            ("table_the_reader_may_not_query", TableAccessDeniedError("events"), False, 1),
             ("unexpected_error", RuntimeError("unexpected"), True, 1),
         ]
     )
@@ -194,7 +262,7 @@ class TestLoadSplitHistory(BaseTest):
             history, _ = self._load([False, error])
         next_load, next_query = self._load([True])
 
-        assert history is not None and next_load is not None
+        assert isinstance(history, SplitHistory) and isinstance(next_load, SplitHistory)
         self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
         self.assertIsNone(history.exposed_before_first)
         self.assertIsNone(next_load.exposed_before_first)
@@ -223,35 +291,29 @@ class TestLoadSplitHistory(BaseTest):
         with patch("products.experiments.backend.health.exposure_gate.monotonic", side_effect=lambda: clock[0]):
             history, query = self._load(nobody_exposed)
 
-        assert history is not None
+        assert isinstance(history, SplitHistory)
         self.assertEqual(query.call_count, expected_queries)
         self.assertEqual(history.counted_changes[0].changed_at, changed_at[expected_queries])
         self.assertIsNone(history.exposed_before_first)
 
-    def test_editing_the_exposure_action_asks_again(self) -> None:
-        action = Action.objects.create(team=self.team, name="Checkout", steps_json=[{"event": "checkout_viewed"}])
-        self.experiment.exposure_criteria = {"exposure_config": {"kind": "ActionsNode", "id": action.id}}
-        self.experiment.save()
-        self._log_split_changes([_split(50, 50), _split(60, 40)])
-        self._load([False])
+    def test_cached_walk_reads_the_cache_once(self) -> None:
+        self._log_split_changes([_split(50, 50), _split(60, 40)] * 5)
+        self._load([False] * 9)
 
-        action.steps_json = [{"event": "checkout_completed"}]
-        action.save()
-        _, query = self._load([False])
+        with patch("products.experiments.backend.health.exposure_gate.cache", wraps=cache) as cache_spy:
+            history, query = self._load([])
 
-        self.assertEqual(query.call_count, 1)
+        assert isinstance(history, SplitHistory)
+        self.assertEqual(history.counted_changes, ())
+        self.assertEqual(query.call_count, 0)
+        self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
     @parameterized.expand(
         [
-            ("exposed", True, timedelta(minutes=10), {}, timedelta(days=2), 0),
-            ("nobody_in_a_settled_window", False, timedelta(hours=2), {}, timedelta(days=2), 0),
-            ("nobody_in_a_recent_window_minutes_later", False, timedelta(minutes=10), {}, timedelta(minutes=1), 0),
-            ("nobody_in_a_recent_window_later", False, timedelta(minutes=10), {}, timedelta(minutes=10), 1),
-            ("nobody_with_a_cohort_filter", False, timedelta(hours=2), _BY_COHORT, timedelta(hours=2), 1),
-            ("exposed_with_a_cohort_filter", True, timedelta(hours=2), _BY_COHORT, timedelta(hours=2), 1),
-            ("nobody_with_a_relative_date_filter", False, timedelta(hours=2), _BY_RELATIVE_DATE, timedelta(hours=2), 1),
-            ("nobody_with_a_hogql_filter", False, timedelta(hours=2), _BY_HOGQL, timedelta(hours=2), 1),
-            ("nobody_with_a_person_filter", False, timedelta(hours=2), _BY_PERSON_PROPERTY, timedelta(hours=2), 1),
+            ("exposed", True, timedelta(minutes=10), timedelta(days=2), 0),
+            ("nobody_in_a_settled_window", False, timedelta(hours=2), timedelta(days=2), 0),
+            ("nobody_in_a_recent_window_minutes_later", False, timedelta(minutes=10), timedelta(minutes=1), 0),
+            ("nobody_in_a_recent_window_later", False, timedelta(minutes=10), timedelta(minutes=10), 1),
         ]
     )
     def test_answer_cache(
@@ -259,12 +321,9 @@ class TestLoadSplitHistory(BaseTest):
         _name: str,
         answer: bool,
         change_age: timedelta,
-        exposure_criteria: dict[str, Any],
         next_load_after: timedelta,
         expected_queries: int,
     ) -> None:
-        self.experiment.exposure_criteria = exposure_criteria
-        self.experiment.save()
         self._log_split_changes([_split(50, 50), _split(60, 40)], first_at=timezone.now() - change_age)
         self._load([answer])
 
@@ -273,38 +332,12 @@ class TestLoadSplitHistory(BaseTest):
 
         self.assertEqual(query.call_count, expected_queries)
 
-    @parameterized.expand([("event_property_filter", _BY_EVENT_PROPERTY, 0), ("hogql_filter", _BY_HOGQL, 1)])
-    def test_answers_are_shared_between_readers_unless_a_filter_can_read_the_warehouse(
-        self, _name: str, exposure_criteria: dict[str, Any], expected_queries: int
-    ) -> None:
-        self.experiment.exposure_criteria = exposure_criteria
-        self.experiment.save()
-        self._log_split_changes([_split(50, 50), _split(60, 40)])
-        self._load([True])
-        other_reader = User.objects.create_and_join(self.organization, "other-reader@example.com", None)
-
-        _, query = self._load([True], reader=other_reader)
-
-        self.assertEqual(query.call_count, expected_queries)
-
-    def test_criteria_the_schema_rejects_still_load_the_history(self) -> None:
-        self.experiment.exposure_criteria = {"exposure_config": {"kind": "ExperimentEventExposureConfig"}}
-        self.experiment.save()
-        self._log_split_changes([_split(50, 50), _split(60, 40)])
-
-        with patch("products.experiments.backend.health.exposure_gate.capture_exception") as capture:
-            history, _ = self._load([True])
-
-        assert history is not None
-        self.assertIs(history.exposed_before_first, True)
-        capture.assert_not_called()
-
     def test_revert_through_a_flag_without_variants_leaves_in_between_unknown(self) -> None:
         self._log_split_changes([_split(50, 50), [], _split(50, 50)])
 
         history, query = self._load([True])
 
-        assert history is not None
+        assert isinstance(history, SplitHistory)
         self.assertIsNone(history.exposed_between)
         self.assertEqual(query.call_count, 1)
 
@@ -364,7 +397,6 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
             window_end=now - timedelta(days=1),
             variant_keys=["control", "test"],
             default_exposure_event=DEFAULT_EXPOSURE_EVENT,
-            user=self.user,
         )
 
         self.assertIs(exposed, expected)

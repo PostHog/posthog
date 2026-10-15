@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.health.context import SplitChange, SplitHistory
+from products.experiments.backend.health.context import SplitChange
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     net_effect,
@@ -136,15 +136,8 @@ class TestSplitChanges(TestCase):
             _split_change(before, after, CHANGED_AT + timedelta(hours=index))
             for index, (before, after) in enumerate(zip(sequence, sequence[1:]))
         )
-        history = SplitHistory(
-            launched_at=CHANGED_AT - timedelta(days=1),
-            team_timezone="UTC",
-            counted_changes=changes,
-            exposed_before_first=True,
-            exposed_between=None,
-        )
 
-        effect = net_effect(history)
+        effect = net_effect(changes)
 
         assert effect is not None
         self.assertEqual((effect.shape, effect.change_count), (expected_shape, len(sequence) - 1))

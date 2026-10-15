@@ -75,6 +75,7 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -909,27 +910,37 @@ class EnterpriseExperimentsViewSet(
 
         The checks here read the experiment, its flag, its linked metrics, and the changes of the
         flag's variant split since launch. The checks that read exposure counts come with the
-        exposure query. The split-change check runs only for callers who can view the linked flag
-        and, with an API key, hold `query:read` and `activity_log:read`.
+        exposure query. The split-change check compares the split changes with the exposures only
+        for exposure criteria that name an event without property filters. When the split changed
+        after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+        it returns an info finding with the subcode `not_checked` and the cause in
+        `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+        flag and, with an API key, `activity_log:read`) gets that finding for every running
+        experiment, because the changes are not read.
         """
         experiment: Experiment = self.get_object()
         findings = get_experiment_health_findings(
             team_id=self.team_id,
             experiment_id=experiment.id,
-            split_history_reader=cast(User, request.user)
-            if self._may_read_split_history(request, experiment)
-            else None,
+            reader_access=self._health_reader_access(request, experiment),
         )
         return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
-    def _may_read_split_history(self, request: Request, experiment: Experiment) -> bool:
+    def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
         # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
         scopes = get_authenticator_scopes(request.successful_authenticator)
-        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read", "activity_log:read"]):
-            return False
-        return experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
+        missing_scopes = (
+            set()
+            if scopes is None or "*" in scopes
+            else set(scopes_not_covered(scopes, ["activity_log:read", "query:read"]))
+        )
+        can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"
+        )
+        return ExperimentHealthReaderAccess(
+            can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
+            can_query_events="query:read" not in missing_scopes,
         )
 
     @validated_request(

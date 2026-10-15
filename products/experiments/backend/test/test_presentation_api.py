@@ -795,20 +795,34 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("session", None, False, True),
-            ("session_without_flag_access", None, True, False),
-            ("token_without_query_scope", ["experiment:read", "activity_log:read"], False, False),
-            ("token_without_activity_scope", ["experiment:read", "query:read"], False, False),
+            ("session", None, False, ("rebalanced", None)),
+            ("session_without_flag_access", None, True, ("not_checked", "no_history_access")),
+            (
+                "token_without_query_scope",
+                ["experiment:read", "activity_log:read"],
+                False,
+                ("not_checked", "no_query_access"),
+            ),
+            (
+                "token_without_activity_scope",
+                ["experiment:read", "query:read"],
+                False,
+                ("not_checked", "no_history_access"),
+            ),
             (
                 "token_with_query_and_activity_scopes",
                 ["experiment:read", "query:read", "activity_log:read"],
                 False,
-                True,
+                ("rebalanced", None),
             ),
         ]
     )
-    def test_health_reads_the_split_history_only_with_flag_and_query_access(
-        self, _name: str, token_scopes: list[str] | None, restrict_flag: bool, expect_split_finding: bool
+    def test_health_checks_the_split_history_only_with_flag_and_query_access(
+        self,
+        _name: str,
+        token_scopes: list[str] | None,
+        restrict_flag: bool,
+        expected_split_finding: tuple[str, str | None],
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
         flag = FeatureFlag.objects.create(
@@ -847,8 +861,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        codes = [finding["code"] for finding in response.json()["findings"]]
-        self.assertEqual("split_changed_mid_run" in codes, expect_split_finding)
+        split_findings = [
+            (finding["subcode"], finding["evidence"].get("reason"))
+            for finding in response.json()["findings"]
+            if finding["code"] == "split_changed_mid_run"
+        ]
+        self.assertEqual(split_findings, [expected_split_finding])
 
     def _rebalance_split_at(self, flag: FeatureFlag, at: datetime) -> None:
         with time_machine.travel(at), self.captureOnCommitCallbacks(execute=True):

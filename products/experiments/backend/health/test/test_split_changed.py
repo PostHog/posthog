@@ -16,6 +16,8 @@ from products.experiments.backend.health.context import (
     HealthContext,
     SplitChange,
     SplitHistory,
+    SplitHistoryNotChecked,
+    SplitHistoryNotCheckedReason,
     parse_flag_state,
     parse_variants,
 )
@@ -55,6 +57,7 @@ def _context(
     first_change_at: datetime = FIRST_CHANGE_AT,
     archived: bool = False,
     deleted: bool = False,
+    not_checked: SplitHistoryNotCheckedReason | None = None,
 ) -> HealthContext:
     changes = tuple(
         SplitChange(
@@ -79,6 +82,10 @@ def _context(
             counted_changes=changes,
             exposed_before_first=exposed_before_first,
             exposed_between=exposed_between,
+        )
+        if not_checked is None
+        else SplitHistoryNotChecked(
+            reason=not_checked, launched_at=launched_at, team_timezone="Europe/Berlin", changes=changes
         ),
     )
 
@@ -221,22 +228,119 @@ class TestSplitChangedMidRun(TestCase):
         self.assertEqual(finding.detail, expected_detail)
         self.assertEqual(finding.actions, (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,))
 
-    def test_evidence_of_an_unknown_exposure(self) -> None:
-        finding = split_changed_mid_run(_context(EVEN, UNEVEN, exposed_before_first=None))
+    @parameterized.expand(
+        [
+            (
+                "unknown_exposure",
+                _context(EVEN, UNEVEN, exposed_before_first=None),
+                {
+                    "change_count": 1,
+                    "first_changed_at": "2026-09-12T13:04:00+00:00",
+                    "last_changed_at": "2026-09-12T13:04:00+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": None,
+                    "seconds_after_launch": 11040,
+                },
+            ),
+            (
+                "not_checked",
+                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                {
+                    "reason": "exposure_filters",
+                    "change_count": 1,
+                    "first_changed_at": "2026-09-12T13:04:00+00:00",
+                    "last_changed_at": "2026-09-12T13:04:00+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": None,
+                    "seconds_after_launch": 11040,
+                },
+            ),
+            (
+                "not_checked_without_history_access",
+                _context(EVEN, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                {"reason": "no_history_access"},
+            ),
+        ]
+    )
+    def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
+        finding = split_changed_mid_run(ctx)
+
+        assert finding is not None
+        self.assertEqual(finding.evidence, expected)
+
+    @parameterized.expand(
+        [
+            (
+                "exposure_filters",
+                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
+                "This check can't tell whether anyone was exposed before the change, because the exposure criteria "
+                "filter by properties. Review the change in the flag history.",
+            ),
+            (
+                "exposure_action_after_several_changes",
+                _context(
+                    EVEN,
+                    _split(("control", 70), ("test", 30)),
+                    UNEVEN,
+                    not_checked=SplitHistoryNotCheckedReason.EXPOSURE_ACTION,
+                ),
+                "The variant split changed 2 times after launch, from control 50% / test 50% to control 80% / "
+                f"test 20%, last on {SECOND_CHANGE}. This check can't tell whether anyone was exposed before the "
+                "changes, because exposures come from an action. Review the changes in the flag history.",
+            ),
+            (
+                "exposure_criteria_after_a_split_set_back",
+                _context(EVEN, SHIPPED, EVEN, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA),
+                "The variant split changed 2 times after launch and was set back to control 50% / test 50% on "
+                f"{SECOND_CHANGE}. This check can't tell whether anyone was exposed before the changes, because the "
+                "exposure criteria can't be read. Review the changes in the flag history.",
+            ),
+            (
+                "no_query_access",
+                _context(EVEN, UNEVEN, not_checked=SplitHistoryNotCheckedReason.NO_QUERY_ACCESS),
+                f"The variant split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
+                "This check can't tell whether anyone was exposed before the change, because this API key can't "
+                "query events. Add the query:read scope to this API key, or review the change in the flag history.",
+            ),
+            (
+                "no_history_access",
+                _context(EVEN, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                "This check can't see whether the variant split changed after launch, because you can't view the "
+                "linked feature flag's history. Viewing the history needs viewer access to the flag and, with an API "
+                "key, the activity_log:read scope.",
+                (),
+                "The variant split history was not checked",
+            ),
+        ]
+    )
+    def test_reports_split_changes_that_were_not_checked(
+        self,
+        _name: str,
+        ctx: HealthContext,
+        expected_detail: str,
+        expected_actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+            ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+        ),
+        expected_title: str = "Variant split changes were not checked",
+    ) -> None:
+        finding = split_changed_mid_run(ctx)
 
         assert finding is not None
         self.assertEqual(
-            finding.evidence,
-            {
-                "change_count": 1,
-                "first_changed_at": "2026-09-12T13:04:00+00:00",
-                "last_changed_at": "2026-09-12T13:04:00+00:00",
-                "from": "control 50% / test 50%",
-                "to": "control 80% / test 20%",
-                "exposed_before_change": None,
-                "seconds_after_launch": 11040,
-            },
+            (finding.code, finding.subcode, finding.severity, finding.diagnostic_ref, finding.title),
+            (
+                ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
+                "not_checked",
+                ExperimentHealthFindingSeverity.INFO,
+                "E3",
+                expected_title,
+            ),
         )
+        self.assertEqual(finding.detail, expected_detail)
+        self.assertEqual(finding.actions, expected_actions)
 
     @parameterized.expand(
         [
@@ -245,6 +349,10 @@ class TestSplitChangedMidRun(TestCase):
             ("deleted_flag", _context(EVEN, UNEVEN, deleted=True)),
             ("nobody_exposed_before_any_change", _context(EVEN)),
             ("flag_without_variants_reported_by_flag_variants_mismatch", _context(EVEN, [])),
+            (
+                "not_checked_on_an_ended_experiment",
+                _context(EVEN, status=ENDED, not_checked=SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+            ),
         ]
     )
     def test_no_finding(self, _name: str, ctx: HealthContext) -> None:
@@ -258,6 +366,12 @@ class TestSplitChangedMidRun(TestCase):
                 _context(EVEN, _split(("control", 70), ("test", 30)), SHIPPED),
                 SECOND_CHANGE,
                 "control 70% / test 30%",
+            ),
+            (
+                "rollout_not_checked",
+                _context(EVEN, SHIPPED, not_checked=SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                FIRST_CHANGE,
+                "control 50% / test 50%",
             ),
         ]
     )

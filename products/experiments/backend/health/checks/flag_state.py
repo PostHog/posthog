@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.context import FlagState, HealthContext
+from products.experiments.backend.health.context import FlagState, HealthContext, SplitHistoryNotChecked
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -146,8 +146,10 @@ def _finding(
 def _rollout_since(ctx: HealthContext) -> str:
     # The split check leaves this rollout to this finding, so the finding carries the date of the change.
     history = ctx.split_history
-    effect = net_effect(history) if history is not None else None
-    if history is None or effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
+    if history is None:
+        return ""
+    effect = net_effect(history.changes if isinstance(history, SplitHistoryNotChecked) else history.counted_changes)
+    if effect is None or effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
         return ""
     at = format_change_time(effect.last.changed_at, history.team_timezone)
     return f"It has been at 100% since {at}, and the split was {describe_split(effect.last.before)} before. "

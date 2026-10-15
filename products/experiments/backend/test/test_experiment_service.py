@@ -3831,7 +3831,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, [], [])],
+                [("launch_endpoint", 0, [], [], [])],
             ),
             (
                 "launch_endpoint_with_a_qa_override",
@@ -3845,6 +3845,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
                     )
                 ],
             ),
@@ -3854,7 +3855,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, [], [])],
+                [("launch_endpoint", 266400, [], [], [])],
             ),
             (
                 "create_with_start_date",
@@ -3865,7 +3866,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, ["no_metric"], [])],
+                [("create_request", 0, ["no_metric"], [], ["no_metric::warning:"])],
             ),
             (
                 "create_draft",
@@ -3881,7 +3882,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, [], [])],
+                [("update_start_date", 0, [], [], [])],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3911,6 +3912,7 @@ class TestExperimentService(APIBaseTest):
                 event["flag_age_seconds"],
                 event["health_finding_codes"],
                 event["health_finding_subcodes"],
+                event["health_findings"],
             )
             for event in launched
         ] == expected

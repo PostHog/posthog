@@ -145,6 +145,14 @@ class ExperimentHealthFinding:
     diagnostic_ref: str | None
 
 
+@frozen
+class ExperimentHealthReaderAccess:
+    """What the caller of the health checks may read, for the checks that read more than the experiment."""
+
+    can_read_flag_history: bool
+    can_query_events: bool
+
+
 @dataclass(frozen=True)
 class CreateExperimentInput:
     """
