@@ -23,7 +23,11 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
+from ee.hogai.tools.replay.filter_session_recordings import (
+    FilterSessionRecordingsTool,
+    FilterSessionRecordingsToolArgs,
+    FilterSessionRecordingsWithEventNegationToolArgs,
+)
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
@@ -208,6 +212,10 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
             return_value=flag_enabled,
         ):
             tool = await self._create_tool()
+        self.assertIs(
+            tool.args_schema,
+            FilterSessionRecordingsWithEventNegationToolArgs if flag_enabled else FilterSessionRecordingsToolArgs,
+        )
         filters = self._event_filters("purchase_completed", negation=True)
 
         if flag_enabled:

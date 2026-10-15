@@ -212,7 +212,7 @@ class FilterSessionRecordingsTool(MaxTool):
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
         # Event negation stays behind the same flag as the "Did not perform" option in the replay filters UI
-        allow_event_negation = has_replay_negative_event_filters_feature_flag(team, user)
+        allow_event_negation = await database_sync_to_async(has_replay_negative_event_filters_feature_flag)(team, user)
         tool = cls(
             team=team,
             user=user,
