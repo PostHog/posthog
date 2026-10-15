@@ -31,6 +31,7 @@ from django.db import transaction
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils import timezone
+from django.utils.cache import get_conditional_response
 from django.utils.dateparse import parse_datetime
 
 import structlog
@@ -237,8 +238,10 @@ from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     fleet_findings_summary,
     get_run,
-    recent_runs_per_scout,
+    recent_run_ids_per_scout,
     run_id_for_sandbox_task,
+    runs_by_id,
+    runs_version,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -753,6 +756,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=SignalScoutRunSummarySerializer(many=True),
                 description="Each scout's most recent runs, newest-first across the fleet.",
             ),
+            304: OpenApiResponse(
+                description="The runs match the `ETag` sent in `If-None-Match`, so the body is left out.",
+            ),
         },
         summary="List each scout's most recent runs",
         description=(
@@ -784,18 +790,30 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
-        rows = recent_runs_per_scout(
+        run_ids = recent_run_ids_per_scout(
             team_id=_canonical_team_id(self),
             per_scout_limit=per_scout_limit,
             max_age_days=max_age_days,
             exclude_skill_name=saved.context.skill_name if saved is not None else None,
         )
         if saved is not None:
+            rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
             rows.extend(
                 saved.recent_runs([], limit=per_scout_limit, date_from=timezone.now() - timedelta(days=max_age_days))
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
-        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        # The inbox polls this every minute. A browser revalidates a `no-cache` body with
+        # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
+        etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
+        if get_conditional_response(request._request, etag=etag) is not None:
+            response = Response(status=status.HTTP_304_NOT_MODIFIED)
+        else:
+            rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
+            response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        response["ETag"] = etag
+        response["Cache-Control"] = "private, no-cache"
+        return response
 
     @validated_request(
         query_serializer=FleetFindingsSummaryQuerySerializer,

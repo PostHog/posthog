@@ -16,6 +16,8 @@ findings (and so left no `Signal` row to query against) — plus the
 
 from __future__ import annotations
 
+import json
+import hashlib
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
@@ -60,6 +62,10 @@ STALENESS_INTERVAL_MULTIPLE = 3
 # A cron schedule has no interval to read, so sample its next few gaps and take the widest — a
 # monthly cron reads as ~31 days, a weekday-only one as the weekend gap.
 CRON_GAP_SAMPLES = 4
+
+# Part of every `runs_version`. Bump it when `_to_summary` changes its output, so a client that
+# holds a body in the old shape fetches the new one.
+RUNS_VERSION_SCHEMA = 1
 
 # Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
 # on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
@@ -328,6 +334,26 @@ def recent_runs_per_scout(
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
+    See `recent_run_ids_per_scout` for which runs those are.
+    """
+    run_ids = recent_run_ids_per_scout(
+        team_id=team_id,
+        per_scout_limit=per_scout_limit,
+        max_age_days=max_age_days,
+        exclude_skill_name=exclude_skill_name,
+    )
+    return runs_by_id(team_id=team_id, run_ids=run_ids)
+
+
+def recent_run_ids_per_scout(
+    *,
+    team_id: int,
+    per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
+    max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    exclude_skill_name: str | None = None,
+) -> list[Any]:
+    """Return the ids of each configured scout's most recent runs.
+
     A cadence-invariant alternative to `search_recent_runs`' fixed time window. A fleet-wide
     lookback has to serve an hourly scout and a weekly one from one budget: widen it and the busy
     scouts fill the result cap, leaving the sparse ones with a history that gets shorter the
@@ -380,15 +406,47 @@ def recent_runs_per_scout(
                 floor_days=floor_days,
             )
         )
+    return run_ids
+
+
+def runs_by_id(*, team_id: int, run_ids: list[Any]) -> list[RunSummary]:
+    """Hydrate these runs into summaries, newest first."""
     if not run_ids:
         return []
-
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids)
         .select_related("task_run")
         .order_by("-created_at")
     )
     return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in rows], team_id=team_id)
+
+
+def runs_version(*, team_id: int, run_ids: list[Any]) -> str:
+    """A validator for what `runs_by_id` returns, read without hydrating the runs.
+
+    The inbox roster polls the runs every minute, and most polls find nothing changed. Hydration
+    reads wide rows, so a poll that only checks this version skips the expensive read. The read
+    here takes only narrow columns. It covers every input of `_to_summary`: each write to the run
+    row stamps `updated_at` (see `SignalScoutRun.save`), and the task run fields it reads move with
+    the task run's status, completion stamp, or `updated_at`. A report deletion does not touch the
+    run row, so the deleted ids go into the version too.
+    """
+    rows = sorted(
+        (str(run_id), *rest)
+        for run_id, *rest in SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids).values_list(
+            "id",
+            "updated_at",
+            "task_run__status",
+            "task_run__updated_at",
+            "task_run__completed_at",
+            "emitted_report_ids",
+            "edited_report_ids",
+        )
+    )
+    touched = {report_id for *_, emitted, edited in rows for report_id in _touched_report_ids(emitted, edited)}
+    deleted = sorted(_deleted_report_ids(touched, team_id=team_id))
+    seed = json.dumps([RUNS_VERSION_SCHEMA, [row[:5] for row in rows], deleted], default=str)
+    return hashlib.sha256(seed.encode()).hexdigest()
 
 
 @dataclass(frozen=True)

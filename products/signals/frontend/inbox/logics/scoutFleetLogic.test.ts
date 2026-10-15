@@ -1050,9 +1050,15 @@ describe('scoutFleetLogic', () => {
             // eagerly is the worse failure though: the roster would show a frozen cost forever.
             // Each strip reads its own scout's slice, so a moved cost must replace only that
             // scout's slice and leave every other strip's slice, and its render, alone.
+            // Both runs are live, so each poll asks for their costs again.
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
-                makeRun({ run_id: 'run-priced' }),
-                makeRun({ run_id: 'run-other', skill_name: 'signals-scout-other' }),
+                makeRun({ run_id: 'run-priced', status: 'in_progress', completed_at: null }),
+                makeRun({
+                    run_id: 'run-other',
+                    skill_name: 'signals-scout-other',
+                    status: 'in_progress',
+                    completed_at: null,
+                }),
             ])
             mockSignalsScoutRunsTokenCosts.mockResolvedValue({
                 costs: [
@@ -1088,6 +1094,35 @@ describe('scoutFleetLogic', () => {
             expect(slices.get(BASE_CONFIG.skill_name)).not.toBe(firstSlices.get(BASE_CONFIG.skill_name))
             expect(slices.get(BASE_CONFIG.skill_name)?.get('run-priced')).toBe(5.11)
             expect(slices.get('signals-scout-other')).toBe(firstSlices.get('signals-scout-other'))
+        })
+
+        it('asks for a settled run once, and keeps asking for a live or newly settled one', async () => {
+            const recentlySettled = new Date(Date.now() - 60_000).toISOString()
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue([
+                makeRun({ run_id: 'run-settled' }),
+                makeRun({ run_id: 'run-just-settled', completed_at: recentlySettled }),
+                makeRun({ run_id: 'run-live', status: 'in_progress', completed_at: null }),
+            ])
+            mockSignalsScoutRunsTokenCosts.mockResolvedValue({
+                costs: [
+                    { run_id: 'run-settled', token_cost_usd: 4.03 },
+                    { run_id: 'run-just-settled', token_cost_usd: 1 },
+                    { run_id: 'run-live', token_cost_usd: 2 },
+                ],
+                available: true,
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            expect(mockSignalsScoutRunsTokenCosts.mock.calls.map(([, body]) => body.run_ids)).toEqual([
+                ['run-settled', 'run-just-settled', 'run-live'],
+                ['run-just-settled', 'run-live'],
+            ])
+            expect(logic.values.scoutRunCosts.get('run-settled')).toBe(4.03)
         })
 
         it('sends no further batches once the deployment reports it cannot price runs', async () => {
