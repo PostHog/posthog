@@ -206,7 +206,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("cdp_api_error", MagicMock(status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE, 2),
             (
                 "connection_refused",
-                requests.ConnectionError(MaxRetryError(None, "/", reason=NewConnectionError(None, "refused"))),
+                requests.ConnectionError(MaxRetryError(MagicMock(), "/", reason=NewConnectionError(None, "refused"))),
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 2,
             ),
@@ -219,7 +219,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
         ]
     )
-    def test_a_retry_after_a_failed_send_holds_only_while_the_outcome_is_unknown(
+    def test_a_retry_after_a_failed_send_sends_again_only_when_nothing_was_sent(
         self, mock_post, _flag, _capture, _name, outcome, expected_retry_status, expected_calls
     ):
         if isinstance(outcome, Exception):
@@ -234,8 +234,9 @@ class TestTransactionalEmail(APIBaseTest):
         assert first.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert second.status_code == expected_retry_status
         assert mock_post.call_count == expected_calls
-        # An unknown outcome holds the key only briefly, so the email can still go out after it expires.
-        assert get_client().ttl(_idempotency_redis_key(self.team.id, key)) <= IN_FLIGHT_TTL_SECONDS
+        # An unknown outcome spends the key for good, so a late retry can't send a second email either.
+        outcome_unknown = expected_retry_status == status.HTTP_409_CONFLICT
+        assert (get_client().ttl(_idempotency_redis_key(self.team.id, key)) > IN_FLIGHT_TTL_SECONDS) == outcome_unknown
 
     def test_an_accepted_send_replays_after_the_email_is_paused(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -352,6 +353,15 @@ class TestTransactionalEmail(APIBaseTest):
         email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
 
+    def test_deleting_a_transactional_template_succeeds(self, mock_post, _flag, _capture):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", {"deleted": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.template.refresh_from_db()
+        assert self.template.deleted
+
     def test_rejects_an_update_that_would_stop_a_transactional_template_sending(self, mock_post, _flag, _capture):
         category = MessageCategory.objects.create(
             team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
@@ -393,15 +403,22 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
             type="email",
         )
-        hog_flow_id = make_transactional(self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None)
-        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
-        create_access_control(
-            team_id=self.team.id,
-            resource="hog_flow",
-            resource_id=str(hog_flow_id),
-            access_level="none",
-            organization_member_id=OrganizationMembership.objects.get(user=member, organization=self.organization).id,
+        self.hog_flow_id = make_transactional(
+            self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
         )
+        self._login_member("member@example.com", {str(self.hog_flow_id): "none"})
+
+    def _login_member(self, email: str, levels: dict[str | None, str]) -> None:
+        member = User.objects.create_and_join(self.organization, email, "testtest")
+        membership_id = OrganizationMembership.objects.get(user=member, organization=self.organization).id
+        for resource_id, access_level in levels.items():
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                resource_id=resource_id,
+                access_level=access_level,
+                organization_member_id=membership_id,
+            )
         self.client.force_login(member)
 
     @parameterized.expand(
@@ -417,3 +434,20 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_post.assert_not_called()
+
+    def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag):
+        self._login_member("viewer@example.com", {None: "viewer", str(self.hog_flow_id): "editor"})
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Welcome",
+            content={"email": {"subject": "Welcome", "html": "<p>Hi</p>"}},
+            type="email",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", {}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        template.refresh_from_db()
+        assert template.transactional_hog_flow_id is None

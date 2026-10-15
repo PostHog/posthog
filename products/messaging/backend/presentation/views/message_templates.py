@@ -464,12 +464,19 @@ class MessageTemplatesViewSet(
                 except TransactionalEmailError as e:
                     raise TransactionalEmailRejected(e) from None
             updated = update_template(self.team_id, template.id, serializer.validated_data)
-            if hog_flow_id:
-                sync_transactional_workflow(self.team_id, template.id, user_id=self._actor_id())
+            if hog_flow_id and not updated.deleted:
+                self._sync_transactional_workflow(template.id)
                 # The sync unlinks the template when its workflow was deleted.
                 updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _sync_transactional_workflow(self, template_id: Any) -> None:
+        # Raising rolls back the template save, so the template and its workflow never disagree.
+        try:
+            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
@@ -557,7 +564,7 @@ class MessageTemplatesViewSet(
         with transaction.atomic():
             locked = edit_template_content(self.team_id, template.id, apply_operations)
             if locked.transactional_hog_flow_id:
-                sync_transactional_workflow(self.team_id, template.id, user_id=self._actor_id())
+                self._sync_transactional_workflow(template.id)
 
         self._emit_resource_edited(locked)
         return Response(self._serialize(locked))
@@ -648,6 +655,9 @@ class MessageTemplatesViewSet(
         self._require_transactional_email_flag()
         template = self.get_object()
         was_transactional = template.transactional_hog_flow_id is not None
+        # Access to one workflow lets a member through the viewset's checks, but this creates a new one.
+        if not was_transactional and not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to make a template transactional.")
         try:
             make_transactional(
                 self.team_id,

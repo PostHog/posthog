@@ -34,6 +34,7 @@ from products.messaging.backend.models.message_category import MessageCategoryTy
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
+    TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
     create_transactional_email_workflow,
     update_transactional_email_workflow,
@@ -45,6 +46,7 @@ IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
 # Long enough to cover a request that cdp-api answers late, short enough that a lost answer does not block the send.
 IN_FLIGHT_TTL_SECONDS = 5 * 60
 _IN_FLIGHT = "in-flight"
+_OUTCOME_UNKNOWN = "outcome-unknown"
 # A gateway can return these after cdp-api queued the job. cdp-api's own 5xx always means nothing was queued.
 _AMBIGUOUS_STATUS_CODES = {502, 504}
 
@@ -157,6 +159,10 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
     except WorkflowNotFound:
         # Someone deleted the workflow. The template stops being transactional and can be made so again.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
+    except TransactionalEmailContentInvalid as e:
+        raise TemplateNotSendable("The template needs a subject and a body to send.") from e
+    except TransactionalEmailSenderUnavailable as e:
+        raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
 
 def _idempotency_redis_key(team_id: int, idempotency_key: str) -> str:
@@ -182,6 +188,10 @@ def _replay(stored: bytes | str | None, fingerprint: str) -> QueuedEmail | None:
         raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
     if reservation["message_id"] == _IN_FLIGHT:
         raise SendInProgress("A request with this idempotency key is still in progress.")
+    if reservation["message_id"] == _OUTCOME_UNKNOWN:
+        raise SendInProgress(
+            "An earlier request with this idempotency key may have sent the email. Use a new key to send it again."
+        )
     return QueuedEmail(message_id=reservation["message_id"], replayed=True)
 
 
@@ -194,6 +204,10 @@ def _never_sent(error: Exception) -> bool:
         reason = error.args[0] if error.args else None
         return isinstance(getattr(reason, "reason", reason), NewConnectionError)
     return False
+
+
+def _hold_unknown_outcome(redis: Any, redis_key: str, fingerprint: str) -> None:
+    redis.set(redis_key, _idempotency_value(fingerprint, _OUTCOME_UNKNOWN), ex=IDEMPOTENCY_TTL_SECONDS)
 
 
 def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
@@ -263,14 +277,19 @@ def send_transactional_email(
                 redis.delete(redis_key)
             logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
         else:
-            # cdp-api can queue the email before the response is lost. The reservation stays until it expires,
-            # so a quick retry with the same key gets a conflict instead of a second email.
+            # cdp-api can queue the email before the response is lost, and nothing downstream knows the key.
+            # The key stays spent, so a retry with it never sends a second email.
+            if redis_key:
+                _hold_unknown_outcome(redis, redis_key, fingerprint)
             logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
 
     if response.status_code != 202:
-        if redis_key and response.status_code not in _AMBIGUOUS_STATUS_CODES:
-            redis.delete(redis_key)
+        if redis_key:
+            if response.status_code in _AMBIGUOUS_STATUS_CODES:
+                _hold_unknown_outcome(redis, redis_key, fingerprint)
+            else:
+                redis.delete(redis_key)
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")
         logger.error(
