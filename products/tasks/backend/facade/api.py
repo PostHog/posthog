@@ -38,6 +38,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
     Value,
     When,
 )
@@ -6929,16 +6930,24 @@ DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
 #: Sources the task list filters on, in the words of the desktop source filter. A first-party client
 #: names the user-created tasks it made. Any other source names an origin product. The list never
-#: shows product-private tasks, so their origin products are not offered.
-TASK_LIST_SOURCES: frozenset[str] = frozenset(
-    {
-        *TaskClientProvenance.values,
-        *(
-            product
-            for product in Task.OriginProduct.values
-            if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
-        ),
-    }
+#: shows product-private tasks, so their origin products are not offered. Built from the two source
+#: classes, so a new origin product becomes a source without an edit here.
+# django-stubs types only the class-body form of TextChoices; Django supports this functional form.
+TaskListSource = TextChoices(  # type: ignore[call-overload]
+    "TaskListSource",
+    [
+        (source.upper(), source)
+        for source in sorted(
+            {
+                *TaskClientProvenance.values,
+                *(
+                    product
+                    for product in Task.OriginProduct.values
+                    if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
+                ),
+            }
+        )
+    ],
 )
 
 

@@ -2362,7 +2362,7 @@ class TaskListQuerySerializer(serializers.Serializer):
     )
     sources = CommaTolerantListField(
         required=False,
-        child=serializers.ChoiceField(choices=sorted(tasks_facade.TASK_LIST_SOURCES)),
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
         help_text=(
             "Only tasks from any of these sources. Repeat the parameter for each source, or send one "
             "comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' "
