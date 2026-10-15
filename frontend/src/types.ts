@@ -1759,8 +1759,6 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_to_step: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | null
-
 export interface PersonType {
     id?: string
     uuid?: string
@@ -2420,6 +2418,8 @@ export interface BillingProductV2Type {
     legacy_product?: boolean | null
     // Billing refuses a customer billing limit for this product and returns no limit for it.
     no_billing_limit?: boolean
+    // Set on a companion product: the type of the product whose card it is billed under.
+    companion_of?: string | null
 }
 
 export interface BillingProductV2AddonType {

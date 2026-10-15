@@ -182,7 +182,7 @@ export function isActionCapableReport(report: SignalReport): boolean {
 export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr'
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
-export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI, then use the repository's merge process. Ask me before you make a decision I did not make.`
+export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make.`
 
 function discussReportInstructions(
     report: SignalReport | null,
@@ -202,7 +202,7 @@ function discussReportInstructions(
     if (intent === 'merge_pr' && report !== null && hasApprovedOpenReportPullRequest(report)) {
         return [
             `A person approved the pull request on the PostHog Inbox report at ${reportUrl} and asked you to get it merged in the message after this block.`,
-            `Read the report first and find its open, approved pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Fix failing CI checks and merge conflicts with the smallest change that keeps what the reviewer approved. Then merge it with the repository's own merge process: read its contribution guide and agent instructions first, and use its merge queue when it has one. This request approves the merge of this pull request only. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, a new review that requests changes, a failure that this PR did not cause, or a merge rule that needs a person. Do not change the report state: the merge resolves the report.`,
+            `Read the report first and find its open, approved pull request with the inbox MCP tools. Work only on that pull request, on its own branch. Do not open a second PR. Fix failing CI checks with the smallest change that keeps what the reviewer approved. If the branch conflicts with its base, update it from the base branch and resolve each conflict so that both sides keep their intent: keep the base branch's changes and reapply this PR's change on top of them, then run the affected tests. Then merge it with the repository's own merge process: read its contribution guide and agent instructions first, and use its merge queue when it has one. This request approves the merge of this pull request only. Stop and ask the person before you continue when the work needs a decision they did not make: a fix that changes what the PR does, a new review that requests changes, a failure that this PR did not cause, or a merge rule that needs a person. Do not change the report state: the merge resolves the report.`,
             NO_CHECKOUT_INSTRUCTIONS,
         ]
     }

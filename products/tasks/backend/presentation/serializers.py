@@ -1422,10 +1422,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional source label for the artifact, such as agent_output or user_attachment",
     )
     content = serializers.CharField(
+        trim_whitespace=False,
         help_text=(
             "Artifact contents encoded according to content_encoding. "
             f"Artifacts above {TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)} MB must use prepare_upload instead."
-        )
+        ),
     )
     content_encoding = serializers.ChoiceField(
         choices=TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES,
@@ -1450,8 +1451,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         content_encoding = attrs.get("content_encoding", "utf-8")
 
         if content_encoding == "base64":
+            encoded = content.strip()
+            if not encoded:
+                raise serializers.ValidationError({"content": self.fields["content"].error_messages["blank"]})
             try:
-                attrs["content_bytes"] = base64.b64decode(content, validate=True)
+                attrs["content_bytes"] = base64.b64decode(encoded, validate=True)
             except (binascii.Error, ValueError) as exc:
                 raise serializers.ValidationError({"content": "Invalid base64 content"}) from exc
         else:
@@ -1570,6 +1574,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the initial artifact version.",
     )
@@ -1680,6 +1685,7 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the next version.",
     )
@@ -1841,6 +1847,14 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
+    base_artifact_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text=(
+            "ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when "
+            "its base artifact can."
+        ),
+    )
 
     def validate(self, attrs):
         return validate_task_run_artifact_metadata(attrs)
@@ -1996,6 +2010,16 @@ class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
 class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
+    scripts_available = serializers.BooleanField(
+        help_text=(
+            "Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact "
+            "version had limited network access, or when the version has no record of it."
+        )
+    )
 
 
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):

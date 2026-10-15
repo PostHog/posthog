@@ -15,6 +15,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 import {
     EventType as RRWebEventType,
     customEvent,
@@ -24,6 +25,7 @@ import {
 } from 'posthog-js/rrweb-types'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { getCommentText } from 'lib/components/Comments/commentUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -987,12 +989,24 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         session_ids: [props.sessionRecordingId],
                     }
 
-                    const response = await api.recordings.getMatchingEvents(toParams(params))
+                    let results: MatchedRecordingEvent[] = []
+                    let failure: unknown = null
+                    try {
+                        // nosemgrep: prefer-codegen-api-namespaced-replay
+                        results = (await api.recordings.getMatchingEvents(toParams(params))).results
+                    } catch (error) {
+                        // Highlights are optional, so the recording plays on without them.
+                        // Also clear the previous filters' highlights instead of keeping them.
+                        failure = error
+                    }
                     // kea-loaders still dispatches success for a superseded call. Drop this response
                     // when a newer load started while it was in flight, so that it cannot overwrite
                     // the newer events or settle the skip on the previous filters' events.
                     breakpoint()
-                    return response.results
+                    if (failure && shouldReportApiFailure(failure)) {
+                        posthog.captureException(failure)
+                    }
+                    return results
                 },
             },
         ],

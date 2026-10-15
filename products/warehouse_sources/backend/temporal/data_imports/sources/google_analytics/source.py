@@ -167,7 +167,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "google-analytics-rails",
         ),
         swiftpm=("github.com/google/googleappmeasurement",),
-        competes_with=(ProductKey.WEB_ANALYTICS,),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
     )
 
     supported_versions = ("v1",)

@@ -155,7 +155,7 @@ pub struct DispatcherLoad {
 /// this reports is what the next batch would route with.
 #[derive(Serialize)]
 pub struct RoutingDebug {
-    /// Configured strategy (`binpack`, `p2c`, `aperture`).
+    /// Configured strategy (`p2c`, `aperture`).
     pub strategy: String,
     /// Configured minimum aperture width; `None` when aperture is not wired.
     pub min_aperture: Option<usize>,

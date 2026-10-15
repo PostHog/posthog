@@ -17,4 +17,4 @@ class Tool:
 @frozen
 class ToolClassification:
     warehouse_source_type: str | None
-    competes_with: tuple[str, ...]
+    alternative_to: tuple[str, ...]

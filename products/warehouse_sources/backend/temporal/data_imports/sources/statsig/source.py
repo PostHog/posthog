@@ -119,7 +119,7 @@ class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
             "github.com/statsig-io/swift-on-device-evaluations-sdk",
             "github.com/statsig-io/ios-sdk",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 
     lists_tables_without_credentials = True
