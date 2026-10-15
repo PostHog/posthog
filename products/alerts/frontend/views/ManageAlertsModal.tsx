@@ -82,7 +82,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
         receivedFeatureFlags &&
         featureFlags[FEATURE_FLAGS.INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT] === 'test'
     const createAlertDisabledReason = !props.canCreateAlertForInsight
-        ? alertsUnsupportedReason({}, props.insightQuery)
+        ? alertsUnsupportedReason(props.insightQuery)
         : undefined
     const openAlert = (alertId: AlertType['id']): void => {
         if (props.onEditAlert) {
