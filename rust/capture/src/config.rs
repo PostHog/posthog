@@ -318,7 +318,7 @@ pub struct Config {
     #[envconfig(default = "capture")]
     pub otel_service_name: String,
 
-    // Used for integration tests
+    /// Install the Prometheus recorder and the limiters' metric tasks.
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
     pub redis_key_prefix: Option<String>,
@@ -426,14 +426,10 @@ pub struct Config {
     pub capture_v1_scatter_gather_min_batch: usize,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
-    // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic, by default on the main event
-    // cluster: absent the warnings-cluster overrides below, the producer
-    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
-    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
-    // acks/retries and a small queue, so a saturated or slow warnings topic
-    // can never behave like — or contend with — the main event producer.
-    // Defaults off (fail open).
+    // Warnings go out as `$$client_ingestion_warning` events through a
+    // dedicated `common_kafka::config::KafkaConfig` with fire-and-forget
+    // acks/retries and a small queue, so a slow warnings topic cannot contend
+    // with the main event producer. Defaults off (fail open).
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
 

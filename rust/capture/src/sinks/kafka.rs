@@ -460,10 +460,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
                 Err(err) => {
                     counter!("capture_kafka_prep_panic_total").increment(1);
                     error!("join error while preparing Kafka record: {err:#}");
-                    // Drain remaining prep tasks before returning so they can't
-                    // leak records into librdkafka after we've already failed.
-                    // Record the histogram on the error path too so prep-duration
-                    // stays observable during failures (not just happy path).
+                    // Record prep duration on the error path too.
                     prep_set.abort_all();
                     histogram!("capture_kafka_batch_prep_duration_seconds")
                         .record(prep_start.elapsed().as_secs_f64());
@@ -2439,12 +2436,6 @@ mod tests {
         }
 
         // ==================== overflow_reason routing tests ====================
-        // The pipeline stamps ProcessedEventMetadata::overflow_reason upstream;
-        // the sink is a pure mechanism layer that switches on it. These cover
-        // each variant: ForceLimited, RateLimited { preserve_locality }, and
-        // ReplayLimited. `force_overflow` coexistence is covered by the
-        // analytics_main_force_overflow / snapshot_main_force_overflow cases
-        // above (force_overflow short-circuits the overflow_reason branch).
 
         /// `ForceLimited` implies person processing is off on its own: the
         /// header is set whether or not the stamping site also set the flag,

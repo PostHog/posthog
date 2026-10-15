@@ -214,7 +214,7 @@ async fn v1_dropped_event_not_published() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Exception event routes to exception topic
+// Exception event publishes
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -365,7 +365,7 @@ async fn v1_empty_options_no_injection() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-destination batch — events route correctly
+// Multi-destination batch — every event publishes
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

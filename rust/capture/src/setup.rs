@@ -564,9 +564,9 @@ const WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
 const WARNINGS_TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
 const WARNINGS_TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
 
-/// Build the dedicated, warnings-only Kafka config. Reuses only the
-/// destination cluster (`hosts`/`tls`) from capture's main Kafka config;
-/// everything else is the fixed fire-and-forget policy (client id, acks,
+/// Build the dedicated, warnings-only Kafka config. `hosts`/`tls` come from
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS}`; everything else is the
+/// fixed fire-and-forget policy (client id, acks,
 /// retries, linger, queue depth, message timeout) plus the two tunable limits
 /// (`queue_mib`, `message_max_bytes`). `..Default::default()` supplies the
 /// shared-crate defaults (compression codec, empty client rack) and — critically
@@ -601,9 +601,8 @@ fn build_warnings_kafka_config(
 /// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
 /// callback. Its destination (hosts/TLS/topic) comes entirely from
-/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`; it no longer borrows
-/// anything from capture's main event config (the v0 `KAFKA_*` block), so
-/// retiring that block cannot silently misroute or mute it. When built, a
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`, never from capture's
+/// main event config. When built, a
 /// background task heartbeats the advisory lifecycle handle, sweeps the
 /// throttle's per-key state, and flushes the producer once at shutdown.
 ///
@@ -1010,7 +1009,6 @@ mod tests {
     fn warnings_kafka_config_is_isolated_from_main_producer_tuning() {
         let cfg = build_warnings_kafka_config("broker:9092".to_string(), true, 16, 1_048_576);
 
-        // Reuses only the destination cluster from the main config.
         assert_eq!(cfg.kafka_hosts, "broker:9092");
         assert!(cfg.kafka_tls);
 

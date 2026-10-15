@@ -364,8 +364,8 @@ pub fn realistic_dup_uuid_pair() -> (Event, Event) {
     (first, second)
 }
 
-/// One Ok event per `Destination` variant + one pre-marked Drop, with
-/// ordinal `user-dest-{0..5}` distinct_ids.
+/// One Ok event per analytics destination plus Dlq and Custom, and one
+/// pre-marked Drop.
 pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let main = realistic_pageview("user-dest-0").with_destination(Destination::AnalyticsMain);
     let historical =
@@ -436,7 +436,6 @@ pub fn assert_round_trip(
 // Payload generators for batch-level tests
 // ---------------------------------------------------------------------------
 
-/// Serialize a list of Events into a valid V1 batch JSON payload.
 /// A non-historical batch wrapping `events`, the shape `process_batch` takes.
 pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
     crate::v1::analytics::types::Batch {
@@ -447,6 +446,7 @@ pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
     }
 }
 
+/// Serialize a list of Events into a valid V1 batch JSON payload.
 pub fn batch_payload(events: &[Event]) -> Vec<u8> {
     let batch_json = serde_json::json!({
         "created_at": "2026-03-19T14:30:00.000Z",

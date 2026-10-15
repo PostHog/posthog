@@ -145,7 +145,7 @@ async fn setup_router_with_limits(
         false,            // is_mirror_deploy
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes (25MB)
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -349,7 +349,6 @@ async fn test_billing_limit_retains_only_scoped_limiter_events() {
     // Should return OK even when billing limited (legacy behavior)
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Check that only exception events were retained
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 3);
 
@@ -501,7 +500,6 @@ async fn test_billing_limit_retains_scoped_limiter_events_iv0e_endpoint() {
     // Should return OK even when billing limited
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Check that only $exception events were retained
     let captured_events = sink.events();
 
     // all but the exception, AI, and survey events should be dropped from the input batch
@@ -545,22 +543,18 @@ async fn test_exception_limiter_filters_only_exception_events() {
         .send()
         .await;
 
-    // Should return OK even when survey limited
     assert_eq!(response.status(), StatusCode::OK);
 
-    // ALL survey events should be filtered out when quota exceeded, other events should be captured
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 4); // pageview, click, $exception
+    assert_eq!(captured_events.len(), 4);
 
     let event_names: Vec<String> = extract_captured_event_names(&captured_events);
 
-    // Non-survey events should be present
     assert!(event_names.contains(&"pageview".to_string()));
     assert!(event_names.contains(&"click".to_string()));
     assert!(event_names.contains(&"$ai_your_absolutely_right".to_string()));
     assert!(event_names.contains(&"survey sent".to_string()));
 
-    // All survey events should be filtered out when quota exceeded
     assert!(!event_names.contains(&"$exception".to_string()));
 }
 
@@ -576,7 +570,6 @@ async fn test_exception_limiter_returns_ok_when_only_exception_events() {
     .await;
     let client = TestClient::new(router);
 
-    // Only survey events in the payload
     let events = ["$exception", "$exception", "$exception"];
     let payload = create_batch_payload_with_token(&events, token);
 
@@ -591,7 +584,6 @@ async fn test_exception_limiter_returns_ok_when_only_exception_events() {
     // Should return OK (legacy behavior - errors are converted to OK for v0 endpoints)
     assert_eq!(response.status(), StatusCode::OK);
 
-    // When quota exceeded, ALL survey events should be filtered out
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 0);
 }
@@ -605,7 +597,7 @@ async fn test_exception_limiter_allows_exception_events_when_not_limited() {
         true,
         vec![QuotaResource::Surveys, QuotaResource::LLMEvents],
     )
-    .await; // Not survey limited
+    .await;
     let client = TestClient::new(router);
 
     let events = [
@@ -629,7 +621,6 @@ async fn test_exception_limiter_allows_exception_events_when_not_limited() {
     // Should return OK
     assert_eq!(response.status(), StatusCode::OK);
 
-    // All events should be captured when not survey limited
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 2);
 
@@ -651,7 +642,7 @@ async fn test_both_billing_and_exception_limits_applied() {
         true,
         vec![QuotaResource::Exceptions],
     )
-    .await; // Both billing and survey limited
+    .await;
     let client = TestClient::new(router);
 
     let events = [
@@ -674,9 +665,6 @@ async fn test_both_billing_and_exception_limits_applied() {
     // Should return OK
     assert_eq!(response.status(), StatusCode::OK);
 
-    // First billing limit is applied (retains only $exception and survey events)
-    // Then survey limit is applied (filters out survey events)
-    // So only $exception should remain
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 2);
 
@@ -846,9 +834,6 @@ async fn test_both_billing_and_survey_limits_applied() {
     // Should return OK
     assert_eq!(response.status(), StatusCode::OK);
 
-    // First billing limit is applied (retains only $exception and survey events)
-    // Then survey limit is applied (filters out survey events)
-    // So only $exception should remain
     let captured_events = sink.events();
     assert_eq!(captured_events.len(), 2);
 
@@ -1198,7 +1183,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1289,7 +1274,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1384,7 +1369,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -1440,10 +1425,10 @@ async fn test_survey_and_global_limited_drops_all_events_when_only_matching_even
 
     // Mix of all survey event types - when quota exceeded, ALL survey events should be dropped
     let events = [
-        ("survey sent", Some("submission_123")), // This should be dropped due to quota
-        ("survey shown", Some("submission_123")), // This should also be dropped when quota exceeded
-        ("survey dismissed", Some("submission_123")), // This should also be dropped when quota exceeded
-        ("pageview", None),                           // Non-survey event
+        ("survey sent", Some("submission_123")),
+        ("survey shown", Some("submission_123")),
+        ("survey dismissed", Some("submission_123")),
+        ("pageview", None),
     ];
     let payload = create_survey_events_with_submission_ids(&events, token);
 
@@ -1459,7 +1444,7 @@ async fn test_survey_and_global_limited_drops_all_events_when_only_matching_even
 
     // When survey quota is exceeded, ALL survey events should be dropped
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 0); // only pageview
+    assert_eq!(captured_events.len(), 0);
 }
 
 #[tokio::test]
@@ -1816,7 +1801,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
-        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040,          // ai_max_event_bytes (960KB)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes

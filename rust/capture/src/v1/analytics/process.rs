@@ -2177,8 +2177,6 @@ mod tests {
         );
     }
 
-    /// A ceiling of `0` disables the check, so a deployment that never sets
-    /// `AI_MAX_EVENT_BYTES` keeps publishing whatever its producer accepts.
     #[tokio::test]
     async fn a_zero_ai_size_ceiling_disables_the_check() {
         let mut oversized = wrapped_event("$ai_generation", "user-big");
