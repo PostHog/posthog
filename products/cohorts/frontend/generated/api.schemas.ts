@@ -647,10 +647,12 @@ export interface CohortUsedInWorkflowApi {
 }
 
 export interface CohortUsedInWorkflowsBlockApi {
-    /** Active workflows relying on this cohort that the caller can view in the current environment */
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
     results: CohortUsedInWorkflowApi[]
-    /** Total number of active workflows relying on this cohort in every environment of the project, including ones the caller cannot view */
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
     total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
     /** True when some relying workflows are not listed in results */
     has_more: boolean
 }

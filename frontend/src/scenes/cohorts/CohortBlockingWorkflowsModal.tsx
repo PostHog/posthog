@@ -15,7 +15,9 @@ const BLOCKING_COPY: Record<CohortBlockedAction, string> = {
 export function CohortBlockingWorkflowsModal(): JSX.Element {
     const { blocking } = useValues(cohortBlockingWorkflowsModalLogic)
     const { closeBlockingWorkflowsModal } = useActions(cohortBlockingWorkflowsModalLogic)
-    const hiddenCount = blocking ? blocking.workflows.total - blocking.workflows.results.length : 0
+    const hiddenCount = blocking?.workflows.hidden ?? 0
+    // The API caps the list it returns, so some workflows the person can view may not be listed.
+    const unlistedCount = blocking ? blocking.workflows.total - hiddenCount - blocking.workflows.results.length : 0
 
     return (
         <LemonModal
@@ -45,6 +47,7 @@ export function CohortBlockingWorkflowsModal(): JSX.Element {
                                     </Link>
                                 </li>
                             ))}
+                            {unlistedCount > 0 && <li className="text-secondary">and {unlistedCount} more</li>}
                         </ul>
                     )}
                     {hiddenCount > 0 && (

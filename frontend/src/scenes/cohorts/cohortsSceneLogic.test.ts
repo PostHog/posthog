@@ -185,6 +185,7 @@ describe('cohortsSceneLogic', () => {
                 workflows: {
                     results: workflowsTotal ? [{ id: 'flow-1', name: 'Welcome series', status: 'active' }] : [],
                     total: workflowsTotal,
+                    hidden: 0,
                     has_more: false,
                 },
             })

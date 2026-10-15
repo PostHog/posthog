@@ -1124,7 +1124,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         const usedIn = await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
                         // A backend from before the workflows block returns no `workflows` key during a deploy.
-                        return { ...usedIn, workflows: usedIn.workflows ?? { results: [], total: 0, has_more: false } }
+                        return {
+                            ...usedIn,
+                            workflows: usedIn.workflows ?? { results: [], total: 0, hidden: 0, has_more: false },
+                        }
                     } catch (error) {
                         // A 404 just means the endpoint isn't deployed yet (deploy skew) or the
                         // cohort is gone; neither is worth reporting.

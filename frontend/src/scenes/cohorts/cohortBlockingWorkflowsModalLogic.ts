@@ -55,7 +55,7 @@ export const cohortBlockingWorkflowsModalLogic = kea<cohortBlockingWorkflowsModa
             posthog.capture('cohort change blocked by workflows', {
                 action: blocking.action,
                 workflow_count: blocking.workflows.total,
-                hidden_workflow_count: blocking.workflows.total - blocking.workflows.results.length,
+                hidden_workflow_count: blocking.workflows.hidden,
             })
         },
     }),

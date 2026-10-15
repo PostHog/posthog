@@ -645,13 +645,15 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
 class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
     results = CohortUsedInWorkflowSerializer(
         many=True,
-        help_text="Active workflows relying on this cohort that the caller can view in the current environment",
+        help_text=(
+            f"Active workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+        ),
     )
     total = serializers.IntegerField(
-        help_text=(
-            "Total number of active workflows relying on this cohort in every environment of the project, "
-            "including ones the caller cannot view"
-        )
+        help_text="Total number of active workflows relying on this cohort, including ones the caller cannot view"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of relying workflows the caller cannot view. They count toward total but are never listed"
     )
     has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
 
@@ -2369,9 +2371,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
         workflows = _workflows_relying_on_cohort(cohort)
+        visible_workflows = _visible_workflows(request, uac, cohort.team_id, workflows)
         workflows_data = [
             {"id": workflow.id, "name": workflow.name, "status": workflow.status}
-            for workflow in _visible_workflows(request, uac, cohort.team_id, workflows)
+            for workflow in visible_workflows[:COHORT_USED_IN_PAGE_SIZE]
         ]
 
         return Response(
@@ -2379,7 +2382,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
                 "insights": _used_in_block(insights_data, insights_total),
                 "cohorts": _used_in_block(cohorts_data, cohorts_total),
-                "workflows": _used_in_block(workflows_data, len(workflows)),
+                "workflows": {
+                    **_used_in_block(workflows_data, len(workflows)),
+                    "hidden": len(workflows) - len(visible_workflows),
+                },
             }
         )
 

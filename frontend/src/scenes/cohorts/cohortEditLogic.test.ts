@@ -59,7 +59,7 @@ const mockUsedInResponse: CohortUsedInResponseApi = {
     },
     insights: { results: [], total: 0, has_more: false },
     cohorts: { results: [], total: 0, has_more: false },
-    workflows: { results: [], total: 0, has_more: false },
+    workflows: { results: [], total: 0, hidden: 0, has_more: false },
 }
 
 describe('cohortEditLogic', () => {
@@ -426,6 +426,7 @@ describe('cohortEditLogic', () => {
         const blockingWorkflows = {
             results: [{ id: 'flow-1', name: 'Welcome series', status: 'active' }],
             total: 2,
+            hidden: 1,
             has_more: true,
         }
 

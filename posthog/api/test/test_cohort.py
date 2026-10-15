@@ -7141,7 +7141,10 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.organization.save()
         cohort_id = self._create_realtime_cohort()
         hidden_id = self._create_workflow_using_cohort(cohort_id, "trigger", "active")
-        visible_id = self._create_workflow_using_cohort(cohort_id, "branch", "active")
+        visible_ids = {
+            self._create_workflow_using_cohort(cohort_id, "branch", "active"),
+            self._create_workflow_using_cohort(cohort_id, "branch_precalculated", "active"),
+        }
         self._create_workflow_using_cohort(cohort_id, "branch", "draft")
         AccessControl.objects.create(
             team=self.team,
@@ -7151,12 +7154,15 @@ class TestCohortTypeIntegration(APIBaseTest):
             organization_member=self.organization_membership,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in/")
+        with patch("posthog.api.cohort.COHORT_USED_IN_PAGE_SIZE", 1):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in/")
 
         assert response.status_code == 200, response.json()
-        assert response.json()["workflows"] == {
-            "results": [{"id": visible_id, "name": "Workflow branch", "status": "active"}],
-            "total": 2,
+        workflows = response.json()["workflows"]
+        assert [workflow["id"] for workflow in workflows["results"]] in [[visible_id] for visible_id in visible_ids]
+        assert {key: workflows[key] for key in ("total", "hidden", "has_more")} == {
+            "total": 3,
+            "hidden": 1,
             "has_more": True,
         }
 

@@ -40,6 +40,7 @@ export const DeleteBlocked: Story = {
                         },
                     ],
                     total: 3,
+                    hidden: 1,
                     has_more: true,
                 },
             }}
@@ -55,6 +56,7 @@ export const EditBlocked: Story = {
                 workflows: {
                     results: [{ id: '0190a1b2-0000-0000-0000-000000000001', name: 'Welcome series', status: 'active' }],
                     total: 1,
+                    hidden: 0,
                     has_more: false,
                 },
             }}
@@ -77,6 +79,7 @@ export const LockedFromDetails: Story = {
                         },
                     ],
                     total: 2,
+                    hidden: 0,
                     has_more: false,
                 },
             }}
