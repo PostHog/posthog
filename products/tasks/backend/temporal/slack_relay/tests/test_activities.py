@@ -843,7 +843,7 @@ class TestSplitTextForSlack(unittest.TestCase):
         # characters would otherwise expand into more than 50 repeated fenced chunks.
         # The fallback avoids repeating the oversized label around every chunk.
         long_label = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN - 100)
-        body = "y" * 5000
+        body = "".join(f"{index:04d}" for index in range(1250))
         text = f"```{long_label}\n{body}\n```"
         chunks = _split_markdown_for_slack(text, SLACK_MARKDOWN_TEXT_MAX_LEN)
         # Plain-text packing keeps this to a small number of chunks.
@@ -852,14 +852,17 @@ class TestSplitTextForSlack(unittest.TestCase):
             assert len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN
         # Plain text, no fences since the available body room is below fence overhead.
         assert all("```" not in chunk for chunk in chunks)
+        assert "".join(chunks) == body
 
         # Short fences can still amplify chunk count when a small caller limit leaves
         # too little body capacity: the old path emitted 55 chunks for these 5,000 chars.
         small_limit = 100
-        plain_body_chunks = _split_markdown_for_slack(f"```\n{'y' * 5000}\n```", small_limit)
+        small_body = "".join(f"{index:04d}" for index in range(1250))
+        plain_body_chunks = _split_markdown_for_slack(f"```\n{small_body}\n```", small_limit)
         assert len(plain_body_chunks) == 50
         assert all(len(chunk) <= small_limit for chunk in plain_body_chunks)
         assert all("```" not in chunk for chunk in plain_body_chunks)
+        assert "".join(plain_body_chunks) == small_body
 
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
