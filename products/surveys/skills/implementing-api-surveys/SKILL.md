@@ -62,9 +62,15 @@ function showSurveyIfEligible() {
   triggered = true
   tryShowSurvey()
 }
+
+// Call when the survey closes, after the final send or a dismiss.
+function onSurveyClosed() {
+  triggered = false
+  rendered = false
+}
 ```
 
-Call `showSurveyIfEligible()` from the app's trigger, such as after a checkout completes, or right after setup if the survey belongs on page load. In a single-page app, register the two listeners where the app initializes PostHog, and call the functions they return to unsubscribe if that code can unmount. `SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
+Call `showSurveyIfEligible()` from the app's trigger, such as after a checkout completes, or right after setup if the survey belongs on page load. Call `onSurveyClosed()` when the survey closes, so a survey that can repeat shows again on the next trigger. A survey that cannot repeat stays hidden, because posthog-js marks it as seen. In a single-page app, register the two listeners where the app initializes PostHog, and call the functions they return to unsubscribe if that code can unmount. `SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
 
 Capture three events. `answers` maps each question id to its answer, and holds every answer given so far in this submission. Exact property names and value shapes are in [event-contract.md](references/event-contract.md).
 
