@@ -6754,6 +6754,10 @@ snapshots:
         hash: v1.k794b7964.f9498533f26dcbda10f7e4061038e713a7325f635743eb9977bcdd7cc4a04ae0.uhcKGOmcxsxznbzt19e2cZZcN3lNE-9cSBy5VlVq0pU
     products-business-intelligence-worksheet-exploration--scatter-selection--light:
         hash: v1.k794b7964.2f3dee4b9e5f3f86f8d5639a380f16dfa8be646209b4a859d4476e6d2217c344.uykpvzQ3tWg2uGnQUAxfwrDNYlVHEI9zfqjWeaLCtuo
+    products-business-intelligence-worksheet-exploration--sql-preview--dark:
+        hash: v1.k794b7964.0c799dde5f45d0132adea9cd565d4ef7d074b78255da1138a1b9c76b5030373c.1fmdtlQ1z0XQlGBswx8rJNK2wmfkwWYd-WdqLJaAMyg
+    products-business-intelligence-worksheet-exploration--sql-preview--light:
+        hash: v1.k794b7964.65bca19aec73213bc3606b3703ac40d96e5b19a4c917b71b42081b6a59b113f2.1WFaE2x0Bhl2SnlkCWQgHOYAf07GR4IisxPxFuF4jEY
     products-business-intelligence-worksheets--worksheets--dark:
         hash: v1.k794b7964.3998501a45652d1982a4ae8217c905e0482c6979a4f54642cbc8739d991730ef.x5TzvSg7zyGoyTdnBYKHG__tv6ytXrmifpxCAgkyItg
     products-business-intelligence-worksheets--worksheets--light:
