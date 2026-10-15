@@ -203,6 +203,21 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const HostedTrino: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        pageUrl: `${urls.sqlEditor({ query: 'SELECT event FROM events' })}#engine=managed_trino`,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
 export const LoadingInsight: Story = {
     parameters: {
         pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
@@ -218,6 +233,7 @@ export const LoadingInsight: Story = {
                         return [200, { results: [] }]
                     },
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
             },
         },
@@ -378,7 +394,6 @@ export const MaterializationSettings: StoryObj = {
                                 id: 'source',
                                 name: 'orders',
                                 type: 'table',
-                                dag: 'dag-1',
                                 upstream_count: 0,
                                 downstream_count: 1,
                             },
@@ -387,14 +402,11 @@ export const MaterializationSettings: StoryObj = {
                                 name: 'revenue_summary',
                                 type: 'matview',
                                 saved_query_id: 'settings-view',
-                                dag: 'dag-1',
                                 upstream_count: 1,
                                 downstream_count: 0,
                             },
                         ],
-                        edges: [
-                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
-                        ],
+                        edges: [{ id: 'edge-1', source_id: 'source', target_id: 'summary', properties: {} }],
                     },
                 ],
             },
@@ -504,6 +516,7 @@ export const BIModeWorksheet: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
                 post: {
                     // The specific path wins over the catch-all query mock on the meta
@@ -738,6 +751,7 @@ export const LazySchema: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                     '/api/projects/:team_id/warehouse_saved_queries/': {
                         results: [
                             {
@@ -954,6 +968,7 @@ const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDe
                     is_ai_data_processing_approved: approved,
                 },
                 '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                '/api/environments/:team_id/warehouse_expressions/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {
@@ -1281,7 +1296,9 @@ export const BICombinedMeasures: Story = {
 export const BIMeasureDisplay: Story = {
     ...BICombinedMeasures,
     play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
 
@@ -1513,7 +1530,13 @@ export const BINamedHierarchy: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await userEvent.click(await canvas.findByText('120', { exact: true }))
-        await waitFor(() => expect(within(document.body).getByRole('link', { name: 'Drill to State' })).toBeVisible())
+        await userEvent.click(
+            await within(document.body).findByRole('button', {
+                name: 'Geography: filters this worksheet to the selection',
+            })
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getByText('Example state', { exact: true })).toBeVisible())
         await stabilizeQueryElapsedTime()
     },
 }

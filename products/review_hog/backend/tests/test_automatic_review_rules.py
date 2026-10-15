@@ -9,6 +9,7 @@ from products.review_hog.backend.automatic_review_rules import (
     AutomaticReviewRule,
     FlashRule,
 )
+from products.review_hog.backend.facade.enums import ReviewUserRepositoryChoiceMode
 from products.review_hog.backend.models import AutomaticFlashFor, ReviewUserRepositoryChoice
 from products.review_hog.backend.preferences import DefaultReviewMode
 
@@ -129,7 +130,7 @@ class TestAutomaticReviewRule(SimpleTestCase):
         automatic_rule: AutomaticReviewRule,
         user_id: int,
         default_mode: DefaultReviewMode,
-        repository_choice: ReviewUserRepositoryChoice.Mode | None,
+        repository_choice: ReviewUserRepositoryChoiceMode | None,
         flash: bool,
         reason: AutomaticReviewReason,
     ) -> None:

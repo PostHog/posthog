@@ -58,6 +58,7 @@ export interface BIDataSource {
 export interface BIField {
     id: string
     name: string
+    label?: string
     expression: string
     type: DatabaseSerializedFieldType
     source: BIDataSource
@@ -69,7 +70,7 @@ export interface BIField {
 
 export type BILocalFieldDefinition =
     | { kind: 'expression'; expression: string; aggregate: boolean }
-    | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string }
+    | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string; preserveUngrouped?: boolean }
     | { kind: 'bins'; expression: string; width: number; origin: number }
 
 export interface BICategoryGroup {
@@ -128,6 +129,7 @@ export interface BITotals {
 }
 
 export interface BIFilter {
+    label?: string
     field: BIField
     operator: BIFilterOperator
     value: string
@@ -143,6 +145,13 @@ export interface BIConfig {
     localFields?: BIField[]
     /** Named dimension sequences saved with the worksheet; imports are independent copies. */
     hierarchies?: BIHierarchy[]
+    hierarchyDrillPath?: {
+        hierarchyId: string
+        previousField: BIField
+        nextField: BIField
+        filterIds: string[]
+    }[]
+    memberAliases?: { field: BIField; aliases: { value: string | null; label: string }[] }[]
     colorBy?: string | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
@@ -174,6 +183,7 @@ export interface BIConditionGroup {
 }
 
 export interface BIResultFilter {
+    label?: string
     id: string
     measureIndex: non_negative_integer
     operator:

@@ -1821,6 +1821,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             ) {
               session.backgroundTurnActive = true;
             }
+            // The SDK can echo a task notification before the previous
+            // background result, so that result clears the flag first. Model
+            // output with no tracked turn still means a background turn runs.
+            if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null &&
+              !session.cancelled &&
+              !session.activeTurn &&
+              !session.turnQueue.some((turn) => !turn.settled)
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.

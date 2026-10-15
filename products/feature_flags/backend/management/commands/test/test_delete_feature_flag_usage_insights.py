@@ -24,8 +24,8 @@ from posthog.test.persons import create_group_type_mapping
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -51,8 +51,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
             # `FeatureFlag.aggregation_group_type_index` reads through to filters.
             filters["aggregation_group_type_index"] = aggregation_group_type_index
         flag = FeatureFlag.objects.create(team=team, created_by=self.user, key=key, filters=filters)
-        # Built through the API's own helper so the dashboard is shaped the way production shapes it.
-        dashboard = _create_usage_dashboard(flag, self.user)
+        dashboard = create_usage_dashboard(flag, self.user)
         if enriched:
             add_enriched_insights_to_feature_flag_dashboard(flag, dashboard)
         return flag

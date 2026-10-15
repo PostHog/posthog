@@ -94,6 +94,7 @@ function ScatterChartInner<Meta = unknown>({
         showTickMarks = true,
         showCrosshair = true,
         showBestFit = false,
+        isPointHighlighted,
         margins,
     } = config ?? {}
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
@@ -163,6 +164,13 @@ function ScatterChartInner<Meta = unknown>({
             }
 
             drawScatterMarkers(ctx, layout.positions, fillOpacity)
+            if (isPointHighlighted) {
+                for (const position of layout.positions) {
+                    if (isPointHighlighted(points[position.index])) {
+                        drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', 1)
+                    }
+                }
+            }
 
             // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
             // it underneath would bury it.
@@ -174,7 +182,7 @@ function ScatterChartInner<Meta = unknown>({
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit, isPointHighlighted, points]
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {

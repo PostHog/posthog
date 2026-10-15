@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MuxSource(ResumableSource[MuxSourceConfig, MuxResumeConfig]):
+    codebase_detection = detect(
+        env=("^MUX_",),
+        script_hosts=("src.litix.io",),
+        npm=("@mux/mux-node", "@mux/mux-player", "@mux/mux-player-react", "@mux/upchunk", "mux-embed"),
+        pypi=("mux-python",),
+        cocoapods=("Mux-Stats-AVPlayer",),
+        composer=("muxinc/mux-php",),
+        go=("github.com/muxinc/mux-go",),
+        hex=("mux",),
+        maven=("com.mux:mux-sdk-java",),
+        rubygems=("mux_ruby",),
+        swiftpm=("github.com/muxinc/mux-stats-sdk-avplayer",),
+    )
+
     api_docs_url = "https://www.mux.com/docs/api-reference"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in the public docs without credentials.

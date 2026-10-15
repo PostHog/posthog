@@ -5418,9 +5418,42 @@ export interface EventMatchApi {
     probability: number
 }
 
+/**
+ * * `wrong_length` - The search is too short or too long to ask about
+ * * `only_values` - Nothing but values is left for the model to read
+ * * `unavailable` - The model could not answer at all
+ * * `partial` - Some model requests failed, so an event it never asked about might have matched
+ * * `nothing_likely` - The model found no core event likely
+ * * `not_ingested` - The project never sent the likely events
+ * * `matched` - At least one likely event has data
+ */
+export type EventMatchOutcomeEnumApi = (typeof EventMatchOutcomeEnumApi)[keyof typeof EventMatchOutcomeEnumApi]
+
+export const EventMatchOutcomeEnumApi = {
+    WrongLength: 'wrong_length',
+    OnlyValues: 'only_values',
+    Unavailable: 'unavailable',
+    Partial: 'partial',
+    NothingLikely: 'nothing_likely',
+    NotIngested: 'not_ingested',
+    Matched: 'matched',
+} as const
+
 export interface EventMatchResponseApi {
     /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
     matches: EventMatchApi[]
+    /** The step that decided the answer, so an empty answer says why it is empty.
+     *
+     * * `wrong_length` - The search is too short or too long to ask about
+     * * `only_values` - Nothing but values is left for the model to read
+     * * `unavailable` - The model could not answer at all
+     * * `partial` - Some model requests failed, so an event it never asked about might have matched
+     * * `nothing_likely` - The model found no core event likely
+     * * `not_ingested` - The project never sent the likely events
+     * * `matched` - At least one likely event has data */
+    outcome: EventMatchOutcomeEnumApi
+    /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
+    unsent: EventMatchApi[]
 }
 
 /**
@@ -5488,6 +5521,16 @@ export interface UploadedMediaApi {
     readonly content_type: string | null
     /** @nullable */
     readonly size_bytes: number | null
+    /**
+     * Width in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly width: number | null
+    /**
+     * Height in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly height: number | null
     /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
     readonly url: string
     readonly created_at: string
@@ -5500,6 +5543,19 @@ export interface PaginatedUploadedMediaListApi {
     /** @nullable */
     previous?: string | null
     results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaCreatedApi {
+    /** Id of the uploaded image. */
+    readonly id: string
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly image_location: string
+    /** The file's original name. */
+    readonly name: string
+    /** Width in pixels. */
+    readonly width: number
+    /** Height in pixels. */
+    readonly height: number
 }
 
 export interface UploadedMediaStartUploadApi {
@@ -6959,6 +7015,10 @@ export type UploadedMediaListParams = {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string
 }
 
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
@@ -6985,8 +7045,6 @@ export type UploadedMediaCreateBody = {
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
 }
-
-export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string
