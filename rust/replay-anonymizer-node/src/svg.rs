@@ -62,7 +62,10 @@ mod tests {
         assert_eq!(png_dims(&png), (256, 128));
         assert!(decode(&png).iter().all(|p| *p == [255, 0, 0, 255]));
         let huge = "<svg xmlns='http://www.w3.org/2000/svg' width='100000' height='50000'/>";
-        assert_eq!(png_dims(&rasterize_svg(huge.as_bytes()).unwrap()), (512, 256));
+        assert_eq!(
+            png_dims(&rasterize_svg(huge.as_bytes()).unwrap()),
+            (512, 256)
+        );
     }
 
     #[test]
@@ -71,7 +74,10 @@ mod tests {
         let file = "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' width='64' height='64'><image width='64' height='64' xlink:href='/etc/hosts'/></svg>";
         for doc in [text, file] {
             let png = rasterize_svg(doc.as_bytes()).unwrap();
-            assert!(decode(&png).iter().all(|p| p[3] == 0), "nothing drawn: {doc}");
+            assert!(
+                decode(&png).iter().all(|p| p[3] == 0),
+                "nothing drawn: {doc}"
+            );
         }
     }
 
