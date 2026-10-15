@@ -740,9 +740,8 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except ScannerFailureError:
         raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # Retryable errors belong to the Temporal activity retry, which backs off across the quota window; an
-        # immediate inline re-run would re-spend the video tokens and multiply with the other retry layers.
-        # A gateway refusal would refuse the inline run too.
+        # Retryable errors go to the Temporal retry, which backs off; an inline re-run would re-spend the video
+        # tokens. A gateway refusal would refuse the inline run too.
         kind = classify_gemini_error(exc)
         if (kind is not None and kind.is_retryable) or is_gateway_refusal(exc):
             raise
@@ -797,7 +796,7 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            # A gateway refusal is our fault, so it fails the pass instead of dropping the step.
+            # A gateway refusal is our fault, so it fails the pass even on an optional step.
             if step.required or is_gateway_refusal(exc):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.

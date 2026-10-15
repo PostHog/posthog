@@ -39,8 +39,8 @@ async def replay_gateway_client(
     if gateway is None:
         return None
     organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
-    # Org-targeted like the desktop rollout. Local evaluation only: a scan makes many calls, and a flag outage
-    # must leave them direct and fast, so conditions must use the org or project id, not server-side properties.
+    # Local evaluation only, so a flag outage leaves a scan's many calls direct and fast; conditions must use the
+    # org or project id.
     enabled = feature_enabled_or_false(
         GATEWAY_FLAG,
         team_distinct_id(team_id),
@@ -60,9 +60,8 @@ async def replay_gateway_client(
 
 class _AsyncGatewayModels:
     """A plain SDK `models` surface taking the analytics wrapper's per-call `posthog_*` kwargs as request headers,
-    since the gateway captures the generation. Groups have no gateway header, so they are dropped.
-
-    Streams each call, because the gateway cuts a buffered call off at 290s and long scans run past that.
+    since the gateway captures the generation. Groups have no gateway header, so they are dropped. Streams each
+    call, because the gateway cuts a buffered call off at 290s and long scans run past that.
     """
 
     def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
@@ -152,10 +151,9 @@ class GatewayGeminiClient:
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
-    """Fold streamed chunks into the response a buffered call returns, parts in arrival order.
-
-    Raises a 503 `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the
-    gateway's in-band error frame, so a cut stream would otherwise pass as a short answer.
+    """Fold streamed chunks into the response a buffered call returns, parts in arrival order. Raises a 503
+    `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the gateway's in-band
+    error frame, so a cut stream would otherwise pass as a short answer.
     """
     parts: list[types.Part] = []
     last_candidate: types.Candidate | None = None

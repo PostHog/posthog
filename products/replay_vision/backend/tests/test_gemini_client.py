@@ -159,7 +159,6 @@ class TestReplayGatewayClient:
             (400, FailureKind.INTERNAL_ERROR),
             (404, FailureKind.INTERNAL_ERROR),
             (413, FailureKind.INTERNAL_ERROR),
-            # Only a 4xx is a refusal; a gateway 5xx stays a provider outage.
             (502, FailureKind.PROVIDER_TRANSIENT),
         ],
     )
