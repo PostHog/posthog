@@ -52,13 +52,17 @@ export class HogInputsService {
 
         // Build a lookup of schema types for rendering and post-render coercion
         const schemaTypes: Record<string, string> = {}
-        const untemplatedKeys = new Set<string>()
         for (const schema of hogFunction.inputs_schema ?? []) {
             schemaTypes[schema.key] = schema.type
-            if (schema.templating === false) {
-                untemplatedKeys.add(schema.key)
-            }
         }
+        const untemplatedKeys = new Set(
+            [
+                ...(hogFunction.inputs_schema ?? []),
+                ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
+            ]
+                .filter((schema) => schema.templating === false)
+                .map((schema) => schema.key)
+        )
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             // The schema wins over the stored input, so a caller cannot turn templating on for an input
