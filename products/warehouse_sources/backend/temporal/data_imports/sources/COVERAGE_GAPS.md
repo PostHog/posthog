@@ -118,7 +118,7 @@ The five narrative patterns below were found in the hand-audited tier 1 and 2 so
    Mailchimp has no `email_activity`, `open_details`, `click_details`, or `unsubscribes`.
    Klaviyo has no `flow_actions` / `flow_messages` or reporting values endpoints.
    Resend has no per-message event table.
-   Postmark has no opens/clicks/stats.
+   Postmark has opens but no clicks or stats.
    Open and click behavior is usually the entire point of connecting an email tool.
 
 5. **State-transition history is missing almost everywhere.**
@@ -685,10 +685,12 @@ Seventeen tables (10 API endpoints plus 7 webhook event streams) and one of our 
 
 ### Postmark — needs confirmation
 
-Five tables. Delivery config is present, engagement is not. `bounces` also accepts pushed rows
-through the Webhooks API (Bounce and SpamComplaint triggers).
+Six tables. Delivery config and first opens are present, clicks are not. `bounces` also accepts
+pushed rows through the Webhooks API (Bounce and SpamComplaint triggers).
 
-- [ ] Opens and clicks per message.
+- [x] Opens per message (`opens`, first open per recipient, pull only).
+- [ ] Clicks per message.
+- [ ] Open webhook ingestion, so `opens` gets every open and is not capped by the 10,000-row window.
 - [ ] Outbound overview stats (sends, bounce rate, open rate, spam complaints).
 - [ ] `servers`, `suppressions`, `domains`, inbound rules, `webhooks`.
 

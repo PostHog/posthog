@@ -4,7 +4,7 @@ from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -14,14 +14,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionWorkflowInputs,
-    create_posthog_code_task_for_repo_activity,
-    enforce_posthog_code_billing_quota_activity,
-    forward_posthog_code_followup_activity,
-)
-from posthog.temporal.ai.slack_app.activities.task_creation import _build_terminal_recovery_prompt
-from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -32,6 +24,14 @@ from products.slack_app.backend.services.slack_messages import (
     encode_slack_file_refs,
     parse_slack_file_refs,
 )
+from products.slack_app.backend.temporal import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    create_posthog_code_task_for_repo_activity,
+    enforce_posthog_code_billing_quota_activity,
+    forward_posthog_code_followup_activity,
+)
+from products.slack_app.backend.temporal.activities.task_creation import _build_terminal_recovery_prompt
+from products.slack_app.backend.temporal.helpers import safe_react
 
 
 def _make_inputs(
@@ -372,7 +372,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"log bytes"),
             patch("posthog.storage.object_storage.write") as mock_write,
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -444,7 +444,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         ]
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"png bytes"),
             patch("posthog.storage.object_storage.write"),
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -947,7 +947,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         with (
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"resume data"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"resume data"),
             patch("posthog.storage.object_storage.write"),
             patch("posthog.storage.object_storage.tag"),
         ):
@@ -1332,8 +1332,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["artifact_ids"] == []
         assert signal_kwargs["actor_user_id"] == self.user.id
         assert signal_kwargs["message_id"] is not None
-        # The message is queued on the workflow, so the :eyes: reaction stays up — it
-        # is not swapped to :hedgehog: until the task genuinely completes.
+        # The message is queued on the workflow, so the :eyes: reaction stays up.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
         )
@@ -1368,7 +1367,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
             patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"log bytes"),
             patch("products.slack_app.backend.services.slack_messages.collect_thread_messages", return_value=[]),
             patch("posthog.storage.object_storage.write") as mock_write,
             patch("posthog.storage.object_storage.tag"),
@@ -1423,7 +1422,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
             patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
-            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("products.slack_app.backend.temporal.attachments._download_slack_file", return_value=b"png bytes"),
             patch(
                 "products.slack_app.backend.services.slack_messages.collect_thread_messages",
                 return_value=thread_messages,
@@ -1564,7 +1563,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
-class TestEventLevelDedupe(TestCase):
+class TestEventLevelDedupe(SimpleTestCase):
     """Verify that the workflow ID format supports event-level deduplication."""
 
     def test_same_event_id_produces_same_workflow_id(self):

@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -56,6 +57,8 @@ class UpPromoteSource(
     ResumableSource[UpPromoteSourceConfig, UpPromoteResumeConfig],
     WebhookSource[UpPromoteSourceConfig],
 ):
+    codebase_detection = detect(env=("^(UP_PROMOTE|UPPROMOTE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -171,6 +174,10 @@ class UpPromoteSource(
                 "payments_unpaid": (
                     "Outstanding (approved but unpaid) commission per affiliate. An aggregated "
                     "snapshot, refreshed in full on every sync"
+                ),
+                "program_excluded": (
+                    "Products or collections excluded from commission, one row per program. "
+                    "Refreshed in full on every sync"
                 ),
             },
         )

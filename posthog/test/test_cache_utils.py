@@ -2,8 +2,9 @@ from datetime import timedelta
 from time import sleep
 from typing import Optional
 
-from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
+
+from django.test import SimpleTestCase
 
 from posthog.cache_utils import cache_for
 
@@ -29,7 +30,7 @@ def fn_background(number: float) -> int:
     return value
 
 
-class TestCacheUtils(APIBaseTest):
+class TestCacheUtils(SimpleTestCase):
     def setUp(self):
         mocked_dependency.reset_mock()
         mocked_dependency.return_value = 1

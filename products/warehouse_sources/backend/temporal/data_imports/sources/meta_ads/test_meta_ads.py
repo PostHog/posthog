@@ -1,6 +1,6 @@
 import json
 import datetime as dt
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 import time_machine
@@ -22,6 +22,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -37,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -60,7 +68,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     get_integration,
     get_schemas as get_meta_ads_schemas,
     list_ad_accounts,
-    meta_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     BREAKDOWN_STATS_ENDPOINTS,
@@ -146,107 +153,62 @@ class TestStripAccessToken:
 
 
 class TestSimplePagination:
-    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
-    INITIAL_PARAMS: dict[str, Any] = {"fields": "id,name", "access_token": "tok"}
-
-    def test_fresh_run_fetches_initial_and_saves_next_url(self) -> None:
-        manager = _build_manager()
-
-        responses = [
-            _mock_response(
-                200,
-                {
-                    "data": [{"id": "1"}, {"id": "2"}],
-                    "paging": {"next": "https://graph.facebook.com/v20/next?access_token=tok&cursor=abc"},
-                },
-            ),
-            _mock_response(200, {"data": [{"id": "3"}], "paging": {}}),
-        ]
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
-        ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
-            batches = list(
-                _iter_simple_pagination(
-                    self.INITIAL_URL,
-                    self.INITIAL_PARAMS,
-                    None,
-                    manager,
-                )
-            )
-
-        assert batches == [[{"id": "1"}, {"id": "2"}], [{"id": "3"}]]
-        # First call: initial URL + params.
-        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
-        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == self.INITIAL_PARAMS
-        # Second call: the saved (token-stripped) URL plus access_token supplied via params.
-        # Using the stripped URL for the fetch too prevents `requests` from sending duplicate
-        # `access_token` query parameters.
-        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?cursor=abc"
-        assert mock_get.return_value.get.call_args_list[1].kwargs["params"] == {"access_token": "tok"}
-
-        # Saved state: access_token stripped from the saved URL.
-        manager.save_state.assert_called_once_with(
-            MetaAdsResumeConfig(next_url="https://graph.facebook.com/v20/next?cursor=abc")
+    def test_fresh_run_fetches_initial_and_saves_next_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = _source_driver(monkeypatch).run(
+            MetaAdsResource.Campaigns,
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"id": "1"}, {"id": "2"}],
+                        "paging": {"next": "https://graph.facebook.com/v26.0/next?access_token=stale&cursor=abc"},
+                    }
+                ),
+                ScriptedResponse(json={"data": [{"id": "3"}], "paging": {}}),
+            ],
         )
 
-    def test_resume_skips_initial_request(self) -> None:
+        assert result.raised is None
+        assert result.items == [[{"id": "1"}, {"id": "2"}], [{"id": "3"}]]
+        assert result.requests[0].path == "/v26.0/act_123/campaigns"
+        assert result.requests[0].param("fields") == ",".join(
+            get_meta_ads_schemas()[MetaAdsResource.Campaigns].field_names
+        )
+        assert result.requests[0].param("access_token") == "token"
+        # The cursor uses a fresh token once, even when Meta echoes an older one.
+        assert result.requests[1].path == "/v26.0/next"
+        assert result.requests[1].param("cursor") == "abc"
+        assert result.requests[1].query["access_token"] == ("token",)
+        assert result.saved_states == [MetaAdsResumeConfig(next_url="https://graph.facebook.com/v26.0/next?cursor=abc")]
+
+    def test_resume_skips_initial_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Saved URL has access_token stripped; we re-inject a fresh one at request time.
-        saved_url = "https://graph.facebook.com/v20/next?cursor=xyz"
-        manager = _build_manager(can_resume=True, state=MetaAdsResumeConfig(next_url=saved_url))
+        saved_url = "https://graph.facebook.com/v26.0/next?cursor=xyz"
+        result = _source_driver(monkeypatch).run(
+            MetaAdsResource.Campaigns,
+            [ScriptedResponse(json={"data": [{"id": "5"}], "paging": {}})],
+            resume_state=MetaAdsResumeConfig(next_url=saved_url),
+        )
 
-        responses = [
-            _mock_response(200, {"data": [{"id": "5"}], "paging": {}}),
-        ]
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
-        ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
-            batches = list(
-                _iter_simple_pagination(
-                    self.INITIAL_URL,
-                    self.INITIAL_PARAMS,
-                    MetaAdsResumeConfig(next_url=saved_url),
-                    manager,
-                )
-            )
-
-        assert batches == [[{"id": "5"}]]
-        assert mock_get.return_value.get.call_count == 1
-        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_url
+        assert result.raised is None
+        assert result.items == [[{"id": "5"}]]
+        assert result.paths == ["/v26.0/next"]
         # access_token is supplied via params (from config), NOT embedded in the saved URL.
-        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+        assert result.requests[0].query == {"cursor": ("xyz",), "access_token": ("token",)}
         # No more pages, no save call needed.
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
-    def test_single_page_does_not_save_state(self) -> None:
-        manager = _build_manager()
+    def test_single_page_does_not_save_state(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        result = _source_driver(monkeypatch).run(
+            MetaAdsResource.Campaigns,
+            [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {}})],
+        )
 
-        responses = [
-            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
-        ]
+        assert result.raised is None
+        assert result.items == [[{"id": "1"}]]
+        assert result.saved_states == []
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
-        ) as _mock_session_factory:
-            _mock_session_factory.return_value.get.side_effect = responses
-            batches = list(
-                _iter_simple_pagination(
-                    self.INITIAL_URL,
-                    {"access_token": "tok"},
-                    None,
-                    manager,
-                )
-            )
-
-        assert batches == [[{"id": "1"}]]
-        manager.save_state.assert_not_called()
-
-    def test_ignores_resume_state_when_time_range_mode(self) -> None:
+    def test_ignores_resume_state_when_time_range_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A time-range-mode state (end_date set) should NOT be consumed by simple pagination.
-        manager = _build_manager()
         stale_state = MetaAdsResumeConfig(
             next_url="https://example/ignored",
             end_date="2026-01-01",
@@ -254,24 +216,16 @@ class TestSimplePagination:
             chunk_size_days=30,
         )
 
-        responses = [_mock_response(200, {"data": [], "paging": {}})]
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
-        ) as mock_get:
-            mock_get.return_value.get.side_effect = responses
-            list(
-                _iter_simple_pagination(
-                    self.INITIAL_URL,
-                    {"access_token": "tok"},
-                    stale_state,
-                    manager,
-                )
-            )
+        result = _source_driver(monkeypatch).run(
+            MetaAdsResource.Campaigns,
+            [ScriptedResponse(json={"data": [], "paging": {}})],
+            resume_state=stale_state,
+        )
 
         # Initial request should be the original URL with params, not the stale next_url.
-        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
-        assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+        assert result.raised is None
+        assert result.paths == ["/v26.0/act_123/campaigns"]
+        assert result.requests[0].param("access_token") == "token"
 
 
 class TestSimplePaginationLimitFallback:
@@ -1448,7 +1402,7 @@ class TestNonRetryableErrors:
         "error_message",
         [
             # Token refresh failure raised by get_integration.
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            META_TOKEN_REFRESH_ERROR_MESSAGE,
             # Integration row deleted/de-authorized while the source still references it —
             # get_integration raises Django's Integration.DoesNotExist with this message.
             "Integration matching query does not exist.",
@@ -1677,35 +1631,19 @@ class TestTimeRangeClamping:
             yield
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-
-        captured: dict[str, Any] = {}
-
-        def fake_request(url, params, access_token, time_range, resumable_source_manager):
-            captured["time_range"] = time_range
-            yield from ()
-
-        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
-
-        config = mock.MagicMock()
-        config.account_id = "act_123"
-        config.meta_ads_integration_id = 1
-        config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
-        config.action_attribution_windows = None
-        config.use_unified_attribution_setting = None
-
-        response = meta_ads_source(
-            resource_name="campaign_stats",
-            config=config,
-            team_id=1,
-            resumable_source_manager=_build_manager(),
+        result = _source_driver(monkeypatch, sync_lookback_days=source_kwargs.pop("sync_lookback_days", None)).run(
+            "campaign_stats",
+            always(ScriptedResponse(json={"data": []})),
             api_version=META_ADS_API_VERSION_V26,
             **source_kwargs,
         )
-        list(cast(Any, response.items()))
-        return captured["time_range"]
+        assert result.raised is None
+        first = result.requests[0].param("time_range")
+        last = result.requests[-1].param("time_range")
+        if first is None or last is None:
+            return None
+        # The walk splits the window into chunks: it starts at the first chunk's `since` and ends at the last chunk's `until`.
+        return {"since": json.loads(first)["since"], "until": json.loads(last)["until"]}
 
     @pytest.mark.parametrize(
         "days_ago,should_clamp",
@@ -1849,104 +1787,101 @@ class TestListAdAccounts:
         integration.sensitive_config = {"access_token": "token"}
         return integration
 
-    def test_follows_paging_next_to_the_end(self, monkeypatch) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            _mock_response(
-                200,
-                {
-                    "data": [{"account_id": "1"}],
-                    "paging": {"next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"},
-                },
-            ),
-            _mock_response(200, {"data": [{"account_id": "2"}]}),
-        ]
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
-
-        accounts = list_ad_accounts(self._integration())
+    def test_follows_paging_next_to_the_end(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"account_id": "1"}],
+                        "paging": {
+                            "next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"
+                        },
+                    }
+                ),
+                ScriptedResponse(json={"data": [{"account_id": "2"}]}),
+            ]
+        ) as network:
+            accounts = list_ad_accounts(self._integration())
 
         assert [account["account_id"] for account in accounts] == ["1", "2"]
-        cursor_url, cursor_kwargs = session.get.call_args_list[1][0][0], session.get.call_args_list[1][1]
         # The echoed-back token is stripped and a fresh one injected at request time.
-        assert "access_token" not in cursor_url
-        assert cursor_kwargs["params"] == {"access_token": "token"}
+        assert len(network.requests_log) == 2
+        assert network.requests_log[1].param("access_token") == "token"
+        assert network.requests_log[1].param("after") == "abc"
+        assert network.requests_log[1].query["access_token"] == ("token",)
 
-    def test_stops_when_a_trailing_cursor_returns_no_data(self, monkeypatch) -> None:
+    def test_stops_when_a_trailing_cursor_returns_no_data(self) -> None:
         next_page = {"next": "https://graph.facebook.com/v25.0/me/adaccounts?after=abc"}
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            _mock_response(200, {"data": [{"account_id": "1"}], "paging": next_page}),
-            _mock_response(200, {"data": [], "paging": next_page}),
-        ]
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
-
-        accounts = list_ad_accounts(self._integration())
+        with scripted_network(
+            [
+                ScriptedResponse(json={"data": [{"account_id": "1"}], "paging": next_page}),
+                ScriptedResponse(json={"data": [], "paging": next_page}),
+            ]
+        ) as network:
+            accounts = list_ad_accounts(self._integration())
 
         assert [account["account_id"] for account in accounts] == ["1"]
-        assert session.get.call_count == 2
+        assert len(network.requests_log) == 2
 
-    def test_permanent_auth_failure_raises_meta_ads_auth_error(self, monkeypatch) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+    def test_permanent_auth_failure_raises_meta_ads_auth_error(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(status=400, json={"error": {"code": 190, "message": "Invalid OAuth token"}})]
+        ):
+            with pytest.raises(MetaAdsAuthError):
+                list_ad_accounts(self._integration())
 
-        with pytest.raises(MetaAdsAuthError):
-            list_ad_accounts(self._integration())
-
-    def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self, monkeypatch) -> None:
+    def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
         # Meta keeps handing back a fresh, non-empty `next` cursor past the cap. Returning the
         # accumulated (truncated) accounts would present them to the picker as the complete set.
-        session = mock.MagicMock()
-        session.get.return_value = _mock_response(
-            200,
-            {"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}},
-        )
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
-
-        with pytest.raises(IntegrationAccountListingError):
-            list_ad_accounts(self._integration())
+        with scripted_network(
+            always(
+                ScriptedResponse(
+                    json={
+                        "data": [{"account_id": "1"}],
+                        "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"},
+                    }
+                )
+            )
+        ) as network:
+            with pytest.raises(IntegrationAccountListingError):
+                list_ad_accounts(self._integration())
         # Initial request plus one per bounded page: it exhausts the cap rather than raising early.
-        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES + 1
+        assert len(network.requests_log) == MAX_AD_ACCOUNT_PAGES + 1
 
-    def test_error_on_final_page_before_cap_surfaces_real_error_not_too_many_pages(self, monkeypatch) -> None:
+    def test_error_on_final_page_before_cap_surfaces_real_error_not_too_many_pages(self) -> None:
         # The response fetched on the last loop iteration isn't re-checked by the loop. If it carries an
         # auth failure, it must surface as MetaAdsAuthError, not be masked by the "too many pages" error.
-        ok_page = _mock_response(
-            200,
-            {"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}},
+        ok_page = ScriptedResponse(
+            json={"data": [{"account_id": "1"}], "paging": {"next": "https://graph.facebook.com/v25.0/next?after=loop"}}
         )
-        auth_error = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth token"}})
-        session = mock.MagicMock()
-        session.get.side_effect = [ok_page] * MAX_AD_ACCOUNT_PAGES + [auth_error]
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", lambda *args, **kwargs: session)
+        auth_error = ScriptedResponse(status=400, json={"error": {"code": 190, "message": "Invalid OAuth token"}})
+        with scripted_network([ok_page] * MAX_AD_ACCOUNT_PAGES + [auth_error]) as network:
+            with pytest.raises(MetaAdsAuthError):
+                list_ad_accounts(self._integration())
+        assert len(network.requests_log) == MAX_AD_ACCOUNT_PAGES + 1
 
-        with pytest.raises(MetaAdsAuthError):
+    def test_masks_token_and_sets_timeout_on_every_request(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"account_id": "1"}],
+                        "paging": {
+                            "next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"
+                        },
+                    }
+                ),
+                ScriptedResponse(json={"data": [{"account_id": "2"}]}),
+            ]
+        ) as network:
             list_ad_accounts(self._integration())
 
-    def test_masks_token_and_sets_timeout_on_every_request(self, monkeypatch) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            _mock_response(
-                200,
-                {
-                    "data": [{"account_id": "1"}],
-                    "paging": {"next": "https://graph.facebook.com/v25.0/me/adaccounts?access_token=stale&after=abc"},
-                },
-            ),
-            _mock_response(200, {"data": [{"account_id": "2"}]}),
-        ]
-        factory = mock.MagicMock(return_value=session)
-        monkeypatch.setattr(meta_ads_module, "make_tracked_session", factory)
-
-        list_ad_accounts(self._integration())
-
         # The access token is registered for redaction so it can't be recorded in logged request URLs.
-        factory.assert_called_once_with(redact_values=("token",))
+        assert network.session_options == [{"redact_values": ("token",)}]
         # Neither the initial request nor the pagination follow-up may run without a timeout, or a hung
         # Meta connection would pin the web worker (this runs inline in the request path).
-        assert session.get.call_count == 2
-        for call in session.get.call_args_list:
-            assert call.kwargs["timeout"] == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
+        assert len(network.requests_log) == 2
+        assert all(request.read_timeout == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS for request in network.requests_log)
 
 
 def _source_config(
@@ -1961,6 +1896,26 @@ def _source_config(
     return config
 
 
+def _source_driver(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    sync_lookback_days: int | None = 1,
+    action_attribution_windows: str | None = None,
+    use_unified_attribution_setting: Literal["", "true", "false"] | None = None,
+) -> SourceDriver:
+    integration = mock.MagicMock()
+    integration.access_token = "token"
+    monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+    config = MetaAdsSourceConfig(
+        account_id="act_123",
+        meta_ads_integration_id=1,
+        sync_lookback_days=sync_lookback_days,
+        action_attribution_windows=action_attribution_windows,
+        use_unified_attribution_setting=use_unified_attribution_setting,
+    )
+    return SourceDriver(MetaAdsSource(), config)
+
+
 class TestEndpointCatalog:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
@@ -1968,19 +1923,18 @@ class TestEndpointCatalog:
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
 
-    def test_resource_the_worker_does_not_know_raises_a_named_error(self) -> None:
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The web pods and the workers deploy separately, so a newly shipped table is selectable in
         # the schema picker about an hour before every worker can resolve it. A bare KeyError there
         # reports as a bug and reaches the customer as raw Python; the named error is classified
         # retryable instead.
-        with pytest.raises(UnknownResourceError, match="ad_stats_by_a_future_breakdown"):
-            meta_ads_source(
-                resource_name="ad_stats_by_a_future_breakdown",
-                config=_source_config(),
-                team_id=1,
-                resumable_source_manager=_build_manager(),
-                api_version=META_ADS_API_VERSION_V26,
-            )
+        result = _source_driver(monkeypatch).run(
+            "ad_stats_by_a_future_breakdown",
+            [],
+            api_version=META_ADS_API_VERSION_V26,
+        )
+        assert isinstance(result.raised, UnknownResourceError)
+        assert "ad_stats_by_a_future_breakdown" in str(result.raised)
 
 
 class TestBreakdownStatsSchemas:
@@ -2049,103 +2003,97 @@ class TestBreakdownStatsSchemas:
 
 
 class TestBreakdownStatsRequests:
-    def _capture_request(self, monkeypatch, resource_name: str, config: mock.MagicMock | None = None) -> dict[str, Any]:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-
-        captured: dict[str, Any] = {}
-
-        def fake_request(url, params, access_token, time_range, resumable_source_manager):
-            captured.update(url=url, params=params, time_range=time_range)
-            yield from ()
-
-        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
-
-        response = meta_ads_source(
-            resource_name=resource_name,
-            config=config or _source_config(),
-            team_id=1,
-            resumable_source_manager=_build_manager(),
+    def _capture_request(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        resource_name: str,
+        *,
+        action_attribution_windows: str | None = None,
+        use_unified_attribution_setting: Literal["", "true", "false"] | None = None,
+    ) -> DriveResult:
+        result = _source_driver(
+            monkeypatch,
+            action_attribution_windows=action_attribution_windows,
+            use_unified_attribution_setting=use_unified_attribution_setting,
+        ).run(
+            resource_name,
+            always(ScriptedResponse(json={"data": []})),
             api_version=META_ADS_API_VERSION_V26,
         )
-        list(cast(Any, response.items()))
-        return captured
+        assert result.raised is None
+        return result
 
     @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
     def test_breakdown_request_is_windowed_and_carries_its_breakdowns(self, monkeypatch, endpoint: str) -> None:
-        captured = self._capture_request(monkeypatch, endpoint)
+        result = self._capture_request(monkeypatch, endpoint)
         schema = get_meta_ads_schemas()[endpoint]
 
         # A breakdown table that loses `is_stats` would drop the time window and ask Meta for the
         # whole account history on every sync. Each level (campaign/adset/ad) must send its own
         # `level`, or ad-level breakdowns would silently return campaign-grain rows.
-        assert captured["time_range"] is not None
-        assert captured["params"]["breakdowns"] == schema.extra_params["breakdowns"]
-        assert captured["params"]["level"] == schema.extra_params["level"]
+        assert result.requests[0].param("time_range") is not None
+        assert result.requests[0].param("breakdowns") == schema.extra_params["breakdowns"]
+        assert result.requests[0].param("level") == schema.extra_params["level"]
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
-        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
+        result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
 
-        assert captured["time_range"] is None
-        assert captured["url"].endswith("/act_123/adcreatives")
+        assert result.requests[0].param("time_range") is None
+        assert result.requests[0].path.endswith("/act_123/adcreatives")
 
     def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
         # Backward compatibility: an existing connection that never set attribution config must
         # produce the same Insights request as before — Meta then applies its own default window.
-        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+        result = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
 
-        assert "action_attribution_windows" not in captured["params"]
-        assert "use_unified_attribution_setting" not in captured["params"]
+        assert result.requests[0].param("action_attribution_windows") is None
+        assert result.requests[0].param("use_unified_attribution_setting") is None
 
     def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
-        config = _source_config(action_attribution_windows="7d_click, 1d_view", use_unified_attribution_setting="true")
-        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+        result = self._capture_request(
+            monkeypatch,
+            MetaAdsResource.CampaignStats,
+            action_attribution_windows="7d_click, 1d_view",
+            use_unified_attribution_setting="true",
+        )
 
         # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
         # trimmed; the unified-setting flag is passed through verbatim.
-        assert json.loads(captured["params"]["action_attribution_windows"]) == ["7d_click", "1d_view"]
-        assert captured["params"]["use_unified_attribution_setting"] == "true"
+        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == ["7d_click", "1d_view"]
+        assert result.requests[0].param("use_unified_attribution_setting") == "true"
 
     def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:
         # The "use Meta's default" picker option stores an empty string; it must not be sent as a
         # value, or it would override Meta's default with a blank flag.
-        config = _source_config(use_unified_attribution_setting="")
-        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+        result = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, use_unified_attribution_setting="")
 
-        assert "use_unified_attribution_setting" not in captured["params"]
+        assert result.requests[0].param("use_unified_attribution_setting") is None
 
     def test_attribution_settings_not_sent_on_entity_endpoints(self, monkeypatch) -> None:
         # Entity endpoints (campaigns, ads, ...) aren't Insights calls; Meta rejects attribution
         # params there, so they must only ride on `is_stats` requests.
-        config = _source_config(action_attribution_windows="7d_click", use_unified_attribution_setting="true")
-        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives, config)
+        result = self._capture_request(
+            monkeypatch,
+            MetaAdsResource.AdCreatives,
+            action_attribution_windows="7d_click",
+            use_unified_attribution_setting="true",
+        )
 
-        assert "action_attribution_windows" not in captured["params"]
-        assert "use_unified_attribution_setting" not in captured["params"]
+        assert result.requests[0].param("action_attribution_windows") is None
+        assert result.requests[0].param("use_unified_attribution_setting") is None
 
 
 class TestHoistedColumns:
     """Scalar columns lifted out of the nested objects the Graph API returns."""
 
     def _emit_rows(self, monkeypatch, resource_name: str, rows: list[dict]) -> list[dict]:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-
-        def fake_request(url, params, access_token, time_range, resumable_source_manager):
-            yield rows
-
-        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
-
-        response = meta_ads_source(
-            resource_name=resource_name,
-            config=_source_config(),
-            team_id=1,
-            resumable_source_manager=_build_manager(),
+        result = _source_driver(monkeypatch).run(
+            resource_name,
+            [ScriptedResponse(json={"data": rows})],
             api_version=META_ADS_API_VERSION_V26,
         )
-        return [row for batch in cast(Any, response.items()) for row in batch]
+        assert result.raised is None
+        return result.rows
 
     @pytest.mark.parametrize(
         "endpoint,row,expected",
@@ -2181,33 +2129,28 @@ class TestHoistedColumns:
 class TestSingleObjectEndpoint:
     """`GET /act_<id>` returns the account node itself, not a paged `data` list."""
 
-    def _rows(self, monkeypatch, response: mock.MagicMock) -> list[list[dict]]:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-        monkeypatch.setattr(meta_ads_module, "_get_initial_request", lambda url, params: response)
-
-        source = meta_ads_source(
-            resource_name=MetaAdsResource.AdAccount,
-            config=_source_config(),
-            team_id=1,
-            resumable_source_manager=_build_manager(),
+    def _rows(self, monkeypatch: pytest.MonkeyPatch, response: ScriptedResponse) -> DriveResult:
+        return _source_driver(monkeypatch).run(
+            MetaAdsResource.AdAccount,
+            [response],
             api_version=META_ADS_API_VERSION_V26,
         )
-        return list(cast(Any, source.items()))
 
     def test_account_node_is_yielded_as_a_single_row(self, monkeypatch) -> None:
         body = {"id": "act_123", "account_id": "123", "currency": "GBP"}
 
         # Routing this through the list paginator would read a `data` key that is not there and
         # sync the table empty.
-        assert self._rows(monkeypatch, _mock_response(200, body)) == [[body]]
+        result = self._rows(monkeypatch, ScriptedResponse(json=body))
+        assert result.raised is None
+        assert result.items == [[body]]
 
     def test_permanent_auth_failure_surfaces_the_actionable_message(self, monkeypatch) -> None:
-        response = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth access token"}})
+        response = ScriptedResponse(status=400, json={"error": {"code": 190, "message": "Invalid OAuth access token"}})
 
-        with pytest.raises(Exception, match=META_AUTH_ERROR_MESSAGE):
-            self._rows(monkeypatch, response)
+        result = self._rows(monkeypatch, response)
+        assert isinstance(result.raised, Exception)
+        assert META_AUTH_ERROR_MESSAGE in str(result.raised)
 
     def test_field_list_omits_business_field_requiring_ungranted_scope(self) -> None:
         # `business` needs the `business_management` scope, which the Meta OAuth consent never
@@ -2233,27 +2176,13 @@ class TestApiVersionDispatch:
     syncs against the wrong Graph API version, the drift the pinning framework exists to prevent."""
 
     def _capture_url(self, monkeypatch, api_version: str) -> str:
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
-
-        captured: dict[str, str] = {}
-
-        def fake_request(url, params, access_token, time_range, resumable_source_manager):
-            captured["url"] = url
-            yield from ()
-
-        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
-
-        response = meta_ads_source(
-            resource_name=MetaAdsResource.Campaigns,
-            config=_source_config(),
-            team_id=1,
-            resumable_source_manager=_build_manager(),
+        result = _source_driver(monkeypatch).run(
+            MetaAdsResource.Campaigns,
+            [ScriptedResponse(json={"data": []})],
             api_version=api_version,
         )
-        list(cast(Any, response.items()))
-        return captured["url"]
+        assert result.raised is None
+        return result.requests[0].url.split("?", 1)[0]
 
     @pytest.mark.parametrize("api_version", list(MetaAdsSource.supported_versions))
     def test_resolved_version_reaches_request_url(self, monkeypatch, api_version: str) -> None:

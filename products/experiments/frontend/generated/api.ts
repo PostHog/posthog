@@ -19,6 +19,7 @@ import type {
     ExperimentApi,
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
+    ExperimentHealthApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
@@ -688,6 +689,35 @@ export const experimentsFreezeExposureCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsFreezeExposureCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/health/`
+}
+
+/**
+ * Health check findings for this experiment: problems in its configuration and its feature flag
+ * that keep it from producing trustworthy results, each with a fix.
+ *
+ * The checks here read the experiment, its flag, its linked metrics, and the changes of the
+ * flag's variant split since launch. The checks that read exposure counts come with the
+ * exposure query. The split-change check compares the split changes with the exposures only
+ * for exposure criteria that name an event without property filters. When the split changed
+ * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+ * it returns an info finding with the subcode `not_checked` and the cause in
+ * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * flag and, with an API key, `activity_log:read`) gets that finding for every running
+ * experiment, because the changes are not read.
+ */
+export const experimentsHealthRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHealthApi> => {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

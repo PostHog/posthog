@@ -40,13 +40,13 @@ interface RunActivityChartProps {
 // Dot/series color per verdict — the shared map so scatter, mini bars, and the run tables' StatusDot agree.
 const DOT_COLOR = VERDICT_COLOR
 
-const LEGEND_LABEL: Record<string, string> = {
+export const LEGEND_LABEL: Record<string, string> = {
     success: 'Passed',
     danger: 'Failed',
     muted: 'Cancelled / skipped',
     warning: 'Other',
 }
-const LEGEND_ORDER = ['success', 'danger', 'muted', 'warning']
+export const LEGEND_ORDER = ['success', 'danger', 'muted', 'warning']
 
 const SCATTER_HEIGHT = 156
 const BAND_HEIGHT = 56

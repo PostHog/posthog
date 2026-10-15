@@ -48,6 +48,43 @@ export function mixColors(from: string, to: string, t: number): string {
     return d3Rgb(lerp(a.r, b.r), lerp(a.g, b.g), lerp(a.b, b.b), lerp(a.opacity, b.opacity)).toString()
 }
 
+let srgbProbe: CanvasRenderingContext2D | null | undefined
+
+/** `color` in a form d3 can parse. Modern syntax such as `oklch()` survives a round trip through
+ *  `fillStyle` unchanged, so it is painted to one pixel and read back. Returns the input when
+ *  there is no DOM or the browser rejects the color. */
+export function toSrgbColor(color: string): string {
+    if (!Number.isNaN(d3Rgb(color).r)) {
+        return color
+    }
+    if (srgbProbe === undefined) {
+        srgbProbe =
+            typeof document === 'undefined'
+                ? null
+                : document.createElement('canvas').getContext('2d', { willReadFrequently: true })
+    }
+    if (!srgbProbe) {
+        return color
+    }
+    srgbProbe.clearRect(0, 0, 1, 1)
+    srgbProbe.fillStyle = 'transparent'
+    srgbProbe.fillStyle = color
+    srgbProbe.fillRect(0, 0, 1, 1)
+    const [r, g, b, a] = srgbProbe.getImageData(0, 0, 1, 1).data
+    return a === 0 ? color : d3Rgb(r, g, b, a / 255).toString()
+}
+
+/** Perceived luminance of a color, 0 (black) to 1 (white), on the ITU-R BT.601 weighting.
+ *  Use it to pick light or dark text over a fill. Unparseable input returns 1, so a caller
+ *  falls back to dark text. */
+export function perceivedLuminance(color: string): number {
+    const c = d3Rgb(color)
+    if (Number.isNaN(c.r)) {
+        return 1
+    }
+    return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255
+}
+
 /** Fill color for the bar at `index`: the per-bar override (`bars[index].color`) when set, else the
  *  series color. The one resolver every bar color-read site (fill, hover highlight, tooltip swatch,
  *  value labels) should use, so a per-bar series can't accidentally render bars in the series color. */

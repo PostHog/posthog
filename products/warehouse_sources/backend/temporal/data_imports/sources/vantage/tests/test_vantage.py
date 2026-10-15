@@ -1,29 +1,27 @@
-import json
 from typing import Any, Optional
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vantage import (
+    VantageSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.source import VantageSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage import (
     VANTAGE_BASE_URL,
     VantageResumeConfig,
     VantageUntrustedURLError,
     validate_credentials,
-    vantage_source,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the vantage module.
-VANTAGE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage.make_tracked_session"
-)
-
-NO_SLEEP = "tenacity.nap.time.sleep"
 
 
 def _response(
@@ -33,95 +31,57 @@ def _response(
     next_url: Optional[str] = None,
     include_links: bool = True,
     status_code: int = 200,
-) -> Response:
+) -> ScriptedResponse:
     body: dict[str, Any] = {}
     if items is not None:
         body[data_key] = items
     if include_links:
         body["links"] = {"next": next_url}
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = f"{VANTAGE_BASE_URL}/cost_reports"
-    return resp
+    return ScriptedResponse(status=status_code, json=body)
 
 
-def _make_manager(resume_state: VantageResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Any]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session; capture each request's URL and params AT PREPARE (send) time.
-
-    ``request.params``/``url`` are mutated in place across pages, so snapshot copies as each request
-    is prepared. The prepared object mirrors ``Session.prepare_request`` — its ``url`` is what the
-    host-pinning check inspects, so absolute next-page URLs must flow straight through.
-    """
-    session.headers = {}
-    urls: list[str] = []
-    params: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        urls.append(request.url)
-        params.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return urls, params
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(manager: mock.MagicMock, endpoint: str = "cost_reports"):
-    return vantage_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _run(script: Script, endpoint: str = "cost_reports", **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(VantageSource(), VantageSourceConfig(api_key="tok"))
+    return driver.run(endpoint, script, **kwargs)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_links_next_and_terminates(self, MockSession) -> None:
+    def test_follows_links_next_and_terminates(self) -> None:
         # Regression guard: not advancing the URL loops forever; not terminating on a null `next`
         # over-fetches. Rows must come back across every page, in order.
-        session = MockSession.return_value
         p2 = f"{VANTAGE_BASE_URL}/cost_reports?page=2&limit=1000"
-        urls, params = _wire(
-            session,
+        result = _run(
             [
                 _response([{"token": "a"}, {"token": "b"}], next_url=p2),
                 _response([{"token": "c"}], next_url=None),
-            ],
+            ]
         )
 
-        rows = _rows(_source(_make_manager()))
+        assert result.rows == [{"token": "a"}, {"token": "b"}, {"token": "c"}]
+        assert len(result.requests) == 2
+        assert result.params("limit")[0] == "1000"
+        assert result.urls[1] == p2  # second request follows the body's `links.next` verbatim
 
-        assert rows == [{"token": "a"}, {"token": "b"}, {"token": "c"}]
-        assert session.send.call_count == 2
-        assert params[0]["limit"] == 1000
-        assert urls[1] == p2  # second request follows the body's `links.next` verbatim
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run([_response([{"token": "a"}], next_url=None)])
+
+        assert result.queries == [{"limit": ("1000",)}]
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_url(self, MockSession) -> None:
+    def test_resumes_from_saved_url(self) -> None:
         # Resuming starts from the saved next-page URL verbatim, not page 1.
-        session = MockSession.return_value
         resume_url = f"{VANTAGE_BASE_URL}/cost_reports?page=5&limit=1000"
-        urls, params = _wire(session, [_response([{"token": "z"}], next_url=None)])
 
-        manager = _make_manager(VantageResumeConfig(next_url=resume_url))
-        rows = _rows(_source(manager))
+        result = _run(
+            [_response([{"token": "z"}], next_url=None)],
+            resume_state=VantageResumeConfig(next_url=resume_url),
+        )
 
-        assert rows == [{"token": "z"}]
-        assert urls[0] == resume_url
-        assert params[0] == {}  # the self-contained resume URL carries its own page/limit
+        assert result.rows == [{"token": "z"}]
+        assert result.urls[0] == resume_url
+        # The self-contained resume URL carries its own page/limit.
+        assert result.queries[0] == {"page": ("5",), "limit": ("1000",)}
 
 
 class TestUntrustedUrl:
@@ -133,82 +93,214 @@ class TestUntrustedUrl:
             ("wrong_path_prefix", "https://api.vantage.sh/internal/cost_reports"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_untrusted_next_url_is_refused_without_sending_token(self, _name: str, bad_url: str, MockSession) -> None:
+    def test_untrusted_next_url_is_refused_without_sending_token(self, _name: str, bad_url: str) -> None:
         # `links.next` is server-controlled; the bearer token must never leave Vantage's own HTTPS
         # host and `/v2/` path, so an off-host/non-HTTPS/wrong-path next link is refused before the
         # request that would carry the token to it goes out.
-        session = MockSession.return_value
-        _wire(session, [_response([{"token": "a"}], next_url=bad_url)])
+        result = _run([_response([{"token": "a"}], next_url=bad_url)])
 
-        with pytest.raises(VantageUntrustedURLError):
-            _rows(_source(_make_manager()))
-        assert session.send.call_count == 1  # only the trusted first page was fetched
+        assert isinstance(result.raised, VantageUntrustedURLError)
+        assert len(result.requests) == 1  # only the trusted first page was fetched
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_untrusted_resume_url_is_refused_before_any_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"token": "a"}], next_url=None)])
+    def test_untrusted_resume_url_is_refused_before_any_request(self) -> None:
+        result = _run(
+            [_response([{"token": "a"}], next_url=None)],
+            resume_state=VantageResumeConfig(next_url="https://evil.example.com/v2/cost_reports"),
+        )
 
-        manager = _make_manager(VantageResumeConfig(next_url="https://evil.example.com/v2/cost_reports"))
-        with pytest.raises(VantageUntrustedURLError):
-            _rows(_source(manager))
-        session.send.assert_not_called()
+        assert isinstance(result.raised, VantageUntrustedURLError)
+        assert result.requests == []
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
-    @mock.patch(NO_SLEEP)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_retryable_status_is_retried(self, _name: str, status: int) -> None:
+        result = _run(
             [
                 _response(None, include_links=False, status_code=status),
                 _response([{"token": "a"}], next_url=None),
-            ],
+            ]
         )
 
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"token": "a"}]
-        assert session.send.call_count == 2
+        assert result.rows == [{"token": "a"}]
+        assert len(result.requests) == 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_is_raised_not_retried(self, MockSession) -> None:
+    def test_client_error_is_raised_not_retried(self) -> None:
         # A 4xx (other than 429) is a permanent client error — raise immediately so
         # get_non_retryable_errors can classify it, rather than burning retries.
-        session = MockSession.return_value
-        _wire(session, [_response(None, include_links=False, status_code=404)])
+        result = _run([_response(None, include_links=False, status_code=404)])
 
-        with pytest.raises(requests.HTTPError):
-            _rows(_source(_make_manager()))
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+
+
+def _by_url(answers: dict[str, ScriptedResponse]) -> Script:
+    # Fan-out runs interleave parent and child requests, so answer each request by its URL.
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return answers[request.url]
+
+    return respond
+
+
+_COSTS_CHILD = f"{VANTAGE_BASE_URL}/costs?cost_report_token={{token}}&limit=5000&order=asc"
+_RESOURCES_CHILD = f"{VANTAGE_BASE_URL}/resources?resource_report_token={{token}}&limit=1000"
+_TAG_VALUES_CHILD = f"{VANTAGE_BASE_URL}/tags/{{token}}/values?limit=1000"
+
+
+class TestFanOut:
+    @parameterized.expand(
+        [
+            (
+                "costs",
+                "cost_reports",
+                [{"token": "rprt_a"}, {"token": "rprt_b"}],
+                _COSTS_CHILD,
+                ["rprt_a", "rprt_b"],
+                "cost_report_token",
+                {"accrued_at": "2025-01-01", "amount": "1.50"},
+            ),
+            (
+                "resources",
+                "resource_reports",
+                [{"token": "rsrc_rprt_a"}, {"token": "rsrc_rprt_b"}],
+                _RESOURCES_CHILD,
+                ["rsrc_rprt_a", "rsrc_rprt_b"],
+                "resource_report_token",
+                {"token": "prvdr_rsrc_1", "created_at": "2025-01-01T00:00:00Z"},
+            ),
+            (
+                # A `/` in a tag key would otherwise split the path into a different route.
+                "tag_values",
+                "tags",
+                [{"tag_key": "team"}, {"tag_key": "kubernetes.io/name"}],
+                _TAG_VALUES_CHILD,
+                ["team", "kubernetes.io%2Fname"],
+                "tag_key",
+                {"tag_value": "web"},
+            ),
+        ]
+    )
+    def test_walks_every_parent_and_child_page_and_tags_rows_with_parent(
+        self,
+        endpoint: str,
+        parent_key: str,
+        parents: list[dict[str, Any]],
+        child_url: str,
+        child_path_values: list[str],
+        parent_column: str,
+        child_row: dict[str, Any],
+    ) -> None:
+        first_child = child_url.format(token=child_path_values[0])
+        second_page = f"{first_child}&page=2"
+        second_child = child_url.format(token=child_path_values[1])
+        parent_values = [next(iter(parent.values())) for parent in parents]
+
+        result = _run(
+            _by_url(
+                {
+                    f"{VANTAGE_BASE_URL}/{parent_key}?limit=1000": _response(parents, data_key=parent_key),
+                    first_child: _response([dict(child_row)], data_key=endpoint, next_url=second_page),
+                    second_page: _response([dict(child_row)], data_key=endpoint),
+                    second_child: _response([dict(child_row)], data_key=endpoint),
+                }
+            ),
+            endpoint=endpoint,
+        )
+
+        assert result.raised is None
+        assert [row[parent_column] for row in result.rows] == [parent_values[0], parent_values[0], parent_values[1]]
+        assert all(f"_{parent_key}_" not in column for row in result.rows for column in row)
+        assert result.urls[1:] == [first_child, second_page, second_child]
+
+    def test_child_404_for_a_deleted_report_skips_only_that_report(self) -> None:
+        result = _run(
+            _by_url(
+                {
+                    f"{VANTAGE_BASE_URL}/cost_reports?limit=1000": _response(
+                        [{"token": "rprt_gone"}, {"token": "rprt_b"}]
+                    ),
+                    _COSTS_CHILD.format(token="rprt_gone"): _response(None, include_links=False, status_code=404),
+                    _COSTS_CHILD.format(token="rprt_b"): _response([{"amount": "2.00"}], data_key="costs"),
+                }
+            ),
+            endpoint="costs",
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"amount": "2.00", "cost_report_token": "rprt_b"}]
+
+    def test_resume_skips_completed_parents_and_continues_the_current_child(self) -> None:
+        resume_url = f"{_COSTS_CHILD.format(token='rprt_b')}&page=3"
+        result = _run(
+            _by_url(
+                {
+                    f"{VANTAGE_BASE_URL}/cost_reports?limit=1000": _response(
+                        [{"token": "rprt_a"}, {"token": "rprt_b"}, {"token": "rprt_c"}]
+                    ),
+                    resume_url: _response([{"amount": "3.00"}], data_key="costs"),
+                    _COSTS_CHILD.format(token="rprt_c"): _response([{"amount": "4.00"}], data_key="costs"),
+                }
+            ),
+            endpoint="costs",
+            resume_state=VantageResumeConfig(
+                fanout_state={
+                    "completed": ["/costs?cost_report_token=rprt_a"],
+                    "current": "/costs?cost_report_token=rprt_b",
+                    "child_state": {"next_url": resume_url},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["cost_report_token"] for row in result.rows] == ["rprt_b", "rprt_c"]
+        assert result.urls[1:] == [resume_url, _COSTS_CHILD.format(token="rprt_c")]
+        assert all(isinstance(state, VantageResumeConfig) and state.fanout_state for state in result.saved_states)
+
+    def test_untrusted_child_next_url_is_refused(self) -> None:
+        first_child = _TAG_VALUES_CHILD.format(token="team")
+        result = _run(
+            _by_url(
+                {
+                    f"{VANTAGE_BASE_URL}/tags?limit=1000": _response([{"tag_key": "team"}], data_key="tags"),
+                    first_child: _response(
+                        [{"tag_value": "web"}], data_key="tag_values", next_url="https://evil.example.com/v2/tags"
+                    ),
+                }
+            ),
+            endpoint="tag_values",
+        )
+
+        assert isinstance(result.raised, VantageUntrustedURLError)
+        assert result.urls[1:] == [first_child]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(VANTAGE_SESSION_PATCH)
-    def test_status_maps_to_validity(self, _name: str, status: int, expected: bool, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("tok") is expected
+    def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            assert validate_credentials("tok") is expected
+
+        assert network.requests_log[0].url == f"{VANTAGE_BASE_URL}/ping"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
 
 
 class TestSourceResponse:
     @parameterized.expand([("cost_reports", "created_at"), ("workspaces", "created_at")])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_datetime_partitioning_on_created_at(self, endpoint: str, partition_key: str, _MockSession) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+    def test_datetime_partitioning_on_created_at(self, endpoint: str, partition_key: str) -> None:
+        response = _run([_response(None, next_url=None)], endpoint=endpoint).response
+
+        assert response is not None
         assert response.primary_keys == ["token"]
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [partition_key]
 
     @parameterized.expand([("teams",), ("users",), ("report_notifications",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_partitioning_when_no_stable_created_at(self, endpoint: str, _MockSession) -> None:
+    def test_no_partitioning_when_no_stable_created_at(self, endpoint: str) -> None:
         # These objects carry no creation timestamp; partitioning on a missing field would break sync.
-        response = _source(_make_manager(), endpoint=endpoint)
+        response = _run([_response(None, next_url=None)], endpoint=endpoint).response
+
+        assert response is not None
         assert response.partition_mode is None
         assert response.partition_keys is None
         assert response.primary_keys == ["token"]

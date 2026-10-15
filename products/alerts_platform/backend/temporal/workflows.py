@@ -19,7 +19,11 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.alerts_platform.backend.temporal.metrics import increment_deliveries_previewed, safe_record
+from products.alerts_platform.backend.temporal.metrics import (
+    increment_deliveries_previewed,
+    increment_discovery_omitted,
+    safe_record,
+)
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
 
 LOGGER = get_write_only_logger(__name__)
@@ -90,7 +94,11 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    demand = await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
+    for source, omitted in demand.omitted_by_source.items():
+        if omitted:
+            safe_record(increment_discovery_omitted, source.value, omitted)
+    return demand
 
 
 @activity.defn

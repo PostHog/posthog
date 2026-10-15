@@ -281,12 +281,15 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({})
     })
 
-    it('memoizes update fetches per batch, resolving once and reading state once', async () => {
+    it('memoizes update fetches per batch, resolving once, reading state once, and handing out copies', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
         repository.fetchPersonById.mockResolvedValue({ ...person })
         const bound = store.forBatch(0)
-        await bound.fetchForUpdate(1, 'd1')
-        await bound.fetchForUpdate(1, 'd1')
+        const first = await bound.fetchForUpdate(1, 'd1')
+        // The personless step blanks properties on the person it reads.
+        first!.properties = {}
+        const second = await bound.fetchForUpdate(1, 'd1')
+        expect(second?.properties).toEqual({ plan: 'free' })
         expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
         expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
     })

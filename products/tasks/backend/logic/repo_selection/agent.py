@@ -137,7 +137,7 @@ def resolve_team_github_integration(
     )
     # Prefer the first GitHub integration from the team
     if integration is not None:
-        return GitHubIntegration(integration)
+        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
 
     if team_only:
         return None
@@ -147,7 +147,7 @@ def resolve_team_github_integration(
     if requester_user_id is not None:
         requester_integration = _first_user_github_integration([requester_user_id])
         if requester_integration is not None:
-            return UserGitHubIntegration(requester_integration)
+            return UserGitHubIntegration(requester_integration, source="repo_selection", priority=Priority.CRITICAL)
 
     organization = (team if team is not None else Team.objects.get(id=team_id)).organization
     owner_user_ids = OrganizationMembership.objects.filter(
@@ -158,7 +158,7 @@ def resolve_team_github_integration(
     # If no team integration - pick an org owner's integration (personal account preferred)
     owner_integration = _first_user_github_integration(owner_user_ids)
     if owner_integration is not None:
-        return UserGitHubIntegration(owner_integration)
+        return UserGitHubIntegration(owner_integration, source="repo_selection", priority=Priority.CRITICAL)
     return None
 
 

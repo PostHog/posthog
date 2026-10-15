@@ -58,9 +58,11 @@ def _context(
             groups=filters.get("groups"),
             variants=(filters.get("multivariate") or {}).get("variants"),
         ),
+        baseline_variant_key=None,
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
+        split_history=None,
     )
 
 

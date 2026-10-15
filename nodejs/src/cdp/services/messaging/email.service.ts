@@ -571,12 +571,18 @@ export class EmailService {
                 return result
             }
 
+            // A reply-to set on the email step wins over the sender's default.
+            const paramsWithReplyTo =
+                parseAddressList(params.replyTo) || !integration.config.reply_to
+                    ? params
+                    : { ...params, replyTo: integration.config.reply_to }
+
             // Tagged before click tracking wraps the links, so the tags land on the destination URL.
             const metadata = invocation.hogFunction.metadata
             const sendParams =
                 metadata?.utm_tags_enabled === true && params.html
                     ? {
-                          ...params,
+                          ...paramsWithReplyTo,
                           html: addUtmTagsToEmail(
                               params.html,
                               resolveUtmTags(
@@ -596,7 +602,7 @@ export class EmailService {
                               this.siteUrl
                           ),
                       }
-                    : params
+                    : paramsWithReplyTo
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':

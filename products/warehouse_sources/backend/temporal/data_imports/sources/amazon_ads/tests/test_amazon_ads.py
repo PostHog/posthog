@@ -1,12 +1,11 @@
 import gzip
 import json
 import datetime as dt
+from collections.abc import Callable, Iterator
 from typing import Any
-from urllib.parse import urlparse
 
 import pytest
 import time_machine
-from unittest import mock
 
 import requests
 
@@ -21,8 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
     AmazonAdsResumeConfig,
     AmazonAdsRetryableError,
     _base_url,
-    amazon_ads_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
@@ -31,117 +28,141 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
     PAGE_SIZE,
     SP_CAMPAIGN_REPORT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source import AmazonAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
+    AmazonAdsSourceConfig,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.amazon_ads"
 _REPORT_URL = "https://offline-report-storage.s3.amazonaws.com/report.json.gz"
 _TODAY = "2026-06-30"
 
 
-def _token_response() -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {"access_token": "the-token", "expires_in": 3600}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        AmazonAdsSource(),
+        AmazonAdsSourceConfig(region="na", client_id="cid", client_secret="sec", refresh_token="rt"),
+    )
 
 
-def _json_response(body: Any) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _token() -> ScriptedResponse:
+    return ScriptedResponse(json={"access_token": "the-token", "expires_in": 3600})
 
 
-def _gzip_response(rows: list[dict[str, Any]]) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.content = gzip.compress(json.dumps(rows).encode())
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _profiles(profiles: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json=profiles)
 
 
-def _wire_report_session(
-    mock_session: mock.MagicMock,
-    profiles: list[dict[str, Any]],
+def _report_script(
     rows: list[dict[str, Any]],
     poll_statuses: list[str] | None = None,
     report_url: str = _REPORT_URL,
-) -> list[dict[str, Any]]:
-    """Play the create -> poll -> download flow, and hand back the report bodies we sent."""
-    created: list[dict[str, Any]] = []
-    statuses = list(poll_statuses or ["COMPLETED"])
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    created = 0
+    polls = 0
+    statuses = poll_statuses or ["COMPLETED"]
 
-    def post(url: str, **kwargs: Any) -> mock.MagicMock:
-        if url == LWA_TOKEN_URL:
-            return _token_response()
-        created.append(kwargs["json"])
-        return _json_response({"reportId": f"rep-{len(created)}"})
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        nonlocal created, polls
+        if request.url == LWA_TOKEN_URL:
+            return _token()
+        if request.path == "/v2/profiles":
+            return _profiles([{"profileId": 7}])
+        if request.path == "/reporting/reports" and request.method == "POST":
+            created += 1
+            return ScriptedResponse(json={"reportId": f"rep-{created}"})
+        if request.path.startswith("/reporting/reports/"):
+            status = statuses[min(polls, len(statuses) - 1)]
+            polls += 1
+            return ScriptedResponse(json={"status": status, "url": report_url if status == "COMPLETED" else None})
+        if request.url == _REPORT_URL:
+            return ScriptedResponse(body=gzip.compress(json.dumps(rows).encode()))
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    def get(url: str, **kwargs: Any) -> mock.MagicMock:
-        if url.endswith("/v2/profiles"):
-            return _json_response(profiles)
-        if "/reporting/reports/" in url:
-            status = statuses.pop(0) if len(statuses) > 1 else statuses[0]
-            return _json_response({"status": status, "url": report_url if status == "COMPLETED" else None})
-        return _gzip_response(rows)
-
-    mock_session.return_value.post.side_effect = post
-    mock_session.return_value.get.side_effect = get
-    return created
+    return respond
 
 
-def _resume_manager(state: AmazonAdsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = state is not None
-    manager.load_state.return_value = state
-    return manager
+def _report_requests(requests: list[RecordedRequest]) -> list[RecordedRequest]:
+    return [request for request in requests if request.path == "/reporting/reports" and request.method == "POST"]
 
 
 class TestBaseUrl:
-    def test_invalid_region_raises(self):
+    def test_invalid_region_raises(self) -> None:
         with pytest.raises(ValueError):
             _base_url("evil")
 
 
-def _status_response(status_code: int) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    return resp
-
-
-def _failed_token_response(status_code: int) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.raise_for_status.side_effect = requests.HTTPError(response=_status_response(status_code))
-    return resp
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "token_response, profiles_response, expected",
+        "script, expected, paths",
         [
-            (_token_response(), _json_response([{"profileId": 1}]), (True, None)),
-            (_failed_token_response(400), None, (False, LWA_REJECTED_MESSAGE)),
-            (_failed_token_response(503), None, (False, UNAVAILABLE_MESSAGE)),
-            (_token_response(), _status_response(403), (False, PROFILES_DENIED_MESSAGE)),
-            (_token_response(), _status_response(500), (False, UNAVAILABLE_MESSAGE)),
-            (requests.ConnectionError(), None, (False, UNAVAILABLE_MESSAGE)),
+            (
+                [_token(), _profiles([{"profileId": 1}])],
+                (True, None),
+                ["/auth/o2/token", "/v2/profiles"],
+            ),
+            (
+                always(ScriptedResponse(status=400)),
+                (False, LWA_REJECTED_MESSAGE),
+                ["/auth/o2/token"],
+            ),
+            (
+                always(ScriptedResponse(status=503)),
+                (False, UNAVAILABLE_MESSAGE),
+                ["/auth/o2/token"],
+            ),
+            (
+                [_token(), ScriptedResponse(status=403)],
+                (False, PROFILES_DENIED_MESSAGE),
+                ["/auth/o2/token", "/v2/profiles"],
+            ),
+            (
+                [_token(), ScriptedResponse(status=401)],
+                (False, PROFILES_DENIED_MESSAGE),
+                ["/auth/o2/token", "/v2/profiles"],
+            ),
+            (
+                [_token(), *[ScriptedResponse(status=500)] * 10],
+                (False, UNAVAILABLE_MESSAGE),
+                None,
+            ),
+            (
+                always(requests.ConnectionError()),
+                (False, UNAVAILABLE_MESSAGE),
+                None,
+            ),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_outcomes(self, mock_session, token_response, profiles_response, expected):
-        if isinstance(token_response, Exception):
-            mock_session.return_value.post.side_effect = token_response
-        else:
-            mock_session.return_value.post.return_value = token_response
-        mock_session.return_value.get.return_value = profiles_response
+    def test_validate_credentials_outcomes(
+        self, script: Script, expected: tuple[bool, str | None], paths: list[str] | None
+    ) -> None:
+        with scripted_network(script) as network:
+            assert validate_credentials("na", "cid", "sec", "rt") == expected
+        if paths is not None:
+            assert [request.path for request in network.requests_log[: len(paths)]] == paths
 
-        assert validate_credentials("na", "cid", "sec", "rt") == expected
+    def test_invalid_region_rejected_without_request(self) -> None:
+        with scripted_network([]) as network:
+            assert validate_credentials("evil", "cid", "sec", "rt") == (False, INVALID_REGION_MESSAGE)
+        assert network.requests_log == []
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_region_rejected_without_request(self, mock_session):
-        assert validate_credentials("evil", "cid", "sec", "rt") == (False, INVALID_REGION_MESSAGE)
-        mock_session.return_value.post.assert_not_called()
+    def test_source_returns_the_credential_check_result(self) -> None:
+        config = AmazonAdsSourceConfig(region="na", client_id="cid", client_secret="sec", refresh_token="rt")
+        with scripted_network([_token(), ScriptedResponse(status=403)]) as network:
+            result = AmazonAdsSource().validate_credentials(config, 123)
+
+        assert result == (False, PROFILES_DENIED_MESSAGE)
+        assert network.requests_log[1].origin == "https://advertising-api.amazon.com"
+        assert network.requests_log[0].body is not None
+        assert b"refresh_token=rt" in network.requests_log[0].body
 
 
 class TestGetRows:
@@ -155,27 +176,24 @@ class TestGetRows:
             ("sp_targets", "targetId"),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_entity_fan_out_per_profile_with_scope_header(self, mock_session, endpoint, id_field):
+    def test_entity_fan_out_per_profile_with_scope_header(self, endpoint: str, id_field: str) -> None:
         config = AMAZON_ADS_ENDPOINTS[endpoint]
-        mock_session.return_value.post.side_effect = [
-            _token_response(),
-            _json_response({config.data_key: [{id_field: 11}], "nextToken": "tok"}),
-            _json_response({config.data_key: [{id_field: 12}]}),
-        ]
-        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
-
-        batches = list(get_rows("na", "cid", "sec", "rt", endpoint, mock.MagicMock()))
-
-        flat = [item for batch in batches for item in batch]
-        assert [(row[id_field], row["_profile_id"]) for row in flat] == [(11, "1"), (12, "1")]
-        first_list_call = mock_session.return_value.post.call_args_list[1]
-        assert urlparse(first_list_call.args[0]).path == config.path
-        assert first_list_call.kwargs["headers"]["Amazon-Advertising-API-Scope"] == "1"
-        assert first_list_call.kwargs["headers"]["Content-Type"] == config.media_type
-        assert first_list_call.kwargs["json"] == {"maxResults": PAGE_SIZE}
-        second_list_call = mock_session.return_value.post.call_args_list[2]
-        assert second_list_call.kwargs["json"] == {"maxResults": PAGE_SIZE, "nextToken": "tok"}
+        result = _driver().run(
+            endpoint,
+            [
+                _token(),
+                _profiles([{"profileId": 1}]),
+                ScriptedResponse(json={config.data_key: [{id_field: 11}], "nextToken": "tok"}),
+                ScriptedResponse(json={config.data_key: [{id_field: 12}]}),
+            ],
+        )
+        assert result.raised is None
+        assert [(row[id_field], row["_profile_id"]) for row in result.rows] == [(11, "1"), (12, "1")]
+        assert result.paths[2:] == [config.path, config.path]
+        assert result.requests[2].headers["amazon-advertising-api-scope"] == "1"
+        assert result.requests[2].headers["content-type"] == config.media_type
+        assert result.requests[2].json() == {"maxResults": PAGE_SIZE}
+        assert result.requests[3].json() == {"maxResults": PAGE_SIZE, "nextToken": "tok"}
 
     @pytest.mark.parametrize(
         "endpoint, expected_body",
@@ -193,129 +211,102 @@ class TestGetRows:
             ("sd_targets", {"maxResults": 5000, "adProductFilter": {"include": ["SPONSORED_DISPLAY"]}}),
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_list_request_body_per_endpoint(self, mock_session, endpoint, expected_body):
+    def test_list_request_body_per_endpoint(self, endpoint: str, expected_body: dict[str, Any]) -> None:
         config = AMAZON_ADS_ENDPOINTS[endpoint]
-        mock_session.return_value.post.side_effect = [
-            _token_response(),
-            _json_response({config.data_key: [{"id": 1}], "nextToken": "tok"}),
-            _json_response({config.data_key: [{"id": 2}]}),
-        ]
-        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
-
-        list(get_rows("na", "cid", "sec", "rt", endpoint, mock.MagicMock()))
-
-        calls = mock_session.return_value.post.call_args_list
-        assert calls[1].kwargs["json"] == expected_body
-        assert calls[2].kwargs["json"] == {**expected_body, "nextToken": "tok"}
+        result = _driver().run(
+            endpoint,
+            [
+                _token(),
+                _profiles([{"profileId": 1}]),
+                ScriptedResponse(json={config.data_key: [{"id": 1}], "nextToken": "tok"}),
+                ScriptedResponse(json={config.data_key: [{"id": 2}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.requests[2].json() == expected_body
+        assert result.requests[3].json() == {**expected_body, "nextToken": "tok"}
 
     @pytest.mark.parametrize(
         "endpoint, expected_client_id",
-        [
-            ("sb_campaigns", "cid"),
-            ("sd_campaigns", "cid"),
-            ("sp_campaigns", None),
-        ],
+        [("sb_campaigns", "cid"), ("sd_campaigns", "cid"), ("sp_campaigns", None)],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_unified_ads_api_sends_its_own_client_id_header(self, mock_session, endpoint, expected_client_id):
+    def test_unified_ads_api_sends_its_own_client_id_header(
+        self, endpoint: str, expected_client_id: str | None
+    ) -> None:
         config = AMAZON_ADS_ENDPOINTS[endpoint]
-        mock_session.return_value.post.side_effect = [
-            _token_response(),
-            _json_response({config.data_key: [{"id": 1}]}),
-        ]
-        mock_session.return_value.get.return_value = _json_response([{"profileId": 1}])
+        result = _driver().run(
+            endpoint,
+            [_token(), _profiles([{"profileId": 1}]), ScriptedResponse(json={config.data_key: [{"id": 1}]})],
+        )
+        assert result.raised is None
+        assert result.requests[2].headers.get("amazon-ads-clientid") == expected_client_id
 
-        list(get_rows("na", "cid", "sec", "rt", endpoint, mock.MagicMock()))
-
-        headers = mock_session.return_value.post.call_args_list[1].kwargs["headers"]
-        assert headers.get("Amazon-Ads-ClientId") == expected_client_id
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_remints_token_on_401(self, mock_session):
-        expired = mock.MagicMock()
-        expired.status_code = 401
-        expired.ok = False
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = [expired, _json_response([{"profileId": 1}])]
-
-        batches = list(get_rows("na", "cid", "sec", "rt", "profiles", mock.MagicMock()))
-
-        assert batches == [[{"profileId": 1}]]
+    def test_remints_token_on_401(self) -> None:
+        result = _driver().run(
+            "profiles",
+            [_token(), ScriptedResponse(status=401), _token(), _profiles([{"profileId": 1}])],
+        )
+        assert result.raised is None
+        assert result.items == [[{"profileId": 1}]]
         # One mint at start + one re-mint after the 401.
-        assert mock_session.return_value.post.call_count == 2
+        assert result.paths.count("/auth/o2/token") == 2
 
     @pytest.mark.parametrize("status_code", [425, 429, 500, 503])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_retryable_statuses_are_retried_then_reraised(self, mock_session, status_code):
-        throttled = mock.MagicMock()
-        throttled.status_code = status_code
-        throttled.ok = False
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = throttled
+    def test_retryable_statuses_are_retried_then_reraised(self, status_code: int) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return _token() if request.url == LWA_TOKEN_URL else ScriptedResponse(status=status_code)
 
-        with mock.patch(f"{_MODULE}.wait_exponential_jitter", return_value=lambda _state: 0):
-            with pytest.raises(AmazonAdsRetryableError):
-                list(get_rows("na", "cid", "sec", "rt", "profiles", mock.MagicMock()))
+        result = _driver().run("profiles", respond)
+        assert isinstance(result.raised, AmazonAdsRetryableError)
+        assert len(result.requests) > 2
+        assert set(result.paths) == {"/auth/o2/token", "/v2/profiles"}
 
 
 class TestReportRows:
     @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
+    def _frozen_clock(self) -> Iterator[None]:
         with time_machine.travel(_TODAY, tick=False):
             yield
 
-    def _run(self, manager: mock.MagicMock | None = None, **kwargs: Any) -> list[list[dict[str, Any]]]:
-        return list(
-            get_rows(
-                "na",
-                "cid",
-                "sec",
-                "rt",
-                "sp_campaign_reports",
-                mock.MagicMock(),
-                resumable_source_manager=manager if manager is not None else _resume_manager(),
-                **kwargs,
-            )
-        )
+    @staticmethod
+    def _run(
+        script: Callable[[RecordedRequest], ScriptedResponse],
+        *,
+        resume_state: AmazonAdsResumeConfig | None = None,
+        **inputs: Any,
+    ) -> DriveResult:
+        return _driver().run("sp_campaign_reports", script, resume_state=resume_state, **inputs)
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_report_is_created_polled_and_downloaded_in_date_order(self, mock_session, _sleep):
-        created = _wire_report_session(
-            mock_session,
-            profiles=[{"profileId": 7}],
-            rows=[{"campaignId": 2, "date": "2026-06-29"}, {"campaignId": 1, "date": "2026-06-20"}],
-            poll_statuses=["PENDING", "PROCESSING", "COMPLETED"],
-        )
-        manager = _resume_manager()
-
-        batches = self._run(
-            manager,
+    def test_report_is_created_polled_and_downloaded_in_date_order(self) -> None:
+        result = self._run(
+            _report_script(
+                rows=[{"campaignId": 2, "date": "2026-06-29"}, {"campaignId": 1, "date": "2026-06-20"}],
+                poll_statuses=["PENDING", "PROCESSING", "COMPLETED"],
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-06-20",
         )
-
-        assert [row["date"] for batch in batches for row in batch] == ["2026-06-20", "2026-06-29"]
-        assert all(row["_profile_id"] == "7" for batch in batches for row in batch)
+        assert result.raised is None
+        assert [row["date"] for row in result.rows] == ["2026-06-20", "2026-06-29"]
+        assert all(row["_profile_id"] == "7" for row in result.rows)
+        created = _report_requests(result.requests)
         assert len(created) == 1
-        assert created[0]["startDate"] == "2026-06-20"
-        assert created[0]["endDate"] == _TODAY
-        assert created[0]["configuration"]["reportTypeId"] == SP_CAMPAIGN_REPORT.report_type_id
-        assert created[0]["configuration"]["timeUnit"] == "DAILY"
-        assert "date" in created[0]["configuration"]["columns"]
-        manager.save_state.assert_called_once_with(
+        body = created[0].json()
+        assert body["startDate"] == "2026-06-20"
+        assert body["endDate"] == _TODAY
+        assert body["configuration"]["reportTypeId"] == SP_CAMPAIGN_REPORT.report_type_id
+        assert body["configuration"]["timeUnit"] == "DAILY"
+        assert "date" in body["configuration"]["columns"]
+        assert result.saved_states == [
             AmazonAdsResumeConfig(profile_id="7", window_start="2026-06-20", report_id="rep-1")
-        )
-        manager.clear_state.assert_called_once()
+        ]
+        assert result.committed_states == result.saved_states
+        assert result.final_state is None
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_walks_the_retention_window_in_vendor_sized_chunks(self, mock_session, _sleep):
-        created = _wire_report_session(mock_session, profiles=[{"profileId": 7}], rows=[])
-
-        self._run()
-
+    def test_full_refresh_walks_the_retention_window_in_vendor_sized_chunks(self) -> None:
+        result = self._run(_report_script(rows=[]))
+        assert result.raised is None
+        created = [request.json() for request in _report_requests(result.requests)]
         earliest = dt.date.fromisoformat(_TODAY) - dt.timedelta(days=SP_CAMPAIGN_REPORT.retention_days - 1)
         assert created[0]["startDate"] == earliest.isoformat()
         assert created[-1]["endDate"] == _TODAY
@@ -325,77 +316,71 @@ class TestReportRows:
             for body in created
         )
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_the_pending_report_instead_of_asking_for_a_second(self, mock_session, _sleep):
-        created = _wire_report_session(mock_session, profiles=[{"profileId": 7}], rows=[{"date": "2026-06-25"}])
-        manager = _resume_manager(
-            AmazonAdsResumeConfig(profile_id="7", window_start="2026-06-20", report_id="rep-in-flight")
+    def test_resumes_the_pending_report_instead_of_asking_for_a_second(self) -> None:
+        result = self._run(
+            _report_script(rows=[{"date": "2026-06-25"}]),
+            resume_state=AmazonAdsResumeConfig(profile_id="7", window_start="2026-06-20", report_id="rep-in-flight"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
         )
-
-        self._run(manager, should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20")
-
-        assert created == []
-        polled = [
-            call.args[0]
-            for call in mock_session.return_value.get.call_args_list
-            if "/reporting/reports/" in call.args[0]
-        ]
+        assert result.raised is None
+        assert _report_requests(result.requests) == []
+        polled = [request.url for request in result.requests if request.path.startswith("/reporting/reports/")]
         assert polled and all(url.endswith("rep-in-flight") for url in polled)
 
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_failed_report_reports_amazons_reason(self, mock_session, _sleep):
-        def get(url: str, **kwargs: Any) -> mock.MagicMock:
-            if url.endswith("/v2/profiles"):
-                return _json_response([{"profileId": 7}])
-            return _json_response({"status": "FAILED", "failureReason": "Date range exceeds retention"})
+    def test_failed_report_reports_amazons_reason(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.url == LWA_TOKEN_URL:
+                return _token()
+            if request.path == "/v2/profiles":
+                return _profiles([{"profileId": 7}])
+            if request.method == "POST":
+                return ScriptedResponse(json={"reportId": "rep-1"})
+            return ScriptedResponse(json={"status": "FAILED", "failureReason": "Date range exceeds retention"})
 
-        mock_session.return_value.post.side_effect = lambda url, **kwargs: (
-            _token_response() if url == LWA_TOKEN_URL else _json_response({"reportId": "rep-1"})
+        result = self._run(
+            respond,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
         )
-        mock_session.return_value.get.side_effect = get
+        assert isinstance(result.raised, AmazonAdsReportError)
+        assert "Date range exceeds retention" in str(result.raised)
 
-        with pytest.raises(AmazonAdsReportError, match="Date range exceeds retention"):
-            self._run(should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20")
-
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_report_still_generating_after_the_budget_is_retryable(self, mock_session, _sleep):
-        _wire_report_session(mock_session, profiles=[{"profileId": 7}], rows=[], poll_statuses=["PROCESSING"])
-
-        with pytest.raises(AmazonAdsRetryableError):
-            self._run(should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20")
-
-        assert _sleep.call_count == REPORT_POLL_MAX_ATTEMPTS
-
-    @mock.patch(f"{_MODULE}.time.sleep")
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_download_url_outside_amazon_is_rejected(self, mock_session, _sleep):
-        _wire_report_session(
-            mock_session,
-            profiles=[{"profileId": 7}],
-            rows=[],
-            report_url="https://attacker.example.com/report.json.gz",
+    def test_report_still_generating_after_the_budget_is_retryable(self) -> None:
+        result = self._run(
+            _report_script(rows=[], poll_statuses=["PROCESSING"]),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
         )
+        assert isinstance(result.raised, AmazonAdsRetryableError)
+        polls = [path for path in result.paths if path.startswith("/reporting/reports/")]
+        assert len(polls) == REPORT_POLL_MAX_ATTEMPTS
 
-        with pytest.raises(ValueError, match="outside Amazon"):
-            self._run(should_use_incremental_field=True, db_incremental_field_last_value="2026-06-20")
+    def test_download_url_outside_amazon_is_rejected(self) -> None:
+        result = self._run(
+            _report_script(rows=[], report_url="https://attacker.example.com/report.json.gz"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-20",
+        )
+        assert isinstance(result.raised, ValueError)
+        assert "outside Amazon" in str(result.raised)
+        assert not any(request.origin == "https://attacker.example.com" for request in result.requests)
 
 
 class TestAmazonAdsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = AMAZON_ADS_ENDPOINTS[endpoint]
-        response = amazon_ads_source("na", "cid", "sec", "rt", endpoint, mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        result = _driver().run(endpoint, [_token(), _profiles([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == config.primary_keys
+        assert result.response.sort_mode == "asc"
         if config.report is None:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+            assert result.response.partition_mode is None
+            assert result.response.partition_keys is None
         else:
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "day"
-            assert response.partition_keys == ["date"]
+            assert result.response.partition_mode == "datetime"
+            assert result.response.partition_format == "day"
+            assert result.response.partition_keys == ["date"]

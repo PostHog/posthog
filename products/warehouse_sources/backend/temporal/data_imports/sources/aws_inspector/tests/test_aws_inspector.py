@@ -25,15 +25,100 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import route
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsinspector import (
     AwsInspectorSourceConfig,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspector.aws_inspector"
+SERVICE_MODEL = Session().get_service_model("inspector2", api_version="2020-06-08")
+SCAN_ONE = "arn:aws:inspector2:eu-west-1:111111111111:owner/111111111111/cis-scan/00000000-0000-4000-8000-000000000001"
+SCAN_TWO = "arn:aws:inspector2:eu-west-1:111111111111:owner/111111111111/cis-scan/00000000-0000-4000-8000-000000000002"
+SCAN_THREE = (
+    "arn:aws:inspector2:eu-west-1:111111111111:owner/111111111111/cis-scan/00000000-0000-4000-8000-000000000003"
+)
+IMAGE_ONE = "arn:aws:ecr:eu-west-1:111111111111:repository/example/sha256:" + "a" * 64
+IMAGE_TWO = "arn:aws:ecr:eu-west-1:111111111111:repository/example/sha256:" + "b" * 64
 
 
 def driver(config: AwsInspectorSourceConfig) -> SourceDriver:
     return SourceDriver(AwsInspectorSource(), config)
+
+
+def assert_valid_request(request: RecordedRequest) -> dict[str, Any]:
+    operation = next(
+        SERVICE_MODEL.operation_model(name)
+        for name in SERVICE_MODEL.operation_names
+        if SERVICE_MODEL.operation_model(name).http["requestUri"] == request.path
+    )
+    payload = request.json()
+    assert operation.input_shape is not None
+    validate_parameters(payload, operation.input_shape)
+    return payload
+
+
+def details_script() -> dict[str, list[ScriptedResponse]]:
+    scans = [
+        {"scanArn": SCAN_TWO, "scanConfigurationArn": "example", "status": "COMPLETED", "scanDate": 1735776000},
+        {"scanArn": SCAN_THREE, "scanConfigurationArn": "example", "status": "IN_PROGRESS", "scanDate": 1735862400},
+    ]
+    return {
+        "/cis/scan/list": [
+            ScriptedResponse(
+                json={
+                    "scans": [
+                        {
+                            "scanArn": SCAN_ONE,
+                            "scanConfigurationArn": "example",
+                            "status": "COMPLETED",
+                            "scanDate": 1735689600,
+                        }
+                    ],
+                    "nextToken": "scans-2",
+                }
+            ),
+            ScriptedResponse(json={"scans": scans}),
+        ],
+        "/cis/scan-result/resource/list": [
+            ScriptedResponse(
+                json={
+                    "targetResourceAggregations": [
+                        {"scanArn": SCAN_ONE, "accountId": "111111111111", "targetResourceId": "i-0000000000000001"}
+                    ],
+                    "nextToken": "targets-2",
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "targetResourceAggregations": [
+                        {"scanArn": SCAN_ONE, "accountId": "111111111111", "targetResourceId": "i-0000000000000002"}
+                    ]
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "targetResourceAggregations": [
+                        {"scanArn": SCAN_TWO, "accountId": "222222222222", "targetResourceId": "i-0000000000000001"}
+                    ]
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "targetResourceAggregations": [
+                        {"scanArn": SCAN_THREE, "accountId": "222222222222", "targetResourceId": "i-0000000000000001"}
+                    ]
+                }
+            ),
+        ],
+        "/cis/scan-result/details/get": [
+            ScriptedResponse(json={"scanResultDetails": [{"scanArn": SCAN_ONE, "checkId": "1.1"}], "nextToken": "d-2"}),
+            ScriptedResponse(json={"scanResultDetails": [{"scanArn": SCAN_ONE, "checkId": "1.2", "status": "FAILED"}]}),
+            ScriptedResponse(json={"scanResultDetails": []}),
+            ScriptedResponse(json={"scanResultDetails": [{"scanArn": SCAN_TWO, "checkId": "1.1"}]}),
+            ScriptedResponse(json={"scanResultDetails": [{"scanArn": SCAN_THREE, "checkId": "1.1"}]}),
+        ],
+    }
 
 
 def response(payload: object, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
@@ -74,6 +159,8 @@ def manager() -> MagicMock:
         ("findings", "ListFindings", "findings", "/findings/list", 25),
         ("coverage", "ListCoverage", "coveredResources", "/coverage/list", 200),
         ("coverage_statistics", "ListCoverageStatistics", "countsByGroup", "/coverage/statistics/list", None),
+        ("members", "ListMembers", "members", "/members/list", 50),
+        ("cis_scans", "ListCisScans", "scans", "/cis/scan/list", 100),
     ],
 )
 def test_signed_requests_and_pagination(
@@ -151,30 +238,41 @@ def test_incremental_filter_survives_pagination_and_full_refresh_omits_it(
 
 @pytest.mark.parametrize("completed", [False, True])
 def test_resume_retains_original_filter_and_stages_before_yield(
-    config: AwsInspectorSourceConfig, http: MagicMock, manager: MagicMock, completed: bool
+    config: AwsInspectorSourceConfig, completed: bool
 ) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = AwsInspectorResumeConfig(
-        next_token="saved-page", updated_after=1735689600.0, completed=completed
+    resume_state = AwsInspectorResumeConfig(next_token="saved-page", updated_after=1735689600.0, completed=completed)
+    result = driver(config).run(
+        "findings",
+        [
+            ScriptedResponse(
+                json={"findings": [{"findingArn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example"}]}
+            )
+        ]
+        if not completed
+        else [],
+        resume_state=resume_state,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2025-02-01T00:00:00Z",
     )
-    http.post.return_value = response(
-        {"findings": [{"findingArn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example"}]}
-    )
-    resource = aws_inspector_source(config, "findings", manager, True, "2025-02-01T00:00:00Z")
-    rows = iter(cast(Iterable[Any], resource.items()))
+    assert result.raised is None
     if completed:
-        assert list(rows) == []
-        http.post.assert_not_called()
+        assert result.items == []
+        assert result.requests == []
+        assert result.saved_states == []
+        assert result.final_state == resume_state
     else:
-        next(rows)
-        assert json.loads(http.post.call_args.kwargs["data"]) == {
+        assert result.items == [
+            [{"finding_arn": "arn:aws:inspector2:eu-west-1:111111111111:finding/example", "region": "eu-west-1"}]
+        ]
+        assert result.requests[0].json() == {
             "maxResults": 25,
             "nextToken": "saved-page",
             "filterCriteria": {"updatedAt": [{"startInclusive": 1735689600.0}]},
         }
-        manager.save_state.assert_called_once_with(AwsInspectorResumeConfig(updated_after=1735689600.0, completed=True))
-        assert list(rows) == []
-    manager.clear_state.assert_not_called()
+        completed_state = AwsInspectorResumeConfig(updated_after=1735689600.0, completed=True)
+        assert result.saved_states == [completed_state]
+        assert result.committed_states == [completed_state]
+        assert result.final_state == completed_state
 
 
 @pytest.mark.parametrize("value", [1735689600, 1735689600.0, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00"])
@@ -229,6 +327,7 @@ def test_invalid_pagination_does_not_complete(
         ("AccessDeniedException", 403, None, True, None),
         ("AccessDeniedException", 403, "coverage", False, "inspector2:ListCoverage"),
         ("AccessDenied", 403, "findings", False, "inspector2:ListFindings"),
+        ("AccessDeniedException", 403, "cis_scan_result_details", False, "inspector2:GetCisScanResultDetails"),
         ("UnrecognizedClientException", 403, None, False, "AWS rejected the credentials"),
         ("InvalidClientTokenId", 403, None, False, "access key ID"),
         ("InvalidSignatureException", 403, None, False, "signature"),
@@ -278,7 +377,13 @@ def test_transient_errors_propagate(config: AwsInspectorSourceConfig, status: in
 
 
 @pytest.mark.parametrize(
-    "schema,expected", [(None, {"maxResults": 1}), ("coverage_statistics", {"groupBy": "RESOURCE_TYPE"})]
+    "schema,expected",
+    [
+        (None, {"maxResults": 1}),
+        ("coverage_statistics", {"groupBy": "RESOURCE_TYPE"}),
+        ("cis_scan_result_details", {"maxResults": 1, "sortBy": "SCAN_START_DATE", "sortOrder": "ASC"}),
+        ("clusters_for_image", {"maxResults": 1}),
+    ],
 )
 def test_credential_probe_is_one_small_request(
     config: AwsInspectorSourceConfig, schema: str | None, expected: dict[str, Any]
@@ -397,3 +502,127 @@ def test_malformed_response(config: AwsInspectorSourceConfig, http: MagicMock, s
         with pytest.raises(AwsInspectorError, match="HTTP 503"):
             validate_credentials(config)
     http.close.assert_called_once()
+
+
+@pytest.mark.parametrize("incremental", [False, True])
+def test_cis_scan_result_details_walk_every_scan_target_and_page(
+    config: AwsInspectorSourceConfig, incremental: bool
+) -> None:
+    result = driver(config).run(
+        "cis_scan_result_details",
+        route(details_script()),
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value="2025-01-01T00:00:00Z" if incremental else None,
+    )
+    assert result.raised is None
+    payloads = [(request.path, assert_valid_request(request)) for request in result.requests]
+    scan_lists = [payload for path, payload in payloads if path == "/cis/scan/list"]
+    assert [payload.get("filterCriteria") for payload in scan_lists] == [
+        {"scanAtFilters": [{"earliestScanStartTime": 1735689600.0}]} if incremental else None
+    ] * 2
+    detail_calls = [
+        (payload["scanArn"], payload["accountId"], payload["targetResourceId"], payload.get("nextToken"))
+        for path, payload in payloads
+        if path == "/cis/scan-result/details/get"
+    ]
+    expected_calls = [
+        (SCAN_ONE, "111111111111", "i-0000000000000001", None),
+        (SCAN_ONE, "111111111111", "i-0000000000000001", "d-2"),
+        (SCAN_ONE, "111111111111", "i-0000000000000002", None),
+        (SCAN_TWO, "222222222222", "i-0000000000000001", None),
+    ]
+    # Incremental runs stop before an unfinished scan, so the watermark cannot pass it.
+    assert detail_calls == (
+        expected_calls if incremental else [*expected_calls, (SCAN_THREE, "222222222222", "i-0000000000000001", None)]
+    )
+    expected_rows = [
+        (SCAN_ONE, "i-0000000000000001", "1.1"),
+        (SCAN_ONE, "i-0000000000000001", "1.2"),
+        (SCAN_TWO, "i-0000000000000001", "1.1"),
+    ]
+    assert [(row["scan_arn"], row["target_resource_id"], row["check_id"]) for row in result.rows] == (
+        expected_rows if incremental else [*expected_rows, (SCAN_THREE, "i-0000000000000001", "1.1")]
+    )
+    first = result.rows[0]
+    assert first["account_id"] == "111111111111"
+    assert first["scan_date"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+    assert first["region"] == "eu-west-1"
+    assert result.final_state == AwsInspectorResumeConfig(
+        updated_after=1735689600.0 if incremental else None, completed=True
+    )
+
+
+def test_cis_scan_result_details_resume_from_saved_position(config: AwsInspectorSourceConfig) -> None:
+    script = details_script()
+    script["/cis/scan-result/resource/list"] = script["/cis/scan-result/resource/list"][1:]
+    script["/cis/scan-result/details/get"] = [
+        ScriptedResponse(json={"scanResultDetails": [{"scanArn": SCAN_ONE, "checkId": "1.3"}]}),
+        *script["/cis/scan-result/details/get"][3:],
+    ]
+    result = driver(config).run(
+        "cis_scan_result_details",
+        route(script),
+        resume_state=AwsInspectorResumeConfig(
+            scan_arn=SCAN_ONE, parent_token="targets-2", parent_key="111111111111/i-0000000000000002", next_token="d-3"
+        ),
+    )
+    assert result.raised is None
+    calls = [(request.path, request.json()) for request in result.requests]
+    assert calls[2] == ("/cis/scan-result/resource/list", {**calls[2][1], "nextToken": "targets-2"})
+    assert calls[3][1]["targetResourceId"] == "i-0000000000000002"
+    assert calls[3][1]["nextToken"] == "d-3"
+    assert [row["check_id"] for row in result.rows] == ["1.3", "1.1", "1.1"]
+    assert result.saved_states[0] == AwsInspectorResumeConfig(scan_arn=SCAN_TWO)
+
+
+def test_clusters_for_image_fan_out(config: AwsInspectorSourceConfig) -> None:
+    images = [{"resourceId": IMAGE_ONE, "resourceType": "AWS_ECR_CONTAINER_IMAGE"}]
+    result = driver(config).run(
+        "clusters_for_image",
+        route(
+            {
+                "/coverage/list": [
+                    ScriptedResponse(json={"coveredResources": images, "nextToken": "images-2"}),
+                    ScriptedResponse(json={"coveredResources": [{**images[0], "resourceId": IMAGE_TWO}]}),
+                ],
+                "/cluster/get": [
+                    ScriptedResponse(
+                        json={
+                            "cluster": [{"clusterArn": "arn:aws:ecs:eu-west-1:111111111111:cluster/one"}],
+                            "nextToken": "clusters-2",
+                        }
+                    ),
+                    ScriptedResponse(
+                        json={"cluster": [{"clusterArn": "arn:aws:ecs:eu-west-1:111111111111:cluster/two"}]}
+                    ),
+                    ScriptedResponse(json={"cluster": []}),
+                ],
+            }
+        ),
+    )
+    assert result.raised is None
+    payloads = [(request.path, assert_valid_request(request)) for request in result.requests]
+    assert [path for path, _ in payloads] == [
+        "/coverage/list",
+        "/cluster/get",
+        "/cluster/get",
+        "/coverage/list",
+        "/cluster/get",
+    ]
+    assert payloads[0][1]["filterCriteria"]["resourceType"] == [
+        {"comparison": "EQUALS", "value": "AWS_ECR_CONTAINER_IMAGE"}
+    ]
+    assert [payload["filter"]["resourceId"] for path, payload in payloads if path == "/cluster/get"] == [
+        IMAGE_ONE,
+        IMAGE_ONE,
+        IMAGE_TWO,
+    ]
+    assert [(row["resource_id"], row["cluster_arn"]) for row in result.rows] == [
+        (IMAGE_ONE, "arn:aws:ecs:eu-west-1:111111111111:cluster/one"),
+        (IMAGE_ONE, "arn:aws:ecs:eu-west-1:111111111111:cluster/two"),
+    ]
+    assert result.saved_states == [
+        AwsInspectorResumeConfig(parent_key=IMAGE_ONE, next_token="clusters-2"),
+        AwsInspectorResumeConfig(parent_token="images-2"),
+        AwsInspectorResumeConfig(completed=True),
+    ]

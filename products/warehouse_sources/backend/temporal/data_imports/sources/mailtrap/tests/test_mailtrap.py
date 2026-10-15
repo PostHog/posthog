@@ -1,158 +1,88 @@
-import json
 from typing import Any, Optional
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailtrap import (
+    MailtrapSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.mailtrap import (
-    MAILTRAP_BASE_URL,
     STATS_START_DATE,
     MailtrapResumeConfig,
-    mailtrap_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.settings import (
     ENDPOINTS,
     MAILTRAP_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the mailtrap module.
-MAILTRAP_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.mailtrap.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.source import MailtrapSource
 
 
-def _response(body: Any, *, status: int = 200, url: str = f"{MAILTRAP_BASE_URL}/api/x") -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.url = url
-    resp.reason = "Error"
-    resp._content = json.dumps(body).encode() if body is not None else b""
-    return resp
-
-
-def _make_manager(resume_state: MailtrapResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy is snapshotted when
-    each request is prepared rather than after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _wire_repeat(session: mock.MagicMock, body: Any, *, status: int = 200) -> None:
-    """Wire a mock session to return the same response for every (retried) request."""
-    session.headers = {}
-    session.prepare_request.side_effect = lambda request: mock.MagicMock()
-    session.send.side_effect = lambda *args, **kwargs: _response(body, status=status)
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return mailtrap_source(
-        api_token="token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(MailtrapSource(), MailtrapSourceConfig(api_token="token"))
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_incremental_sends_sent_after_on_every_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_email_logs_incremental_sends_sent_after_on_every_page(self) -> None:
+        result = _driver().run(
+            "email_logs",
             [
-                _response({"messages": [{"message_id": "m1"}], "next_page_cursor": "c2"}),
-                _response({"messages": [{"message_id": "m2"}], "next_page_cursor": None}),
+                ScriptedResponse(json={"messages": [{"message_id": "m1"}], "next_page_cursor": "c2"}),
+                ScriptedResponse(json={"messages": [{"message_id": "m2"}], "next_page_cursor": None}),
             ],
-        )
-
-        _rows(
-            _source(
-                "email_logs",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-01-01T00:00:00Z",
-            )
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
         # The server-side bound must ride along with the cursor, or later pages walk unbounded
         # through already-synced history.
-        assert len(params) == 2
-        assert all(p.get("filters[sent_after]") == "2026-01-01T00:00:00Z" for p in params)
+        assert result.raised is None
+        assert result.rows == [{"message_id": "m1"}, {"message_id": "m2"}]
+        assert result.params("filters[sent_after]") == ["2026-01-01T00:00:00Z"] * 2
+        assert result.params("search_after") == [None, "c2"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"messages": [{"message_id": "m2"}], "next_page_cursor": None})])
-
-        manager = _make_manager(MailtrapResumeConfig(cursor="c2"))
-        rows = _rows(_source("email_logs", manager))
-
-        assert rows == [{"message_id": "m2"}]
+    def test_email_logs_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "email_logs",
+            [ScriptedResponse(json={"messages": [{"message_id": "m2"}], "next_page_cursor": None})],
+            resume_state=MailtrapResumeConfig(cursor="c2"),
+        )
+        assert result.raised is None
+        assert result.rows == [{"message_id": "m2"}]
         # The first page must never be re-fetched on resume: the saved cursor rides the first request.
-        assert session.send.call_count == 1
-        assert params[0]["search_after"] == "c2"
+        assert result.params("search_after") == ["c2"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_suppressions_paginates_by_last_row_id_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_suppressions_paginates_by_last_row_id_until_short_page(self) -> None:
         page_size = MAILTRAP_ENDPOINTS["suppressions"].page_size
         assert page_size is not None
         full_page = [{"id": f"s{i}"} for i in range(page_size)]
         short_page = [{"id": "last"}]
-        params = _wire(session, [_response(full_page), _response(short_page)])
-
-        manager = _make_manager()
-        rows = _rows(_source("suppressions", manager))
-
-        assert len(rows) == page_size + 1
+        result = _driver().run("suppressions", [ScriptedResponse(json=full_page), ScriptedResponse(json=short_page)])
+        assert result.raised is None
+        assert len(result.rows) == page_size + 1
         # The cursor advances from the last row of the full page; the short page ends the sync.
-        assert "last_id" not in params[0]
-        assert params[1]["last_id"] == full_page[-1]["id"]
-        manager.save_state.assert_called_once_with(MailtrapResumeConfig(cursor=full_page[-1]["id"]))
+        assert result.params("last_id") == [None, full_page[-1]["id"]]
+        assert result.saved_states == [MailtrapResumeConfig(cursor=full_page[-1]["id"])]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_suppressions_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "s_last"}])])
-
-        manager = _make_manager(MailtrapResumeConfig(cursor="s99"))
-        _rows(_source("suppressions", manager))
+    def test_suppressions_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "suppressions",
+            [ScriptedResponse(json=[{"id": "s_last"}])],
+            resume_state=MailtrapResumeConfig(cursor="s99"),
+        )
+        assert result.raised is None
         # The saved last-row id seeds the first request so already-synced pages are skipped.
-        assert params[0]["last_id"] == "s99"
+        assert result.params("last_id") == ["s99"]
 
     @parameterized.expand(
         [
@@ -160,42 +90,31 @@ class TestPagination:
             ("email_campaigns", 2, 100),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pagination_token_endpoints_follow_next_token(
-        self, endpoint: str, next_token: Any, per_page: int, MockSession
-    ) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_pagination_token_endpoints_follow_next_token(self, endpoint: str, next_token: Any, per_page: int) -> None:
+        result = _driver().run(
+            endpoint,
             [
-                _response({"data": [{"id": "a"}], "pagination": {"next_token": next_token}}),
-                _response({"data": [{"id": "b"}], "pagination": {"next_token": None}}),
+                ScriptedResponse(json={"data": [{"id": "a"}], "pagination": {"next_token": next_token}}),
+                ScriptedResponse(json={"data": [{"id": "b"}], "pagination": {"next_token": None}}),
             ],
         )
+        assert result.raised is None
+        assert result.rows == [{"id": "a"}, {"id": "b"}]
+        assert result.params("token") == [None, str(next_token)]
+        assert result.params("per_page") == [str(per_page)] * 2
+        assert result.saved_states == [MailtrapResumeConfig(cursor=str(next_token))]
 
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager))
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert "token" not in params[0]
-        assert params[1]["token"] == next_token
-        assert all(p["per_page"] == per_page for p in params)
-        manager.save_state.assert_called_once_with(MailtrapResumeConfig(cursor=str(next_token)))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sending_stats_by_date_sends_required_window_and_flattens_stats(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [_response([{"date": "2026-01-01", "stats": {"delivery_count": 190, "open_rate": 0.9}}])],
-        )
-
+    def test_sending_stats_by_date_sends_required_window_and_flattens_stats(self) -> None:
         with time_machine.travel("2026-03-15T12:00:00Z", tick=False):
-            rows = _rows(_source("sending_stats_by_date", _make_manager()))
-
+            result = _driver().run(
+                "sending_stats_by_date",
+                [ScriptedResponse(json=[{"date": "2026-01-01", "stats": {"delivery_count": 190, "open_rate": 0.9}}])],
+            )
+        assert result.raised is None
         # start_date and end_date are required: omitting either returns a 400.
-        assert params == [{"start_date": STATS_START_DATE, "end_date": "2026-03-15"}]
-        assert rows == [{"date": "2026-01-01", "delivery_count": 190, "open_rate": 0.9}]
+        assert result.params("start_date") == [STATS_START_DATE]
+        assert result.params("end_date") == ["2026-03-15"]
+        assert result.rows == [{"date": "2026-01-01", "delivery_count": 190, "open_rate": 0.9}]
 
     @parameterized.expand(
         [
@@ -204,16 +123,12 @@ class TestPagination:
             ("accounts", [{"id": 3, "name": "acct"}]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unpaginated_bare_array_endpoints_fetch_once(self, endpoint: str, body: list[dict], MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
-
-        manager = _make_manager()
-        rows = _rows(_source(endpoint, manager))
-        assert rows == body
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+    def test_unpaginated_bare_array_endpoints_fetch_once(self, endpoint: str, body: list[dict[str, Any]]) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+        assert result.raised is None
+        assert result.rows == body
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
 
 class TestRetryClassification:
@@ -224,41 +139,30 @@ class TestRetryClassification:
             ("templates_wrapped", "email_templates", {"data": []}),
         ]
     )
-    @mock.patch("time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_payload_is_retryable(self, _name: str, endpoint: str, body: Any, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire_repeat(session, body)
-
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source(endpoint, _make_manager()))
+    def test_unexpected_payload_is_retryable(self, _name: str, endpoint: str, body: Any) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(json=body)))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    @mock.patch("time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire_repeat(session, {"messages": []}, status=status)
-
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("email_logs", _make_manager()))
+    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
+        result = _driver().run("email_logs", always(ScriptedResponse(status=status, json={"messages": []})))
+        assert isinstance(result.raised, RESTClientRetryableError)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_for_status(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "nope"}, status=status)])
-
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("email_logs", _make_manager()))
+    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+        result = _driver().run("email_logs", [ScriptedResponse(status=status, json={"error": "nope"})])
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestSourceResponseShape:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        response = _source(endpoint, _make_manager())
+    def test_source_response_shape(self, endpoint: str) -> None:
         config = MAILTRAP_ENDPOINTS[endpoint]
+        body: Any = {config.data_key: []} if config.data_key else []
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.incremental_param:
@@ -266,10 +170,9 @@ class TestSourceResponseShape:
             # newest-first and suppressions ordering is undocumented.
             assert response.sort_mode == "desc"
             assert response.partition_keys == [config.partition_key]
-            assert response.partition_mode == "datetime"
         else:
             assert response.sort_mode == "asc"
-            assert response.partition_mode == ("datetime" if config.partition_key else None)
+        assert response.partition_mode == ("datetime" if config.partition_key else None)
 
 
 class TestValidateCredentials:
@@ -281,16 +184,16 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Mailtrap returned HTTP 500"),
         ]
     )
-    @mock.patch(MAILTRAP_SESSION_PATCH)
     def test_status_mapping(
-        self, _name: str, status: int, expected_valid: bool, expected_message: Optional[str], mock_session
+        self, _name: str, status: int, expected_valid: bool, expected_message: Optional[str]
     ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("token") == (expected_valid, expected_message)
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            assert validate_credentials("token") == (expected_valid, expected_message)
+        assert {request.path for request in network.requests_log} == {"/api/accounts"}
 
-    @mock.patch(MAILTRAP_SESSION_PATCH)
-    def test_connection_error_is_not_validated(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        valid, message = validate_credentials("token")
+    def test_connection_error_is_not_validated(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
+            valid, message = validate_credentials("token")
         assert valid is False
         assert message == "Could not connect to Mailtrap"
+        assert {request.path for request in network.requests_log} == {"/api/accounts"}

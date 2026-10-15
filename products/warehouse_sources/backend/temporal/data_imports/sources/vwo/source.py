@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VWOSource(ResumableSource[VWOSourceConfig, VWOResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("dev.visualwebsiteoptimizer.com",),
+        npm=("vwo-node-sdk", "vwo-fme-node-sdk", "vwo-fme-react-sdk"),
+        pypi=("vwo-python-sdk", "vwo-fme-python-sdk"),
+        cocoapods=("VWO",),
+        composer=("vwo/vwo-php-sdk", "vwo/vwo-fme-php-sdk"),
+        go=(
+            "github.com/wingify/vwo-go-sdk",
+            "github.com/wingify/vwo-fme-go-sdk",
+            "github.com/wingify/wingify-fme-go-sdk",
+        ),
+        maven=("com.vwo.sdk:vwo-java-sdk", "com.vwo.sdk:vwo-fme-java-sdk"),
+        pub=("vwo_fme_flutter_sdk",),
+        rubygems=("vwo-sdk", "vwo-fme-ruby-sdk", "wingify-fme-ruby-sdk"),
+        swiftpm=("github.com/wingify/wingify-mobile-insights-ios-artifacts",),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developers.wingify.com/v2/reference/introduction-1"

@@ -12,7 +12,10 @@ import { useChannelSessionFacts } from "@posthog/ui/features/canvas/hooks/useCha
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import {
+  usePinnedTaskRecords,
+  useTasks,
+} from "@posthog/ui/features/tasks/useTasks";
 import { useMemo } from "react";
 
 export const RECENT_WORK_CAP = 50;
@@ -22,9 +25,22 @@ export interface RecentWorkItem {
   channelId: string | undefined;
 }
 
+// Pins always stay. The cap counts only the rest, so pins with newer activity cannot take the
+// places of the recent work they sit beside.
+function keepPinsAndCapRecent(
+  items: readonly ChannelItemModel[],
+): ChannelItemModel[] {
+  let recent = 0;
+  return items.filter(
+    (item) =>
+      (item.kind === "task" && item.pinned) || recent++ < RECENT_WORK_CAP,
+  );
+}
+
 export function selectRecentWorkItems({
   dashboards,
   tasks,
+  pinnedTasks,
   lastViewedByCanvasId,
   meUuid,
   archivedTaskIds,
@@ -33,6 +49,7 @@ export function selectRecentWorkItems({
 }: {
   dashboards: readonly DashboardRecord[];
   tasks: readonly Task[];
+  pinnedTasks: readonly Task[];
   lastViewedByCanvasId: Record<string, number>;
   meUuid: string | null;
   archivedTaskIds: ReadonlySet<string>;
@@ -45,39 +62,51 @@ export function selectRecentWorkItems({
       (meUuid != null && canvas.createdByUuid === meUuid),
   );
   const canvasChannelId = new Map(mine.map((c) => [c.id, c.channelId]));
+  const taskIds = new Set(tasks.map((task) => task.id));
   // The order is the items' own activity time. Opening an item is not activity,
   // so the local "viewed" time stays out of it and only says which canvases
   // belong to this list.
-  return buildChannelItems({
+  const items = buildChannelItems({
     dashboards: mine,
-    feedTasks: tasks,
+    feedTasks: [
+      ...tasks,
+      ...pinnedTasks.filter((task) => !taskIds.has(task.id)),
+    ],
     archivedTaskIds,
     pinnedTaskIds,
     ownedBy: null,
     sessionFacts,
-  })
-    .sort((a, b) => b.ts - a.ts)
-    .filter(
-      (item, index) =>
-        index < RECENT_WORK_CAP || (item.kind === "task" && item.pinned),
-    )
-    .map((item) => ({
-      item,
-      channelId: item.task?.channel ?? canvasChannelId.get(item.id),
-    }));
+  }).sort((a, b) => b.ts - a.ts);
+  return keepPinsAndCapRecent(items).map((item) => ({
+    item,
+    channelId: item.task?.channel ?? canvasChannelId.get(item.id),
+  }));
 }
 
-export function useRecentWorkItems(): {
+export function useRecentWorkItems({
+  sources,
+}: {
+  sources: readonly string[];
+}): {
   items: RecentWorkItem[];
   isLoading: boolean;
 } {
-  const { data: tasks = [], isLoading: tasksLoading } = useTasks();
+  // Nothing past the cap shows, so the page asks for no more than that. The server cuts the page
+  // from the newest activity: by creation date, a session started last week and still in use is
+  // already off the page when scheduled runs create many tasks.
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks({
+    sources,
+    limit: RECENT_WORK_CAP,
+    ordering: "-last_activity_at",
+  });
+  const { data: pinnedTasks = [], isLoading: pinnedLoading } =
+    usePinnedTaskRecords();
   const { dashboards, isLoading: canvasesLoading } = useAllCanvases();
   const lastViewedByCanvasId = useCanvasViewedStore(
     (state) => state.lastViewedAtByCanvasId,
   );
   const archivedTaskIds = useArchivedTaskIds();
-  const { pinnedTaskIds } = usePinnedTasks();
+  const { pinnedTaskIds, isLoading: pinIdsLoading } = usePinnedTasks();
   const sessionFacts = useChannelSessionFacts();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -88,6 +117,7 @@ export function useRecentWorkItems(): {
       selectRecentWorkItems({
         dashboards,
         tasks,
+        pinnedTasks,
         lastViewedByCanvasId,
         meUuid,
         archivedTaskIds,
@@ -99,11 +129,16 @@ export function useRecentWorkItems(): {
       lastViewedByCanvasId,
       meUuid,
       tasks,
+      pinnedTasks,
       archivedTaskIds,
       pinnedTaskIds,
       sessionFacts,
     ],
   );
 
-  return { items, isLoading: tasksLoading || canvasesLoading };
+  return {
+    items,
+    isLoading:
+      tasksLoading || canvasesLoading || pinnedLoading || pinIdsLoading,
+  };
 }

@@ -1,8 +1,14 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkrunner import (
+    LinkrunnerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
 
 
@@ -32,11 +38,12 @@ class TestGetSchemas:
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validation_maps_transport_result(self, _name: str, transport_ok: bool, expected: bool) -> None:
-        config = MagicMock(api_key="key")
-        with patch.object(source_module, "validate_linkrunner_credentials", return_value=transport_ok):
+        config = LinkrunnerSourceConfig(api_key="key")
+        with scripted_network([ScriptedResponse(status=200 if transport_ok else 401)]) as network:
             ok, error = LinkrunnerSource().validate_credentials(config, team_id=1)
         assert ok is expected
         assert (error is None) is expected
+        assert network.requests_log[0].path == "/api/v1/campaigns"
 
 
 class TestNonRetryableErrors:

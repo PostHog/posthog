@@ -1,5 +1,3 @@
-import io
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -20,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     _to_date,
     _validate_app_id,
     appsflyer_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import APPSFLYER_ENDPOINTS
@@ -43,54 +40,6 @@ _CSV = (
     "2024-01-01,agency,google,brand,100,10\n"
     "2024-01-02,agency,meta,retargeting,200,20\n"
 )
-
-
-class _Raw(io.BytesIO):
-    """Stands in for urllib3's raw stream, which the transport sets `decode_content` on.
-
-    urllib3 closes the stream on the read that satisfies Content-Length, so anything still
-    holding it open sees a closed file rather than EOF.
-    """
-
-    decode_content = False
-
-    def __init__(self, body: bytes) -> None:
-        super().__init__(body)
-        self._length = len(body)
-
-    def read(self, size: int | None = -1) -> bytes:
-        data = super().read(size)
-        if self.tell() >= self._length:
-            self.close()
-        return data
-
-    def read1(self, size: int | None = -1) -> bytes:
-        return self.read(size)
-
-
-def _iter_content(raw: _Raw, chunk_size: int) -> Iterator[bytes]:
-    """Mirrors `Response.iter_content`, which stops once the body is consumed."""
-    while not raw.closed:
-        chunk = raw.read(chunk_size)
-        if not chunk:
-            return
-        yield chunk
-
-
-def _response(text: str, status: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.text = text
-    raw = _Raw(text.encode())
-    resp.raw = raw
-    resp.iter_content = lambda chunk_size=8192, **kwargs: _iter_content(raw, chunk_size)
-    resp.status_code = status
-    resp.ok = status < 400
-    return resp
-
-
-def _serve(text: str = _CSV, status: int = 200):
-    """A fresh response per call, since each request consumes its own stream."""
-    return lambda *args, **kwargs: _response(text, status)
 
 
 def _driver() -> SourceDriver:
@@ -184,6 +133,35 @@ class TestValidateCredentials:
             with pytest.raises(AppsFlyerCredentialsError) as exc:
                 validate_credentials("token", "id123")
         assert expected_substring in str(exc.value)
+
+    @pytest.mark.parametrize(
+        "body, expected_reason",
+        [
+            ("Pull API is not enabled\nfor this account", "AppsFlyer said: Pull API is not enabled for this account"),
+            ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
+            ("<html><body>Forbidden</body></html>", None),
+            ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+        ],
+    )
+    def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=403, body=body.encode())]):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("Bearer secret-token", "id123")
+        message = str(exc.value)
+        if expected_reason is None:
+            assert "AppsFlyer said" not in message
+        else:
+            assert message.endswith(expected_reason)
+        assert "secret-token" not in message
+
+    @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
+    def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials(api_token, "123456789")
+
+        request = network.requests_log[0]
+        assert request.headers["authorization"] == "Bearer token"
+        assert "/app/id123456789/" in request.path
 
     def test_validate_rejects_bad_app_id_without_request(self) -> None:
         with scripted_network([]) as network:
@@ -365,14 +343,14 @@ class TestRawAndMasterWindows:
         assert "installs" in kpis.split(",")
 
     @mock.patch(f"{_MODULE}.RAW_MAX_ROWS", 2)
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_warns_when_a_raw_window_fills_the_row_cap(self, mock_session):
+    def test_warns_when_a_raw_window_fills_the_row_cap(self):
         # AppsFlyer drops the rest of the window silently, so the sync has to say so.
-        mock_session.return_value.get.side_effect = _serve()
         logger = mock.MagicMock()
 
-        list(get_rows("token", "id123", "installs", logger))
+        result = _driver().run("installs", always(_csv_response()), logger=logger)
 
+        assert result.raised is None
+        assert set(result.params("maximum_rows")) == {"2"}
         assert logger.warning.called
 
     def test_value_with_an_embedded_newline_survives_streaming(self) -> None:

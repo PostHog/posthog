@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import (
@@ -27,6 +28,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
@@ -45,9 +47,10 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
@@ -55,6 +58,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -1059,7 +1063,7 @@ Jane Smith,25
         self.assertIn("'name', 'age'", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
-    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
+    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",), ("Person.id",)])
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
         side_effect=calculate_cohort_from_list,
@@ -1301,6 +1305,20 @@ Jane Smith,user456,jane@example.com
         person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    def test_static_cohort_with_too_many_manually_added_person_ids(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "test_too_many_person_ids",
+                "_create_static_person_ids": [str(uuid4()) for _ in range(DEFAULT_COHORT_INSERT_BATCH_SIZE + 1)],
+                "is_static": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "_create_static_person_ids")
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="test_too_many_person_ids").exists())
 
     def test_static_cohort_csv_and_manually_added(self):
         """Test CSV upload with person_id column using async task"""
@@ -7029,6 +7047,146 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+
+    def _create_realtime_cohort(self) -> int:
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            }
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/", {"name": "Realtime", "filters": filters}, format="json"
+        )
+        assert response.status_code == 201, response.data
+        assert response.data["cohort_type"] == CohortType.REALTIME
+        return response.data["id"]
+
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
+        if usage == "trigger":
+            action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
+        else:
+            filter_type = "precalculated-cohort" if usage == "branch_precalculated" else "cohort"
+            condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
+            action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
+        return create_workflow_for_test(
+            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+        ).id
+
+    @parameterized.expand(
+        [
+            ("active_trigger", "trigger", "active", 400),
+            ("active_branch", "branch", "active", 400),
+            ("active_branch_precalculated", "branch_precalculated", "active", 400),
+            ("draft_trigger", "trigger", "draft", 200),
+        ]
+    )
+    def test_delete_cohort_is_blocked_by_active_workflows_using_it(self, _name, usage, workflow_status, expected):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, usage, workflow_status)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
+
+        assert response.status_code == expected, response.json()
+        if expected == 400:
+            assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("without_workflow_read", ["cohort:write"], False),
+            ("with_workflow_read", ["cohort:write", "hog_flow:read"], True),
+        ]
+    )
+    def test_blocked_delete_names_workflows_only_for_workflow_readers(self, _name, scopes, names_shown):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True}, HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "used in 1 active workflow(s)" in response.json()["detail"]
+        assert ("Workflow trigger" in response.json()["detail"]) == names_shown
+
+    def test_blocked_delete_hides_names_of_workflows_the_member_cannot_view(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort_id = self._create_realtime_cohort()
+        hidden_id = self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        self._create_workflow_using_cohort(cohort_id, "branch", "active")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=hidden_id,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
+
+        assert response.status_code == 400, response.json()
+        assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
+        assert "Workflow trigger" not in response.json()["detail"]
+
+    def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+            "filterTestAccounts": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"filters": filters}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "stops the cohort updating in real time" in response.json()["detail"]
+        assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
+
+    def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):
+        included_id = self._create_realtime_cohort()
+        including_id = included_id
+        for name in ("Includes realtime", "Includes that one"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {
+                    "name": name,
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{"type": "cohort", "key": "id", "value": including_id}],
+                        }
+                    },
+                },
+                format="json",
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["cohort_type"] == CohortType.REALTIME
+            including_id = response.json()["id"]
+        self._create_workflow_using_cohort(including_id, "trigger", "active")
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+            "filterTestAccounts": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{included_id}", {"filters": filters}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "1 active workflow(s) rely on that: Workflow trigger." in response.json()["detail"]
 
     def test_cohort_type_not_set_when_not_provided(self):
         """cohort_type should remain None when not provided"""

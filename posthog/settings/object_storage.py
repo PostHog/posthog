@@ -28,6 +28,9 @@ OBJECT_STORAGE_TRANSFER_ACCELERATION = get_from_env(
 )
 OBJECT_STORAGE_EXPORTS_FOLDER = os.getenv("OBJECT_STORAGE_EXPORTS_FOLDER", "exports")
 OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER", "media_uploads")
+# Origin of a CDN that caches the /uploaded_media route, e.g. "https://us-media.posthog.com". Empty serves
+# media URLs from SITE_URL, so every load reaches Django.
+UPLOADED_MEDIA_PUBLIC_URL = os.getenv("UPLOADED_MEDIA_PUBLIC_URL", "").rstrip("/")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
     "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"
 )

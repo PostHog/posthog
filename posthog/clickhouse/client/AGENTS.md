@@ -15,9 +15,10 @@ It routes through `get_client_from_pool`, which uses the token-aware `get_pool` 
 The async temporal client `get_client` in `posthog/temporal/common/clickhouse.py` is token-aware too, because `_request_headers` calls `read_password` on each request.
 Use these paths and token auth is automatic.
 
-`get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the pod default user: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
+`get_cluster` in `posthog/clickhouse/cluster.py` is token-aware for the user that its `ch_user` argument resolves to, which is the pod default user unless you set it: the per-host pools carry a credential provider that re-stamps the live token on each checkout.
 Its bootstrap discovery client is long-lived, so each discovery attempt stamps the live token onto it first, including the discovery that `sibling()` runs hours into a job.
-A caller that connects as a different user through `connection_overrides` owns its own credential.
+Pass `ch_user` to connect as a dedicated user, the way `get_migrations_cluster` does, because discovery and the pools then both use that user.
+A caller that connects as a different user through `connection_overrides` owns its own credential, and its discovery still runs as the pod default user.
 The backups and part_breaker Dagster resources do this: each sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
 
 Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, or build your own pool or client.

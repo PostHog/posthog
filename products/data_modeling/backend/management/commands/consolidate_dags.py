@@ -37,7 +37,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     null_saved_query_intervals,
     reconcile_dag_schedules,
 )
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError
@@ -287,6 +287,12 @@ class Command(BaseCommand):
         """
         target_sq_ids = {str(sq_id) for sq_id in schedulable_nodes(target).values_list("saved_query_id", flat=True)}
         claimed: set[str] = set()  # saved queries a preceding source DAG already moves
+        placed_in_managed_dag = {
+            str(sq_id)
+            for sq_id in Node.objects.filter(
+                team=target.team, dag__name=REVENUE_ANALYTICS_DAG_NAME, saved_query__isnull=False
+            ).values_list("saved_query_id", flat=True)
+        }
         plans: list[SourceDagPlan] = []
         for dag in source_dags:
             moves_by_node: dict[str, MoveItem] = {}
@@ -294,7 +300,7 @@ class Command(BaseCommand):
             floors = self._source_floors(dag) if dag.sync_frequency_interval is not None else {}
             for node in schedulable_nodes(dag).select_related("saved_query"):
                 saved_query = node.saved_query
-                if saved_query is None:
+                if saved_query is None or str(saved_query.id) in placed_in_managed_dag:
                     continue
                 sq_id = str(saved_query.id)
                 # Query-interval intent survives the move on the saved query itself, and a moved

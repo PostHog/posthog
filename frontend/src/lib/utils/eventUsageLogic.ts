@@ -76,7 +76,6 @@ import {
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
-import type { ExperimentViewedHealthProperties } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -1253,12 +1252,10 @@ export interface eventUsageLogicActions {
     }
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null,
-        healthProperties: ExperimentViewedHealthProperties
+        duration: number | null
     ) => {
         duration: number | null
         experiment: Experiment
-        healthProperties: ExperimentViewedHealthProperties
     }
     reportExperimentWatchCardSelected: (
         experimentId: ExperimentIdType,
@@ -1418,6 +1415,13 @@ export interface eventUsageLogicActions {
         counts: IntegrationLinkExistingCounts
         kind: string
         surface: IntegrationConnectSurface
+    }
+    reportIntegrationScopeShortfallShown: (
+        kind: string,
+        missingScopes: string[]
+    ) => {
+        kind: string
+        missingScopes: string[]
     }
     reportInviteMembersButtonClicked: () => {
         value: true
@@ -1832,6 +1836,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             responseAgeMs?: number
         ) => ({ surface, discoveryId, installationId, responseAgeMs }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
+        reportIntegrationScopeShortfallShown: (kind: string, missingScopes: string[]) => ({ kind, missingScopes }),
         // insights
         reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
@@ -1945,11 +1950,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
-        reportExperimentViewed: (
-            experiment: Experiment,
-            duration: number | null,
-            healthProperties: ExperimentViewedHealthProperties
-        ) => ({ experiment, duration, healthProperties }),
+        reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
             metricUuid: string,
@@ -2371,6 +2372,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 error,
             })
         },
+        // A provider can grant fewer scopes than PostHog asked for, e.g. when a workspace admin has to
+        // approve the app. The connect still succeeds, so this is the only record of the shortfall.
+        reportIntegrationScopeShortfallShown: ({ kind, missingScopes }) => {
+            posthog.capture('integration_scope_shortfall_shown', {
+                integration_kind: kind,
+                missing_scopes: missingScopes,
+                missing_scope_count: missingScopes.length,
+            })
+        },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
         },
@@ -2589,13 +2599,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
-        reportExperimentViewed: ({ experiment, duration, healthProperties }) => {
+        reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
                 experiment_id: experiment.id,
                 experiment_status: getExperimentStatus(experiment),
                 duration,
-                ...healthProperties,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {
