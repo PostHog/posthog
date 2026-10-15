@@ -68,8 +68,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /**
  * Kinds whose topic segment names a report: the per-report bookkeeping a scout or the pipeline
  * writes. A UUID alone does not make a report reference, because other kinds also put a UUID in
- * the topic (`noise:<uuid>:…` and `baseline:<uuid>:…` name a team, a flag or an alert), and a key
- * with no recognized kind can start with one (`<uuid>:pattern:…`). Each id the ledger takes for a
+ * the topic (`noise:<uuid>:…` and `baseline:<uuid>:…` name other entities), and a key with no
+ * recognized kind can start with one (`<uuid>:pattern:…`). Each id the ledger takes for a
  * report costs one request to the reports endpoint, which answers 404 for every other kind of id.
  */
 const REPORT_TOPIC_KINDS = new Set(['judged', 'report', 'reported', 'followup', 'addressed', 'already_addressed'])
