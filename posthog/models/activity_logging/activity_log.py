@@ -460,9 +460,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "is_ai_data_processing_approved": "third-party AI services",
         "uses_most_specific_access_resolution": "most-specific access resolution",
     },
-    "BatchExport": {
-        "paused": "enabled",
-    },
     "ExternalDataSource": {
         "job_inputs": "configuration",
     },
