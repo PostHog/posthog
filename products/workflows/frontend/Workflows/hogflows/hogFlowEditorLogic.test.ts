@@ -235,7 +235,7 @@ describe('hogFlowEditorLogic', () => {
 
         const openWorkflowEditor = async (
             id: string,
-            searchParams: Record<string, string> = {}
+            searchParams: { view?: string } = {}
         ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => {
             logic.unmount()
             router.actions.push(urls.workflow(id, 'workflow'), searchParams)
@@ -246,7 +246,7 @@ describe('hogFlowEditorLogic', () => {
         }
 
         const openOtherWorkflowEditor = (
-            searchParams: Record<string, string> = {}
+            searchParams: { view?: string } = {}
         ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => openWorkflowEditor(OTHER_WORKFLOW_ID, searchParams)
 
         it.each([
