@@ -316,6 +316,23 @@ def posthog_connect_base_url(region: str | None) -> str:
     return base_url
 
 
+def _xero_organisations_for_auth_event(access_token: str, auth_event_id: str) -> list[dict[str, str]]:
+    """The organisations connected in one Xero consent, as `{tenantId, tenantName}`."""
+    response = requests.get(
+        "https://api.xero.com/connections",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        timeout=10,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise ValidationError("Could not read the organisations from Xero. Connect again.")
+    return [
+        {"tenantId": connection["tenantId"], "tenantName": connection.get("tenantName") or connection["tenantId"]}
+        for connection in response.json()
+        if connection.get("authEventId") == auth_event_id and connection.get("tenantType") == "ORGANISATION"
+    ]
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -590,7 +607,7 @@ class OauthIntegration:
                     "accounting.settings.read"
                 ),
                 id_path="xero_userid",
-                name_path="email",
+                name_path="display_name",
             )
         elif kind == "youtube-analytics":
             if not settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID or not settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET:
@@ -1289,15 +1306,24 @@ class OauthIntegration:
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
 
         # One Xero grant reaches every organisation the user connected, so it is keyed by the user.
+        # A Xero token reaches every organisation the user ever connected to the app, across PostHog
+        # projects. Keep only the organisations this consent granted, so another project's connection
+        # never exposes them, and key the integration by consent so a later one can't overwrite it.
         if kind == "xero" and not integration_id:
-            id_token = config.get("id_token")
-            jwt_data = common._decode_jwt_payload(id_token) if id_token else None
-            if jwt_data and jwt_data.get("xero_userid"):
-                config["xero_userid"] = jwt_data["xero_userid"]
-                config["email"] = jwt_data.get("email") or jwt_data["xero_userid"]
-                integration_id = jwt_data["xero_userid"]
-            else:
-                logger.error("Xero OAuth response has no usable id_token", config_keys=list(config.keys()))
+            id_claims = common._decode_jwt_payload(config["id_token"]) if config.get("id_token") else None
+            token_claims = common._decode_jwt_payload(config["access_token"])
+            auth_event_id = (token_claims or {}).get("authentication_event_id")
+            if not id_claims or not id_claims.get("xero_userid") or not auth_event_id:
+                raise ValidationError("Xero did not return the expected account details. Connect again.")
+            organisations = _xero_organisations_for_auth_event(config["access_token"], auth_event_id)
+            if not organisations:
+                raise ValidationError("No Xero organisation was selected. Connect again and choose an organisation.")
+            email = id_claims.get("email") or id_claims["xero_userid"]
+            config["xero_userid"] = id_claims["xero_userid"]
+            config["email"] = email
+            config["xero_tenants"] = organisations
+            config["display_name"] = f"{', '.join(org['tenantName'] for org in organisations)} ({email})"
+            integration_id = f"{id_claims['xero_userid']}:{auth_event_id}"
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors

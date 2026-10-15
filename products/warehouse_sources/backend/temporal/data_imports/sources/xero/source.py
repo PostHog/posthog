@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.xero import XeroSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.xero.oauth import (
+    XERO_RECONNECT_REQUIRED_MESSAGE,
     XeroIntegrationAuth,
+    XeroTokenRefreshError,
     resolve_xero_oauth_token,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.xero.settings import ENDPOINTS, INCREMENTAL_FIELDS
@@ -44,6 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.xero.xero 
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _RECONNECT_MESSAGE = "Xero rejected the connection. Reconnect your Xero account, then try again."
+_CONNECTION_BROKEN = "This Xero connection no longer works. Reconnect your Xero account."
+_ORGANISATION_NOT_CONNECTED = (
+    "This organisation was not chosen when this Xero account was connected. Connect Xero again and choose it."
+)
 
 
 @SourceRegistry.register
@@ -110,6 +116,8 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
             "403 Client Error: Forbidden for url: https://api.xero.com": "Xero refused access to this organisation or table. Check that the connected Xero user can still open the organisation, then reconnect.",
             "Integration not found": "The linked Xero connection no longer exists. Reconnect your Xero account.",
             "Xero app not configured": "Xero is not configured on this PostHog instance. Contact support.",
+            XERO_RECONNECT_REQUIRED_MESSAGE: XERO_RECONNECT_REQUIRED_MESSAGE,
+            _ORGANISATION_NOT_CONNECTED: _ORGANISATION_NOT_CONNECTED,
         }
 
     def get_schemas(
@@ -123,14 +131,24 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
 
-    def _access_token(self, integration_id: int, team_id: int) -> str:
+    def _xero_integration(self, integration_id: int, team_id: int) -> Integration:
         integration = self.get_oauth_integration(integration_id, team_id)
         # The lookup only scopes to the team, so reject another provider's integration before sending its token.
         if integration.kind != Integration.IntegrationKind.XERO:
             raise ValueError(f"Integration not found: {integration_id}")
+        return integration
+
+    def _consented_tenant_ids(self, integration_id: int, team_id: int) -> set[str]:
+        tenants = self._xero_integration(integration_id, team_id).config.get("xero_tenants") or []
+        return {tenant["tenantId"] for tenant in tenants}
+
+    def _access_token(self, integration_id: int, team_id: int) -> str:
+        self._xero_integration(integration_id, team_id)
         return resolve_xero_oauth_token(integration_id, team_id)
 
     def _build_auth(self, config: XeroSourceConfig, team_id: int) -> AuthConfigBase:
+        if config.tenant_id not in self._consented_tenant_ids(config.xero_integration_id, team_id):
+            raise ValueError(_ORGANISATION_NOT_CONNECTED)
         token = self._access_token(config.xero_integration_id, team_id)
         return XeroIntegrationAuth(config.xero_integration_id, team_id, token)
 
@@ -138,14 +156,21 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
         try:
-            organisations = list_organisations(self._access_token(integration_id, team_id))
+            consented = self._consented_tenant_ids(integration_id, team_id)
+            organisations = [
+                organisation
+                for organisation in list_organisations(self._access_token(integration_id, team_id))
+                if organisation["tenantId"] in consented
+            ]
         except ValueError:
-            raise IntegrationAccountListingError("The Xero connection no longer exists. Reconnect your Xero account.")
+            raise IntegrationAccountListingError(_CONNECTION_BROKEN)
+        except XeroTokenRefreshError:
+            raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
         except requests.HTTPError:
             raise IntegrationAccountListingError(_RECONNECT_MESSAGE)
         if not organisations:
             raise IntegrationAccountListingError(
-                "This Xero user has no organisation connected to PostHog. Reconnect and select an organisation in Xero."
+                "None of the organisations chosen for this Xero connection is still connected. Reconnect and choose an organisation in Xero."
             )
         return [
             IntegrationAccount(value=organisation["tenantId"], display_name=organisation["tenantName"])
@@ -160,9 +185,13 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
+            if config.tenant_id not in self._consented_tenant_ids(config.xero_integration_id, team_id):
+                return False, _ORGANISATION_NOT_CONNECTED
             token = self._access_token(config.xero_integration_id, team_id)
         except ValueError:
-            return False, "The Xero connection no longer exists. Reconnect your Xero account."
+            return False, _CONNECTION_BROKEN
+        except XeroTokenRefreshError:
+            return False, "Could not reach Xero. Try again in a few minutes."
         status = probe_organisation(token, config.tenant_id)
         if status == 200:
             return True, None

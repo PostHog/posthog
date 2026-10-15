@@ -1825,16 +1825,26 @@ class TestAppleAdsIntegrationModel(BaseTest):
 
 @override_settings(XERO_APP_CLIENT_ID="xero-client-id", XERO_APP_CLIENT_SECRET="xero-client-secret")
 class TestXeroIntegrationModel(BaseTest):
-    @patch("posthog.models.integration.oauth.requests.post")
-    def test_token_exchange_uses_basic_auth_and_names_the_user_from_the_id_token(self, mock_post):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {
-            "access_token": "at_1",
+    def _token_response(self) -> dict:
+        return {
+            "access_token": _make_resend_jwt({"authentication_event_id": "event-2"}),
             "refresh_token": "rt_1",
             "expires_in": 1800,
             "token_type": "Bearer",
             "id_token": _make_resend_jwt({"xero_userid": "user-123", "email": "books@example.com"}),
         }
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_keeps_only_the_organisations_this_consent_granted(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+            {"tenantId": "org-b", "tenantName": "Company B", "tenantType": "ORGANISATION", "authEventId": "event-2"},
+            {"tenantId": "pm-1", "tenantName": "Practice", "tenantType": "PRACTICEMANAGER", "authEventId": "event-2"},
+        ]
 
         integration = OauthIntegration.integration_from_oauth_response(
             "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
@@ -1845,9 +1855,27 @@ class TestXeroIntegrationModel(BaseTest):
         assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
         assert "client_secret" not in call.kwargs["data"]
         assert call.kwargs["allow_redirects"] is False
-        assert integration.integration_id == "user-123"
-        assert integration.config["email"] == "books@example.com"
+        assert integration.integration_id == "user-123:event-2"
+        assert integration.config["xero_tenants"] == [{"tenantId": "org-b", "tenantName": "Company B"}]
+        assert integration.display_name == "Company B (books@example.com)"
         assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_without_a_chosen_organisation_is_refused(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"}
+        ]
+
+        with pytest.raises(ValidationError, match="choose an organisation"):
+            OauthIntegration.integration_from_oauth_response(
+                "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+            )
+
+        assert not Integration.objects.filter(team=self.team, kind="xero").exists()
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")

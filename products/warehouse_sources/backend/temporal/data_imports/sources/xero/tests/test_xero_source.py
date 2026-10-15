@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     always,
     scripted_network,
 )
@@ -17,6 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.xero.source import XeroSource
 
 _CONFIG = XeroSourceConfig(xero_integration_id=7, tenant_id="tenant-abc")
+_RESOLVE_TOKEN = "products.warehouse_sources.backend.temporal.data_imports.sources.xero.source.resolve_xero_oauth_token"
+
+
+def _xero_integration(*tenant_ids: str) -> SimpleNamespace:
+    tenants = [{"tenantId": tenant_id, "tenantName": tenant_id} for tenant_id in tenant_ids]
+    return SimpleNamespace(kind="xero", config={"xero_tenants": tenants})
 
 
 class TestXeroAccessToken:
@@ -24,28 +31,40 @@ class TestXeroAccessToken:
         other = SimpleNamespace(kind="hubspot", access_token="hubspot-token")
         with (
             patch.object(XeroSource, "get_oauth_integration", return_value=other),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.xero.source.resolve_xero_oauth_token"
-            ) as resolve,
+            patch(_RESOLVE_TOKEN) as resolve,
         ):
             with pytest.raises(ValueError, match="Integration not found"):
                 XeroSource()._access_token(7, team_id=1)
 
         resolve.assert_not_called()
 
+    def test_sync_refuses_an_organisation_outside_the_connections_consent(self) -> None:
+        with (
+            patch.object(XeroSource, "get_oauth_integration", return_value=_xero_integration("other-org")),
+            patch(_RESOLVE_TOKEN) as resolve,
+        ):
+            result = SourceDriver(XeroSource(), _CONFIG).run("invoices", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "not chosen when this Xero account was connected" in str(result.raised)
+        resolve.assert_not_called()
+
 
 class TestXeroOrganisationPicker:
     def _accounts(self, script: Any) -> list[IntegrationAccount]:
         with (
-            patch.object(XeroSource, "_access_token", return_value="at_1"),
+            patch.object(XeroSource, "get_oauth_integration", return_value=_xero_integration("t-1")),
+            patch(_RESOLVE_TOKEN, return_value="at_1"),
             scripted_network(script),
         ):
             return XeroSource().get_oauth_accounts(7, team_id=1)
 
-    def test_lists_organisations_and_skips_practice_manager_tenants(self) -> None:
+    def test_lists_only_consented_organisations(self) -> None:
+        # t-3 belongs to another consent of the same Xero user, possibly in another project.
         connections = [
             {"tenantId": "t-1", "tenantName": "Demo Company (UK)", "tenantType": "ORGANISATION"},
             {"tenantId": "t-2", "tenantName": "Practice", "tenantType": "PRACTICEMANAGER"},
+            {"tenantId": "t-3", "tenantName": "Other company", "tenantType": "ORGANISATION"},
         ]
 
         accounts = self._accounts([ScriptedResponse(json=connections)])
@@ -55,7 +74,7 @@ class TestXeroOrganisationPicker:
     @pytest.mark.parametrize(
         ("response", "message"),
         [
-            (ScriptedResponse(json=[]), "no organisation connected"),
+            (ScriptedResponse(json=[]), "still connected"),
             (ScriptedResponse(status=401, json={"Title": "Unauthorized", "Status": 401}), "Reconnect"),
         ],
     )
@@ -78,7 +97,8 @@ class TestXeroValidateCredentials:
     )
     def test_maps_the_organisation_probe(self, status: int, expected: tuple[bool, str | None]) -> None:
         with (
-            patch.object(XeroSource, "_access_token", return_value="at_1"),
+            patch.object(XeroSource, "get_oauth_integration", return_value=_xero_integration("tenant-abc")),
+            patch(_RESOLVE_TOKEN, return_value="at_1"),
             scripted_network(always(ScriptedResponse(status=status, json={}))) as network,
         ):
             assert XeroSource().validate_credentials(_CONFIG, team_id=1) == expected
@@ -86,9 +106,18 @@ class TestXeroValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/api.xro/2.0/Organisation"}
         assert network.requests_log[0].headers["xero-tenant-id"] == "tenant-abc"
 
-    def test_deleted_connection_asks_for_a_reconnect(self) -> None:
-        with patch.object(XeroSource, "_access_token", side_effect=ValueError("Integration not found: 7")):
-            assert XeroSource().validate_credentials(_CONFIG, team_id=1) == (
-                False,
-                "The Xero connection no longer exists. Reconnect your Xero account.",
-            )
+    @pytest.mark.parametrize(
+        ("integration", "expected_message"),
+        [
+            (ValueError("Integration not found: 7"), "This Xero connection no longer works"),
+            (_xero_integration("other-org"), "not chosen when this Xero account was connected"),
+        ],
+    )
+    def test_refuses_before_any_request(self, integration: Any, expected_message: str) -> None:
+        lookup = {"side_effect": integration} if isinstance(integration, Exception) else {"return_value": integration}
+        with patch.object(XeroSource, "get_oauth_integration", **lookup), scripted_network([]) as network:
+            is_valid, message = XeroSource().validate_credentials(_CONFIG, team_id=1)
+
+        assert is_valid is False
+        assert message is not None and expected_message in message
+        assert network.requests_log == []

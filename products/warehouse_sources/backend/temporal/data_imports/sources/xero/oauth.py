@@ -10,6 +10,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 
 # Xero access tokens live 30 minutes, so re-check the row well before one expires mid-sync.
 _XERO_TOKEN_RECHECK_AFTER = timedelta(minutes=10)
+# A failed refresh only matters once the current token is this close to expiring.
+_XERO_TOKEN_EXPIRY_MARGIN = timedelta(minutes=2)
+
+XERO_RECONNECT_REQUIRED_MESSAGE = "Xero no longer accepts this connection. Reconnect your Xero account."
+
+
+class XeroTokenRefreshError(Exception):
+    """Xero did not refresh the access token for a reason that can pass, so the sync retries."""
 
 
 def resolve_xero_oauth_token(integration_id: int, team_id: int, current_token: str | None = None) -> str:
@@ -23,13 +31,22 @@ def resolve_xero_oauth_token(integration_id: int, team_id: int, current_token: s
     `current_token` is the token the caller used last. When the row still holds it, the caller
     asked for a fresh one, so refresh. Otherwise return the newer token on the row.
     """
+    refresh_failed = False
     with transaction.atomic():
         integration = Integration.objects.select_for_update().get(id=integration_id, team_id=team_id, kind="xero")
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired() or (current_token is not None and integration.access_token == current_token):
             oauth.refresh_access_token()
+            # A failed refresh records itself on the row and returns, leaving the old token.
+            refresh_failed = bool(integration.errors) and oauth.access_token_expired(_XERO_TOKEN_EXPIRY_MARGIN)
         token = integration.access_token
+        terminal = bool(integration.config.get("refresh_terminal"))
 
+    # Raised after the block, so the failure the refresh recorded on the row is committed.
+    if refresh_failed and terminal:
+        raise ValueError(XERO_RECONNECT_REQUIRED_MESSAGE)
+    if refresh_failed:
+        raise XeroTokenRefreshError("Xero did not refresh the access token. The sync will retry.")
     if not token:
         raise ValueError("Xero access token not found")
     return token
