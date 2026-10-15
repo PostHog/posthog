@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -76,9 +76,9 @@ struct PartitionDeliveries {
     delivered: u32,
     covered: u32,
     accepted: u32,
-    /// Which offsets of `span` a completion covered. Sized at the first
-    /// credit, when the span is final.
-    credited: Vec<bool>,
+    /// The offsets a completion covered. Keyed by offset rather than by
+    /// position in `span`, because a poll can span an offset gap.
+    credited: HashSet<i64, ahash::RandomState>,
 }
 
 impl PartitionDeliveries {
@@ -93,35 +93,19 @@ impl PartitionDeliveries {
             delivered: 1,
             covered: 0,
             accepted: 0,
-            credited: Vec::new(),
+            credited: HashSet::default(),
         }
     }
 
-    /// `offset` must lie inside `span`.
     fn credit(&mut self, offset: i64) {
-        let span_len = (self.span.last - self.span.first + 1) as usize;
-        if self.credited.is_empty() {
-            self.credited = vec![false; span_len];
-        }
-        debug_assert_eq!(
-            self.credited.len(),
-            span_len,
-            "the span grew after a credit"
-        );
-        self.credited[(offset - self.span.first) as usize] = true;
+        self.credited.insert(offset);
     }
 
     fn uncredited_charge(&self) -> Option<Offset> {
         self.charges
             .iter()
             .map(|(offset, _)| *offset)
-            .find(|offset| {
-                !self
-                    .credited
-                    .get((offset.0 - self.span.first) as usize)
-                    .copied()
-                    .unwrap_or(false)
-            })
+            .find(|offset| !self.credited.contains(&offset.0))
     }
 
     /// Record one more delivery. `generation` is consulted only when
@@ -1222,7 +1206,7 @@ mod tests {
                 delivered: count,
                 covered: 0,
                 accepted: 0,
-                credited: Vec::new(),
+                credited: HashSet::default(),
             },
         );
         InFlightPoll {
@@ -1302,6 +1286,27 @@ mod tests {
     }
 
     #[test]
+    fn a_poll_whose_deliveries_span_an_offset_gap_commits() {
+        // A compacted or transactional topic skips offsets, so a span can far
+        // exceed the poll's message count.
+        let mut gapped = poll(1, 0, 0, 0, 2);
+        let deliveries = gapped
+            .partitions
+            .get_mut(&TopicPartition::new("test", 0))
+            .unwrap();
+        deliveries.span.last = i64::MAX;
+        deliveries
+            .charges
+            .push((MessageOffset(i64::MAX), Charge::ZERO));
+        let mut in_flight = VecDeque::from([gapped]);
+
+        apply_completion(&mut in_flight, completion(1, 0, &[0, i64::MAX], 2));
+
+        assert!(in_flight[0].is_complete());
+        assert!(pop_committable(&mut in_flight).is_ok());
+    }
+
+    #[test]
     fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
         // A cooperative rebalance revokes one partition of a two-partition
         // poll. The kept partition's slice must stay accounted, or its
@@ -1322,7 +1327,7 @@ mod tests {
                 delivered: 2,
                 covered: 0,
                 accepted: 0,
-                credited: Vec::new(),
+                credited: HashSet::default(),
             },
         );
         two.partitions
@@ -1527,7 +1532,7 @@ mod tests {
             delivered: (last - first + 1) as u32,
             covered: 0,
             accepted: 0,
-            credited: Vec::new(),
+            credited: HashSet::default(),
         };
         ledger
             .charge(
