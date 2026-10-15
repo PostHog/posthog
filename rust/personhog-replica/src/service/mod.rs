@@ -1734,10 +1734,16 @@ impl PersonHogReplica for PersonHogReplicaService {
                         .ok_or_else(|| Status::invalid_argument("created_at_ms out of range"))?,
                     is_identified: p.is_identified,
                     version: p.version,
+                    distinct_ids: p
+                        .distinct_ids
+                        .iter()
+                        .map(|d| (d.distinct_id.clone(), d.version))
+                        .collect(),
                 })
             })
             .collect::<Result<_, _>>()?;
         reject_duplicate_uuids(persons.iter().map(|p| p.uuid))?;
+        check_restored_distinct_ids(&persons)?;
 
         let results = self
             .storage
@@ -1753,6 +1759,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                     outcome: restore_outcome_to_proto(r.outcome) as i32,
                     person_id: r.person_id,
                     version: r.version,
+                    restored_distinct_ids: r.restored_distinct_ids,
                 })
                 .collect(),
         }))
@@ -1882,6 +1889,34 @@ fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPer
 }
 
 #[allow(clippy::result_large_err)]
+fn check_restored_distinct_ids(persons: &[storage::types::RestoredPerson]) -> Result<(), Status> {
+    let ids: Vec<&(String, i64)> = persons.iter().flat_map(|p| &p.distinct_ids).collect();
+    if ids.len() > MAX_DISTINCT_ID_ROWS_SIZE {
+        return Err(Status::invalid_argument(format!(
+            "At most {MAX_DISTINCT_ID_ROWS_SIZE} distinct ids per restore, got {}",
+            ids.len()
+        )));
+    }
+    let mut seen = HashSet::with_capacity(ids.len());
+    for (distinct_id, version) in ids {
+        if distinct_id.is_empty() {
+            return Err(Status::invalid_argument("distinct_id must not be empty"));
+        }
+        if *version < 0 {
+            return Err(Status::invalid_argument(format!(
+                "version must not be negative, got {version} for {distinct_id}"
+            )));
+        }
+        if !seen.insert(distinct_id.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate distinct_id in request: {distinct_id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::result_large_err)]
 fn reject_duplicate_uuids(uuids: impl Iterator<Item = Uuid>) -> Result<(), Status> {
     // Two spellings of one UUID pass the string check but lock the same row.
     let mut seen = HashSet::new();
@@ -1920,6 +1955,7 @@ fn restore_outcome_to_proto(outcome: storage::types::RestoreOutcome) -> ProtoRes
         storage::types::RestoreOutcome::Inserted => ProtoRestoreOutcome::Inserted,
         storage::types::RestoreOutcome::ExistsLive => ProtoRestoreOutcome::ExistsLive,
         storage::types::RestoreOutcome::ExistsTombstoned => ProtoRestoreOutcome::ExistsTombstoned,
+        storage::types::RestoreOutcome::NoDistinctId => ProtoRestoreOutcome::NoDistinctId,
     }
 }
 
