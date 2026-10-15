@@ -49,8 +49,10 @@ Most empty searches are real words that exist somewhere else.
   Some pseudo-category groups fail more often than they are picked.
   First-load failures have only been captured since 2026-09-13, so compare from then on.
 - **Why it matters:** a failure that looks like loading or like "no results" sends users away, and a 403 must not look like a slow request.
-- **Current state:** both surfaces end loading and show "Couldn't load results" with a retry.
+- **Current state:** both surfaces end loading and show "Couldn't load results" with a retry, except for a 403.
   Legacy does it in `InfiniteList.tsx` (`InfiniteListErrorState`), the rebuild in `menu/Combobox.tsx` from `showErrorState` in `hooks/useGroupList.ts`.
+  Legacy's `remoteFetchForbidden` (`infiniteListLogic.ts`) shows an access-denied message with no retry for a `permission_denied` 403.
+  The rebuild has no equivalent, so a 403 there shows the generic retry instead.
   Keep the two in parity, and reduce the failures themselves.
   See [performance](performance.md).
 
