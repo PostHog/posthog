@@ -218,7 +218,6 @@ class TestTrackReviewCompleted(BaseTest):
                 team_id=self.team.id,
                 report_id=report_id,
                 run_index=1,
-                head_sha="sha1",
                 review_mode="full",
                 failed=False,
                 published=published,
