@@ -25,6 +25,7 @@ pub struct ClaimedRow {
     pub op_id: Option<Uuid>,
     pub cursor_person_id: i64,
     pub cursor_mapping_ordinal: i64,
+    pub attempts: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -41,7 +42,7 @@ pub fn claim_sql(outbox: &str) -> String {
     format!(
         r#"
         SELECT id, team_id, kind, person_uuid, distinct_id, version, op_id,
-               cursor_person_id, cursor_mapping_ordinal, created_at
+               cursor_person_id, cursor_mapping_ordinal, attempts, created_at
         FROM {outbox}
         WHERE given_up_at IS NULL
         ORDER BY id

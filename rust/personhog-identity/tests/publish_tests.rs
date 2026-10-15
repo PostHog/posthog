@@ -210,12 +210,13 @@ async fn a_failed_send_leaves_every_claimed_row_in_place_for_the_next_pass() {
     ctx.cleanup().await.expect("cleanup");
 }
 
-// Every shape here is state the sagas cannot write. Each must park its own
-// pointer with a reason and leave the rest of the batch alone; a raise in
-// the resolution SQL would instead fail the pass and, since the poisoned
-// row stays the oldest, every pass after it.
+// Every shape here is state the sagas cannot write. Each must leave its own
+// pointer pending with a reason and a counted attempt, leave the rest of the
+// batch alone, and publish on its own once the state is repaired; a raise in
+// the resolution SQL would instead fail the pass and, since the poisoned row
+// stays the oldest, every pass after it.
 #[tokio::test]
-async fn a_poisoned_pointer_is_given_up_while_the_rest_of_its_batch_publishes() {
+async fn a_poisoned_pointer_is_deferred_while_the_rest_of_its_batch_publishes() {
     let ctx = TestContext::new().await;
     let _drain_lock = ctx.hold_drain_lock().await;
     let target = Uuid::now_v7();
@@ -289,39 +290,75 @@ async fn a_poisoned_pointer_is_given_up_while_the_rest_of_its_batch_publishes() 
     expected_errors.insert(vanished, ("vanished op", "no longer exists"));
 
     let sink = RecordingSink::default();
-    ctx.publisher(sink.clone(), 5)
-        .drain_once()
-        .await
-        .expect("the pass commits");
+    let publisher = ctx.publisher(sink.clone(), 5);
+    publisher.drain_once().await.expect("the pass commits");
     assert_eq!(
         sink.rows_for_team(ctx.team_id),
         vec![ctx.row(target, "did-h", 3, 0)],
         "only the healthy pointer publishes"
     );
-    let left: HashMap<Uuid, (bool, String)> = ctx
-        .outbox_rows()
-        .await
-        .into_iter()
-        .map(|r| {
-            (
-                r.op_id.unwrap(),
-                (r.given_up, r.last_error.unwrap_or_default()),
-            )
-        })
-        .collect();
+    let snapshot = |rows: Vec<common::OutboxRow>| -> HashMap<Uuid, (bool, i32, String)> {
+        rows.into_iter()
+            .map(|r| {
+                (
+                    r.op_id.unwrap(),
+                    (r.given_up, r.attempts, r.last_error.unwrap_or_default()),
+                )
+            })
+            .collect()
+    };
+    let left = snapshot(ctx.outbox_rows().await);
     assert!(
         !left.contains_key(&healthy) && !left.contains_key(&empty),
         "healthy and empty pointers are deleted: {left:?}"
     );
     assert_eq!(left.len(), expected_errors.len(), "{left:?}");
     for (op_id, (label, error_fragment)) in &expected_errors {
-        let (given_up, last_error) = &left[op_id];
-        assert!(*given_up, "{label}: not given up");
+        let (given_up, attempts, last_error) = &left[op_id];
+        assert!(!given_up, "{label}: parked, but the publisher never parks");
+        assert_eq!(*attempts, 1, "{label}: attempts");
         assert!(
             last_error.contains(error_fragment),
             "{label}: last_error {last_error:?} lacks {error_fragment:?}"
         );
     }
+
+    publisher
+        .drain_once()
+        .await
+        .expect("the second pass commits");
+    assert_eq!(sink.rows_for_team(ctx.team_id).len(), 1);
+    for (op_id, (_, attempts, _)) in snapshot(ctx.outbox_rows().await) {
+        assert_eq!(attempts, 2, "{op_id}: attempts after the second pass");
+    }
+
+    let (repaired, _) = expected_errors
+        .iter()
+        .find(|(_, (label, _))| *label == "moved is a string")
+        .expect("the string-moved op is in the table");
+    sqlx::query("UPDATE lifecycle_op_person SET moved = $1 WHERE op_id = $2 AND role = 'source'")
+        .bind(moved(&[("did-fixed", 2)]))
+        .bind(repaired)
+        .execute(&ctx.pool)
+        .await
+        .expect("repair moved");
+    publisher
+        .drain_once()
+        .await
+        .expect("the third pass commits");
+    assert_eq!(
+        sink.rows_for_team(ctx.team_id),
+        vec![
+            ctx.row(target, "did-h", 3, 0),
+            ctx.row(target, "did-fixed", 2, 0)
+        ]
+    );
+    let left = snapshot(ctx.outbox_rows().await);
+    assert!(
+        !left.contains_key(repaired),
+        "the repaired pointer is deleted"
+    );
+    assert_eq!(left.len(), expected_errors.len() - 1);
 
     ctx.cleanup().await.expect("cleanup");
 }

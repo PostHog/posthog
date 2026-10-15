@@ -8,12 +8,16 @@
 //! One pass is one transaction: claim the oldest pending rows with `FOR
 //! UPDATE SKIP LOCKED`, resolve pointers against `moved` within a per-pass
 //! row budget, produce, await every ack, then delete finished rows, advance
-//! unfinished pointers and give up poisoned ones, and commit. A produce
-//! error rolls the whole pass back, so the only failure mode is a repeat
-//! publish, which every consumer of these topics absorbs by version.
-//! Deterministic failures (an op row that is gone, a `moved` entry the
-//! saga could not have written) give the row up with `last_error` instead
-//! of blocking the queue; Kafka failures retry forever with backoff.
+//! unfinished pointers, defer rows that cannot be read, and commit. A
+//! produce error rolls the whole pass back, so the only failure mode is a
+//! repeat publish, which every consumer of these topics absorbs by version.
+//! A row the publisher cannot read (an op row that is gone, a `moved` entry
+//! the saga could not have written) stays pending with `last_error` and a
+//! raised `attempts`: the rest of its batch publishes, the row is retried
+//! on every pass and publishes on its own once the state is repaired, and
+//! the lag gauge reports it meanwhile. The publisher never parks a row;
+//! `given_up_at` is an operator's switch to take a row out of the claim.
+//! Kafka failures retry forever with backoff.
 
 pub mod claim;
 pub mod config;
@@ -39,6 +43,7 @@ const PUBLISH_FAILURES_TOTAL: &str = "personhog_lifecycle_publish_failures_total
 const PUBLISH_BATCH_DURATION_MS: &str = "personhog_lifecycle_publish_batch_duration_ms";
 const PUBLISH_BACKLOG: &str = "personhog_lifecycle_publish_backlog";
 const PUBLISH_LAG_SECONDS: &str = "personhog_lifecycle_publish_lag_seconds";
+/// Rows an operator parked with `given_up_at`; the publisher never sets it.
 const PUBLISH_GIVEN_UP: &str = "personhog_lifecycle_publish_given_up";
 
 /// The gauges read the whole outbox, so they refresh on their own clock
@@ -82,7 +87,7 @@ pub struct PassReport {
     pub claimed: usize,
     pub finished: usize,
     pub advanced: usize,
-    pub given_up: usize,
+    pub deferred: usize,
     /// Claimed rows left untouched because the row budget ran out; they
     /// stay pending with their cursors for the next pass.
     pub unprocessed: usize,
@@ -94,9 +99,10 @@ enum Disposition {
     Finished,
     /// A pointer with rows left after this chunk: the cursor moves.
     Advanced(Cursor),
-    /// Corrupt state the saga could not have written: parked for an
-    /// operator with the reason.
-    GivenUp(String),
+    /// State the saga could not have written: the row stays pending with
+    /// the reason and is retried on every pass, so it publishes on its own
+    /// once repaired and an operator can see why until then.
+    Deferred(String),
 }
 
 pub struct Publisher<S> {
@@ -150,7 +156,7 @@ impl<S: PublishSink> Publisher<S> {
                             claimed = report.claimed,
                             finished = report.finished,
                             advanced = report.advanced,
-                            given_up = report.given_up,
+                            deferred = report.deferred,
                             unprocessed = report.unprocessed,
                             messages = report.messages,
                             "publish pass"
@@ -230,7 +236,7 @@ impl<S: PublishSink> Publisher<S> {
 
         let mut finished: Vec<i64> = Vec::new();
         let mut advanced: (Vec<i64>, Vec<i64>, Vec<i64>) = Default::default();
-        let mut given_up: (Vec<i64>, Vec<String>) = Default::default();
+        let mut deferred: (Vec<i64>, Vec<String>) = Default::default();
         for (row, disposition) in &dispositions {
             match disposition {
                 Disposition::Finished => {
@@ -242,21 +248,26 @@ impl<S: PublishSink> Publisher<S> {
                     advanced.1.push(cursor.person_id);
                     advanced.2.push(cursor.mapping_ordinal);
                 }
-                Disposition::GivenUp(reason) => {
-                    tracing::error!(
-                        outbox_id = row.id,
-                        kind = %row.kind,
-                        op_id = ?row.op_id,
-                        reason = %reason,
-                        "publish outbox row given up; it needs an operator"
-                    );
-                    given_up.0.push(row.id);
-                    given_up.1.push(reason.clone());
-                    record_row(&row.kind, "given_up");
+                Disposition::Deferred(reason) => {
+                    // The row is claimed on every pass, so log the first
+                    // deferral and then every 300th.
+                    if row.attempts % 300 == 0 {
+                        tracing::error!(
+                            outbox_id = row.id,
+                            kind = %row.kind,
+                            op_id = ?row.op_id,
+                            attempts = row.attempts + 1,
+                            reason = %reason,
+                            "publish outbox row cannot be read; it stays pending until the state is repaired"
+                        );
+                    }
+                    deferred.0.push(row.id);
+                    deferred.1.push(reason.clone());
+                    record_row(&row.kind, "deferred");
                 }
             }
         }
-        self.write_back(&mut tx, &finished, &advanced, &given_up)
+        self.write_back(&mut tx, &finished, &advanced, &deferred)
             .await?;
         tx.commit().await?;
 
@@ -269,7 +280,7 @@ impl<S: PublishSink> Publisher<S> {
             claimed: rows.len(),
             finished: finished.len(),
             advanced: advanced.0.len(),
-            given_up: given_up.0.len(),
+            deferred: deferred.0.len(),
             unprocessed,
             messages: batch.distinct_id_rows.len(),
         })
@@ -277,7 +288,7 @@ impl<S: PublishSink> Publisher<S> {
 
     /// Resolve one pointer's next chunk, at most `limit` rows, into
     /// `batch`. Rows are added only once the whole chunk decodes, so a
-    /// poisoned pointer contributes nothing to the batch it is given up in.
+    /// poisoned pointer contributes nothing to the batch it is deferred in.
     async fn resolve_pointer(
         &self,
         tx: &mut Tx<'_>,
@@ -287,29 +298,31 @@ impl<S: PublishSink> Publisher<S> {
     ) -> Result<Disposition, sqlx::Error> {
         let op_id = row.op_id.expect("pointer rows carry an op_id");
         let Some(op) = load_op(tx, &self.tables, op_id).await? else {
-            return Ok(Disposition::GivenUp(format!(
+            return Ok(Disposition::Deferred(format!(
                 "op {op_id} no longer exists; its moved rows cannot be published"
             )));
         };
         // Pointers are written only by a completed op's own commit, so any
         // of these is corrupt state rather than a case to handle.
         if op.completed_at.is_none() {
-            return Ok(Disposition::GivenUp(format!("op {op_id} is not completed")));
+            return Ok(Disposition::Deferred(format!(
+                "op {op_id} is not completed"
+            )));
         }
         if format!("{}_op", op.op_type) != row.kind {
-            return Ok(Disposition::GivenUp(format!(
+            return Ok(Disposition::Deferred(format!(
                 "op {op_id} is a {} op but the pointer kind is {}",
                 op.op_type, row.kind
             )));
         }
         if op.op_type == "merge" && op.target_rows != 1 {
-            return Ok(Disposition::GivenUp(format!(
+            return Ok(Disposition::Deferred(format!(
                 "merge op {op_id} has {} target rows",
                 op.target_rows
             )));
         }
         if op.malformed_moved_rows > 0 {
-            return Ok(Disposition::GivenUp(format!(
+            return Ok(Disposition::Deferred(format!(
                 "op {op_id} has {} source or victim rows whose moved is not an array",
                 op.malformed_moved_rows
             )));
@@ -327,7 +340,7 @@ impl<S: PublishSink> Publisher<S> {
                 resolved.distinct_id.as_ref(),
                 resolved.version,
             ) else {
-                return Ok(Disposition::GivenUp(format!(
+                return Ok(Disposition::Deferred(format!(
                     "op {op_id} person {} moved entry {} is malformed (owner {:?}, distinct_id {:?}, version {:?})",
                     resolved.person_id,
                     resolved.mapping_ordinal,
@@ -361,7 +374,7 @@ impl<S: PublishSink> Publisher<S> {
         tx: &mut Tx<'_>,
         finished: &[i64],
         advanced: &(Vec<i64>, Vec<i64>, Vec<i64>),
-        given_up: &(Vec<i64>, Vec<String>),
+        deferred: &(Vec<i64>, Vec<String>),
     ) -> Result<(), sqlx::Error> {
         if !finished.is_empty() {
             mirrored_query!(
@@ -380,7 +393,8 @@ impl<S: PublishSink> Publisher<S> {
                 UPDATE {person_publish_outbox} o
                 SET cursor_person_id = u.person_id,
                     cursor_mapping_ordinal = u.mapping_ordinal,
-                    attempts = o.attempts + 1
+                    attempts = o.attempts + 1,
+                    last_error = NULL
                 FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS u(id, person_id, mapping_ordinal)
                 WHERE o.id = u.id
                 "#,
@@ -390,18 +404,18 @@ impl<S: PublishSink> Publisher<S> {
                 => execute(&mut **tx)
             )?;
         }
-        if !given_up.0.is_empty() {
+        if !deferred.0.is_empty() {
             mirrored_query!(
                 self.tables.is_validation(),
-                op = "publish_give_up",
+                op = "publish_defer",
                 r#"
                 UPDATE {person_publish_outbox} o
-                SET given_up_at = now(), last_error = u.last_error, attempts = o.attempts + 1
+                SET last_error = u.last_error, attempts = o.attempts + 1
                 FROM unnest($1::bigint[], $2::text[]) AS u(id, last_error)
                 WHERE o.id = u.id
                 "#,
-                &given_up.0,
-                &given_up.1
+                &deferred.0,
+                &deferred.1
                 => execute(&mut **tx)
             )?;
         }
