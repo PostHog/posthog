@@ -5419,7 +5419,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between the fire and resolve notifications. 0 means no minimum.'),
+        .describe('Minimum minutes between notifications. 0 means no minimum.'),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 

@@ -1070,7 +1070,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between the fire and resolve notifications. 0 means no minimum.
+     * Minimum minutes between notifications. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number

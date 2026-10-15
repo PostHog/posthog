@@ -774,7 +774,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     cooldown_minutes = serializers.IntegerField(
         default=0,
         min_value=0,
-        help_text="Minimum minutes between the fire and resolve notifications. 0 means no minimum.",
+        help_text="Minimum minutes between notifications. 0 means no minimum.",
     )
     date_from = serializers.CharField(
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
