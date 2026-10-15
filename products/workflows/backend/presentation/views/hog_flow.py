@@ -86,6 +86,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
 from products.cdp.backend.presentation.hog_functions import (
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
@@ -903,6 +904,36 @@ def _has_slack_channel_filter(filters: dict) -> bool:
     return False
 
 
+INBOX_REPORT_ACCESS_MESSAGE = "Inbox reports need viewer access to Tasks. An API key also needs the task:read scope."
+
+
+def _may_read_inbox_reports(request: Request | None, team: Team) -> bool:
+    """Whether the caller can read Inbox reports, as a member and through the token they used.
+
+    Runs started by an Inbox report carry its title and summary, so every path that reads or replays
+    them asks this on top of the workflow's own access.
+    """
+    user = getattr(request, "user", None)
+    if request is None or user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+        return True
+    token_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if token_scopes is not None and not {"*", "task:read", "task:write"} & set(token_scopes):
+        return False
+    return may_read_reports(user=user, team=team)
+
+
+def _subscribes_to_inbox_reports(filters: object) -> bool:
+    events = filters.get("events") if isinstance(filters, dict) else None
+    return isinstance(events, list) and any(
+        isinstance(event, dict) and event.get("id") == INBOX_REPORT_READY_EVENT for event in events
+    )
+
+
+def _is_inbox_report_run(invocation_globals: dict[str, Any]) -> bool:
+    event = invocation_globals.get("event")
+    return isinstance(event, dict) and event.get("event") == INBOX_REPORT_READY_EVENT
+
+
 def _has_exact_string_filter(filters: dict, key: str) -> bool:
     """Whether the filters restrict the trigger by an exact, non-empty value for the given key.
 
@@ -1217,6 +1248,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "(repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, "
             "title, body, review_state, branch, repository_visibility), and requires exact-match repository "
             "and event_type filters; without them it runs on every delivery from every connected repository. "
+            "$inbox_report_ready runs once per Inbox report, when its research finishes and the report is "
+            "ready, with properties report_id, title, summary, priority, source_products and report_url; "
+            "saving it needs viewer access to Tasks, and an API key also needs the task:read scope. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1297,18 +1331,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         # Weirdly nested serializers don't get this set...
         self.initial_data = data
         return super().to_internal_value(data)
-
-    def _may_read_inbox_reports(self) -> bool:
-        # Each run carries a report's title and summary, so its author must be able to read the
-        # reports themselves, both as a member and through the token they used.
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
-            return True
-        token_scopes = get_authenticator_scopes(request.successful_authenticator)
-        if token_scopes is not None and not {"*", "task:read", "task:write"} & set(token_scopes):
-            return False
-        return may_read_reports(user=user, team=self.context["get_team"]())
 
     _cohort_conditions_flag: Optional[bool] = None
 
@@ -1637,10 +1659,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
-                if _subscribes_to("$inbox_report_ready") and not self._may_read_inbox_reports():
-                    raise serializers.ValidationError(
-                        {"filters": "You need access to Inbox reports to start a workflow when a report is ready."}
-                    )
+                if _subscribes_to(INBOX_REPORT_READY_EVENT) and not _may_read_inbox_reports(
+                    self.context.get("request"), self.context["get_team"]()
+                ):
+                    raise serializers.ValidationError({"filters": INBOX_REPORT_ACCESS_MESSAGE})
                 if _subscribes_to("$github_event_received"):
                     _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
@@ -4632,6 +4654,8 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
+        if _subscribes_to_inbox_reports(hog_flow.trigger_filters) and not _may_read_inbox_reports(request, self.team):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -5927,6 +5951,8 @@ class HogFlowViewSet(
         )
         if data is None:
             raise exceptions.NotFound("Invocation not found.")
+        if _is_inbox_report_run(data.invocation_globals) and not _may_read_inbox_reports(request, self.team):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
         return Response(HogInvocationResultDetailSerializer(data).data)
 
     @extend_schema(

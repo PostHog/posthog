@@ -250,6 +250,7 @@ class TestScoutReportAPI(APIBaseTest):
         [ready_event] = [call.args[1] for call in produce_internal_event.call_args_list]
         assert ready_event.event == "$inbox_report_ready"
         assert ready_event.properties["report_id"] == first["report_id"]
+        assert ready_event.properties["source_products"] == ["signals_scout"]
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
 

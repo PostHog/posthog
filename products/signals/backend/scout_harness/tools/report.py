@@ -1554,7 +1554,7 @@ def _emit_report_ready_event(*, team_id: int, report_id: str) -> None:
     """Best-effort hand-off to the project's "Inbox report ready" workflows, so a broker failure
     never fails the emit."""
     try:
-        emit_inbox_report_ready_event(team_id=team_id, report_id=report_id)
+        emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[SOURCE_PRODUCT])
     except Exception:
         logger.exception("signals_scout.emit_report: inbox report ready event failed", extra={"report_id": report_id})
 

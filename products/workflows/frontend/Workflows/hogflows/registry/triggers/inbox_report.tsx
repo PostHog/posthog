@@ -3,16 +3,11 @@ import { IconSelfDriving } from 'lib/lemon-ui/icons'
 
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 
-import { INBOX_REPORT_READY_EVENT, isInboxReportReadyTriggerConfig } from './inboxReportTriggerConfig'
-
-const REPORT_PROPERTIES: { key: string; description: string }[] = [
-    { key: 'report_id', description: 'The report ID' },
-    { key: 'title', description: 'The report title' },
-    { key: 'summary', description: 'The researched summary' },
-    { key: 'priority', description: 'P0 to P4, or empty when the report has no priority' },
-    { key: 'source_products', description: 'The products whose signals the report groups' },
-    { key: 'report_url', description: 'A link to the report in Inbox' },
-]
+import {
+    INBOX_REPORT_PROPERTIES,
+    INBOX_REPORT_READY_EVENT,
+    isInboxReportReadyTriggerConfig,
+} from './inboxReportTriggerConfig'
 
 function StepTriggerConfigurationInboxReportReady(): JSX.Element {
     return (
@@ -23,7 +18,7 @@ function StepTriggerConfigurationInboxReportReady(): JSX.Element {
             </p>
             <p className="mb-0 text-sm text-muted-alt">Use these in later steps:</p>
             <ul className="mb-0 text-sm list-none p-0 flex flex-col gap-1">
-                {REPORT_PROPERTIES.map(({ key, description }) => (
+                {INBOX_REPORT_PROPERTIES.map(({ key, description }) => (
                     <li key={key}>
                         <code>{`{event.properties.${key}}`}</code>
                         <span className="text-muted-alt"> {description}</span>

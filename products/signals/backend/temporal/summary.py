@@ -648,7 +648,9 @@ class SignalReportSummaryWorkflow:
                     try:
                         await workflow.execute_activity(
                             emit_inbox_report_ready_activity,
-                            EmitInboxReportReadyInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            EmitInboxReportReadyInput(
+                                team_id=inputs.team_id, report_id=inputs.report_id, source_products=source_products
+                            ),
                             start_to_close_timeout=timedelta(minutes=1),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
@@ -1430,6 +1432,7 @@ async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackN
 class EmitInboxReportReadyInput:
     team_id: int
     report_id: str
+    source_products: list[str] = field(default_factory=list)
 
 
 @temporalio.activity.defn
@@ -1438,7 +1441,7 @@ class EmitInboxReportReadyInput:
 async def emit_inbox_report_ready_activity(input: EmitInboxReportReadyInput) -> None:
     """Start the project's "Inbox report ready" workflows for a report that just settled."""
     await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id
+        team_id=input.team_id, report_id=input.report_id, source_products=input.source_products
     )
 
 

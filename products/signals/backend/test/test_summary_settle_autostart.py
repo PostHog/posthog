@@ -131,7 +131,7 @@ class _Recorder:
         # means the card ships without the PR link.
         self.autostarts_at_notification: list[int] = []
         self.autostart_inputs: list[MaybeAutostartImplementationInput] = []
-        self.ready_events = 0
+        self.ready_event_inputs: list[EmitInboxReportReadyInput] = []
 
 
 def _signal_data() -> SignalData:
@@ -221,7 +221,7 @@ async def _run_summary_workflow(
 
     @activity.defn(name="emit_inbox_report_ready_activity")
     async def fake_emit_ready(input: EmitInboxReportReadyInput) -> None:
-        recorder.ready_events += 1
+        recorder.ready_event_inputs.append(input)
 
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
@@ -306,7 +306,7 @@ async def test_buffer_autostarts_when_no_signal_arrives():
     assert recorder.candidate_checks == 1
     assert recorder.autostarts == 1
     assert recorder.autostarts_at_notification == [1]
-    assert recorder.ready_events == 1
+    assert [ready.source_products for ready in recorder.ready_event_inputs] == [["error_tracking"]]
 
 
 @pytest.mark.asyncio
@@ -321,4 +321,4 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     # Only the settled run notifies, so no card goes out and no workflow starts for the summary the
     # re-research replaced.
     assert recorder.autostarts_at_notification == [1]
-    assert recorder.ready_events == 1
+    assert [ready.source_products for ready in recorder.ready_event_inputs] == [["error_tracking"]]

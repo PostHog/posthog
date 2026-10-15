@@ -18,6 +18,7 @@ import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLog
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import {
     INBOX_REPORT_READY_EVENT,
+    exampleInboxReportProperties,
     isInboxReportReadyTriggerConfig,
 } from '../../registry/triggers/inboxReportTriggerConfig'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
@@ -175,14 +176,7 @@ export function buildSampleGlobals(
         sampleGlobals.event = {
             event: INBOX_REPORT_READY_EVENT,
             distinct_id: 'report123',
-            properties: {
-                report_id: 'report123',
-                title: 'Example report title',
-                summary: 'Example report summary',
-                priority: 'P2',
-                source_products: ['error_tracking'],
-                report_url: 'https://us.posthog.com/project/1/inbox/reports/report123',
-            },
+            properties: exampleInboxReportProperties(),
             timestamp: '2024-01-01T12:00:00Z',
         }
     }

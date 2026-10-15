@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.workflow_events import emit_inbox_report_ready_event
 
 
@@ -31,22 +30,14 @@ class TestEmitInboxReportReadyEvent(BaseTest):
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             content=json.dumps({"explanation": "Blocks purchases", "priority": "P1"}),
         )
-        source_products = patch(
-            "products.signals.backend.workflow_events.fetch_source_products_for_reports",
-            return_value={
-                str(self.report.id): ReportSignalMeta(
-                    source_products=["error_tracking", "session_replay"], scout_name=None
-                )
-            },
-        )
-        self.fetch_source_products: MagicMock = source_products.start()
-        self.addCleanup(source_products.stop)
         producer = patch("products.signals.backend.workflow_events.produce_internal_event")
         self.produce: MagicMock = producer.start()
         self.addCleanup(producer.stop)
 
     def _emit(self) -> None:
-        emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(self.report.id))
+        emit_inbox_report_ready_event(
+            team_id=self.team.id, report_id=str(self.report.id), source_products=["error_tracking", "session_replay"]
+        )
 
     def _produced_events(self) -> list[Any]:
         return [call.args[1] for call in self.produce.call_args_list]
@@ -86,13 +77,15 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
         assert self._produced_events() == []
 
-    def test_a_failed_source_lookup_still_starts_the_run(self) -> None:
-        self.fetch_source_products.side_effect = RuntimeError("clickhouse timeout")
+    def test_a_delivery_still_pending_keeps_the_claim(self) -> None:
+        pending_delivery = MagicMock()
+        pending_delivery.get.side_effect = TimeoutError("Timeout waiting for produce result")
+        self.produce.return_value = pending_delivery
 
         self._emit()
+        self._emit()
 
-        [event] = self._produced_events()
-        assert event.properties["source_products"] == []
+        assert len(self._produced_events()) == 1
 
     @parameterized.expand(
         [

@@ -3593,7 +3593,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if expected_status == 400:
-            assert "Inbox reports" in response.json()["detail"]
+            assert "task:read" in response.json()["detail"]
 
     def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
         # Checking only the first event would let a second one smuggle the payload out.
