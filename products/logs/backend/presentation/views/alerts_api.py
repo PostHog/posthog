@@ -55,6 +55,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
@@ -254,9 +255,16 @@ class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
         return super().to_representation(alerts)
 
 
+# Kinds of the boundaries a moved alert's timeline adds to the logs event kinds.
+_PLATFORM_CHANGE: Final = "platform_change"
+_SNOOZE_EXPIRY: Final = "snooze_expiry"
+_SNOOZE_KINDS: Final = (LogsAlertEvent.Kind.SNOOZE, LogsAlertEvent.Kind.UNSNOOZE)
+_PLATFORM_TIMELINE_LOGS_KINDS: Final = (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE, *_SNOOZE_KINDS)
+
+
 @frozen
 class _TimelineEvent:
-    """A platform state change or a logs toggle, in the shape the timeline walk reads."""
+    """A boundary of a moved alert's timeline, in the shape the timeline walk reads."""
 
     kind: str
     created_at: datetime
@@ -416,48 +424,69 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         self,
         obj: LogsAlertConfiguration,
         history: PlatformAlertHistory | None,
-        current_state: str,
+        platform_state: PlatformAlertState,
         window: tuple[datetime, datetime],
     ) -> list[StateInterval]:
         """The timeline of an alert the platform owns.
 
-        The platform's history holds the state changes. The logs API still writes the enable and
-        disable toggles, so they come from LogsAlertEvent. Logs check rows are left out, because
-        the logs stack only shadows an alert the platform owns. A toggle carries the state the
-        platform had at that moment, because the logs row's state stops moving after the shadow.
-        """
-        changes = history.state_changes if history is not None else ()
-        merged: list[LogsAlertEvent | _TimelineEvent] = [
-            _TimelineEvent(
-                kind=LogsAlertEvent.Kind.CHECK,
-                created_at=change.occurred_at,
-                state_before=logs_state_of_platform(
-                    change.previous_state, logs_state=obj.state, snooze_until=obj.snooze_until, at=change.occurred_at
-                ).value,
-                state_after=logs_state_of_platform(
-                    change.state, logs_state=obj.state, snooze_until=obj.snooze_until, at=change.occurred_at
-                ).value,
-            )
-            for change in changes
-        ]
-        merged.extend(
-            event
-            for event in self._timeline_events(obj, window[0])
-            if event.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)
-        )
-        merged.sort(key=lambda event: event.created_at)
+        The platform's history holds the state changes. The logs API still writes the toggles and
+        the snoozes, so they come from LogsAlertEvent. Logs check rows are left out, because the
+        logs stack only shadows an alert the platform owns.
 
-        state = next((event.state_before for event in merged if event.kind == LogsAlertEvent.Kind.CHECK), current_state)
-        events: list[LogsAlertEvent | _TimelineEvent] = []
-        for event in merged:
-            if event.kind == LogsAlertEvent.Kind.CHECK:
-                state = event.state_after
-                events.append(event)
-            else:
-                events.append(
-                    _TimelineEvent(kind=event.kind, created_at=event.created_at, state_before=state, state_after=state)
-                )
-        return self._state_intervals(obj, events, current_state, window)
+        Each logs event keeps its own time, and the state shown at any moment is snoozed while a
+        snooze holds, else the platform's state. A snooze that expired leaves no event, so only
+        the current snooze's `snooze_until` can end one inside the window.
+        """
+        window_start, window_end = window
+        logs_events = [
+            event for event in self._timeline_events(obj, window_start) if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
+        ]
+        snooze_events = [event for event in logs_events if event.kind in _SNOOZE_KINDS]
+
+        # Each boundary is (time, kind, the platform state it moves to or None).
+        boundaries: list[tuple[datetime, str, PlatformAlertState | None]] = [
+            (change.occurred_at, _PLATFORM_CHANGE, change.state)
+            for change in (history.state_changes if history is not None else ())
+        ]
+        boundaries.extend((event.created_at, event.kind, None) for event in logs_events)
+        snooze_until = obj.snooze_until
+        if (
+            snooze_until is not None
+            and window_start < snooze_until < window_end
+            and not any(event.created_at >= snooze_until for event in snooze_events)
+        ):
+            boundaries.append((snooze_until, _SNOOZE_EXPIRY, None))
+        boundaries.sort(key=lambda boundary: boundary[0])
+
+        if history is not None and history.state_changes:
+            platform_state = history.state_changes[0].previous_state
+        if snooze_events:
+            snoozed = snooze_events[0].kind == LogsAlertEvent.Kind.UNSNOOZE
+        else:
+            snoozed = (
+                obj.state == LogsAlertConfiguration.State.SNOOZED
+                and snooze_until is not None
+                and snooze_until > window_start
+            )
+
+        def shown() -> str:
+            if snoozed:
+                return LogsAlertConfiguration.State.SNOOZED
+            return logs_state_of_platform(
+                platform_state, logs_state=obj.state, snooze_until=None, at=window_start
+            ).value
+
+        events: list[_TimelineEvent] = []
+        for at, kind, moved_to in boundaries:
+            before = shown()
+            if moved_to is not None:
+                platform_state = moved_to
+            elif kind == LogsAlertEvent.Kind.SNOOZE:
+                snoozed = True
+            elif kind in (LogsAlertEvent.Kind.UNSNOOZE, _SNOOZE_EXPIRY):
+                snoozed = False
+            events.append(_TimelineEvent(kind=kind, created_at=at, state_before=before, state_after=shown()))
+        return self._state_intervals(obj, events, shown(), window)
 
     def _state_intervals(
         self,
@@ -598,7 +627,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if histories is None:
             return data
         history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
-        data["state_timeline"] = self._platform_state_timeline(instance, history, data["state"], window)
+        data["state_timeline"] = self._platform_state_timeline(instance, history, runtime.state, window)
         # With no platform check in the window, the logs row is the newest check anyone made.
         if history is not None:
             data["last_checked_at"] = self.fields["last_checked_at"].to_representation(history.last_checked_at)

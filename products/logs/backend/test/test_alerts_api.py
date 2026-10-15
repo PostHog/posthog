@@ -2783,6 +2783,49 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
         ]
         assert row["state_timeline"][0]["state"] == "not_firing"
 
+    @parameterized.expand(
+        [
+            ("still_snoozed", [(60, LogsAlertEvent.Kind.SNOOZE)], -60, [(None, "not_firing"), (60, "snoozed")]),
+            (
+                "unsnoozed",
+                [(90, LogsAlertEvent.Kind.SNOOZE), (30, LogsAlertEvent.Kind.UNSNOOZE)],
+                None,
+                [(None, "not_firing"), (90, "snoozed"), (30, "not_firing")],
+            ),
+            (
+                "expired",
+                [(90, LogsAlertEvent.Kind.SNOOZE)],
+                30,
+                [(None, "not_firing"), (90, "snoozed"), (30, "not_firing")],
+            ),
+        ]
+    )
+    def test_timeline_keeps_snooze_boundaries(
+        self,
+        _name: str,
+        snoozes: list[tuple[int, str]],
+        snooze_until_minutes_ago: int | None,
+        expected: list[tuple[int | None, str]],
+    ) -> None:
+        def iso(minutes_ago: int) -> str:
+            return (self.now - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
+
+        for minutes_ago, kind in snoozes:
+            self._logs_event(kind, hours_ago=minutes_ago / 60, state_after="not_firing")
+        snooze_until = (
+            None if snooze_until_minutes_ago is None else self.now - timedelta(minutes=snooze_until_minutes_ago)
+        )
+        LogsAlertConfiguration.objects.filter(pk=self.alert.pk).update(
+            state="snoozed" if snooze_until is not None else "not_firing", snooze_until=snooze_until
+        )
+
+        [row] = self._rows("retrieve")
+
+        assert [(i["start"], i["state"]) for i in row["state_timeline"]][1:] == [
+            (iso(minutes_ago), state) for minutes_ago, state in expected[1:]
+        ]
+        assert row["state_timeline"][0]["state"] == expected[0][1]
+
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
             "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
