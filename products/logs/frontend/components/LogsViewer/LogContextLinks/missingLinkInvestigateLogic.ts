@@ -1,12 +1,9 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
-import { router } from 'kea-router'
 
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
@@ -25,7 +22,6 @@ export interface missingLinkInvestigateLogicValues {
     dataProcessingAccepted: boolean // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
-    todayRailEnabled: boolean // todayShellLogic
     launching: boolean
     startsSidePanelTask: boolean
 }
@@ -38,9 +34,6 @@ export interface missingLinkInvestigateLogicActions {
     closeLogsViewerModal: () => {
         value: true
     } // logsViewerModalLogic
-    askSidePanelMax: (prompt: string) => {
-        prompt: string
-    } // maxGlobalLogic
     clearActiveCreation: () => {
         value: true
     } // runnerPanelLogic
@@ -95,8 +88,6 @@ export const missingLinkInvestigateLogic = kea<missingLinkInvestigateLogicType>(
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'effectivePhaiView'],
-            todayShellLogic,
-            ['todayRailEnabled'],
             composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
             ['seed'],
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
@@ -109,8 +100,6 @@ export const missingLinkInvestigateLogic = kea<missingLinkInvestigateLogicType>(
             ['clearActiveCreation', 'setHistoryExpanded'],
             sidePanelStateLogic,
             ['openSidePanel'],
-            maxGlobalLogic,
-            ['askSidePanelMax'],
             logsViewerModalLogic,
             ['closeLogsViewerModal'],
         ],
@@ -125,8 +114,8 @@ export const missingLinkInvestigateLogic = kea<missingLinkInvestigateLogicType>(
     }),
 
     selectors({
-        // Only the new view's side panel turns a seed into a task. The legacy view has no tasks, so it takes
-        // the prompt as a chat question. The rail still renders the side panel, so the task opens next to the log.
+        // Only the new view's side panel turns a seed into a task. The legacy view's /ai?ask= page can drop the
+        // prompt, so it gets no button. The rail still renders the side panel, so the task opens next to the log.
         startsSidePanelTask: [
             (s) => [s.effectivePhaiView],
             (effectivePhaiView: PhaiViewMode): boolean => effectivePhaiView === 'new',
@@ -143,27 +132,11 @@ export const missingLinkInvestigateLogic = kea<missingLinkInvestigateLogicType>(
 
     listeners(({ actions, values }) => ({
         startTask: ({ prompt, closeHost, eventContext }) => {
-            const route: InvestigateRoute = !values.startsSidePanelTask
-                ? values.todayRailEnabled
-                    ? 'ai-scene'
-                    : 'legacy-ask'
-                : values.launching
-                  ? 'side-panel-already-launching'
-                  : 'side-panel-task'
+            const route: InvestigateRoute = values.launching ? 'side-panel-already-launching' : 'side-panel-task'
             captureInvestigate('clicked', eventContext, { option: 'posthog-ai-task', route })
             // The drawer and the logs modal sit above the side panel, so close them before it opens.
             closeHost()
             actions.closeLogsViewerModal()
-            if (route === 'ai-scene') {
-                // The rail keeps legacy PostHog AI in the /ai scene, in the same tab.
-                router.actions.push(urls.ai(undefined, prompt))
-                return
-            }
-            if (route === 'legacy-ask') {
-                // The shared ask path opens the question in a new PostHog AI tab.
-                actions.askSidePanelMax(prompt)
-                return
-            }
             if (route === 'side-panel-already-launching') {
                 // Show the investigation already starting rather than queueing a second one.
                 actions.openSidePanel(SidePanelTab.Max)

@@ -10,7 +10,8 @@ import { MissingLink } from './missingLinkPrompt'
 
 export type InvestigateOption = AgentPromptDestination | 'posthog-ai-task'
 
-export type InvestigateRoute = 'side-panel-task' | 'side-panel-already-launching' | 'legacy-ask' | 'ai-scene'
+// pinned: analytics property values. `legacy-ask` and `ai-scene` were sent before the legacy view lost the button.
+export type InvestigateRoute = 'side-panel-task' | 'side-panel-already-launching'
 
 export interface MissingLinkEventContext {
     missing: MissingLink[]

@@ -46,6 +46,8 @@ export function MissingLinkInvestigate({
                 <span>{missingLabel(missing)}</span>
             </span>
             <AgentPromptButton
+                // The shared PostHog AI destination opens the legacy /ai?ask= page, which can drop the prompt.
+                pinnedAgentKey={startsSidePanelTask ? undefined : 'clipboard'}
                 size="xs"
                 actions={[
                     {
@@ -59,12 +61,12 @@ export function MissingLinkInvestigate({
                 }
                 data-attr={`logs-${surface}-missing-link-agent-prompt`}
             />
-            {isMaxAvailable && (
+            {isMaxAvailable && startsSidePanelTask && (
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
                     icon={<IconSparkles />}
-                    loading={startsSidePanelTask && launching}
+                    loading={launching}
                     onClick={() => startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}), eventContext)}
                     data-attr={`logs-${surface}-missing-link-posthog-ai`}
                 >
