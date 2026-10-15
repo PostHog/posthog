@@ -149,22 +149,32 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert not stored.is_identified
         assert self._scan()[1] == {}
 
-    def test_light_fold_marks_the_survivor_identified_when_only_the_lost_person_was(self):
-        lost, _ = self._lost_person_split_to(["b-own", "moved"], identified=True, ghost_ids=[])
+    @parameterized.expand(
+        [
+            ("two_survivor_ids", ["b-own", "moved"], "$identify", {"$anon_distinct_id": "moved"}, False),
+            # An identify needs two of B's ids, so B stays unidentified and the action says so.
+            ("one_survivor_id", ["moved"], "$set", {}, True),
+        ]
+    )
+    def test_light_fold_carries_identified_only_when_the_survivor_has_two_ids(
+        self, _name: str, survivor_ids: list[str], event: str, extra: dict, not_carried: bool
+    ):
+        lost, _ = self._lost_person_split_to(survivor_ids, identified=True, ghost_ids=[])
         scan_dir, _ = self._scan()
 
         with patch(_SET_ONCE) as set_once:
             outcomes = self._run(scan_dir, "fold", apply=True)
 
         assert outcomes == {lost: "properties_sent", "moved": "properties_sent"}
-        assert set_once.call_args.kwargs["event_name"] == "$identify"
-        assert set_once.call_args.kwargs["distinct_id"] == "b-own"
-        assert set_once.call_args.kwargs["properties"] == {"$anon_distinct_id": "moved", "$set_once": {"plan": "pro"}}
+        assert set_once.call_args.kwargs["event_name"] == event
+        assert set_once.call_args.kwargs["properties"] == {**extra, "$set_once": {"plan": "pro"}}
+        actions = [json.loads(line) for line in (scan_dir / "fold-apply.jsonl").read_text().splitlines()]
+        person_action = next(a for a in actions if a["key"] == lost)
+        assert person_action["detail"].get("identified_not_carried", False) is not_carried
 
     @parameterized.expand(
         [
             ("after_restore", "_restore_persons"),
-            ("after_ghost_ids", "_write_mappings"),
             ("after_merge_sent", "_send_merge"),
         ]
     )
@@ -231,6 +241,22 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert capture.call_args.kwargs["distinct_id"] == "shared"
         assert capture.call_args.kwargs["properties"] == {"alias": "a-own"}
         assert self._scan()[1] == before
+
+    def test_restore_leaves_a_lost_person_out_when_its_only_id_was_claimed_after_the_scan(self):
+        lost = str(uuid4())
+        self._ch_person(lost, 4, {"email": "lost@example.com"})
+        self._ch_mapping("claimed", lost, 2)
+        purged_at = datetime.now(UTC) + timedelta(hours=1)
+        scan_dir, before = self._scan(purged_at=purged_at)
+        assert {key: verb for key, (_, verb, _) in before.items()} == {lost: "restore", "claimed": "restore"}
+        self._pg_person(version=0, distinct_ids=["claimed"])
+
+        outcomes = self._run(scan_dir, "restore", apply=True)
+
+        assert outcomes == {lost: "skipped_no_distinct_id", "claimed": "skipped_changed"}
+        fake = get_active_fake()
+        assert fake is not None
+        assert fake.stored_person(self.team.pk, lost) is None
 
     def test_fold_and_merge_skip_a_team_with_person_processing_off(self):
         old = self._live_person("a-own")

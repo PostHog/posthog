@@ -32,7 +32,9 @@ from posthog.personhog_client.proto import (
     DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
     RESTORE_OUTCOME_EXISTS_LIVE,
     RESTORE_OUTCOME_INSERTED,
+    RESTORE_OUTCOME_NO_DISTINCT_ID,
     DistinctIdWrite,
+    RestoredDistinctId,
     RestoredPerson,
     RestorePersonsRequest,
     WriteDistinctIdsRequest,
@@ -191,35 +193,35 @@ def _write_mappings(context: VerbContext, rows: list[dict[str, Any]], targets: d
 
 
 def restore(rows: list[dict[str, Any]], context: VerbContext) -> None:
-    """Insert lost persons into Postgres from their ClickHouse winner, one version above ClickHouse, then their
-    lost distinct ids, and publish both. A person or mapping that exists again in Postgres is left alone."""
+    """Insert lost persons into Postgres from their ClickHouse winner, one version above ClickHouse, together with
+    their lost distinct ids, and publish both. A person or mapping that exists again in Postgres is left alone."""
     mapping_rows = [r for r in rows if r["kind"] == "mapping"]
-    with_ids = {r["evidence"]["ch"]["winner_person_uuid"] for r in mapping_rows}
-    person_rows = []
-    for row in (r for r in rows if r["kind"] == "person"):
-        if row["key"] in with_ids:
-            person_rows.append(row)
-        else:
-            # Restored alone, the person would have no distinct id, so nothing could reach it.
-            context.action(row, "skipped_no_distinct_id")
-    restored = _restore_persons(person_rows, context)
-    if not mapping_rows:
-        return
-    targets = {r["key"]: r["evidence"]["ch"]["winner_person_uuid"] for r in mapping_rows}
-    if context.apply:
-        # A mapping of a person this run did not restore would only fail on the person; report it instead.
-        reported_persons = {r["key"] for r in person_rows}
-        blocked = [
-            r for r in mapping_rows if targets[r["key"]] in reported_persons and targets[r["key"]] not in restored
-        ]
-        for row in blocked:
-            context.action(row, "skipped_person_not_restored", target_person=targets[row["key"]])
-        mapping_rows = [r for r in mapping_rows if r not in blocked]
-    _write_mappings(context, mapping_rows, targets, "restored")
+    person_rows = [r for r in rows if r["kind"] == "person"]
+    outcome = _restore_persons(person_rows, mapping_rows, context)
+    # Mappings of persons that already existed go through the ordinary mapping write.
+    rest = [r for r in mapping_rows if r["key"] not in outcome.handled_ids]
+    _write_mappings(context, rest, {r["key"]: r["evidence"]["ch"]["winner_person_uuid"] for r in rest}, "restored")
 
 
-def _restore_persons(rows: list[dict[str, Any]], context: VerbContext) -> set[str]:
-    restored: set[str] = set()
+@frozen
+class _RestoreOutcome:
+    # Person uuid to the distinct ids restored with it.
+    restored: dict[str, list[str]]
+    # Mapping rows this call reported, restored with their person or skipped with it.
+    handled_ids: frozenset[str]
+
+
+def _restore_persons(
+    rows: list[dict[str, Any]], mapping_rows: list[dict[str, Any]], context: VerbContext
+) -> _RestoreOutcome:
+    """Restore each person with the lost distinct ids ClickHouse gives it, in one personhog call per batch.
+    A person none of whose ids can be restored is not inserted, so nothing ends up live and unreachable."""
+    ids_by_owner: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in mapping_rows:
+        if row["evidence"]["pg"] is None:
+            ids_by_owner[row["evidence"]["ch"]["winner_person_uuid"]].append(row)
+    restored: dict[str, list[str]] = {}
+    handled: set[str] = set()
     for batch in lookups._chunks(rows, _BATCH):
         by_uuid = {row["key"]: row for row in batch}
         payloads = _live_payloads(context.team_id, list(by_uuid))
@@ -233,16 +235,22 @@ def _restore_persons(rows: list[dict[str, Any]], context: VerbContext) -> set[st
                 )
             elif person_uuid not in payloads:
                 context.action(row, "skipped_not_divergent")
+            elif not ids_by_owner.get(person_uuid):
+                # Restored alone, the person would have no distinct id, so nothing could reach it.
+                context.action(row, "skipped_no_distinct_id")
             else:
                 candidates.append(person_uuid)
         if not candidates:
             continue
+        id_rows = {u: ids_by_owner[u] for u in candidates}
+        handled.update(r["key"] for u in candidates for r in id_rows[u])
         if not context.apply:
             for person_uuid in candidates:
-                context.action(
-                    by_uuid[person_uuid], "would_repair", target_version=payloads[person_uuid].max_version + 1
-                )
+                for row in [by_uuid[person_uuid], *id_rows[person_uuid]]:
+                    context.action(row, "would_repair", target_version=payloads[person_uuid].max_version + 1)
             continue
+        ch = observe.ch_mapping_states(context.team_id, [r["key"] for u in candidates for r in id_rows[u]])
+        versions = {key: (state.max_version + 1) for key, state in ch.items()}
         context.pacer.before_write()
         request = RestorePersonsRequest(
             team_id=context.team_id,
@@ -253,6 +261,9 @@ def _restore_persons(rows: list[dict[str, Any]], context: VerbContext) -> set[st
                     created_at_ms=int(payloads[u].created_at.timestamp() * 1000),
                     is_identified=payloads[u].is_identified,
                     version=payloads[u].max_version + 1,
+                    distinct_ids=[
+                        RestoredDistinctId(distinct_id=r["key"], version=versions.get(r["key"], 0)) for r in id_rows[u]
+                    ],
                 )
                 for u in candidates
             ],
@@ -262,18 +273,35 @@ def _restore_persons(rows: list[dict[str, Any]], context: VerbContext) -> set[st
         )
         for result in response.results:
             row = by_uuid[result.person_uuid]
+            ids = list(result.restored_distinct_ids)
             if result.outcome == RESTORE_OUTCOME_INSERTED:
                 context.deliveries.track(
                     _publish_person(
                         context.team_id, result.person_uuid, payloads[result.person_uuid], int(result.version)
                     )
                 )
-                restored.add(result.person_uuid)
+                for distinct_id in ids:
+                    context.deliveries.track(
+                        create_person_distinct_id(
+                            context.team_id, distinct_id, result.person_uuid, version=versions.get(distinct_id, 0)
+                        )
+                    )
+                restored[result.person_uuid] = ids
                 context.action(row, "restored", version=int(result.version))
+            elif result.outcome == RESTORE_OUTCOME_NO_DISTINCT_ID:
+                context.action(row, "skipped_no_distinct_id")
             else:
                 live = result.outcome == RESTORE_OUTCOME_EXISTS_LIVE
                 context.action(row, "skipped_exists_live" if live else "skipped_exists_tombstoned")
-    return restored
+            for id_row in id_rows[result.person_uuid]:
+                if id_row["key"] in ids:
+                    context.action(
+                        id_row, "restored", target_person=result.person_uuid, version=versions.get(id_row["key"], 0)
+                    )
+                else:
+                    # Claimed since the scan, or its person was not inserted: the next scan names its new state.
+                    context.action(id_row, "skipped_changed", target_person=result.person_uuid)
+    return _RestoreOutcome(restored=restored, handled_ids=frozenset(handled))
 
 
 @frozen
@@ -395,13 +423,9 @@ def _full_fold(
         for row in rows:
             context.action(row, "would_repair", mode="full", target_person=new)
         return
-    if old not in _restore_persons(person_rows, context):
-        return
-    restored_ids = _write_mappings(context, ghost_rows, {r["key"]: old for r in ghost_rows}, "restored")
+    restored_ids = _restore_persons(person_rows, ghost_rows, context).restored.get(old)
     if not restored_ids:
-        # Ingestion claimed every ghost id between the check and the insert. A stays restored with no distinct id,
-        # which the scan reports as no_live_mappings, and its diverged ids stay diverged for a manual repair.
-        context.emit_extra(kind="person", key=old, group=f"fold:{old}>{new}", outcome="stopped_no_alias")
+        # A exists again, or every ghost id was claimed since the scan: the next scan names its new state.
         return
     _send_fold_merge(
         context,
@@ -473,16 +497,20 @@ def _light_fold(
     moving = [*diverged, *(r for r in ghosts if r["key"] in ghost_ids)]
     missing = {k: v for k, v in (payload.properties if payload else {}).items() if k not in survivor.properties}
     # A same-person $identify needs two of B's ids; with one, B cannot be marked identified by an event.
-    identify = bool(payload and payload.is_identified and not survivor.is_identified and len(survivor.distinct_ids) > 1)
+    needs_identified = bool(payload and payload.is_identified and not survivor.is_identified)
+    identify = needs_identified and len(survivor.distinct_ids) > 1
+    carry = {"identified_not_carried": True} if needs_identified and not identify else {}
     if missing or identify:
         if not context.apply:
             for row in [*person_rows, *moving]:
-                context.action(row, "would_repair", mode="light", target_person=new, set_once_keys=len(missing))
+                context.action(
+                    row, "would_repair", mode="light", target_person=new, set_once_keys=len(missing), **carry
+                )
             return
         context.pacer.before_write()
         refusal = _send_light_fold_event(context, survivor, missing, identify)
         for row in [*person_rows, *moving]:
-            context.action(row, refusal or "properties_sent", target_person=new, set_once_keys=len(missing))
+            context.action(row, refusal or "properties_sent", target_person=new, set_once_keys=len(missing), **carry)
         return
     if not context.apply:
         for row in [*person_rows, *moving]:
@@ -496,7 +524,7 @@ def _light_fold(
         tombstone_orphaned_ch_persons(context.team_id, orphans, dry_run=False)
     _write_mappings(context, moving, {r["key"]: new for r in moving}, "moved")
     for row in person_rows:
-        context.action(row, "folded", target_person=new, buried=bool(orphans))
+        context.action(row, "folded", target_person=new, buried=bool(orphans), **carry)
 
 
 def _send_light_fold_event(
