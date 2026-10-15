@@ -3,7 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { taskKeys } from "./taskKeys";
-import { useTasks } from "./useTasks";
+import { pinnedRecordsPollInterval, useTasks } from "./useTasks";
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({ getTasks: vi.fn() }),
@@ -45,5 +45,15 @@ describe("useTasks", () => {
 
     expect(renderCount).toBe(1);
     expect(result.current.data).toBeUndefined();
+  });
+});
+
+describe("pinnedRecordsPollInterval", () => {
+  it.each([
+    { pins: undefined, polls: true },
+    { pins: 100, polls: true },
+    { pins: 101, polls: false },
+  ])("polls pinned records for $pins pins: $polls", ({ pins, polls }) => {
+    expect(pinnedRecordsPollInterval(pins) !== false).toBe(polls);
   });
 });

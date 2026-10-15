@@ -66,6 +66,21 @@ export function useTasks(
   );
 }
 
+/** The most rows the server returns in one task list page. */
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
+
+/**
+ * Pinned records poll only while they fit in one page. Past that, every poll would read every
+ * page, so a long pin history refreshes on focus, mount and pin changes instead.
+ */
+export function pinnedRecordsPollInterval(
+  pinCount: number | undefined,
+): number | false {
+  return (pinCount ?? 0) <= TASK_LIST_MAX_PAGE_SIZE
+    ? TASK_LIST_POLL_INTERVAL_MS
+    : false;
+}
+
 // A pin can be on any task the user can see, also one older than the recent list reaches. The
 // server cuts each page at 100 rows, so this reads every page to keep every pin. It polls like the
 // other task lists: a pin on another user's task, or from a source the work list hides, has no
@@ -81,7 +96,11 @@ export function usePinnedTaskRecords() {
           { fetchAll: true },
         )
       ).tasks as unknown as Task[],
-    { staleTime: 30_000, refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
+    {
+      staleTime: 30_000,
+      refetchInterval: (query) =>
+        pinnedRecordsPollInterval(query.state.data?.length),
+    },
   );
 }
 
