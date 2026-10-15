@@ -202,6 +202,7 @@ jest.mock('posthog-js', () => {
         reloadFeatureFlags: jest.fn(),
         set_config: jest.fn(),
         setPersonProperties: jest.fn(),
+        reloadFeatureFlags: jest.fn(),
         updateEarlyAccessFeatureEnrollment: jest.fn(),
         people: { set: jest.fn() },
         featureFlags: { override: jest.fn() },
