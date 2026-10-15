@@ -240,16 +240,23 @@ class ModelBuilder:
             resource = types[0]
             if resource.name in taken:
                 raise ModelSourceError(f"{source}: {resource.name!r} is already a core type or a base")
-            if resource.base not in bases:
+            if resource.base is not None and resource.base not in bases:
                 raise ModelSourceError(
                     f"{source}: {resource.name} must extend one of the bases in {BASES_FILE}: {', '.join(sorted(bases))}"
                 )
-            unexplained = [statement.name for statement in resource.statements if not statement.comments]
+            unexplained = [
+                statement.name
+                for statement in resource.statements
+                if resource.base is not None and not statement.comments
+            ]
             if unexplained:
                 raise ModelSourceError(
                     f"{source}: add a comment above {', '.join(unexplained)} that says why {resource.name} needs it"
                 )
-            resources.append(self.apply(bases[resource.base], resource, emit_comments=True))
+            parent = (
+                bases[resource.base] if resource.base is not None else TypeDefinition(name=resource.name, relations=())
+            )
+            resources.append(self.apply(parent, resource, emit_comments=True))
         return tuple(resources)
 
     def build(self) -> str:

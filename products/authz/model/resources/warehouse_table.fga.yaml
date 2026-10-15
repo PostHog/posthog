@@ -9,19 +9,15 @@ tuples:
     - { user: 'resource:warehouse', relation: resource, object: 'warehouse_table:self_managed' }
     - { user: 'project:project', relation: project, object: 'resource:warehouse' }
     - { user: 'access_policy:warehouse', relation: policy, object: 'resource:warehouse' }
-    - { user: 'policy_chain:table', relation: policy, object: 'warehouse_table:sourced' }
-    - { user: 'policy_chain:self_managed', relation: policy, object: 'warehouse_table:self_managed' }
+    - { user: 'access_policy:table', relation: policy, object: 'warehouse_table:sourced' }
+    - { user: 'access_policy:self_managed', relation: policy, object: 'warehouse_table:self_managed' }
     - { user: 'organization_member:creator#user', relation: creator, object: 'warehouse_table:sourced' }
-    - { user: 'access_policy:table', relation: policy, object: 'policy_chain:table' }
-    - { user: 'access_policy:zendesk', relation: policy, object: 'policy_chain:source' }
-    - { user: 'access_policy:warehouse', relation: policy, object: 'policy_chain:warehouse' }
-    - { user: 'access_policy:sources', relation: policy, object: 'policy_chain:sources' }
-    - { user: 'access_policy:self_managed', relation: policy, object: 'policy_chain:self_managed' }
-    - { user: 'access_policy:warehouse', relation: policy, object: 'policy_chain:self_managed_warehouse' }
-    - { user: 'policy_chain:self_managed_warehouse', relation: fallback, object: 'policy_chain:self_managed' }
-    - { user: 'policy_chain:source', relation: fallback, object: 'policy_chain:table' }
-    - { user: 'policy_chain:warehouse', relation: fallback, object: 'policy_chain:source' }
-    - { user: 'policy_chain:sources', relation: fallback, object: 'policy_chain:warehouse' }
+    - { user: 'external_data_source:zendesk', relation: source, object: 'warehouse_table:sourced' }
+    - { user: 'project:project', relation: project, object: 'external_data_source:zendesk' }
+    - { user: 'access_policy:zendesk', relation: policy, object: 'external_data_source:zendesk' }
+    - { user: 'resource:sources', relation: resource, object: 'external_data_source:zendesk' }
+    - { user: 'project:project', relation: project, object: 'resource:sources' }
+    - { user: 'access_policy:sources', relation: policy, object: 'resource:sources' }
     - { user: 'organization:org', relation: organization, object: 'access_policy:table' }
     - { user: 'organization:org', relation: organization, object: 'access_policy:self_managed' }
     - { user: 'organization:org', relation: organization, object: 'access_policy:zendesk' }
@@ -131,10 +127,11 @@ tests:
           - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
           - { user: 'project:project', relation: project, object: 'warehouse_table:other_source' }
           - { user: 'resource:warehouse', relation: resource, object: 'warehouse_table:other_source' }
-          - { user: 'policy_chain:other_source', relation: policy, object: 'warehouse_table:other_source' }
-          - { user: 'access_policy:other_source', relation: policy, object: 'policy_chain:other_source' }
+          - { user: 'external_data_source:other', relation: source, object: 'warehouse_table:other_source' }
+          - { user: 'access_policy:other_source', relation: policy, object: 'external_data_source:other' }
+          - { user: 'project:project', relation: project, object: 'external_data_source:other' }
+          - { user: 'resource:sources', relation: resource, object: 'external_data_source:other' }
           - { user: 'organization:org', relation: organization, object: 'access_policy:other_source' }
-          - { user: 'policy_chain:warehouse', relation: fallback, object: 'policy_chain:other_source' }
       check:
           - user: user:member
             object: warehouse_table:sourced
@@ -171,3 +168,35 @@ tests:
           - users: [user:member, user:creator]
             object: warehouse_table:sourced
             assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Source creator rights do not grant table access
+      tuples:
+          - { user: 'organization_member:member#user', relation: creator, object: 'external_data_source:zendesk' }
+          - { user: 'user:*', relation: default_none, object: 'access_policy:zendesk' }
+      check:
+          - user: user:member
+            object: external_data_source:zendesk
+            assertions: { can_view: true, can_edit: true }
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Warehouse category denial masks source category manager
+      tuples:
+          - { user: 'user:*', relation: default_none, object: 'access_policy:warehouse' }
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            objects: [warehouse_table:sourced, warehouse_table:self_managed]
+            assertions: { can_query: false, can_edit: false, can_manage_access: false }
+
+    - name: Source category manager is inherited only by sourced tables
+      tuples:
+          - { user: 'user:*', relation: default_manager, object: 'access_policy:sources' }
+      check:
+          - user: user:member
+            object: warehouse_table:sourced
+            assertions: { can_query: true, can_edit: true, can_manage_access: true }
+          - user: user:member
+            object: warehouse_table:self_managed
+            assertions: { can_query: true, can_edit: true, can_manage_access: false }

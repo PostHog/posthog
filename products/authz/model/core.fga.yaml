@@ -409,18 +409,3 @@ tests:
           - user: user:creator
             object: access_policy:resource
             assertions: { viewer: true, editor: true, manager: true }
-
-    - name: A policy chain stops at an explicit lower rule
-      tuples:
-          - { user: 'access_policy:object', relation: policy, object: 'policy_chain:child' }
-          - { user: 'policy_chain:parent', relation: fallback, object: 'policy_chain:child' }
-          - { user: 'access_policy:resource', relation: policy, object: 'policy_chain:parent' }
-          - { user: 'organization_member:member#user', relation: member_viewer, object: 'access_policy:object' }
-          - { user: 'user:*', relation: default_manager, object: 'access_policy:resource' }
-      check:
-          - user: user:member
-            object: policy_chain:child
-            assertions: { has_rule: true, viewer: true, editor: false, manager: false }
-          - user: user:creator
-            object: policy_chain:child
-            assertions: { has_rule: true, viewer: true, editor: true, manager: true }

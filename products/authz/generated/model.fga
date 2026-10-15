@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 8778a51eedf0903a
+# Content digest: 65c86dfeaa17cebd
 model
   schema 1.1
 
@@ -131,22 +131,15 @@ type access_policy
     define manager: (member_manager or (role_manager but not has_member_rule) or (default_manager but not has_member_or_role_rule)) and has_rule
     define editor: manager or ((member_editor or (role_editor but not has_member_rule) or (default_editor but not has_member_or_role_rule)) and has_rule)
     define viewer: editor or ((member_viewer or (role_viewer but not has_member_rule) or (default_viewer but not has_member_or_role_rule)) and has_rule)
-# Each chain node references one scope's rules; an explicit none stops the fallback.
-type policy_chain
-  relations
-    define policy: [access_policy]
-    define fallback: [policy_chain]
-    define has_local_rule: has_rule from policy
-    define has_rule: has_local_rule or has_rule from fallback
-    define viewer: viewer from policy or ((viewer from fallback) but not has_local_rule)
-    define editor: editor from policy or ((editor from fallback) but not has_local_rule)
-    define manager: manager from policy or ((manager from fallback) but not has_local_rule)
-
 type resource
   relations
     define project: [project]
     define policy: [access_policy]
     define has_rule: has_rule from policy
+    # Fallback consumers need explicit policy results without the resource's implicit default or admin bypass.
+    define policy_viewer: viewer from policy
+    define policy_editor: editor from policy
+    define policy_manager: manager from policy
     define viewer: (member from project) and (org_admin from project or viewer from policy or ((member from project) but not has_rule))
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
@@ -159,7 +152,7 @@ type dashboard
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
     define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
@@ -179,11 +172,40 @@ type dashboard
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit
 
+type external_data_source
+  relations
+    define project: [project]
+    define resource: [resource]
+    define policy: [access_policy]
+    define creator: [organization_member#user]
+    define has_rule: has_rule from policy
+    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
+    # Tables inherit only this scope's rules, without source creator exceptions or category defaults.
+    define object_policy_viewer: viewer from policy
+    # Source editor rules must stop a table from inheriting a higher category level.
+    define object_policy_editor: editor from policy
+    # Table access management can inherit an explicit source manager rule.
+    define object_policy_manager: manager from policy
+    # Source category rules are considered after the table's warehouse category rules.
+    define resource_has_rule: has_rule from resource
+    # An implicit source default must not precede an explicit warehouse category rule.
+    define resource_policy_viewer: policy_viewer from resource
+    # Tables resolve source category editing only after more specific scopes are empty.
+    define resource_policy_editor: policy_editor from resource
+    # Source category management is inherited only when no earlier scope has a rule.
+    define resource_policy_manager: policy_manager from resource
+    define can_view: viewer
+    define can_edit: editor
+    define can_delete: can_edit
+    define can_manage_access: manager or can_manage_access from project
+
 type insight
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
     define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
@@ -207,7 +229,7 @@ type notebook
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
     define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
@@ -224,7 +246,7 @@ type session_recording
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
     define has_rule: has_rule from policy
     define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
@@ -241,15 +263,27 @@ type warehouse_table
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
-    define has_rule: has_rule from policy
-    define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
-    define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
-    define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
+    # Self-managed tables have no source and therefore skip both source scopes.
+    define source: [external_data_source]
+    define has_table_rule: has_rule from policy
+    define has_source_rule: has_rule from source
+    define has_resource_rule: has_rule from resource
+    define has_source_resource_rule: resource_has_rule from source
+    define has_object_rule: has_table_rule or has_source_rule
+    define has_prior_resource_rule: has_object_rule or has_resource_rule
+    # Explicit none and lower levels stop fallback just like grants.
+    define has_rule: has_prior_resource_rule or has_source_resource_rule
+    define policy_viewer: viewer from policy or ((object_policy_viewer from source) but not has_table_rule) or ((policy_viewer from resource) but not has_object_rule) or ((resource_policy_viewer from source) but not has_prior_resource_rule)
+    define policy_editor: editor from policy or ((object_policy_editor from source) but not has_table_rule) or ((policy_editor from resource) but not has_object_rule) or ((resource_policy_editor from source) but not has_prior_resource_rule)
+    define policy_manager: manager from policy or ((object_policy_manager from source) but not has_table_rule) or ((policy_manager from resource) but not has_object_rule) or ((resource_policy_manager from source) but not has_prior_resource_rule)
+    define viewer: (member from project) and (creator or org_admin from project or policy_viewer or ((member from project) but not has_rule))
+    define editor: (member from project) and (creator or org_admin from project or policy_editor or ((member from project) but not has_rule))
+    define manager: (member from project) and (creator or org_admin from project or policy_manager)
     define can_view: viewer
+    # SDK Action.QUERY checks can_query; querying uses the resolved view permission rather than a separate access level.
+    define can_query: can_view
     define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
-    # Reading table data requires the same resolved access as viewing the table.
-    define can_query: can_view

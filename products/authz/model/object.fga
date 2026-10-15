@@ -6,7 +6,7 @@ type object
   relations
     define project: [project]
     define resource: [resource]
-    define policy: [access_policy, policy_chain]
+    define policy: [access_policy]
     define creator: [organization_member#user]
     # The object policy is resolved before falling back to the resource policy.
     # A configured none blocks fallback just like any other object level.

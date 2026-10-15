@@ -1,0 +1,16 @@
+type external_data_source extends object
+  relations
+    # Tables inherit only this scope's rules, without source creator exceptions or category defaults.
+    define object_policy_viewer: viewer from policy
+    # Source editor rules must stop a table from inheriting a higher category level.
+    define object_policy_editor: editor from policy
+    # Table access management can inherit an explicit source manager rule.
+    define object_policy_manager: manager from policy
+    # Source category rules are considered after the table's warehouse category rules.
+    define resource_has_rule: has_rule from resource
+    # An implicit source default must not precede an explicit warehouse category rule.
+    define resource_policy_viewer: policy_viewer from resource
+    # Tables resolve source category editing only after more specific scopes are empty.
+    define resource_policy_editor: policy_editor from resource
+    # Source category management is inherited only when no earlier scope has a rule.
+    define resource_policy_manager: policy_manager from resource

@@ -18,7 +18,7 @@ An object is one item, such as dashboard 12 (`dashboard:<org_id>/3/12`).
 
 ### Resource files
 
-A resource file holds one object type that extends a base:
+A resource file holds one object type. Most extend a base:
 
 ```text
 type dashboard extends shareable_object
@@ -34,7 +34,8 @@ type dashboard extends shareable_object
 - `define` adds a relation. It cannot reuse a name that the base defines.
 - `override` replaces an inherited permission (`can_*`), and `remove` drops one.
 - The stored relations and the `viewer`, `editor` and `manager` levels stay as the base defines them.
-- Each `define`, `override` and `remove` needs a comment above it that says why.
+- Each extension `define`, `override` and `remove` needs a comment above it that says why.
+- A resource with different scope resolution can declare a standalone type without `extends`. It defines its own relations and permissions; normal model validation and test requirements still apply.
 
 ### Before you change the model
 

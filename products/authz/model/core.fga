@@ -129,22 +129,15 @@ type access_policy
     define manager: (member_manager or (role_manager but not has_member_rule) or (default_manager but not has_member_or_role_rule)) and has_rule
     define editor: manager or ((member_editor or (role_editor but not has_member_rule) or (default_editor but not has_member_or_role_rule)) and has_rule)
     define viewer: editor or ((member_viewer or (role_viewer but not has_member_rule) or (default_viewer but not has_member_or_role_rule)) and has_rule)
-# Each chain node references one scope's rules; an explicit none stops the fallback.
-type policy_chain
-  relations
-    define policy: [access_policy]
-    define fallback: [policy_chain]
-    define has_local_rule: has_rule from policy
-    define has_rule: has_local_rule or has_rule from fallback
-    define viewer: viewer from policy or ((viewer from fallback) but not has_local_rule)
-    define editor: editor from policy or ((editor from fallback) but not has_local_rule)
-    define manager: manager from policy or ((manager from fallback) but not has_local_rule)
-
 type resource
   relations
     define project: [project]
     define policy: [access_policy]
     define has_rule: has_rule from policy
+    # Fallback consumers need explicit policy results without the resource's implicit default or admin bypass.
+    define policy_viewer: viewer from policy
+    define policy_editor: editor from policy
+    define policy_manager: manager from policy
     define viewer: (member from project) and (org_admin from project or viewer from policy or ((member from project) but not has_rule))
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
