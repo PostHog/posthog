@@ -77,20 +77,22 @@ export async function dismissFeedItem({
         return
     }
     posthog.capture('replay_vision_watch_clip_dismissed', { ...properties, dismissal_reason: reason })
+    const undo = async (): Promise<void> => {
+        try {
+            await visionObservationsFeedDismissalDestroy(String(teamId), observationId)
+        } catch {
+            lemonToast.error("Couldn't bring this session back.", {
+                toastId: `vision-watch-feed-undo-failed-${observationId}`,
+                button: { label: 'Try again', dataAttr: 'vision-watch-feed-dismiss-undo-retry', action: undo },
+            })
+            return
+        }
+        posthog.capture('replay_vision_watch_clip_dismiss_undone', properties)
+        restore()
+    }
+    // Keyed per observation, so a second dismissal gets its own toast instead of merging into the first.
     lemonToast.success('Hidden from your feed', {
-        button: {
-            label: 'Undo',
-            dataAttr: 'vision-watch-feed-dismiss-undo',
-            action: async () => {
-                posthog.capture('replay_vision_watch_clip_dismiss_undone', properties)
-                try {
-                    await visionObservationsFeedDismissalDestroy(String(teamId), observationId)
-                } catch {
-                    lemonToast.error("Couldn't bring this session back. Try again.")
-                    return
-                }
-                restore()
-            },
-        },
+        toastId: `vision-watch-feed-dismissed-${observationId}`,
+        button: { label: 'Undo', dataAttr: 'vision-watch-feed-dismiss-undo', action: undo },
     })
 }
