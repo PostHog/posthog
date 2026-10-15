@@ -35,7 +35,6 @@ class Inspection:
     ch_owner_pg_state: str | None = None
     # Every ClickHouse row of the key, lightweight-deleted ones included, oldest version first.
     ch_history: list[dict[str, Any]] | None = None
-    # Persons only: the newest activity log entries naming the person, and its tombstone queue entry.
     activity: list[dict[str, Any]] | None = None
     tombstone_queue: dict[str, Any] | None = None
 
