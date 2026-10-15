@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+from requests.auth import HTTPBasicAuth
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -126,7 +128,7 @@ def validate_credentials(api_secret: str) -> tuple[bool, str | None]:
     is_valid, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_secret,)),
         f"{REWARDFUL_BASE_URL}/affiliates?limit=1",
-        auth=(api_secret, ""),
+        auth=HTTPBasicAuth(api_secret, ""),
         timeout=REQUEST_TIMEOUT[1],
     )
     if is_valid:
