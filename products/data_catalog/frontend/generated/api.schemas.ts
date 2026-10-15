@@ -625,4 +625,8 @@ export type DataCatalogRelationshipProposalsListParams = {
      * Filter by proposed/accepted/rejected.
      */
     status?: string
+    /**
+     * Only relationships involving this table on either side.
+     */
+    table_name?: string
 }
