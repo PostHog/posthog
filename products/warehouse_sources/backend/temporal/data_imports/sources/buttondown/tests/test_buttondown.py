@@ -48,6 +48,13 @@ class TestButtondownTransport:
         assert result.rows == [{"id": "a"}, {"id": "b"}]
         assert result.saved_states == [ButtondownResumeConfig(next_url=page_two)]
 
+    def test_notes_is_a_plain_full_refresh_listing(self) -> None:
+        result = self._driver().run("notes", [_page([{"id": "note_1"}, {"id": "note_2"}])])
+
+        assert result.raised is None
+        assert result.urls[0].startswith(f"{BUTTONDOWN_BASE_URL}/notes")
+        assert [row["id"] for row in result.rows] == ["note_1", "note_2"]
+
     def test_resumes_from_saved_next_url(self) -> None:
         saved = f"{BUTTONDOWN_BASE_URL}/subscribers?page=7"
         result = self._driver().run(

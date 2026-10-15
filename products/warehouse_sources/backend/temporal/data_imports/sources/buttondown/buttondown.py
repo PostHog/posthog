@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import date, datetime, timedelta
 from typing import Any, Optional, cast
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import (
     BUTTONDOWN_ENDPOINTS,
@@ -32,7 +33,7 @@ BUTTONDOWN_BASE_URL = "https://api.buttondown.com/v1"
 BUTTONDOWN_API_VERSION = "2026-04-01"
 
 
-@dataclasses.dataclass
+@frozen
 class ButtondownResumeConfig:
     # Absolute URL of the next unfetched page. Buttondown paginates DRF-style: each page body carries
     # a fully-formed `next` link (or null on the last page).
