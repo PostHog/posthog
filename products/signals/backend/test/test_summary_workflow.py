@@ -183,6 +183,7 @@ class _Recorder:
         research_metrics: list[dict[str, object]] | None = None,
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
+        report_left_candidate: bool | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -192,6 +193,7 @@ class _Recorder:
         self.checks_snapshot = checks_snapshot
         self.checks_summary: str | None = None
         self.selected_repository = selected_repository
+        self.report_left_candidate = report_left_candidate
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -256,8 +258,9 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         return recorder.has_assigned_signals
 
     @activity.defn(name="mark_report_in_progress_activity")
-    async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
+    async def fake_mark_in_progress(input: MarkReportInProgressInput) -> bool | None:
         recorder.marks_in_progress += 1
+        return recorder.report_left_candidate
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -369,6 +372,17 @@ async def test_pre_research_gate_reverts_report_and_skips_research():
     # The expensive research never starts, and the in_progress report is handed back to candidate.
     assert recorder.researches == 0
     assert recorder.reverts == 1
+    assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_stale_run_stops_when_report_left_candidate():
+    recorder = _Recorder(report_left_candidate=True)
+    await _run_summary_workflow(recorder)
+    assert recorder.marks_in_progress == 1
+    assert recorder.safety_checks == 0
+    assert recorder.researches == 0
+    assert recorder.reverts == 0
     assert recorder.failures == 0
 
 
