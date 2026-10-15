@@ -2,10 +2,11 @@ import os
 import time
 import uuid
 import random
+import asyncio
 import threading
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import AsyncIterator, Callable, Generator, Iterator, Mapping
+from contextlib import asynccontextmanager, closing, contextmanager, suppress
 from enum import StrEnum
 from typing import Literal
 
@@ -36,6 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
+from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
@@ -380,7 +382,7 @@ class QueryRouter:
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), ahead=int(ahead))
 
-    def _poll(
+    def _poll_steps(
         self,
         slot: _Slot,
         *,
@@ -388,7 +390,7 @@ class QueryRouter:
         limit: int,
         started_at: float,
         cancellation_key: str | None,
-    ) -> _Decision:
+    ) -> Generator[float, None, _Decision]:
         deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
@@ -415,14 +417,15 @@ class QueryRouter:
                 # The waiter at the head polls often, so it takes a freed slot almost at once. A waiter deep in
                 # the queue polls rarely, which bounds the Redis load of a long queue.
                 delay = min(_BASE_POLL_DELAY_SECONDS * (1 + reply.ahead), _MAX_POLL_DELAY_SECONDS)
-                self.sleep(min(delay * random.uniform(0.5, 1.0), remaining))
+                sleep_seconds = min(delay * random.uniform(0.5, 1.0), remaining)
+                yield sleep_seconds
             # A sleep can end late on a busy host. The waiter is dropped even when a slot has freed, so no
             # query waits longer than the budget.
             if self.get_time() >= deadline:
                 self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
-    def _enter(
+    def _enter_steps(
         self,
         slot: _Slot,
         *,
@@ -430,13 +433,13 @@ class QueryRouter:
         limits: Mapping[Pool, int],
         team_id: int | None,
         cancellation_key: str | None,
-    ) -> Admission:
+    ) -> Generator[float, None, Admission]:
         started_at = self.get_time()
         if mode == RouterMode.ERROR:
             return self._fail_open(slot, started_at)
 
         try:
-            decision = self._poll(
+            decision = yield from self._poll_steps(
                 slot,
                 enforcing=mode == RouterMode.ENFORCE,
                 limit=limits[slot.pool],
@@ -483,6 +486,53 @@ class QueryRouter:
             raise ClickHouseAtCapacity(wait=retry_after)
         return Admission(outcome=decision.outcome, waited_ms=waited_ms)
 
+    @asynccontextmanager
+    async def aadmit(
+        self,
+        *,
+        pool: Pool,
+        query_class: QueryClass,
+        team_id: int | None = None,
+        cancellation_key: str | None = None,
+        release_on_exit: Callable[[], bool] | None = None,
+    ) -> AsyncIterator[Admission]:
+        steps = self._admit_steps(
+            pool=pool,
+            query_class=query_class,
+            team_id=team_id,
+            cancellation_key=cancellation_key,
+            release_on_exit=release_on_exit,
+        )
+        step: asyncio.Task[float | Admission] | None = None
+        try:
+            while True:
+                # Settings can touch Django; a step owns its connection only until the next poll delay.
+                step = asyncio.create_task(database_sync_to_async_pool(steps.__next__)())
+                result = await asyncio.shield(step)
+                if isinstance(result, Admission):
+                    yield result
+                    break
+                await asyncio.sleep(result)
+        finally:
+
+            async def cleanup() -> None:
+                # A Redis call may add a slot after cancellation. Finish it before closing the generator.
+                if step is not None:
+                    with suppress(Exception, asyncio.CancelledError):
+                        await step
+                await asyncio.to_thread(steps.close)
+
+            cleanup_task = asyncio.create_task(cleanup())
+            interrupted = False
+            while not cleanup_task.done():
+                try:
+                    await asyncio.shield(cleanup_task)
+                except asyncio.CancelledError:
+                    interrupted = True
+            cleanup_task.result()
+            if interrupted:
+                raise asyncio.CancelledError()
+
     @contextmanager
     def admit(
         self,
@@ -497,6 +547,24 @@ class QueryRouter:
         Raises ClickHouseAtCapacity when the query is dropped and propagates cancellation.
         Redis and settings failures let the query run without a slot.
         """
+        with closing(
+            self._admit_steps(pool=pool, query_class=query_class, team_id=team_id, cancellation_key=cancellation_key)
+        ) as steps:
+            for result in steps:
+                if isinstance(result, Admission):
+                    yield result
+                    break
+                self.sleep(result)
+
+    def _admit_steps(
+        self,
+        *,
+        pool: Pool,
+        query_class: QueryClass,
+        team_id: int | None,
+        cancellation_key: str | None,
+        release_on_exit: Callable[[], bool] | None = None,
+    ) -> Generator[float | Admission]:
         settings = config.get_settings()
         mode = settings.mode_for(pool, query_class)
         if mode == RouterMode.OFF:
@@ -504,8 +572,12 @@ class QueryRouter:
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(
-            slot, mode=mode, limits=settings.limits, team_id=team_id, cancellation_key=cancellation_key
+        admission = yield from self._enter_steps(
+            slot,
+            mode=mode,
+            limits=settings.limits,
+            team_id=team_id,
+            cancellation_key=cancellation_key,
         )
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
@@ -518,7 +590,8 @@ class QueryRouter:
             if holds_slot:
                 with self._held_slots_lock:
                     self._held_slots.remove(slot)
-                self._release(slot, admitted_at=admitted_at)
+                if release_on_exit is None or release_on_exit():
+                    self._release(slot, admitted_at=admitted_at)
 
     def renew_slots(self) -> None:
         with self._held_slots_lock:

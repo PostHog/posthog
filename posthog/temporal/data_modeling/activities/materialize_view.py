@@ -2,6 +2,7 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 
 from django.conf import settings
@@ -746,7 +747,11 @@ async def hogql_table(
 
     async with (
         _clickhouse_query_semaphore,
-        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
+        get_clickhouse_client(
+            team_id=team.pk,
+            max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS,
+            query_router_enabled=True,
+        ) as client,
     ):
         batches = []
         batches_size = 0
@@ -759,23 +764,26 @@ async def hogql_table(
             arrow_schema = schema
 
         with tags_context(**context.read_tags()):
-            async for batch in client.astream_query_as_arrow(
-                arrow_printed,
-                query_parameters=context.values,
-                on_schema=capture_arrow_schema,
-                external_tables=list(context.external_tables.values()),
-            ):
-                batches_size = batches_size + batch.nbytes
-                batches.append(batch)
+            async with contextlib.aclosing(
+                client.astream_query_as_arrow(
+                    arrow_printed,
+                    query_parameters=context.values,
+                    on_schema=capture_arrow_schema,
+                    external_tables=list(context.external_tables.values()),
+                )
+            ) as stream:
+                async for batch in stream:
+                    batches_size = batches_size + batch.nbytes
+                    batches.append(batch)
 
-                if batches_size >= MB_100_IN_BYTES:
-                    await logger.adebug(
-                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
-                    )
-                    yield (_combine_batches(batches), ch_typings_pairs)
-                    yielded_results = True
-                    batches_size = 0
-                    batches = []
+                    if batches_size >= MB_100_IN_BYTES:
+                        await logger.adebug(
+                            f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                        )
+                        yield (_combine_batches(batches), ch_typings_pairs)
+                        yielded_results = True
+                        batches_size = 0
+                        batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
@@ -987,43 +995,44 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
-    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-        batch = _transform_unsupported_decimals(batch)
-        batch = _transform_date_and_datetimes(batch, ch_types)
-        batch = _transform_unsigned_integers(batch)
-        batch = _force_nullable(batch)
-        if tracker is not None:
-            await asyncio.to_thread(tracker.check, batch)
-        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
-        batch_index += 1
-        if delta_table is None:
-            pa_schema = batch.schema
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=table_uri,
-                data=batch,
-                mode="overwrite",
-                schema_mode="overwrite",
-                storage_options=storage_options,
-            )
-            delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-        else:
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=delta_table,
-                data=batch,
-                mode="append",
-                schema_mode="merge",
-                storage_options=storage_options,
-            )
-        # Staged only once the batch is committed: a run that announces rows it then fails to write
-        # cannot take the announcement back.
-        await cdp_sink.stage(batch)
-        if plan.config is not None and plan.config.incremental_key in batch.schema.names:
-            watermark = max_of(batch, plan.config.incremental_key, watermark)
-        row_count = row_count + batch.num_rows
-        objects.job.rows_materialized = row_count
-        await database_sync_to_async_pool(objects.job.save)()
+    async with contextlib.aclosing(hogql_table(hogql_query, objects.team, logger)) as batches:
+        async for batch, ch_types in batches:
+            batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _transform_unsigned_integers(batch)
+            batch = _force_nullable(batch)
+            if tracker is not None:
+                await asyncio.to_thread(tracker.check, batch)
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            batch_index += 1
+            if delta_table is None:
+                pa_schema = batch.schema
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                    storage_options=storage_options,
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=delta_table,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                )
+            # Staged only once the batch is committed: a run that announces rows it then fails to write
+            # cannot take the announcement back.
+            await cdp_sink.stage(batch)
+            if plan.config is not None and plan.config.incremental_key in batch.schema.names:
+                watermark = max_of(batch, plan.config.incremental_key, watermark)
+            row_count = row_count + batch.num_rows
+            objects.job.rows_materialized = row_count
+            await database_sync_to_async_pool(objects.job.save)()
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
@@ -1083,38 +1092,39 @@ async def _materialize_incrementally(
     batch_index = 0
 
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _transform_unsigned_integers(batch)
-            batch = _force_nullable(batch)
+        async with contextlib.aclosing(hogql_table(hogql_query, objects.team, logger, window=window)) as batches:
+            async for batch, ch_types in batches:
+                batch = _transform_unsupported_decimals(batch)
+                batch = _transform_date_and_datetimes(batch, ch_types)
+                batch = _transform_unsigned_integers(batch)
+                batch = _force_nullable(batch)
 
-            if batch.num_rows == 0:
-                # A quiet window is normal. Nothing to upsert, and no watermark to advance.
-                continue
+                if batch.num_rows == 0:
+                    # A quiet window is normal. Nothing to upsert, and no watermark to advance.
+                    continue
 
-            assert_schema_matches(batch, target_schema)
-            # Checked before the upsert so a duplicate split across batches fails the run instead
-            # of the later batch silently replacing the earlier one.
-            await asyncio.to_thread(tracker.check, batch)
-            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
-            batch_index += 1
+                assert_schema_matches(batch, target_schema)
+                # Checked before the upsert so a duplicate split across batches fails the run instead
+                # of the later batch silently replacing the earlier one.
+                await asyncio.to_thread(tracker.check, batch)
+                await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
+                batch_index += 1
 
-            stats = await asyncio.to_thread(
-                upsert_batch,
-                table_uri,
-                storage_options,
-                batch,
-                config.unique_key,
-                commit_metadata={"posthog_job_id": str(objects.job.id)},
-            )
-            await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
-            await cdp_sink.stage(batch)
+                stats = await asyncio.to_thread(
+                    upsert_batch,
+                    table_uri,
+                    storage_options,
+                    batch,
+                    config.unique_key,
+                    commit_metadata={"posthog_job_id": str(objects.job.id)},
+                )
+                await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
+                await cdp_sink.stage(batch)
 
-            watermark = max_of(batch, config.incremental_key, watermark)
-            row_count = row_count + batch.num_rows
-            objects.job.rows_materialized = row_count
-            await database_sync_to_async_pool(objects.job.save)()
+                watermark = max_of(batch, config.incremental_key, watermark)
+                row_count = row_count + batch.num_rows
+                objects.job.rows_materialized = row_count
+                await database_sync_to_async_pool(objects.job.save)()
     except (IncrementalWriteError, IncrementalFilterError) as err:
         # Every one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
