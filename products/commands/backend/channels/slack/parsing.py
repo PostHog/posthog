@@ -13,7 +13,7 @@ A new kind of subject adds its URL type and a pattern in ``_read_subject_url``.
 """
 
 import re
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from django.conf import settings
 
@@ -29,7 +29,8 @@ _PULL_REQUEST_URL_RE = re.compile(
 # project ids repeat across regions.
 _ERROR_TRACKING_ISSUE_URL_RE = re.compile(
     r"(?P<origin>https?://[^/\s]+)/project/(?P<team_id>[0-9]{1,12})/error[_-]tracking/"
-    r"(?P<issue_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[/#?]\S*)?"
+    r"(?:(?P<issue_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+    r"|fingerprint/(?P<fingerprint>[^/\s?#]{1,512}))(?:[/#?]\S*)?"
 )
 # The US app answers on both hosts.
 _ORIGIN_ALIASES = {"https://us.posthog.com": "https://app.posthog.com"}
@@ -47,7 +48,8 @@ class PullRequestUrl:
 @frozen
 class ErrorTrackingIssueUrl:
     team_id: int
-    issue_id: str
+    issue_id: str = ""
+    fingerprint: str = ""
 
 
 SubjectUrl = PullRequestUrl | ErrorTrackingIssueUrl
@@ -76,7 +78,10 @@ def _read_subject_url(word: str) -> SubjectUrl | None:
     if issue is not None:
         if issue.group("origin").lower() not in _instance_origins():
             return None
-        return ErrorTrackingIssueUrl(team_id=int(issue.group("team_id")), issue_id=issue.group("issue_id").lower())
+        team_id = int(issue.group("team_id"))
+        if issue.group("issue_id") is not None:
+            return ErrorTrackingIssueUrl(team_id=team_id, issue_id=issue.group("issue_id").lower())
+        return ErrorTrackingIssueUrl(team_id=team_id, fingerprint=unquote(issue.group("fingerprint")))
     match = _PULL_REQUEST_URL_RE.fullmatch(word)
     if match is None:
         return None
