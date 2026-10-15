@@ -190,6 +190,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                         source: SOURCE,
                         broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
                         broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
+                        draftSource: { source: 'error_tracking', source_id: props.issueId },
                     },
                     'broadcast'
                 )
