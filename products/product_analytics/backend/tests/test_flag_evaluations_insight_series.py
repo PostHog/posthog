@@ -261,6 +261,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         aggregation_group_type_index: int | None,
         expected: dict[str, list[int]],
     ):
+        # Lifecycle excludes this personless call. Counting it would add a third new user or group on 2025-01-08.
         _create_flag_evaluations(
             self.team.pk,
             "probe-flag",

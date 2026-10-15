@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 # posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
+
+# Keep it equal to FLAG_EVALUATIONS_TABLE in frontend/src/scenes/feature-flags/flagEvaluationsTable.ts.
 FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
