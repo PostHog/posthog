@@ -186,9 +186,9 @@ seed_in push --quiet origin "master:refs/heads/$leftover_branch"
 check "prepare keeps a leftover branch that a pull request uses" \
     "refused=https://github.com/PostHog/posthog/pull/7|present" \
     "$( (
-        # shellcheck disable=SC2329  # stands in for the pull request lookup
+        # shellcheck disable=SC2317,SC2329  # stands in for the pull request lookup
         api() { echo '[{"html_url":"https://github.com/PostHog/posthog/pull/7"}]'; }
-        # shellcheck disable=SC2329  # a deletion here would close the pull request
+        # shellcheck disable=SC2317,SC2329  # a deletion here would close the pull request
         gh() { return 1; }
         prepare "$clean_culprit"
     ) || true)|$(leftover_state)"
@@ -199,9 +199,9 @@ check "prepare deletes a leftover branch that no pull request uses, then stages 
 branch=$leftover_branch
 staged_files=1|absent" \
     "$( (
-        # shellcheck disable=SC2329  # stands in for the pull request lookup
+        # shellcheck disable=SC2317,SC2329  # stands in for the pull request lookup
         api() { echo '[]'; }
-        # shellcheck disable=SC2329  # stands in for the GitHub ref deletion
+        # shellcheck disable=SC2317,SC2329  # stands in for the GitHub ref deletion
         gh() { git -C "$workdir/origin.git" update-ref -d "refs/heads/$leftover_branch"; }
         prepare "$clean_culprit"
     ) || true)|$(leftover_state)"
