@@ -157,6 +157,13 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
                 name="uploadedmedia_lib_by_created",
                 condition=Q(purpose__isnull=False, pending=False),
             ),
+            # Serves the abandoned upload sweep: WHERE pending AND created_at < ? ORDER BY created_at.
+            # Pending rows live for at most a day, so the index stays small.
+            models.Index(
+                fields=["created_at"],
+                name="uploadedmedia_pending_created",
+                condition=Q(pending=True),
+            ),
         ]
 
     def get_absolute_url(self) -> str:
