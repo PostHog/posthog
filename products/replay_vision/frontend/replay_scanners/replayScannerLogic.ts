@@ -2840,7 +2840,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     urlToAction(({ actions, values, props }) => ({
         // Restore as one atomic action (individual setters would reset the page); dispatch only on actual change.
-        [urls.replayVision(props.id)]: (_, searchParams) => {
+        // A static pattern: url-pattern throws on an id with pattern tokens, e.g. a `)` copied from a Markdown link.
+        [urls.replayVision(':id')]: ({ id }, searchParams) => {
+            if (id !== props.id) {
+                return
+            }
             const pageRaw = Number(searchParams.page ?? 1)
             const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
             const sort = parseSortParam(searchParams.sort) ?? DEFAULT_OBSERVATIONS_SORT
