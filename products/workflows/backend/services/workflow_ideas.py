@@ -6,6 +6,8 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.workflows.backend.facade.contracts import (
     NewWorkflowIdea,
     WorkflowIdeaAlreadyResolved,
@@ -46,10 +48,12 @@ def create_ideas(
     items = list(items)
     if any(not item.key.strip() for item in items):
         raise ValueError("Every workflow idea needs a non-blank key.")
+    # The model saves rows on the project, so the lookup and the insert must both use the project id.
+    project_id = resolve_effective_team_id(team_id)
     created = []
     for item in items:
-        row, was_created = WorkflowIdea.objects.for_team(team_id).get_or_create(
-            team_id=team_id,
+        row, was_created = WorkflowIdea.objects.for_team(project_id, canonical=True).get_or_create(
+            team_id=project_id,
             key=item.key.strip(),
             defaults={
                 "title": item.title,

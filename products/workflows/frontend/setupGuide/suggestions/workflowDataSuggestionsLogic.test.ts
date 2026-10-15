@@ -112,10 +112,11 @@ describe('workflowDataSuggestionsLogic', () => {
             expect.objectContaining({ name: 'Welcome new users', status: 'draft', origin_product: 'ideas' }),
             expect.objectContaining({ signal: expect.anything() })
         )
-        expect(workflowDataSuggestionsAccept).toHaveBeenCalledWith(expect.any(String), {
-            suggestion_id: card.suggestionId,
-            hog_flow_id: 'workflow-1',
-        })
+        expect(workflowDataSuggestionsAccept).toHaveBeenCalledWith(
+            expect.any(String),
+            { suggestion_id: card.suggestionId, hog_flow_id: 'workflow-1' },
+            expect.objectContaining({ signal: expect.anything() })
+        )
         expect(router.values.location.pathname).toContain('workflow-1')
         expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
         expect(logic.values.buildingKey).toBeNull()

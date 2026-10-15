@@ -14,6 +14,7 @@ from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
@@ -41,6 +42,7 @@ from products.workflows.backend.services.data_suggestions.service import (
     _generation_lock_key,
     _to_cache,
     build_caller,
+    get_data_suggestions,
     run_data_suggestions,
     start_build,
 )
@@ -293,6 +295,41 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self._list()
 
         assert "trial_started" not in dict(suggest_ideas.call_args.kwargs["context"].events)
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_stored_card_is_dropped_once_a_workflow_starts_from_its_event(
+        self, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        assert [s["trigger_event"] for s in self._list()["suggestions"]] == ["trial_started"]
+
+        HogFlow.objects.create(
+            team=self.team,
+            name="Made by hand",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "trial_started", "type": "events"}]}},
+            actions=[],
+        )
+
+        assert self._list()["suggestions"] == []
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_long_event_name_is_stored_under_a_key_that_fits(self, suggest_ideas: MagicMock, _flag) -> None:
+        long_event = "checkout " + "x" * 300
+        for index in range(3):
+            _create_event(team=self.team, event=long_event, distinct_id=f"person-{index}")
+        flush_persons_and_events()
+        suggest_ideas.return_value = [_idea(long_event)]
+
+        result = self._list()
+
+        assert [s["trigger_event"] for s in result["suggestions"]] == [long_event]
+        assert len(StoredIdea.objects.for_team(self.team.id).get().key) <= 200
+
+    def test_a_child_environment_gets_no_suggestions(self, _flag) -> None:
+        child = Team.objects.create(organization=self.organization, name="Staging", parent_team=self.team)
+
+        assert get_data_suggestions(team=child).status == "unavailable"
 
     @parameterized.expand(
         [

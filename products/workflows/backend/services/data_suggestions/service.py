@@ -1,5 +1,6 @@
 import json
 import uuid
+import hashlib
 import threading
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -73,6 +74,7 @@ _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
 MAX_SUGGESTIONS = 3
+_MAX_IDEA_KEY_LENGTH = 200
 _PROMPT_EVENTS_LIMIT = 60
 _GENERATION_ERRORS = (
     StageClassificationFailed,
@@ -387,6 +389,9 @@ def _unavailable_reason(team: Team) -> DataSuggestionsResult | None:
     # Without Jev the ranking cannot tell a sign-up from routine usage, so no suggestions are made.
     if not system_one_configured():
         return _UNAVAILABLE
+    # Ideas are stored on the project, which a key scoped to one of its child environments may not read.
+    if team.parent_team_id is not None:
+        return _UNAVAILABLE
     return None
 
 
@@ -464,7 +469,8 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
 
 
 def _cached_suggestion(team: Team, suggestion_id: str) -> DataSuggestion | None:
-    return next((item for item in _open_suggestions(team) if item.id == suggestion_id), None)
+    # A build saves a draft on the card's event, so the card must stay findable once that draft exists.
+    return next((item for item in _open_suggestions(team, hide_used_events=False) if item.id == suggestion_id), None)
 
 
 def _store_ideas(team_id: int, suggestions: tuple[DataSuggestion, ...]) -> None:
@@ -473,7 +479,7 @@ def _store_ideas(team_id: int, suggestions: tuple[DataSuggestion, ...]) -> None:
         items=[
             NewWorkflowIdea(
                 # A project is offered one idea per event and stage, so a dismissed one is never offered again.
-                key=f"{suggestion.stage}:{suggestion.trigger_event}",
+                key=_idea_key(suggestion),
                 title=suggestion.name,
                 rationale=suggestion.description,
                 definition={},
@@ -491,8 +497,17 @@ def _store_ideas(team_id: int, suggestions: tuple[DataSuggestion, ...]) -> None:
     )
 
 
-def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
+def _idea_key(suggestion: DataSuggestion) -> str:
+    key = f"{suggestion.stage}:{suggestion.trigger_event}"
+    if len(key) <= _MAX_IDEA_KEY_LENGTH:
+        return key
+    # Event names can run to 400 characters, so a long one is stored by its hash to fit the key column.
+    return f"{suggestion.stage}:sha256:{hashlib.sha256(suggestion.trigger_event.encode()).hexdigest()}"
+
+
+def _open_suggestions(team: Team, *, hide_used_events: bool) -> tuple[DataSuggestion, ...]:
     """The stored ideas still waiting for a decision, ranked like a fresh run ranks its cards."""
+    used_events = team_context.used_trigger_events(team) if hide_used_events else set()
     suggestions = [
         DataSuggestion(
             id=str(idea.id),
@@ -505,6 +520,7 @@ def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
             step_outline=tuple(idea.evidence.get("step_outline") or ()),
         )
         for idea in list_open_ideas(team_id=team.id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
+        if idea.evidence.get("trigger_event") not in used_events
     ]
     ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
     return tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS))
@@ -514,7 +530,7 @@ def _with_open_ideas(team: Team, cached: DataSuggestionsResult) -> DataSuggestio
     # The cache still says whether a run finished and which events a build can use; the cards come from the ideas.
     if cached.status != "ready":
         return cached
-    return dataclasses.replace(cached, suggestions=_open_suggestions(team))
+    return dataclasses.replace(cached, suggestions=_open_suggestions(team, hide_used_events=True))
 
 
 @contextmanager

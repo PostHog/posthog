@@ -291,10 +291,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
                     )
                     // Links the draft to its suggestion, so the card stops being offered. The draft is saved either way.
-                    await workflowDataSuggestionsAccept(projectId, {
-                        suggestion_id: card.suggestionId,
-                        hog_flow_id: workflow.id,
-                    }).catch(() => undefined)
+                    await workflowDataSuggestionsAccept(
+                        projectId,
+                        { suggestion_id: card.suggestionId, hog_flow_id: workflow.id },
+                        { signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS) }
+                    ).catch(() => undefined)
                     breakpoint()
                     // pinned: entry source value - 'workflow enabled' reports it, so renaming breaks the funnel
                     saveEntrySource(workflow.id, 'data_suggestion')
