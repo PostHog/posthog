@@ -56,6 +56,17 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPLIED = "applied", "Applied"
 
 
+class WorkflowIdeaStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
+class WorkflowIdeaSource(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    SCOUT = "scout", "Scout"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"

@@ -426,7 +426,29 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn('(members.membership).tier AS "membership.tier"', sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
-    def test_generate_sql_for_direct_postgres_connection_metadata_function(self):
+    @parameterized.expand(
+        [
+            (
+                "visible_function",
+                {"available_functions": ["date_bin"]},
+                "date_bin(toIntervalHour(1), now(), now())",
+                "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+            ),
+            (
+                "pgcrypto",
+                {"pgcrypto_schema": "crypto"},
+                "sha1('abc')",
+                "encode(crypto.digest(convert_to(%(hogql_val_0)s, 'UTF8'), 'sha1'), 'hex')",
+            ),
+            (
+                "visible_sha1_overload",
+                {"available_functions": ["sha1"]},
+                "sha1('abc', 'hex')",
+                "sha1(%(hogql_val_0)s, %(hogql_val_1)s)",
+            ),
+        ]
+    )
+    def test_generate_sql_for_direct_postgres_connection_metadata_function(self, _name, metadata, expression, expected):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -443,7 +465,7 @@ class TestDirectPostgresQuery(APIBaseTest):
                 "password": "postgres",
                 "schema": "ph3",
             },
-            connection_metadata={"available_functions": ["date_bin"]},
+            connection_metadata=metadata,
         )
 
         DataWarehouseTable.objects.create(
@@ -456,14 +478,14 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
         executor = HogQLQueryExecutor(
-            query="SELECT date_bin(toIntervalHour(1), now(), now()) FROM without_team_id",
+            query=f"SELECT {expression} FROM without_team_id",
             team=self.team,
             connection_id=str(source.id),
         )
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())", sql)
+        self.assertIn(expected, sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_custom_connection_metadata_function(self):

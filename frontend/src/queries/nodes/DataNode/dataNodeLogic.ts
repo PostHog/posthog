@@ -191,6 +191,7 @@ const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -202,6 +203,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
+    }
+
+    if (activeScene === Scene.SavedInsights) {
+        return productAnalyticsHomeConcurrencyController
     }
 
     if (
