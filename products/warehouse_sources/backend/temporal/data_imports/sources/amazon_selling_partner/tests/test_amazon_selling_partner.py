@@ -1,6 +1,7 @@
+import gzip
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -12,8 +13,15 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
     ACCESS_DENIED_MESSAGE,
     LWA_REJECTED_MESSAGE,
+    MISSING_MARKETPLACES_MESSAGE,
+    SELLER_ONLY_MESSAGE,
     UNAVAILABLE_MESSAGE,
+    VENDOR_ONLY_MESSAGE,
     AmazonSellingPartnerResumeConfig,
+    VendorReportError,
+    parse_marketplace_ids,
+    probe_endpoint_permissions,
+    report_windows,
     to_iso8601,
     transaction_windows,
     validate_credentials,
@@ -21,6 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
     EARLIEST_START,
     ORDERS_INCLUDED_DATA,
+    REPORT_DOCUMENTS_PATH as DOCUMENTS_PATH,
+    REPORTS_PATH,
+    VENDOR_REPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.source import (
     AmazonSellingPartnerSource,
@@ -435,7 +446,13 @@ class TestValidateCredentials:
             (LWA_INVALID_GRANT, None, (False, LWA_REJECTED_MESSAGE)),
             (ScriptedResponse(status=503, json={}), None, (False, UNAVAILABLE_MESSAGE)),
             (TOKEN, ScriptedResponse(json={"payload": []}), (True, None)),
-            (TOKEN, SP_API_FORBIDDEN, (False, ACCESS_DENIED_MESSAGE)),
+            # Vendor accounts get 403 from the Sellers API, so creation accepts it.
+            (TOKEN, SP_API_FORBIDDEN, (True, None)),
+            (
+                TOKEN,
+                ScriptedResponse(status=401, json={"errors": [{"code": "Unauthorized"}]}),
+                (False, ACCESS_DENIED_MESSAGE),
+            ),
         ],
     )
     def test_maps_the_vendor_answers(
@@ -479,3 +496,262 @@ def test_transaction_windows_are_contiguous_and_end_before_the_request_margin() 
     assert windows[0].posted_after == start
     assert windows[-1].posted_before == NOW - timedelta(seconds=180)
     assert transaction_windows(NOW - timedelta(seconds=60), NOW) == []
+
+
+DOCUMENT_URL = "https://tortuga-prod-na.s3-external-1.amazonaws.com/doc.json?X-Amz-Signature=0123456789abcdef"
+
+
+def _gzip_json(body: dict[str, Any]) -> bytes:
+    return gzip.compress(json.dumps(body).encode())
+
+
+class _ReportsVendor:
+    """A scripted Reports API: each created report runs through the given statuses, then serves its rows."""
+
+    def __init__(self, statuses: list[str], documents: list[dict[str, Any]]) -> None:
+        self.statuses = statuses
+        self.documents = documents
+        self.created: list[dict[str, Any]] = []
+        self.polls: dict[str, int] = {}
+
+    def __call__(self, request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        if request.method == "POST" and request.path == REPORTS_PATH:
+            self.created.append(request.json())
+            return ScriptedResponse(status=202, json={"reportId": f"r{len(self.created)}"})
+        if request.path.startswith(f"{REPORTS_PATH}/"):
+            report_id = request.path.rsplit("/", 1)[1]
+            poll = self.polls.get(report_id, 0)
+            self.polls[report_id] = poll + 1
+            status = self.statuses[min(poll, len(self.statuses) - 1)]
+            body: dict[str, Any] = {"reportId": report_id, "processingStatus": status}
+            if status in ("DONE", "FATAL"):
+                body["reportDocumentId"] = f"doc-{report_id}"
+            return ScriptedResponse(json=body)
+        if request.path.startswith(f"{DOCUMENTS_PATH}/"):
+            return ScriptedResponse(
+                json={"reportDocumentId": "doc", "url": DOCUMENT_URL, "compressionAlgorithm": "GZIP"}
+            )
+        if request.path == "/doc.json":
+            index = sum(1 for poll_count in self.polls.values() if poll_count) - 1
+            return ScriptedResponse(body=_gzip_json(self.documents[min(index, len(self.documents) - 1)]))
+        raise AssertionError(f"unexpected request {request.method} {request.url}")
+
+
+class TestVendorReports:
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    def test_daily_report_walks_windows_from_the_watermark_and_tags_rows(self) -> None:
+        vendor = _ReportsVendor(
+            ["IN_QUEUE", "IN_PROGRESS", "DONE"],
+            [
+                {"salesByAsin": [{"asin": "B01", "startDate": "2026-09-20", "shippedUnits": 3}]},
+                {"salesByAsin": [{"asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1}]},
+            ],
+        )
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_sales", vendor, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 20)
+        )
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_SALES_REPORT",
+                "marketplaceIds": ["ATVPDKIKX0DER"],
+                "reportOptions": {
+                    "reportPeriod": "DAY",
+                    "distributorView": "MANUFACTURING",
+                    "sellingProgram": "RETAIL",
+                },
+                "dataStartTime": "2026-09-20T00:00:00Z",
+                "dataEndTime": "2026-10-04T23:59:59Z",
+            },
+            {
+                "reportType": "GET_VENDOR_SALES_REPORT",
+                "marketplaceIds": ["ATVPDKIKX0DER"],
+                "reportOptions": {
+                    "reportPeriod": "DAY",
+                    "distributorView": "MANUFACTURING",
+                    "sellingProgram": "RETAIL",
+                },
+                "dataStartTime": "2026-10-05T00:00:00Z",
+                "dataEndTime": "2026-10-11T23:59:59Z",
+            },
+        ]
+        assert result.rows == [
+            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B01", "startDate": "2026-09-20", "shippedUnits": 3},
+            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1},
+        ]
+        download = next(request for request in result.requests if request.path == "/doc.json")
+        assert "x-amz-access-token" not in download.headers
+        assert result.committed_states[:2] == [
+            AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-09-20T00:00:00Z", report_id="r1"
+            ),
+            AmazonSellingPartnerResumeConfig(marketplace_id="ATVPDKIKX0DER", window_start="2026-10-05T00:00:00Z"),
+        ]
+        assert result.final_state == AmazonSellingPartnerResumeConfig(completed_marketplaces=["ATVPDKIKX0DER"])
+
+    def test_resume_polls_the_saved_report_instead_of_creating_one(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [{"inventoryByAsin": [{"asin": "B03", "startDate": "2026-10-05"}]}])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_inventory",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-10-05T00:00:00Z", report_id="r9"
+            ),
+        )
+
+        assert result.raised is None
+        assert vendor.created == []
+        assert vendor.polls == {"r9": 1}
+        assert [row["asin"] for row in result.rows] == ["B03"]
+
+    def test_forecasts_request_one_report_per_marketplace_without_a_date_range(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER,A2EUQ1WTGCTBG2").run("vendor_forecasts", vendor)
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_FORECASTING_REPORT",
+                "marketplaceIds": [marketplace],
+                "reportOptions": {"sellingProgram": "RETAIL"},
+            }
+            for marketplace in ("ATVPDKIKX0DER", "A2EUQ1WTGCTBG2")
+        ]
+        assert result.rows == []
+        assert result.final_state == AmazonSellingPartnerResumeConfig(
+            completed_marketplaces=["ATVPDKIKX0DER", "A2EUQ1WTGCTBG2"]
+        )
+
+    def test_real_time_sales_sends_the_marketplace_currency(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("A1F83G8C2ARO7P").run(
+            "vendor_real_time_sales",
+            vendor,
+            incremental_field="startTime",
+            db_incremental_field_last_value=datetime(2026, 10, 14, 9, 30, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_REAL_TIME_SALES_REPORT",
+                "marketplaceIds": ["A1F83G8C2ARO7P"],
+                "reportOptions": {"currencyCode": "GBP"},
+                "dataStartTime": "2026-10-14T09:00:00Z",
+                "dataEndTime": "2026-10-15T11:00:00Z",
+            }
+        ]
+
+    def test_a_fatal_report_raises_with_amazons_error_details(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/doc.json":
+                return ScriptedResponse(body=_gzip_json({"errorDetails": "Report date range is not available yet."}))
+            return vendor(request)
+
+        vendor = _ReportsVendor(["FATAL"], [])
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, VendorReportError)
+        assert str(result.raised) == (
+            "Amazon could not generate the GET_VENDOR_FORECASTING_REPORT report: Report date range is not available yet."
+        )
+
+    def test_create_report_waits_out_a_rate_limit(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+        throttled = [ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST" and request.path == REPORTS_PATH and throttled:
+                return throttled.pop()
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert result.raised is None
+        assert [request.method for request in result.requests if request.path == REPORTS_PATH] == ["POST", "POST"]
+
+    def test_vendor_tables_need_marketplace_ids(self) -> None:
+        result = _driver().run("vendor_sales", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == MISSING_MARKETPLACES_MESSAGE
+        assert result.requests == []
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "start", "expected"),
+    [
+        # A full refresh of a daily report starts at the oldest day Amazon keeps.
+        ("vendor_sales", None, ("2022-10-17T00:00:00Z", "2022-10-31T23:59:59Z", 98)),
+        # An hourly report stops at the last hour that closed five minutes before now.
+        ("vendor_real_time_sales", None, ("2026-09-16T12:00:00Z", "2026-09-30T12:00:00Z", 3)),
+        ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), None),
+    ],
+)
+def test_report_windows(endpoint: str, start: datetime | None, expected: tuple[str, str, int] | None) -> None:
+    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW)
+
+    if expected is None:
+        assert windows == []
+        return
+    first_start, first_end, count = expected
+    assert (windows[0].data_start_time, windows[0].data_end_time, len(windows)) == (first_start, first_end, count)
+    assert windows[-1].data_end_time in ("2026-10-11T23:59:59Z", "2026-10-15T11:00:00Z")
+
+
+@pytest.mark.parametrize(
+    ("forbidden_paths", "marketplace_ids", "expected"),
+    [
+        (
+            {REPORTS_PATH},
+            "ATVPDKIKX0DER",
+            {"orders": None, "order_items": None, "transactions": None, "vendor_sales": VENDOR_ONLY_MESSAGE},
+        ),
+        (
+            {ORDERS_PATH, TRANSACTIONS_PATH},
+            "ATVPDKIKX0DER",
+            {
+                "orders": SELLER_ONLY_MESSAGE,
+                "order_items": SELLER_ONLY_MESSAGE,
+                "transactions": SELLER_ONLY_MESSAGE,
+                "vendor_sales": None,
+            },
+        ),
+        (
+            set(),
+            None,
+            {"orders": None, "order_items": None, "transactions": None, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+        ),
+    ],
+)
+def test_probe_endpoint_permissions(
+    forbidden_paths: set[str], marketplace_ids: str | None, expected: dict[str, str | None]
+) -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        return SP_API_FORBIDDEN if request.path in forbidden_paths else ScriptedResponse(json={})
+
+    with scripted_network(respond) as network:
+        permissions = probe_endpoint_permissions(
+            "na", "client", "secret", "Atzr|refresh", parse_marketplace_ids(marketplace_ids), list(expected)
+        )
+
+    assert permissions == expected
+    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == [
+        ORDERS_PATH,
+        TRANSACTIONS_PATH,
+        REPORTS_PATH,
+    ]

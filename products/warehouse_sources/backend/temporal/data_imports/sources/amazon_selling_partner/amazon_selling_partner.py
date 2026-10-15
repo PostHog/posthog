@@ -1,3 +1,4 @@
+import gzip
 import json
 import tempfile
 from collections.abc import Callable, Iterable, Iterator
@@ -5,6 +6,7 @@ from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from itertools import batched
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 import requests
 from requests import PreparedRequest
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     INVENTORY_SUMMARIES,
     INVENTORY_SUMMARIES_PATH,
     LWA_TOKEN_URL,
+    MARKETPLACE_CURRENCIES,
     MARKETPLACE_PARTICIPATIONS_PATH,
     ORDER_ITEMS,
     ORDERS,
@@ -25,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     ORDERS_PATH,
     PARTITION_KEYS,
     PRIMARY_KEYS,
+    REPORT_DOCUMENTS_PATH,
+    REPORTS_PATH,
     REQUEST_TIME_MARGIN_SECONDS,
     SP_API_HOSTS,
     SP_API_MAX_RETRY_ATTEMPTS,
@@ -32,9 +37,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
     TRANSACTIONS,
     TRANSACTIONS_PATH,
     TRANSACTIONS_WINDOW_DAYS,
+    VENDOR_REPORTS,
+    VENDOR_SALES,
+    VendorReport,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -53,12 +64,26 @@ LWA_REJECTED_MESSAGE = (
 )
 ACCESS_DENIED_MESSAGE = (
     "Amazon accepted the login but refused the Selling Partner API call. "
-    "Check that the app is authorized for this seller and has the roles the tables need."
+    "Check that the account authorized the app and that the app has the roles the tables need."
 )
 UNAVAILABLE_MESSAGE = "Couldn't reach Amazon to check the credentials. Try again in a few minutes."
+MISSING_MARKETPLACES_MESSAGE = "Vendor reports need marketplace IDs. Add them in the source settings."
+SELLER_ONLY_MESSAGE = "This table needs a seller account with the role listed in the source description."
+VENDOR_ONLY_MESSAGE = "This table needs a vendor account with the Brand Analytics role."
 
 PROBE_TIMEOUT = (10.0, 30.0)
 INVENTORY_ROWS_PER_BATCH = 2000
+REPORT_POLL_INTERVAL_SECONDS = 30
+# A report still pending after this long fails the attempt; the next attempt polls the same report.
+REPORT_POLL_BUDGET_SECONDS = 60 * 60
+# createReport allows one call a minute after a burst of 15, and Amazon sends no Retry-After.
+REPORT_CREATE_ATTEMPTS = 5
+REPORT_CREATE_BACKOFF_SECONDS = 60
+REPORT_DOWNLOAD_TIMEOUT = (10.0, 300.0)
+REPORT_ROWS_PER_BATCH = 2000
+# The document sits on presigned Amazon storage. Pinning the host keeps a tampered `url` from
+# sending the download anywhere else.
+REPORT_URL_HOST_SUFFIXES = (".amazonaws.com", ".amazon.com")
 ResumeHook = Callable[[Optional[dict[str, Any]]], None]
 
 
@@ -73,9 +98,11 @@ class AmazonSellingPartnerResumeConfig:
     # Marketplaces whose inventory walk finished. Inventory page tokens expire in 30 seconds, so a
     # marketplace restarts from its first page.
     completed_marketplaces: list[str] = field(default_factory=list)
-    # The inventory marketplace being handed on, and how many of its rows already were.
+    # The marketplace being handed on, and how many of its rows (or of its report's rows) already were.
     marketplace_id: str | None = None
     rows_done: int = 0
+    # The report of a vendor report walk, so a resume polls the report it created.
+    report_id: str | None = None
 
 
 class LwaAuth(OAuth2Auth):
@@ -444,6 +471,216 @@ def _inventory_rows(
             completed = done_state.completed_marketplaces
 
 
+class VendorReportError(Exception):
+    """Amazon finished a report with FATAL status, so a retry asks for the same failure."""
+
+
+class VendorReportPendingError(Exception):
+    """A report is still processing after the polling budget. The next attempt polls it again."""
+
+
+@frozen
+class ReportWindow:
+    data_start_time: str
+    data_end_time: str
+
+
+def presigned_secret_values(url: str) -> tuple[str, ...]:
+    """The signing material in a presigned document URL, which the shared scrubber does not mask by name."""
+    return tuple(
+        value for name, value in parse_qsl(urlsplit(url).query) if name.lower().startswith("x-amz-") and len(value) >= 8
+    )
+
+
+def report_windows(report: VendorReport, start: datetime | None, now: datetime) -> list[ReportWindow]:
+    """The date ranges to request, oldest first, from `start` (or the oldest Amazon keeps) to the newest it publishes."""
+    if report.window is None or report.lookback is None:
+        return []
+    if report.hourly:
+        newest = (now - report.availability_delay).replace(minute=0, second=0, microsecond=0)
+        oldest = now.replace(minute=0, second=0, microsecond=0) - report.lookback
+        cursor = max(start.replace(minute=0, second=0, microsecond=0), oldest) if start else oldest
+        windows = []
+        while cursor < newest:
+            end = min(cursor + report.window, newest)
+            windows.append(ReportWindow(data_start_time=to_iso8601(cursor), data_end_time=to_iso8601(end)))
+            cursor = end
+        return windows
+
+    last_day = (now - report.availability_delay).date()
+    oldest_day = now.date() - report.lookback
+    day = max(start.date(), oldest_day) if start else oldest_day
+    windows = []
+    while day <= last_day:
+        end_day = min(day + report.window - timedelta(days=1), last_day)
+        windows.append(
+            ReportWindow(
+                data_start_time=f"{day.isoformat()}T00:00:00Z", data_end_time=f"{end_day.isoformat()}T23:59:59Z"
+            )
+        )
+        day = end_day + timedelta(days=1)
+    return windows
+
+
+class ReportsClient:
+    def __init__(self, region: str, auth: LwaAuth) -> None:
+        self._base_url = _base_url(region)
+        self._auth = auth
+        # Report and document bodies carry presigned download URLs, so they stay out of sample capture.
+        self._session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
+
+    def create_report(self, body: dict[str, Any], safe_point: Callable[[], None]) -> str:
+        for attempt in range(REPORT_CREATE_ATTEMPTS):
+            response = self._session.post(
+                f"{self._base_url}{REPORTS_PATH}", json=body, auth=self._auth, timeout=PROBE_TIMEOUT
+            )
+            if response.status_code == 429 and attempt + 1 < REPORT_CREATE_ATTEMPTS:
+                interruptible_wait(REPORT_CREATE_BACKOFF_SECONDS, safe_point=safe_point)
+                continue
+            response.raise_for_status()
+            return str(response.json()["reportId"])
+        raise AssertionError("unreachable")
+
+    def get_report(self, report_id: str) -> dict[str, Any]:
+        response = self._session.get(
+            f"{self._base_url}{REPORTS_PATH}/{report_id}", auth=self._auth, timeout=PROBE_TIMEOUT
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def get_document(self, document_id: str) -> dict[str, Any]:
+        """Read a report document. Rows come back as JSON, unzipped when Amazon compressed them."""
+        response = self._session.get(
+            f"{self._base_url}{REPORT_DOCUMENTS_PATH}/{document_id}", auth=self._auth, timeout=PROBE_TIMEOUT
+        )
+        response.raise_for_status()
+        document = response.json()
+        url = str(document["url"])
+        host = (urlsplit(url).hostname or "").lower()
+        if not host.endswith(REPORT_URL_HOST_SUFFIXES):
+            raise ValueError(f"Amazon report document URL points outside Amazon: host={host}")
+        # The presigned URL carries its own signature, so the download sends no LWA token.
+        download = make_tracked_session(redact_values=presigned_secret_values(url), capture=False)
+        content_response = download.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT)
+        content_response.raise_for_status()
+        content = content_response.content
+        if document.get("compressionAlgorithm") == "GZIP":
+            content = gzip.decompress(content)
+        return json.loads(content)
+
+
+def await_report_document(
+    client: ReportsClient, report: VendorReport, report_id: str, safe_point: Callable[[], None]
+) -> dict[str, Any] | None:
+    """Poll until the report is done. None means Amazon cancelled it because there was no data."""
+    waited = 0
+    while True:
+        status = client.get_report(report_id)
+        safe_point()
+        processing_status = status.get("processingStatus")
+        if processing_status == "DONE":
+            return client.get_document(str(status["reportDocumentId"]))
+        if processing_status == "CANCELLED":
+            return None
+        if processing_status == "FATAL":
+            detail = ""
+            if status.get("reportDocumentId"):
+                detail = str(client.get_document(str(status["reportDocumentId"])).get("errorDetails") or "")
+            raise VendorReportError(f"Amazon could not generate the {report.report_type} report: {detail}".strip())
+        if waited >= REPORT_POLL_BUDGET_SECONDS:
+            raise VendorReportPendingError(
+                f"Amazon {report.report_type} report {report_id} is still {processing_status} after {waited} seconds"
+            )
+        interruptible_wait(REPORT_POLL_INTERVAL_SECONDS, safe_point=safe_point)
+        waited += REPORT_POLL_INTERVAL_SECONDS
+
+
+def _report_options(report: VendorReport, marketplace_id: str) -> dict[str, str]:
+    if not report.needs_currency:
+        return dict(report.options)
+    currency = MARKETPLACE_CURRENCIES.get(marketplace_id)
+    if currency is None:
+        raise ValueError(f"Unknown Amazon marketplace ID for real-time sales: {marketplace_id}")
+    return {**report.options, "currencyCode": currency}
+
+
+def _vendor_report_rows(
+    *,
+    region: str,
+    auth: LwaAuth,
+    marketplace_ids: list[str],
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    if not marketplace_ids:
+        raise ValueError(MISSING_MARKETPLACES_MESSAGE)
+    report = VENDOR_REPORTS[endpoint]
+    client = ReportsClient(region, auth)
+    manager = resumable_source_manager
+    resume = manager.load_state() if manager.can_resume() else None
+    completed = list(resume.completed_marketplaces) if resume is not None else []
+    watermark = parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None
+    now = datetime.now(UTC)
+
+    for marketplace_id in marketplace_ids:
+        if marketplace_id in completed:
+            continue
+        pending = resume if resume is not None and resume.marketplace_id == marketplace_id else None
+        start = (
+            parse_datetime_value(pending.window_start) if pending is not None and pending.window_start else watermark
+        )
+        windows: list[ReportWindow | None] = list(report_windows(report, start, now)) if report.window else [None]
+
+        for index, window in enumerate(windows):
+            window_start = window.data_start_time if window is not None else None
+            report_id = pending.report_id if pending is not None and pending.window_start == window_start else None
+            pending = None
+            if report_id is None:
+                body: dict[str, Any] = {"reportType": report.report_type, "marketplaceIds": [marketplace_id]}
+                options = _report_options(report, marketplace_id)
+                if options:
+                    body["reportOptions"] = options
+                if window is not None:
+                    body["dataStartTime"] = window.data_start_time
+                    body["dataEndTime"] = window.data_end_time
+                report_id = client.create_report(body, manager.safe_point)
+                # Staged before polling, so an attempt that resumes polls this report instead of creating another.
+                with manager.committing():
+                    manager.save_state(
+                        AmazonSellingPartnerResumeConfig(
+                            completed_marketplaces=completed,
+                            marketplace_id=marketplace_id,
+                            window_start=window_start,
+                            report_id=report_id,
+                        )
+                    )
+
+            following = windows[index + 1] if index + 1 < len(windows) else None
+            next_state = (
+                AmazonSellingPartnerResumeConfig(
+                    completed_marketplaces=completed,
+                    marketplace_id=marketplace_id,
+                    window_start=following.data_start_time,
+                )
+                if following is not None
+                else AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
+            )
+            document = await_report_document(client, report, report_id, manager.safe_point)
+            rows = (document or {}).get(report.rows_key) or []
+            batches = list(batched(rows, REPORT_ROWS_PER_BATCH, strict=False))
+            if not batches:
+                with manager.committing():
+                    manager.save_state(next_state)
+                continue
+            for batch_index, batch in enumerate(batches):
+                if batch_index == len(batches) - 1:
+                    manager.save_state(next_state)
+                yield [{"marketplaceId": marketplace_id, **row} for row in batch]
+        completed.append(marketplace_id)
+
+
 def amazon_selling_partner_source(
     *,
     region: str,
@@ -475,6 +712,17 @@ def amazon_selling_partner_source(
             region=region, auth=auth, marketplace_ids=marketplace_ids, resumable_source_manager=resumable_source_manager
         )
         items = lambda: inventory_rows
+    elif endpoint in VENDOR_REPORTS:
+        vendor_rows = _vendor_report_rows(
+            region=region,
+            auth=auth,
+            marketplace_ids=marketplace_ids,
+            endpoint=endpoint,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        items = lambda: vendor_rows
     else:
         resource: Resource
         if endpoint in (ORDERS, ORDER_ITEMS):
@@ -516,8 +764,67 @@ def validate_credentials(
         return False, LWA_REJECTED_MESSAGE if e.is_permanent else UNAVAILABLE_MESSAGE
     except requests.RequestException:
         return False, UNAVAILABLE_MESSAGE
-    if response.status_code == 200:
+    # Vendor accounts get 403 from the Sellers API, and the table picker reports each table's access.
+    if response.status_code in (200, 403):
         return True, None
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         return False, ACCESS_DENIED_MESSAGE
     return False, UNAVAILABLE_MESSAGE
+
+
+def _probe(session: requests.Session, auth: LwaAuth, url: str, params: dict[str, Any]) -> bool | None:
+    """Whether Amazon allows the call. None when the answer says nothing about access."""
+    try:
+        response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
+    except (OAuth2AuthRequestError, requests.RequestException):
+        return None
+    if response.status_code in (401, 403):
+        return False
+    return True if response.ok else None
+
+
+def probe_endpoint_permissions(
+    region: str,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    marketplace_ids: list[str],
+    endpoints: list[str],
+) -> dict[str, str | None]:
+    auth = LwaAuth(client_id, client_secret, refresh_token)
+    session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
+    base_url = _base_url(region)
+    recent = to_iso8601(datetime.now(UTC) - timedelta(days=1))
+    probes: dict[str, tuple[str, dict[str, Any], str]] = {
+        ORDERS: (
+            ORDERS_PATH,
+            {"maxResultsPerPage": 1, "lastUpdatedAfter": recent, "marketplaceIds": ",".join(marketplace_ids) or None},
+            SELLER_ONLY_MESSAGE,
+        ),
+        TRANSACTIONS: (TRANSACTIONS_PATH, {"postedAfter": recent}, SELLER_ONLY_MESSAGE),
+        INVENTORY_SUMMARIES: (MARKETPLACE_PARTICIPATIONS_PATH, {}, SELLER_ONLY_MESSAGE),
+        VENDOR_SALES: (
+            REPORTS_PATH,
+            {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1},
+            VENDOR_ONLY_MESSAGE,
+        ),
+    }
+    # One call answers for every table that needs the same role.
+    probe_for = {ORDER_ITEMS: ORDERS, **dict.fromkeys(VENDOR_REPORTS, VENDOR_SALES)}
+    answers: dict[str, bool | None] = {}
+    permissions: dict[str, str | None] = {}
+    for endpoint in endpoints:
+        probe_name = probe_for.get(endpoint, endpoint)
+        if probe_name not in probes:
+            permissions[endpoint] = None
+            continue
+        if probe_name not in answers:
+            path, params, _ = probes[probe_name]
+            answers[probe_name] = _probe(session, auth, f"{base_url}{path}", params)
+        if answers[probe_name] is False:
+            permissions[endpoint] = probes[probe_name][2]
+        elif endpoint in VENDOR_REPORTS and not marketplace_ids:
+            permissions[endpoint] = MISSING_MARKETPLACES_MESSAGE
+        else:
+            permissions[endpoint] = None
+    return permissions
