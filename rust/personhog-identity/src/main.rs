@@ -179,6 +179,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor = manager.monitor_background();
 
+    // Dense from 250ms to 5s, where merge tails sit.
+    const BUCKETS: &[f64] = &[
+        1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
+        5000.0, 10000.0, 30000.0,
+    ];
+    // Lifecycle ops span "settled in one drive" (tens of ms) to
+    // "abandoned, parked, or leader-blocked and resumed by the sweeper"
+    // (minutes to an hour); the default latency ladder tops out at 10s
+    // and would collapse every resumed op into +Inf.
+    const OP_DURATION_BUCKETS: &[f64] = &[
+        10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
+        300000.0, 1800000.0, 3600000.0,
+    ];
+    // Batch sizes, not latency; the request caps are 250.
+    const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+    let recorder_handle = PrometheusBuilder::new()
+        .add_global_label("service", "personhog-identity")
+        .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
+            OP_DURATION_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
+        .unwrap()
+        .install_recorder()
+        .expect("Failed to install metrics recorder");
     // Metrics/health HTTP server (observability handle — stays alive during standard drain)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
@@ -193,34 +221,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        // Dense from 250ms to 5s, where merge tails sit.
-        const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
-            5000.0, 10000.0, 30000.0,
-        ];
-        // Lifecycle ops span "settled in one drive" (tens of ms) to
-        // "abandoned, parked, or leader-blocked and resumed by the sweeper"
-        // (minutes to an hour); the default latency ladder tops out at 10s
-        // and would collapse every resumed op into +Inf.
-        const OP_DURATION_BUCKETS: &[f64] = &[
-            10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
-            300000.0, 1800000.0, 3600000.0,
-        ];
-        // Batch sizes, not latency; the request caps are 250.
-        const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
-        let recorder_handle = PrometheusBuilder::new()
-            .add_global_label("service", "personhog-identity")
-            .set_buckets(BUCKETS)
-            .unwrap()
-            .set_buckets_for_metric(
-                Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
-                OP_DURATION_BUCKETS,
-            )
-            .unwrap()
-            .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
-            .unwrap()
-            .install_recorder()
-            .expect("Failed to install metrics recorder");
         let metrics_router = health_router.route(
             "/metrics",
             get(move || std::future::ready(recorder_handle.render())),
