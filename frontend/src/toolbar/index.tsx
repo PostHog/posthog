@@ -95,6 +95,9 @@ win['posthogToolbarController'] = posthogToolbarController
 // Re-exported for the loader script (loader.ts), which forwards its controller stub here.
 export { posthogToolbarController }
 
+// posthog-js's default refresh interval. The toolbar instance starts with refresh off, see toolbarPosthogJS.ts.
+const TOOLBAR_FLAGS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+
 // Tracks an in-flight mount. The mounted-state flag isn't set until the very end of the async
 // mount, so without this two overlapping ph_load_toolbar calls would both pass the guard below
 // and mount twice. Concurrent calls dedupe onto this promise instead.
@@ -132,6 +135,7 @@ async function mountToolbar(toolbarParams: ToolbarParams, posthog?: PostHog): Pr
     // duration includes the chunk fetch — keep the earliest timestamp.
     ;(window as any).__posthog_toolbar_load_start ??= performance.now()
 
+    toolbarPosthogJS.set_config({ remote_config_refresh_interval_ms: TOOLBAR_FLAGS_REFRESH_INTERVAL_MS })
     toolbarPosthogJS.reloadFeatureFlags()
 
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
