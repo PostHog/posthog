@@ -383,6 +383,25 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not KnowledgeLibrary.objects.unscoped().filter(team_id=self.team.id).exists()
 
+    @parameterized.expand([("list_libraries", "libraries/"), ("search_documents", "documents/search/?query=refund")])
+    def test_a_member_denied_the_parent_project_cannot_reach_it_from_a_child(self, _ff, _name: str, path: str) -> None:
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
+        )
+        outsider = User.objects.create_and_join(self.organization, "parent-denied@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=outsider, organization=self.organization),
+        )
+        self.client.force_login(outsider)
+
+        response = self.client.get(f"/api/projects/{environment.id}/business_knowledge/{path}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestBusinessKnowledgeResourceLevelRule(APIBaseTest):
