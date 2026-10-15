@@ -1,6 +1,7 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -8,7 +9,12 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
+import { userEvent } from 'storybook/test'
+
+import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -991,6 +997,100 @@ export const Activity: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
     },
+}
+
+const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
+
+const WEEKLY_REPORT_OFFER_GET_MOCKS = {
+    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+}
+
+const CREATED_WEEKLY_REPORT = {
+    id: 1,
+    title: 'MCP tool health',
+    enabled: true,
+    target_type: 'email',
+    target_value: MOCK_DEFAULT_USER.email,
+    next_delivery_date: '2026-06-08T09:00:00Z',
+}
+
+const WEEKLY_REPORT_OFFER_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+    msw: {
+        mocks: {
+            get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+            post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+        },
+    },
+    testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
+}
+
+async function clickWeeklyReportButton(): Promise<void> {
+    // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
+    const button = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+        if (!element) {
+            throw new Error('The weekly report button is not rendered')
+        }
+        return element
+    })
+    await userEvent.click(button)
+}
+
+export const ActivityWeeklyReportOffer: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, pageUrl: urls.mcpAnalyticsActivity() },
+}
+
+export const ActivityWeeklyReportOfferNarrow: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <ActivityNextSteps />
+        </div>
+    ),
+}
+
+export const ActivityWeeklyReportOfferFailed: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+                post: {
+                    '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
+                        400,
+                        { detail: 'Your plan is limited to 5 subscriptions.' },
+                    ],
+                },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
+    },
+    play: clickWeeklyReportButton,
+}
+
+export const ActivityWeeklyReportOfferNeedsConsent: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: {
+                    ...WEEKLY_REPORT_OFFER_GET_MOCKS,
+                    '/api/organizations/@current/': {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    },
+                },
+                post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
+    },
+    play: clickWeeklyReportButton,
 }
 
 export const Sessions: Story = {

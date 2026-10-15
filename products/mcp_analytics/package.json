@@ -21,6 +21,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }
