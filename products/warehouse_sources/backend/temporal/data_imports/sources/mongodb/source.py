@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
@@ -153,6 +153,9 @@ _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 @SourceRegistry.register
 class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], ValidateDatabaseHostMixin):
+    # The CA bundle that verifies the server. None means the public bundle; a source for a
+    # MongoDB-compatible service with a private CA sets its own.
+    tls_ca_file: ClassVar[str | None] = None
     # Matches both MONGO_* and MONGODB_* prefixes (e.g. MONGO_HOST,
     # MONGODB_URI) in one pattern.
     codebase_detection = detect(
@@ -403,10 +406,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
+        mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names, tls_ca_file=self.tls_ca_file)
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        with mongo_client(config.connection_string, team_id=team_id) as client:
+        with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=self.tls_ca_file) as client:
             db = client[connection_params["database"]]
             index_keys_by_collection = get_index_keys_by_collection(db, list(mongo_schemas))
 
@@ -466,7 +469,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                 return False, host_errors
 
         try:
-            collection_names = get_collection_names(config, team_id=team_id)
+            collection_names = get_collection_names(config, team_id=team_id, tls_ca_file=self.tls_ca_file)
             if len(collection_names) == 0:
                 return False, _MONGO_NO_COLLECTIONS_MESSAGE
         except OperationFailure as e:
@@ -530,7 +533,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return True, None
 
     def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
-        return get_mongo_server_metadata(config.connection_string, team_id)
+        return get_mongo_server_metadata(config.connection_string, team_id, tls_ca_file=self.tls_ca_file)
 
     def resume_covers_run(
         self,
@@ -566,6 +569,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             team_id=inputs.team_id,
             database_name=config.database_name,
             resumable_source_manager=resumable_source_manager,
+            tls_ca_file=self.tls_ca_file,
         )
 
     @property
