@@ -2038,10 +2038,10 @@ Today (10): `automations`, `comments`, `emails`, `events`, `forms`, `prices`, `s
 
 Diffed against: <https://docs.buttondown.com/openapi.json>
 
-- [ ] `Stripe subscriptions (GET /v1/subscribers/{id_or_email}/stripe-subscriptions)` — analyze paid subscription history, recurring revenue, cancellations, and billing cadence (high)
-- [ ] `Referrals (GET /v1/subscribers/{id_or_email}/referrals)` — attribute subscriber growth to specific referring subscribers (medium)
-- [ ] `Subscriber automation attempts (GET /v1/subscribers/{id_or_email}/automations)` — analyze automation completion, skipped attempts, errors, and scheduled execution for each subscriber (medium)
-- [ ] `Notes (GET /v1/notes)` — track dated notes attached to subscribers, emails, and other analytical objects (medium)
+- [x] `Stripe subscriptions (GET /v1/subscribers/{id_or_email}/stripe-subscriptions)` — analyze paid subscription history, recurring revenue, cancellations, and billing cadence (high)
+- [x] `Referrals (GET /v1/subscribers/{id_or_email}/referrals)` — attribute subscriber growth to specific referring subscribers (medium)
+- [x] `Subscriber automation attempts (GET /v1/subscribers/{id_or_email}/automations)` — analyze automation completion, skipped attempts, errors, and scheduled execution for each subscriber (medium)
+- [x] `Notes (GET /v1/notes)` — track dated notes attached to subscribers, emails, and other analytical objects (medium)
 - [ ] `Segments (GET /v1/segments)` — analyze saved audiences and compare their targeting rules with email performance (medium)
 - [ ] `Coupons (GET /v1/coupons)` — analyze the complete discount catalog alongside paid subscriptions and subscriber promotions (medium)
 
@@ -5286,7 +5286,7 @@ Today (14): `campaign_discount_codes`, `campaign_members`, `campaign_teams`, `ca
 
 Diffed against: <https://givebutter.com/docs/api.json>
 
-- [ ] `Messages (GET /v1/messages)` — compare donor outreach volume, delivery status, recipient counts, and campaign timing with donation activity (medium)
+- [x] `Messages (GET /v1/messages)` — compare donor outreach volume, delivery status, recipient counts, and campaign timing with donation activity (medium) Added as `messages` (full refresh). The endpoint accepts no timestamp filter.
 
 Note: Parsed all GET operations in the official OpenAPI specification and compared them with the static endpoint catalog. Household responses already contain contacts, so the household contacts endpoint adds no missing membership data. Excluded webhook activity, webhook management, and SSO operations.
 
@@ -5300,10 +5300,10 @@ Diffed against: <https://developer.gladly.com/rest/>
 - [x] `/api/v1/teams` — lookup resolving the team IDs carried on agents and conversations (high). Added as `teams` (full refresh).
 - [x] `/api/v1/inboxes` — lookup resolving the inbox IDs carried on conversation items (high). Added as `inboxes` (full refresh).
 - [x] `/api/v1/reports/work-session-events` — agent work-session and status history — the vendor's own agent-productivity metric (high). Added as `work_session_events` via the equivalent `WorkSessionEventsReportV4` metric set of `POST /api/v1/reports`.
-- [ ] `/api/v1/events` — org-wide event stream, the closest thing Gladly has to an activity log (medium)
-- [ ] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium)
-- [ ] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium)
-- [ ] `/api/v1/conversation-items/{itemId}/voice-transcript` — voice transcripts for call-content analysis; the export ships item metadata only (medium)
+- [x] `/api/v1/events` — org-wide event stream, the closest thing Gladly has to an activity log (medium). Added as `events` (incremental merge on `timestamp`, all eight entity types). Gladly serves only the last 24 hours, so history builds up through daily or more frequent syncs.
+- [x] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium). Covered by `tasks` (Task Export report via `POST /api/v1/reports`, one row per task with assignment and closure columns). The per-customer endpoint itself is skipped: it is unpaginated, returns at most 2000 tasks, and would need one request per customer.
+- [x] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium). Added as `answers` (full refresh).
+- [x] `/api/v1/conversation-items/{itemId}/voice-transcript` — voice transcripts for call-content analysis; the export ships item metadata only (medium). Added as `voice_transcripts` (fan-out over the phone call and voicemail items of each export job, incremental on the job watermark).
 - [ ] `/api/v1/audiences` — lookup resolving audience IDs on answers (low)
 - [ ] `/api/v1/tasks/{taskId}/comments` — task discussion thread (low)
 
@@ -6711,9 +6711,9 @@ Today (5): `events`, `markets`, `milestones`, `series`, `trades`
 
 Diffed against: <https://docs.kalshi.com/openapi.yaml>
 
-- [ ] `Market candlesticks (GET /trade-api/v2/markets/candlesticks)` — analyze price, volume, and liquidity trends using historical time buckets (high)
-- [ ] `Historical markets (GET /trade-api/v2/historical/markets)` — retain archived contracts needed to interpret older trades and long-term market outcomes (high)
-- [ ] `Historical trades (GET /trade-api/v2/historical/trades)` — recover trades before the historical cutoff for complete volume and price history (high)
+- [x] `Market candlesticks (GET /trade-api/v2/markets/candlesticks)` — analyze price, volume, and liquidity trends using historical time buckets (high)
+- [x] `Historical markets (GET /trade-api/v2/historical/markets)` — retain archived contracts needed to interpret older trades and long-term market outcomes (high)
+- [x] `Historical trades (GET /trade-api/v2/historical/trades)` — recover trades before the historical cutoff for complete volume and price history (high)
 - [ ] `Positions (GET /trade-api/v2/portfolio/positions; GET /trade-api/v2/historical/positions)` — measure account exposure, realized profit, and trading fees for current and archived positions (high)
 - [ ] `Fills (GET /trade-api/v2/portfolio/fills; GET /trade-api/v2/historical/fills)` — analyze account execution prices, fees, and trading volume across current and archived fills (high)
 - [ ] `Settlements (GET /trade-api/v2/portfolio/settlements)` — reconcile settled contracts with payouts and account trading results (high)
@@ -7429,10 +7429,10 @@ Today (3): `advanced_shipping_notices`, `destinations`, `returns`
 
 Diffed against: <https://docs.loopreturns.com/llms.txt>
 
-- [ ] `Orders (GET /api/v1/orders)` — resolve return order IDs and supply sales denominators for return-rate analysis (high)
-- [ ] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
-- [ ] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
-- [ ] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
+- [x] `Orders (GET /api/v1/orders)` — resolve return order IDs and supply sales denominators for return-rate analysis (high)
+- [x] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
+- [x] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
+- [x] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
 - [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium)
 - [ ] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
 - [ ] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
@@ -10587,10 +10587,10 @@ Today (13): `cloud_resources`, `controls`, `devices`, `framework_requirements`, 
 
 Diffed against: <https://developer.secureframe.com/>
 
-- [ ] `poam_items (GET /poam_items)` — Plan of Action & Milestones — the open remediation backlog with owners and due dates (high)
-- [ ] `framework_asset_scopes (GET /devices/{id}/framework_asset_scopes, /cloud_resources/{id}/…, /repositories/{id}/…)` — the join that says which framework each already-synced asset is in scope for; without it assets can't be filtered by framework (high)
-- [ ] `ssp_policies (GET /ssp_policies)` — the policy inventory, a compliance object with no equivalent in the current tables (medium)
-- [ ] `comments (GET /comments)` — remediation discussion attached to controls, tests and risks — the activity trail (medium)
+- [x] `poam_items (GET /poam_items)` — Plan of Action & Milestones — the open remediation backlog with owners and due dates (high)
+- [x] `framework_asset_scopes (GET /devices/{id}/framework_asset_scopes, /cloud_resources/{id}/…, /repositories/{id}/…)` — the join that says which framework each already-synced asset is in scope for; without it assets can't be filtered by framework (high)
+- [x] `ssp_policies (GET /ssp_policies)` — the policy inventory, a compliance object with no equivalent in the current tables (medium)
+- [x] `comments (GET /comments)` — remediation discussion attached to controls, tests and risks — the activity trail (medium)
 - [ ] `trust_center_requests (GET /trust_center_requests)` — inbound access requests to the trust center, a demand signal worth trending (medium)
 - [ ] `ssp_report_assessment_objectives (GET /ssp_report_assessment_objectives)` — per-objective assessment results underpinning control status (medium)
 - [ ] `ssp_reports (GET /ssp_reports)` — System Security Plan report headers, the parent for all ssp\_\* sections (low)
@@ -10697,11 +10697,11 @@ Today (10): `blocks`, `bounces`, `global_unsubscribes`, `invalid_emails`, `marke
 Diffed against: <https://github.com/twilio/sendgrid-oai/tree/main/spec/json (official Twilio SendGrid OpenAPI specs; read tsg_stats_v3.json, tsg_mc_stats_v3.json, tsg_mc_contacts_v3.json, tsg_mc_singlesends_v3.json, tsg_suppressions_v3.json, tsg_email_activity_v3.json, tsg_subusers_v3.json and others)>
 
 - [x] `GET /v3/stats (global email statistics)` — SendGrid's headline metric — daily requests, delivered, opens, clicks, bounces, spam reports; the whole reason to sync SendGrid (high)
-- [ ] `GET /v3/marketing/stats/singlesends (+ /{id} and /{id}/links)` — Per-campaign send performance including click tracking by link (high)
-- [ ] `GET /v3/marketing/singlesends` — Single Send campaign records — the lookup that resolves the singlesend IDs in the stats endpoints (high)
+- [x] `GET /v3/marketing/stats/singlesends (+ /{id} and /{id}/links)` — Per-campaign send performance including click tracking by link (high)
+- [x] `GET /v3/marketing/singlesends` — Single Send campaign records — the lookup that resolves the singlesend IDs in the stats endpoints (high)
 - [x] `GET /v3/messages (Email Activity)` — Per-message event feed (delivered, opened, clicked, bounced) — the row-level fact table behind all aggregate stats (high)
 - [ ] `GET /v3/marketing/contacts (+ /contacts/exports)` — Contact records; no recipient dimension exists today so lists and suppressions cannot be joined to people (high)
-- [ ] `GET /v3/asm/groups/{group_id}/suppressions` — Membership rows linking email addresses to the unsubscribe_groups already synced — the join table is missing (high)
+- [x] `GET /v3/asm/groups/{group_id}/suppressions` — Membership rows linking email addresses to the unsubscribe_groups already synced — the join table is missing (high)
 - [ ] `GET /v3/categories/stats (and /v3/categories/stats/sums)` — Email stats broken down by category, the main way transactional senders segment performance (medium)
 - [ ] `GET /v3/categories` — Category lookup resolving the category tags used on stats and messages (medium)
 - [ ] `GET /v3/marketing/stats/automations (+ /{id}/links)` — Automation (journey) performance stats (medium)
@@ -10990,10 +10990,10 @@ Today (2): `logs`, `workflows`
 
 Diffed against: <https://docs.sim.ai/openapi.json>
 
-- [ ] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
-- [ ] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
-- [ ] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
-- [ ] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
+- [x] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
+- [x] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
+- [x] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
+- [x] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
 - [ ] `List Billing Logs (GET /api/v2/billing/logs)` — reconcile credit charges with automation activity over time (medium)
 - [ ] `List Audit Logs (GET /api/v2/audit-logs)` — track changes to workflows and workspace resources for governance analysis (medium)
 - [ ] `List Workspace Members (GET /api/v2/workspaces/{workspaceId}/members)` — analyze workspace membership and inherited organization access (medium)
@@ -12153,10 +12153,10 @@ Today (4): `ad_revenue_report`, `app_report`, `campaign_report`, `sk_ad_network_
 
 Diffed against: <https://api-docs.tenjin.com/assets/index-BBavDbPH.js>
 
-- [ ] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
-- [ ] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
+- [x] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
+- [x] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
 - [ ] `Spend by creative (GET /v2/reports/spend?group_by=creative)` — compare creative performance and identify inefficient advertising spend (medium)
-- [ ] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
+- [x] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
 - [ ] `SKAN Apple reports (GET /v2/reports/skan_apple)` — analyze Apple-sourced SKAdNetwork postbacks alongside network-sourced reports (medium)
 - [ ] `Campaigns (GET /v2/campaigns)` — add campaign metadata and account relationships to daily campaign performance reports (medium)
 

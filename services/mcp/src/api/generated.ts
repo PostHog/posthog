@@ -10855,6 +10855,7 @@ export namespace Schemas {
       groups: BICategoryGroup[];
       kind?: 'groups';
       other: string;
+      preserveUngrouped?: boolean | null;
     }
 
     export interface BILocalFieldDefinition3 {
@@ -10896,6 +10897,7 @@ export namespace Schemas {
       datePart?: DatePart | null;
       expression: string;
       id: string;
+      label?: string | null;
       localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | null;
       localFieldId?: string | null;
       name: string;
@@ -10932,6 +10934,7 @@ export namespace Schemas {
       customExpression?: string | null;
       enabled?: boolean | null;
       field: BIField;
+      label?: string | null;
       operator: BIFilterOperator;
       value: string;
       valueTo?: string | null;
@@ -10945,6 +10948,13 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface HierarchyDrillPathItem {
+      filterIds: string[];
+      hierarchyId: string;
+      nextField: BIField;
+      previousField: BIField;
+    }
+
     export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
 
 
@@ -10954,6 +10964,16 @@ export namespace Schemas {
       Number10000: 10000,
       Number50000: 50000,
     } as const;
+
+    export interface Alias {
+      label: string;
+      value?: string | null;
+    }
+
+    export interface MemberAliase {
+      aliases: Alias[];
+      field: BIField;
+    }
 
     export type MissingDates = typeof MissingDates[keyof typeof MissingDates];
 
@@ -10995,6 +11015,7 @@ export namespace Schemas {
     export interface BIResultFilter {
       enabled?: boolean | null;
       id: string;
+      label?: string | null;
       /** @minimum 0 */
       measureIndex: number;
       operator: Operator2;
@@ -11098,9 +11119,11 @@ export namespace Schemas {
       filters: BIFilter[];
       /** Named dimension sequences saved with the worksheet; imports are independent copies. */
       hierarchies?: BIHierarchy[] | null;
+      hierarchyDrillPath?: HierarchyDrillPathItem[] | null;
       limit: BIQueryLimit;
       /** Reusable expressions owned by this worksheet only. */
       localFields?: BIField[] | null;
+      memberAliases?: MemberAliase[] | null;
       /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
       missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;
@@ -109516,6 +109539,11 @@ export namespace Schemas {
       content_type?: string;
       /** Skill bundle metadata, required when the artifact type is skill_bundle. */
       metadata?: TaskRunSkillBundleMetadata;
+      /**
+         * ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.
+         * @maxLength 255
+         */
+      base_artifact_id?: string;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -109591,6 +109619,13 @@ export namespace Schemas {
       url: string;
       /** URL expiry in seconds */
       expires_in: number;
+    }
+
+    export interface TaskRunArtifactPreviewResponse {
+      /** Short-lived URL for the isolated HTML preview */
+      url: string;
+      /** Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact version had limited network access, or when the version has no record of it. */
+      scripts_available: boolean;
     }
 
     export interface TaskRunArtifactUpload {
@@ -130362,6 +130397,17 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsArtifactsPreviewRetrieveParams = {
+    /**
+     * Return a URL whose page runs its scripts. Without it the page renders with scripts off. Refused when scripts_available is false.
+     */
+    scripts?: boolean;
+    /**
+     * Living artifact version
+     */
+    version?: number;
     };
 
     export type TasksRunsSessionLogsRetrieveParams = {
