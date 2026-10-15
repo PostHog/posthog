@@ -48,6 +48,9 @@ NO_PRESET = "none"
 # from a prebuild warm pool (a Coder premium feature). Pass `--preset <name>` to
 # select a template preset explicitly where one is defined.
 DEFAULT_PRESET = NO_PRESET
+# Coder applies the active template version only when a workspace starts, never
+# to a running one, so template fixes reach a box without rebuilding it mid-run.
+AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -1354,6 +1357,7 @@ def create_workspace(
         "--preset",
         resolved_preset,
         "--use-parameter-defaults",
+        *AUTOMATIC_UPDATES_ARGS,
         "--yes",
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
@@ -1450,6 +1454,7 @@ def clone_workspace(
             "--preset",
             NO_PRESET,
             "--use-parameter-defaults",
+            *AUTOMATIC_UPDATES_ARGS,
             "--yes",
         ],
         {
@@ -1487,8 +1492,14 @@ def stop_workspace(name: str, *, verbose: bool = False) -> None:
 
 
 def restart_workspace(name: str, *, verbose: bool = False) -> None:
-    """Restart a running workspace."""
-    result = _run_build(["coder", "restart", name, "--yes"], verbose=verbose)
+    """Restart a running workspace.
+
+    With automatic updates on, a restart of an outdated workspace is a template
+    update, and Coder prompts for any new parameter. ``_run_build`` captures the
+    output, so the prompt would hang unseen; ``--use-parameter-defaults`` takes
+    the template default instead.
+    """
+    result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
