@@ -1036,9 +1036,10 @@ def team_api_test_factory():
             self.team.save()
 
             session = self.client.session
-            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = (
-                time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
-            )
+            # login() stamps both keys and the freshness window takes their max, so age both.
+            stale = time.time() - django_settings.SESSION_SENSITIVE_ACTIONS_AGE - 1
+            session[django_settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+            session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = stale
             session.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
