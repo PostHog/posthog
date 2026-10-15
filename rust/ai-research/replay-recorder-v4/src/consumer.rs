@@ -22,7 +22,7 @@ use crate::batch::{Batch, Block, Inspectors, SessionKey};
 use crate::process::{admit, read, sampled};
 use crate::store::BlobStore;
 use crate::teams::TeamCache;
-use crate::write::{write_blocks, WriteError};
+use crate::write::{prepare, write_blocks, write_images, WriteError};
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
@@ -125,6 +125,9 @@ pub struct Writer {
     pub keys: KeyStore<CachedKeyTable<AwsKeyTable>, AwsKms>,
     pub store: Arc<dyn BlobStore>,
     pub rrweb_bucket: String,
+    pub images_bucket: String,
+    /// Images this process stored for their team and day, so a later flush references them without packing them again.
+    pub stored_images: moka::sync::Cache<String, ()>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -178,8 +181,8 @@ pub async fn run(
             inspectors.drop_partitions(&revoked);
         }
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
-            let (blocks, offsets) = inspectors.inspect(std::mem::take(&mut batch));
-            if let Err(error) = flush(&blocks, writer.as_ref()).await {
+            let (mut blocks, offsets) = inspectors.inspect(std::mem::take(&mut batch));
+            if let Err(error) = flush(&mut blocks, writer.as_ref()).await {
                 // Nothing of this flush is committed, so a restart reads it again from the last commit.
                 tracing::error!(%error, "flush failed");
                 handle.signal_failure(format!("flush failed: {error}"));
@@ -228,9 +231,9 @@ fn handle_message(
 }
 
 /// Stores a flush's blocks, or only reports them when the recorder runs dry.
-async fn flush(blocks: &[Block], writer: Option<&Writer>) -> Result<(), FlushError> {
+async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), FlushError> {
     counter!("replay_recorder_v4_blocks_total").increment(blocks.len() as u64);
-    for block in blocks {
+    for block in blocks.iter() {
         counter!("replay_recorder_v4_block_events_total").increment(block.stats.event_count);
         if block.stats.cold_start {
             counter!("replay_recorder_v4_cold_start_blocks_total").increment(1);
@@ -241,6 +244,7 @@ async fn flush(blocks: &[Block], writer: Option<&Writer>) -> Result<(), FlushErr
     }
     let Some(writer) = writer else { return Ok(()) };
     let now = Utc::now();
+    let day = key_day(now);
     let sessions: Vec<SessionId> = blocks
         .iter()
         .map(|b| SessionId {
@@ -249,11 +253,28 @@ async fn flush(blocks: &[Block], writer: Option<&Writer>) -> Result<(), FlushErr
         })
         .collect();
     // Keys are stored before anything is sealed with them, as in v3.
-    let keys = writer.keys.keys_for_flush(&sessions, &key_day(now)).await?;
+    let keys = writer.keys.keys_for_flush(&sessions, &day).await?;
     counter!("replay_recorder_v4_dropped_sessions_total").increment(keys.dropped.len() as u64);
-    let written = write_blocks(
-        blocks,
+    let stored = &writer.stored_images;
+    let prepared = prepare(blocks, &keys, &day, &|reference| {
+        stored.contains_key(reference)
+    });
+    let rows = write_images(
+        &prepared.images,
         &keys,
+        &day,
+        &writer.images_bucket,
+        &writer.rrweb_bucket,
+        writer.store.as_ref(),
+        now,
+    )
+    .await?;
+    for row in &rows {
+        stored.insert(row.image_ref.clone(), ());
+    }
+    counter!("replay_recorder_v4_stored_images_total").increment(rows.len() as u64);
+    let written = write_blocks(
+        &prepared.blocks,
         &writer.rrweb_bucket,
         writer.store.as_ref(),
         now,

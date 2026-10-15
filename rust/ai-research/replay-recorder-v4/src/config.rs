@@ -53,6 +53,9 @@ pub struct Config {
     #[envconfig(from = "AI_RESEARCH_REPLAY_V4_RRWEB_BUCKET", default = "")]
     pub rrweb_bucket: String,
 
+    #[envconfig(from = "AI_RESEARCH_REPLAY_V4_IMAGES_BUCKET", default = "")]
+    pub images_bucket: String,
+
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
 }
