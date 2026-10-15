@@ -696,6 +696,11 @@ class BIFilterOperator(StrEnum):
     CUSTOM = "custom"
 
 
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
+
+
 class BIQueryLimit(float, Enum):
     NUMBER_100 = 100
     NUMBER_1000 = 1000
