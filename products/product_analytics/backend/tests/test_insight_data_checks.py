@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import MappingProxyType
 from typing import Any
 
@@ -18,14 +18,23 @@ from posthog.models import PropertyDefinition
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.cohorts.backend.models.cohort import Cohort
-from products.product_analytics.backend.facade.contracts import InsightDataChecks
+from products.product_analytics.backend.facade.contracts import InsightDataChecks, InsightDataChecksCoverage
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataCheckLevel
-from products.product_analytics.backend.insight_data_checks import DataCheckCounts, evaluate_data_checks
+from products.product_analytics.backend.insight_data_check_days import choose_days_to_check
+from products.product_analytics.backend.insight_data_check_results import (
+    CheckedEvents,
+    SampledEvents,
+    evaluate_data_checks,
+)
 
 PASSED = InsightDataCheckLevel.PASSED
 WARNING = InsightDataCheckLevel.WARNING
 PROBLEM = InsightDataCheckLevel.PROBLEM
+SKIPPED = InsightDataCheckLevel.SKIPPED
+LOCAL = InsightDataCheckKey.LOCAL_DEVELOPMENT
+BOTS = InsightDataCheckKey.BOT_TRAFFIC
+DUPLICATES = InsightDataCheckKey.DUPLICATE_EVENTS
 NOW = datetime(2026, 3, 10, 12, tzinfo=UTC)
 EVENT = "signed up"
 WIDELY_SENT_EVENT = "opened app"
@@ -35,107 +44,129 @@ BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 CRAWLER_IP = "66.249.84.5"
 LOCAL_HOST = "localhost:8010"
 CHECKS_MODULE = "products.product_analytics.backend.insight_data_checks"
+RESULTS_MODULE = "products.product_analytics.backend.insight_data_check_results"
 ON_LOCAL_HOST = {"key": "$host", "value": [LOCAL_HOST], "operator": "exact", "type": "event"}
 FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "exact", "type": "event"}
 IS_PAID = {"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
 ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
 TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "event": EVENT}]
+TWENTY_DAYS = [date(2026, 3, 1) + timedelta(days=offset) for offset in range(20)]
 
 
-def counts(
-    events: int,
+def checked(
+    sampled_events: int,
     *,
-    local: int = 0,
+    local: int | None = 0,
     bots: int = 0,
-    duplicates: int = 0,
+    repeats: int = 0,
     sample_rate: float = 1.0,
-) -> DataCheckCounts:
-    return DataCheckCounts(
-        events=events,
+    range_scale: float = 1.0,
+) -> CheckedEvents:
+    return CheckedEvents(
         local_events=local,
-        bot_events=bots,
-        distinct_events=events - duplicates,
-        sample_rate=sample_rate,
+        sample=SampledEvents(
+            rate=sample_rate,
+            events=sampled_events,
+            bot_events=bots,
+            repeated_events=repeats,
+            distinct_ids=sampled_events,
+        ),
+        range_scale=range_scale,
     )
 
 
 class TestEvaluateDataChecks(SimpleTestCase):
     @parameterized.expand(
         [
+            ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
+            ("local_under_50_events", checked(100, local=49), {}),
             (
-                "local_tiny_share_still_counts",
-                InsightDataCheckKey.LOCAL_DEVELOPMENT,
-                counts(1000000, local=60),
-                WARNING,
+                "local_under_50_on_the_checked_days_but_over_50_in_the_range",
+                checked(10_000, local=10, range_scale=10),
+                {LOCAL: WARNING},
             ),
-            ("local_under_50_events", InsightDataCheckKey.LOCAL_DEVELOPMENT, counts(100, local=49), PASSED),
+            ("local_fifth_is_a_problem", checked(1000, local=200), {LOCAL: PROBLEM}),
+            ("local_too_many_events_to_count", checked(1000, local=None), {LOCAL: SKIPPED}),
+            ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
             (
-                "local_under_50_sampled_events_but_over_50_in_the_insight",
-                InsightDataCheckKey.LOCAL_DEVELOPMENT,
-                counts(1000000, local=10, sample_rate=0.01),
-                WARNING,
+                "bots_under_50_sampled_events_but_over_50_in_the_range",
+                checked(1000, bots=40, sample_rate=0.1),
+                {BOTS: WARNING},
             ),
-            ("local_fifth_is_a_problem", InsightDataCheckKey.LOCAL_DEVELOPMENT, counts(1000, local=200), PROBLEM),
-            ("bots_small_share_is_a_warning", InsightDataCheckKey.BOT_TRAFFIC, counts(10000, bots=200), WARNING),
+            ("bots_under_one_percent", checked(100_000, bots=500), {}),
+            ("duplicates_under_100_events", checked(1000, repeats=99), {}),
+            ("duplicates_under_five_percent", checked(10_000, repeats=400), {}),
+            ("duplicates_over_both_floors", checked(10_000, repeats=600), {DUPLICATES: WARNING}),
             (
-                "bots_under_50_sampled_events_but_over_50_in_the_insight",
-                InsightDataCheckKey.BOT_TRAFFIC,
-                counts(1000, bots=40, sample_rate=0.1),
-                WARNING,
+                "duplicates_under_100_sampled_events_but_over_100_in_the_range",
+                checked(1000, repeats=80, sample_rate=0.01),
+                {DUPLICATES: WARNING},
             ),
-            ("bots_under_one_percent", InsightDataCheckKey.BOT_TRAFFIC, counts(100000, bots=500), PASSED),
-            ("duplicates_under_100_events", InsightDataCheckKey.DUPLICATE_EVENTS, counts(1000, duplicates=99), PASSED),
-            (
-                "duplicates_under_five_percent",
-                InsightDataCheckKey.DUPLICATE_EVENTS,
-                counts(10000, duplicates=400),
-                PASSED,
-            ),
-            (
-                "duplicates_over_both_floors",
-                InsightDataCheckKey.DUPLICATE_EVENTS,
-                counts(10000, duplicates=600),
-                WARNING,
-            ),
-            (
-                "duplicates_under_100_sampled_events_but_over_100_in_the_insight",
-                InsightDataCheckKey.DUPLICATE_EVENTS,
-                counts(1000, duplicates=80, sample_rate=0.01),
-                WARNING,
-            ),
-            (
-                "duplicates_fifth_is_a_problem",
-                InsightDataCheckKey.DUPLICATE_EVENTS,
-                counts(1000, duplicates=250),
-                PROBLEM,
-            ),
+            ("duplicates_fifth_is_a_problem", checked(1000, repeats=250), {DUPLICATES: PROBLEM}),
+            ("sample_too_small_to_check", checked(500, sample_rate=0.1), {BOTS: SKIPPED, DUPLICATES: SKIPPED}),
         ]
     )
     def test_level_follows_count_and_share(
-        self, _name: str, key: InsightDataCheckKey, check_counts: DataCheckCounts, expected: InsightDataCheckLevel
+        self,
+        _name: str,
+        checked_events: CheckedEvents,
+        expected: dict[InsightDataCheckKey, InsightDataCheckLevel],
     ) -> None:
-        checks = evaluate_data_checks(check_counts)
+        checks = evaluate_data_checks(checked_events)
         assert {check.key: check.level for check in checks} == {
             **dict.fromkeys(InsightDataCheckKey, PASSED),
-            key: expected,
+            **expected,
         }
 
     @parameterized.expand(
         [
-            ("every_event_read", 1.0, "66 of these events came from local development"),
-            ("sample_read", 0.01, "About 6,600 of these events came from local development"),
+            (
+                "count_over_the_whole_range",
+                LOCAL,
+                checked(1_000_000, local=66),
+                "66 of these events came from local development",
+            ),
+            (
+                "count_scaled_up_from_the_checked_days",
+                LOCAL,
+                checked(1_000_000, local=66, range_scale=100),
+                "About 6,600 of these events came from local development",
+            ),
+            ("pass_on_every_event", BOTS, checked(50_000), "No bots or crawlers found"),
+            (
+                "pass_on_a_sample",
+                BOTS,
+                checked(50_000, sample_rate=0.5),
+                "No bots or crawlers found in a sample of 50,000 events",
+            ),
         ]
     )
-    def test_a_count_from_a_sample_is_scaled_up_to_the_whole_insight(
-        self, _name: str, sample_rate: float, expected: str
+    def test_result_says_when_its_number_is_an_estimate(
+        self, _name: str, key: InsightDataCheckKey, checked_events: CheckedEvents, expected: str
     ) -> None:
-        checks = evaluate_data_checks(counts(1000000, local=66, sample_rate=sample_rate))
-        results = {check.key: check.result for check in checks}
-        assert results[InsightDataCheckKey.LOCAL_DEVELOPMENT] == expected
+        results = {check.key: check.result for check in evaluate_data_checks(checked_events)}
+        assert results[key] == expected
+
+
+class TestChooseDaysToCheck(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("range_within_the_budget", 1000, TWENTY_DAYS),
+            (
+                "newest_days_in_full_then_days_spread_over_the_rest",
+                100,
+                [TWENTY_DAYS[index] for index in (1, 4, 7, 10, 13, 15, 16, 17, 18, 19)],
+            ),
+            ("newest_day_alone_over_the_budget", 5, [TWENTY_DAYS[-1]]),
+        ]
+    )
+    def test_chooses_days_within_the_budget(self, _name: str, budget: int, expected: list[date]) -> None:
+        assert choose_days_to_check(dict.fromkeys(TWENTY_DAYS, 10), budget) == expected
 
 
 @time_machine.travel(NOW, tick=False)
+@patch(f"{CHECKS_MODULE}.SIZING_SAMPLE_ONE_IN", 1)
 class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -197,11 +228,20 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     def _check(self, query: dict[str, Any]) -> InsightDataChecks:
         return run_insight_data_checks(query, team=self.team, user=self.user)
 
+    def _coverage(self, result: InsightDataChecks) -> InsightDataChecksCoverage:
+        assert result.coverage is not None
+        return result.coverage
+
+    def _events_in_range(self, query: dict[str, Any]) -> int | None:
+        return self._coverage(self._check(query)).events_in_range
+
     def test_counts_each_problem_in_the_events_the_insight_reads(self) -> None:
         result = self._check(self._query())
 
+        coverage = self._coverage(result)
         assert result.status == "warning"
-        assert (result.events_checked, result.sample_rate) == (600, 1)
+        assert coverage.events_in_range == 600
+        assert coverage.days_checked == coverage.days_in_range
         assert {check.key: (check.level, check.events) for check in result.checks} == {
             "local_development": ("warning", 60),
             "bot_traffic": ("warning", 60),
@@ -270,7 +310,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     def test_checks_only_what_the_insights_own_filters_keep(
         self, _name: str, source: dict[str, Any], events_checked: int
     ) -> None:
-        assert self._check(self._query(**source)).events_checked == events_checked
+        assert self._events_in_range(self._query(**source)) == events_checked
 
     @parameterized.expand(
         [
@@ -322,31 +362,25 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        checks = self._check(query)
-
-        assert checks.events_checked == events_checked
+        assert self._events_in_range(query) == events_checked
 
     def test_a_first_time_series_checks_only_the_events_in_its_date_range(self) -> None:
         query = self._query([{"kind": "EventsNode", "event": EVENT, "math": "first_time_for_user"}], kind="TrendsQuery")
 
-        checks = self._check(query)
-
-        assert checks.events_checked == 630
+        assert self._events_in_range(query) == 630
 
     @parameterized.expand(
         [
-            ("that_has_no_filter", [], 100, 0.25, 98),
-            ("whose_filter_keeps_fewer_events_than_the_limit", [IS_PAID], 100, 1, 20),
-            ("whose_filter_keeps_more_events_than_the_limit", [IS_PAID], 10, 0.5, 12),
+            ("that_has_no_filter", [], 98, PASSED),
+            ("whose_filter_keeps_too_few_sampled_events", [IS_PAID], 6, SKIPPED),
         ]
     )
-    def test_reads_a_sample_of_an_insight_with_more_events_than_the_limit(
+    def test_samples_an_insight_with_more_events_than_the_sample_size(
         self,
         _name: str,
         properties: list[dict[str, Any]],
-        max_checked_events: int,
-        sample_rate: float,
-        events_checked: int,
+        sampled_events: int,
+        bot_check_level: InsightDataCheckLevel,
     ) -> None:
         for person in range(10):
             self._events(2, distinct_id=f"person-{person}", event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
@@ -355,14 +389,49 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with (
-            patch(f"{CHECKS_MODULE}.MAX_CHECKED_EVENTS", max_checked_events),
-            patch(f"{CHECKS_MODULE}.MIN_CHECKED_EVENTS", 40),
+            patch(f"{CHECKS_MODULE}.SAMPLE_SIZE", 100),
+            patch(f"{RESULTS_MODULE}.MIN_SAMPLED_EVENTS", 50),
         ):
             result = self._check(
                 self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=properties)
             )
 
-        assert (result.sample_rate, result.events_checked) == (sample_rate, events_checked)
+        sample = self._coverage(result).sample
+        assert sample is not None
+        assert (sample.rate, sample.events) == (0.25, sampled_events)
+        assert {check.key: check.level for check in result.checks}[BOTS] == bot_check_level
+
+    def test_checks_the_newest_days_and_a_spread_of_older_days_when_the_range_is_over_the_budget(self) -> None:
+        for days_ago in range(20):
+            self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+        flush_persons_and_events()
+        query = self._query(
+            [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],
+            kind="StickinessQuery",
+            dateRange={"date_from": "-19d"},
+        )
+
+        with patch(f"{CHECKS_MODULE}.EVENT_BUDGET", 100):
+            result = self._check(query)
+
+        coverage = self._coverage(result)
+        local = next(check for check in result.checks if check.key == LOCAL)
+        assert (coverage.days_in_range, coverage.days_checked, coverage.events_in_range) == (20, 10, 200)
+        assert (local.events, local.scaled) == (200, True)
+
+    def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
+        sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))
+        clicked_twice_by_a_person = (timedelta(seconds=30), timedelta(seconds=30.3))
+        for pair in range(10):
+            sent_at = NOW - timedelta(days=2, minutes=pair)
+            for gap in (*sent_twice_by_the_app, *clicked_twice_by_a_person):
+                _create_event(team=self.team, event=WIDELY_SENT_EVENT, distinct_id="real", timestamp=sent_at + gap)
+        flush_persons_and_events()
+
+        result = self._check(self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}]))
+
+        duplicates = next(check for check in result.checks if check.key == DUPLICATES)
+        assert duplicates.events == 10
 
     @parameterized.expand(
         [
@@ -390,7 +459,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self._events(40, event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
         flush_persons_and_events()
         query = self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=[IS_PAID])
-        assert self._check(query).events_checked == 40
+        assert self._events_in_range(query) == 40
 
         plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
         upsert_property_access_control(

@@ -12,7 +12,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -22,6 +22,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckAction,
     InsightDataCheckKey,
     InsightDataCheckLevel,
+    InsightDataCheckMethod,
     InsightDataChecksStatus,
 )
 
@@ -67,13 +68,42 @@ class InsightDataCheck:
     result: str
     fix: str | None = None
     action: InsightDataCheckAction | None = None
+    method: InsightDataCheckMethod | None = None
+    # The affected events in the insight's whole range, which is an estimate when `scaled` is true.
     events: int | None = None
     share: float | None = None
+    scaled: bool = False
+
+
+@dataclass(frozen=True)
+class InsightDataCheckedPeriod:
+    date_from: date
+    date_to: date
+
+
+@dataclass(frozen=True)
+class InsightDataChecksSample:
+    # The share of the events on the checked days that the sample reads.
+    rate: float
+    events: int
+    distinct_ids: int
+
+
+@dataclass(frozen=True)
+class InsightDataChecksCoverage:
+    date_from: date
+    date_to: date
+    days_in_range: int
+    days_checked: int
+    checked_periods: list[InsightDataCheckedPeriod]
+    filters_test_accounts: bool
+    # Scaled up from the sample and the checked days, so it is exact only when both cover every event.
+    events_in_range: int | None
+    sample: InsightDataChecksSample | None
 
 
 @dataclass(frozen=True)
 class InsightDataChecks:
     status: InsightDataChecksStatus
     checks: list[InsightDataCheck]
-    events_checked: int
-    sample_rate: float
+    coverage: InsightDataChecksCoverage | None

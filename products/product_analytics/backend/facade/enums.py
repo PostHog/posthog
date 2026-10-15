@@ -30,6 +30,11 @@ class InsightDataCheckLevel(LabeledStrEnum):
     SKIPPED = "skipped", "Not checked"
 
 
+class InsightDataCheckMethod(LabeledStrEnum):
+    COUNTED = "counted", "Counted every event on the days checked"
+    SAMPLED = "sampled", "Checked a sample of the events on the days checked"
+
+
 class InsightDataCheckAction(LabeledStrEnum):
     OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
 
