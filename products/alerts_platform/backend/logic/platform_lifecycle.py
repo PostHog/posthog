@@ -128,6 +128,11 @@ def _alerts_for_write(
     return loaded
 
 
+def _at_rest(now: datetime) -> Q:
+    """Rows that hold a slot and nothing else, as `InstanceCheckState.at_rest` reads an instance."""
+    return Q(state=PlatformAlert.State.NOT_FIRING) & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+
+
 # Long enough that a group which resolves and fires again inside a day keeps its cooldown.
 REAP_AFTER: Final = timedelta(hours=24)
 
@@ -152,10 +157,7 @@ def _reap(
         return
     candidates = (
         PlatformAlert.objects.for_team(team_id)
-        .filter(
-            configuration_id__in=list(healthy), state=PlatformAlert.State.NOT_FIRING, last_seen_at__lt=now - REAP_AFTER
-        )
-        .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+        .filter(_at_rest(now), configuration_id__in=list(healthy), last_seen_at__lt=now - REAP_AFTER)
         .values_list("id", "configuration_id", "grouping_key", "last_seen_at")
     )
     reaped: dict[str, list[UUID]] = {}
@@ -171,6 +173,33 @@ def _reap(
     for source_kind, ids in reaped.items():
         PlatformAlert.objects.for_team(team_id).filter(id__in=ids).delete()
         safe_record(increment_instances_reaped, source_kind, len(ids))
+
+
+def _evict(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    by_id: dict[str, PlatformAlertOutcome],
+    now: datetime,
+) -> None:
+    """Deletes the resting instances a check evicted, so the groups that took their slots pass the cap.
+
+    The filter repeats the check's notion of at rest, because the row may have changed since the
+    check read it, and deleting a firing or muted instance would lose its state.
+    """
+    doomed: dict[str, Q] = {}
+    for configuration in configurations:
+        evicted = by_id[str(configuration.id)].evicted
+        if not evicted or Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            continue
+        if configuration.snooze_until is not None and configuration.snooze_until > now:
+            continue
+        doomed[configuration.source_kind] = doomed.get(configuration.source_kind, Q()) | Q(
+            configuration_id=configuration.id, grouping_key__in=evicted
+        )
+    for source_kind, rows in doomed.items():
+        deleted, _ = PlatformAlert.objects.for_team(team_id).filter(rows, _at_rest(now)).delete()
+        if deleted:
+            safe_record(increment_instances_reaped, source_kind, deleted)
 
 
 def suppressed() -> Q:
@@ -271,6 +300,7 @@ def _composed(configuration: PlatformAlertConfiguration, alert: PlatformAlert | 
         snooze_until=alert.snooze_until if alert else None,
         last_notified_at=alert.last_notified_at if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        last_seen_at=alert.last_seen_at if alert else None,
     )
 
 
@@ -428,18 +458,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             for configuration in configurations
             for group in by_id[str(configuration.id)].groups
         ]
-        # Before the cap is counted, so a slot a stale group held is free for a new one this check.
-        _reap(
-            team_id,
-            [
-                configuration
-                for configuration in configurations
-                if _check_status(configuration, by_id[str(configuration.id)])
-                == PlatformAlertConfiguration.CheckStatus.OK
-            ],
-            now,
-            returned=frozenset(returned),
-        )
+        healthy = [
+            configuration
+            for configuration in configurations
+            if _check_status(configuration, by_id[str(configuration.id)]) == PlatformAlertConfiguration.CheckStatus.OK
+        ]
+        # Before the cap is counted, so a slot a stale or evicted group held is free for a new one this check.
+        _reap(team_id, healthy, now, returned=frozenset(returned))
+        _evict(team_id, healthy, by_id, now)
         alerts = _alerts_for_write(team_id, configurations, returned)
         touched: list[PlatformAlert] = []
         # One read for the batch. Every configuration in it belongs to this team, and a

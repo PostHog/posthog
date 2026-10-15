@@ -71,10 +71,12 @@ class GroupVerdict:
 
 @frozen
 class GroupDecision:
-    """The admitted groups, firing first, and how many new groups the cap turned away."""
+    """The admitted groups, firing first, the resting instances evicted to admit them, and how many
+    new groups the cap turned away."""
 
     verdicts: tuple[GroupVerdict, ...]
     overflowed: int
+    evicted: frozenset[str] = frozenset()
 
     def as_outcome(
         self, *, configuration_id: UUID, evaluation_key: str, query_duration_ms: int | None
@@ -87,6 +89,7 @@ class GroupDecision:
             groups=tuple(verdict.group for verdict in self.verdicts),
             query_duration_ms=query_duration_ms,
             overflowed=self.overflowed,
+            evicted=tuple(sorted(self.evicted)),
         )
 
 
@@ -147,7 +150,7 @@ def decide_groups(
 
     # Firing groups first, so a cap keeps the groups that announce something.
     judged.sort(key=lambda item: item[2].new_state == AlertState.NOT_FIRING)
-    admission = check.admit([observation.grouping_key for observation, _, _ in judged])
+    admission = check.admit([observation.grouping_key for observation, _, _ in judged], now=now)
     verdicts = tuple(
         GroupVerdict(
             observation=observation,
@@ -167,4 +170,4 @@ def decide_groups(
         for observation, snapshot, outcome in judged
         if observation.grouping_key in admission.admitted
     )
-    return GroupDecision(verdicts=verdicts, overflowed=admission.overflowed)
+    return GroupDecision(verdicts=verdicts, overflowed=admission.overflowed, evicted=admission.evicted)
