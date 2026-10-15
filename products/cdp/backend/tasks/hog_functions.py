@@ -1,12 +1,15 @@
+from collections import defaultdict
 from typing import Optional
 
 from django.core.management import call_command
+from django.db.models import Q
 from django.utils import timezone
 
 from celery import shared_task
 from structlog import get_logger
 
 from posthog.celery_queues import CeleryQueue
+from posthog.models import Team
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -26,11 +29,13 @@ def refresh_affected_hog_functions(
     affected_hog_functions: list[HogFunction] = []
 
     if action_id:
-        action = Action.objects.get(id=action_id)
+        action = Action.objects.select_related("team").get(id=action_id)
         team_id = action.team_id
+        project_team_ids = list(Team.objects.filter(project_id=action.team.project_id).values_list("id", flat=True))
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
-            .filter(team_id=action.team_id)
+            .filter(team_id__in=project_team_ids)
+            .filter(Q(team_id=action.team_id) | Q(mcp_event_subscription__isnull=False))
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
@@ -99,9 +104,11 @@ def refresh_affected_hog_functions(
 
     updates = HogFunction.objects.bulk_update(successfully_compiled_hog_functions, ["filters", "updated_at"])
 
-    reload_hog_functions_on_workers(
-        team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in successfully_compiled_hog_functions]
-    )
+    function_ids_by_team: dict[int, list[str]] = defaultdict(list)
+    for hog_function in successfully_compiled_hog_functions:
+        function_ids_by_team[hog_function.team_id].append(str(hog_function.id))
+    for affected_team_id, function_ids in function_ids_by_team.items():
+        reload_hog_functions_on_workers(team_id=affected_team_id, hog_function_ids=function_ids)
 
     return updates
 

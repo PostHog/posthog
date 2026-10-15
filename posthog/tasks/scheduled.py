@@ -86,6 +86,7 @@ from products.approvals.backend.tasks import (
     validate_pending_change_requests,
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
@@ -271,6 +272,9 @@ def add_periodic_task_with_expiry(
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="*/5"), expire_mcp_event_subscriptions.s(), name="expire-mcp-event-subscriptions"
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
