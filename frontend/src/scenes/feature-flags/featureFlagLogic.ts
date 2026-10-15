@@ -906,6 +906,10 @@ function agentRefreshFailedToastId(id: FeatureFlagLogicProps['id'], attempt: num
     return `feature-flag-agent-refresh-failed-${id}-${attempt}`
 }
 
+function reloadFailedToastId(id: FeatureFlagLogicProps['id']): string {
+    return `feature-flag-reload-failed-${id}`
+}
+
 // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id cancelled and would
 // swallow the notice for the next agent change on this flag.
 function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<string, any>): void {
@@ -4424,11 +4428,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (values.accessDeniedToFeatureFlag) {
                 return
             }
+            if (!cache.hasCapturedFlagReloadFailure) {
+                cache.hasCapturedFlagReloadFailure = true
+                posthog.capture('feature flag reload failed', { status: errorObject?.status ?? null })
+            }
             // A reload of a flag already on screen failed, and initKea does not toast this action.
             // kea-loaders keeps the previous working copy, so after Cancel it still shows the
             // discarded edits as if they were saved.
             lemonToast.error("We couldn't reload this feature flag. The page may not show its saved version.", {
-                toastId: `feature-flag-reload-failed-${props.id}`,
+                toastId: reloadFailedToastId(props.id),
                 button: {
                     label: 'Try again',
                     action: () => actions.loadFeatureFlag(),
@@ -4441,6 +4449,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
             dismissAgentNotices(props.id, cache)
+            // Plain toast.dismiss for the same reason as in dismissAgentNotices.
+            toast.dismiss(reloadFailedToastId(props.id))
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
             // it once against the loaded flag; only on the first load, so a later reload (e.g.

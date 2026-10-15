@@ -1,5 +1,6 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,6 +15,7 @@ export interface ExperimentTabLogicProps {
 export interface experimentTabLogicValues {
     currentProjectId: number | string // teamLogic
     relatedExperiments: Experiment[]
+    relatedExperimentsLoadFailed: boolean
     relatedExperimentsLoading: boolean
 }
 
@@ -66,6 +68,25 @@ export const experimentTabLogic = kea<experimentTabLogicType>([
                 },
             },
         ],
+    })),
+    reducers({
+        // A retry does not clear this, so the retry banner stays mounted and shows its spinner.
+        relatedExperimentsLoadFailed: [
+            false,
+            {
+                loadRelatedExperimentsFailure: () => true,
+                loadRelatedExperimentsSuccess: () => false,
+            },
+        ],
+    }),
+    listeners(({ cache }) => ({
+        loadRelatedExperimentsFailure: ({ errorObject }) => {
+            // Count each failure once per mount, because a retry that fails again is the same dead end.
+            if (!cache.hasCapturedLoadFailure) {
+                cache.hasCapturedLoadFailure = true
+                posthog.capture('feature flag experiments tab load failed', { status: errorObject?.status ?? null })
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadRelatedExperiments()

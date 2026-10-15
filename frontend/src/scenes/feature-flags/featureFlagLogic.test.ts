@@ -797,6 +797,27 @@ describe('featureFlagLogic', () => {
             }
         })
 
+        it('captures a failed reload and clears its toast once a later reload succeeds', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const dismiss = jest.spyOn(toast, 'dismiss')
+            try {
+                useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+                await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                    'loadFeatureFlagFailure',
+                ])
+                expect(capture).toHaveBeenCalledWith('feature flag reload failed', { status: 500 })
+                const toastId = toastSpy.mock.calls[0][1].toastId
+
+                useMocks({ get: { [FLAG_URL]: () => [200, MOCK_FEATURE_FLAG] } })
+                await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toFinishAllListeners()
+
+                expect(dismiss).toHaveBeenCalledWith(toastId)
+            } finally {
+                capture.mockRestore()
+                dismiss.mockRestore()
+            }
+        })
+
         it('offers the retry banner when the flag to duplicate fails to load', async () => {
             useMocks({
                 get: { [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/42/`]: () => [500, SERVER_ERROR_BODY] },

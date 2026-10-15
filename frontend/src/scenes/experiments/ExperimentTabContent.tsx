@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
@@ -21,9 +21,9 @@ export const ExperimentTabContent = ({
     /**
      * we only operate with existing feature flags, so id will never be null.
      */
-    const { relatedExperiments, relatedExperimentsLoading } = useValues(
-        experimentTabLogic({ featureFlagId: featureFlag.id! })
-    )
+    const logic = experimentTabLogic({ featureFlagId: featureFlag.id! })
+    const { relatedExperiments, relatedExperimentsLoading, relatedExperimentsLoadFailed } = useValues(logic)
+    const { loadRelatedExperiments } = useActions(logic)
 
     let eligibilityError: string | null = null
     try {
@@ -47,6 +47,21 @@ export const ExperimentTabContent = ({
                     </div>
                 </LemonBanner>
             </div>
+        )
+    }
+
+    if (relatedExperimentsLoadFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    loading: relatedExperimentsLoading,
+                    onClick: () => loadRelatedExperiments(),
+                }}
+            >
+                We couldn't load the experiments for this flag. The rest of the flag is not affected.
+            </LemonBanner>
         )
     }
 
