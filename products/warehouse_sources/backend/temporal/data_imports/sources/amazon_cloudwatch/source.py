@@ -61,6 +61,11 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AMAZONCLOUDWATCH
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The region picks the endpoint the signed requests, and so the stored key, are sent to.
+        return ["aws_region"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
             f"Amazon CloudWatch request failed: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
