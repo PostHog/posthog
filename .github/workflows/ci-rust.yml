@@ -90,6 +90,8 @@ jobs:
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                        # replay-core-v4's tests read the encryption vectors the Node writers pin
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
                       all_crates:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
@@ -856,11 +858,13 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # clippy --all-targets compiles replay-core-v4's tests, which read the encryption vectors the Node writers pin.
                   sparse-checkout: |
                       rust/
                       proto/
                       .github/actions/setup-protoc/
                       .github/actions/setup-sccache/
+                      nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
                   sparse-checkout-cone-mode: false
                   clean: false
 
