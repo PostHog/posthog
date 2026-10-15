@@ -14,8 +14,10 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team import Team
 from posthog.tasks.alerts.detectors import get_detector
 
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.onboarding import create_default_ingestion_alert
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -65,7 +67,16 @@ class TestDefaultIngestionAlert(BaseTest):
         assert alert.enabled == email_available
         assert alert.skip_weekend
         assert alert.calculation_interval == "daily"
-        assert alert.next_check_at == datetime(2026, 10, 18, 12, tzinfo=UTC)
+        assert alert.next_check_at == datetime(2026, 10, 18, 12, tzinfo=UTC) + alert_check_offset(
+            CalendarInterval.DAILY, alert.id
+        )
+        validate_alert_config(
+            alert.insight.query,
+            alert.condition,
+            alert.config,
+            calculation_interval=alert.calculation_interval,
+            detector_config=alert.detector_config,
+        )
 
         assert create_default_ingestion_alert(team, self.user) is None
         alert.delete()

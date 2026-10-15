@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
+from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -87,12 +88,13 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
     )
     first_check_date = team.created_at.astimezone(ZoneInfo(team.timezone)).date() + timedelta(days=17)
     first_check_at = datetime.combine(first_check_date, time(1), tzinfo=ZoneInfo(team.timezone)).astimezone(UTC)
-    alert = AlertConfiguration.objects.create(
+    alert = AlertConfiguration(
         team=team,
         insight=insight,
         created_by=user,
         name="Event ingestion changes",
         calculation_interval="daily",
+        condition={"type": "absolute_value"},
         config={
             "type": "HogQLAlertConfig",
             "evaluation": "last_row",
@@ -102,8 +104,9 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
         detector_config=INGESTION_DETECTOR_CONFIG,
         enabled=is_email_available(),
         skip_weekend=True,
-        next_check_at=first_check_at,
     )
+    alert.next_check_at = first_check_at + alert_check_offset(CalendarInterval.DAILY, alert.id)
+    alert.save()
     AlertSubscription.objects.create(alert_configuration=alert, user=user, created_by=user)
     return alert.id
 
