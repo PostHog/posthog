@@ -3978,8 +3978,14 @@ class ExperimentService:
                 # The same adoption check create_experiment applies, taken before the variants are
                 # read so a flag this product cannot use surfaces as a validation error here too.
                 assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
-                if existing_flag.variants:
-                    clone_variants = deepcopy(existing_flag.variants)
+                # The key is usually defaulted (source key) or slugified from the name, so a collision
+                # with a flag that can't back an experiment must name the key, not the flag's variants.
+                if experiment_eligibility_error(existing_flag.variants):
+                    raise ValidationError(
+                        f"A feature flag with key '{feature_flag_key}' already exists in the target project "
+                        "and can't back an experiment. Choose a different feature flag key."
+                    )
+                clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:

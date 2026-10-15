@@ -4683,6 +4683,38 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Should reuse the existing flag
         self.assertEqual(copied_experiment["feature_flag"]["id"], existing_flag.id)
 
+    @parameterized.expand([("duplicate", False), ("copy_to_project", True)])
+    def test_clone_rejects_key_of_flag_that_cannot_back_an_experiment(self, action: str, cross_project: bool) -> None:
+        target_team = (
+            Team.objects.create(organization=self.organization, name="Target Team") if cross_project else self.team
+        )
+        FeatureFlag.objects.create(
+            team=target_team,
+            key="taken-key",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Source", "feature_flag_key": "source-flag"},
+        )
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        body: dict = {"feature_flag_key": "taken-key"}
+        if cross_project:
+            body["target_team_id"] = target_team.id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_response.json()['id']}/{action}/", body
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json()["detail"],
+            "A feature flag with key 'taken-key' already exists in the target project and can't back an experiment. "
+            "Choose a different feature flag key.",
+        )
+        self.assertFalse(Experiment.objects.filter(team=target_team, feature_flag__key="taken-key").exists())
+
     def test_copy_experiment_to_project_skips_saved_metrics_and_holdout(self) -> None:
         target_team = Team.objects.create(organization=self.organization, name="Target Team")
 
