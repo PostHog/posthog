@@ -66,7 +66,7 @@ describe('views in demo mode', () => {
         expect(result.current.refresh.button).toBe('blocked')
 
         act(() => result.current.refresh.onButton())
-        expect(result.current.refresh.hint).toBe('Up to date. You can refresh again in 5 min.')
+        expect(result.current.refresh.hint).toBe('You can refresh again in 5 min.')
         await advance(3000)
         expect(result.current.refresh.hint).toBeNull()
     })

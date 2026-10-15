@@ -103,7 +103,7 @@ export type RefreshButtonState = 'idle' | 'busy' | 'blocked'
 export interface ViewRefresh {
     status: StatusLine
     button: RefreshButtonState
-    /** "Up to date. You can refresh again in 3 min." for 3 s after a tap or pull that could not force. */
+    /** "You can refresh again in 3 min." for 3 s after a tap or pull that could not force. */
     hint: string | null
     blocked: BlockedState
     pulling: boolean

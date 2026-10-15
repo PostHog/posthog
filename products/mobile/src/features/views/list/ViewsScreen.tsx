@@ -15,7 +15,7 @@ import { StateView } from '@/ui/StateView'
 import { colors, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { TABS_HEADER_BOTTOM_WITH_STATUS } from '../../tabs/TabsHeader'
+import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
 import { type PinSource, trackViewOpenedInWeb } from '../analytics'
 import { useViewsSearch } from '../browseHooks'
@@ -106,10 +106,7 @@ function ViewsReauth({ access }: { access: ViewsAccess }): ReactElement {
             <View
                 style={[
                     styles.fill,
-                    {
-                        paddingTop: topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS),
-                        paddingBottom: bottomOffset(insets, 120),
-                    },
+                    { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: bottomOffset(insets, 120) },
                 ]}
             >
                 <ViewsReauthState access={access} />
@@ -479,7 +476,7 @@ function ViewsBody(): ReactElement {
         []
     )
 
-    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS)
+    const contentTop = topOffset(insets, TABS_HEADER_BOTTOM)
     const contentBottom = bottomOffset(insets, 120)
     const { refresh } = list
     const loading = list.pins.data === undefined && !list.pins.isError
@@ -548,12 +545,14 @@ function ViewsBody(): ReactElement {
                 renderSectionHeader={renderSectionHeader}
                 stickySectionHeadersEnabled={false}
                 ListHeaderComponent={
-                    <ViewsSearchField
-                        value={text}
-                        onChangeText={setText}
-                        placeholder="Search views"
-                        testID="views-search"
-                    />
+                    <View style={styles.search}>
+                        <ViewsSearchField
+                            value={text}
+                            onChangeText={setText}
+                            placeholder="Search views"
+                            testID="views-search"
+                        />
+                    </View>
                 }
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -658,6 +657,10 @@ const styles = StyleSheet.create({
     },
     content: {
         paddingHorizontal: layout.inboxGutter,
+    },
+    // The same top margin as the Chats search field, so the field sits at one spot across the two tabs.
+    search: {
+        marginTop: 4,
     },
     sectionHeader: {
         minHeight: 28,

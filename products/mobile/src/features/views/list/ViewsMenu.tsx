@@ -13,7 +13,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { TABS_HEADER_BOTTOM_WITH_STATUS } from '../../tabs/TabsHeader'
+import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { ModeSegment } from './ModeSegment'
 
 /** The bottom bar's design inset, the same one the list pads its content by. */
@@ -59,7 +59,7 @@ export function MenuCard({
         rowTop: anchor.y,
         rowBottom: anchor.y + anchor.height,
         menuHeight: height ?? 0,
-        topLimit: topOffset(insets, TABS_HEADER_BOTTOM_WITH_STATUS),
+        topLimit: topOffset(insets, TABS_HEADER_BOTTOM),
         bottomLimit: screenHeight - bottomOffset(insets, BOTTOM_BAR_ZONE),
     })
     const top = height === null ? -screenHeight : placement.top

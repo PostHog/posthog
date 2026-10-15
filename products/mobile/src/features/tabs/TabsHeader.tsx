@@ -21,10 +21,8 @@ const STATUS_HEIGHT = 18
 /** The title is centered in the row, so the status line starts at the title's bottom edge. */
 const STATUS_TOP = (HEADER_ROW_HEIGHT + TITLE_HEIGHT) / 2
 const STATUS_BOTTOM = HEADER_TOP + STATUS_TOP + STATUS_HEIGHT
-/** Design-frame offset where a tab's content starts at rest. */
+/** Design-frame offset where a tab's content starts at rest, with or without a status line. */
 export const TABS_HEADER_BOTTOM = HEADER_ROW_BOTTOM + 12
-/** The same for a tab with a status line. The refresh hint sits in the gap above it. */
-export const TABS_HEADER_BOTTOM_WITH_STATUS = Math.round(STATUS_BOTTOM + 23)
 /** The fade below the row reaches past the first row's top, so rows dissolve under the header instead of being cut. */
 const HEADER_FADE = 28
 const SOLID = HEADER_ROW_BOTTOM / (HEADER_ROW_BOTTOM + HEADER_FADE)
@@ -43,8 +41,8 @@ interface TabsHeaderProps {
 
 /**
  * The header of the Inbox, Chats and Views tabs. The tabs layout draws it once, so the logo, the title and the controls
- * keep their place and their state across a tab switch. The status line and the refresh hint are absolutely
- * positioned, so they never move the title row.
+ * keep their place and their state across a tab switch. The status line is absolutely positioned, so it never moves
+ * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */
 export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement {
     const insets = useScreenInsets()
@@ -73,12 +71,13 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                         {editing ? editing.title : TITLES[tab]}
                     </Text>
                 </View>
-                {status !== null ? (
+                {hint ? (
+                    <RefreshHint text={hint} style={styles.hint} testID={`${tab}-refresh-hint`} />
+                ) : status !== null ? (
                     <Text style={styles.status} numberOfLines={1} accessibilityRole="text" testID={`${tab}-updated`}>
                         {status}
                     </Text>
                 ) : null}
-                {hint ? <RefreshHint text={hint} style={styles.hint} testID={`${tab}-refresh-hint`} /> : null}
             </View>
             {editing ? (
                 <Pressable44
@@ -157,9 +156,9 @@ const styles = StyleSheet.create({
     },
     hint: {
         position: 'absolute',
-        top: STATUS_TOP + STATUS_HEIGHT + 2,
+        top: STATUS_TOP + 1,
         left: 0,
-        width: 320,
+        right: 0,
     },
     button: {
         width: 56,

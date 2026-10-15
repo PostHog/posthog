@@ -196,7 +196,7 @@ export function minutesUntil(until: number | null, now: number = serverNow()): n
 }
 
 export function refreshHintText(until: number | null, now: number = serverNow()): string {
-    return `Up to date. You can refresh again in ${minutesUntil(until, now)} min.`
+    return `You can refresh again in ${minutesUntil(until, now)} min.`
 }
 
 /**

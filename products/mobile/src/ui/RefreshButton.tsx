@@ -21,7 +21,7 @@ export type RefreshButtonState = 'idle' | 'busy' | 'blocked'
 interface RefreshButtonProps {
     state: RefreshButtonState
     onPress: () => void
-    /** Spoken while blocked: the same words as the hint, such as "Up to date. You can refresh again in 3 min." */
+    /** Spoken while blocked: the same words as the hint, such as "You can refresh again in 3 min." */
     blockedLabel?: string
     /** No taps at all, for example while the screen has nothing loaded. */
     disabled?: boolean
@@ -93,7 +93,13 @@ interface RefreshHintProps {
  */
 export function RefreshHint({ text, style, testID = 'views-refresh-hint' }: RefreshHintProps): ReactElement {
     return (
-        <Text style={[styles.hint, style]} accessibilityLiveRegion="polite" accessibilityRole="text" testID={testID}>
+        <Text
+            style={[styles.hint, style]}
+            numberOfLines={1}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="text"
+            testID={testID}
+        >
             {text}
         </Text>
     )
