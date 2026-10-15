@@ -185,6 +185,9 @@ export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', '
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
 export type HogFlowEditorLayout = 'simple' | 'advanced'
+
+const EDITOR_LAYOUT_BY_VIEW: Partial<Record<string, HogFlowEditorLayout>> = { linear: 'simple', graph: 'advanced' }
+
 export type HogFlowEditorActionMetrics = {
     actionId: string
     succeeded: number
@@ -230,6 +233,7 @@ export interface hogFlowEditorLogicValues {
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
     panelWidth: number | null
+    preferredEditorLayout: HogFlowEditorLayout
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
@@ -2086,6 +2090,9 @@ export interface hogFlowEditorLogicActions {
     onNodesDelete: (deleted: HogFlowActionNode[]) => {
         deleted: HogFlowActionNode[]
     }
+    pickEditorLayout: (editorLayout: HogFlowEditorLayout) => {
+        editorLayout: HogFlowEditorLayout
+    }
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
     }
@@ -2233,6 +2240,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
         setEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
+        pickEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         setPanelWidth: (panelWidth: number) => ({ panelWidth }),
         setTreePathsCollapsedByDefault: (collapsed: boolean) => ({ collapsed }),
@@ -2270,6 +2278,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             'simple' as HogFlowEditorLayout,
             {
                 setEditorLayout: (_, { editorLayout }) => editorLayout,
+            },
+        ],
+        preferredEditorLayout: [
+            'simple' as HogFlowEditorLayout,
+            { persist: true, storageKey: 'hogFlowEditorPreferredLayout' },
+            {
+                pickEditorLayout: (_, { editorLayout }) => editorLayout,
             },
         ],
         mode: [
@@ -2505,6 +2520,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     listeners(({ values, actions }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
+            pickEditorLayout: ({ editorLayout }) => {
+                actions.setEditorLayout(editorLayout)
+            },
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
             },
@@ -3129,7 +3147,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
             }
-            const requestedEditorLayout = view === 'graph' ? 'advanced' : 'simple'
+            const requestedEditorLayout = EDITOR_LAYOUT_BY_VIEW[view] ?? values.preferredEditorLayout
             const editorLayout =
                 requestedEditorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)
                     ? 'advanced'
