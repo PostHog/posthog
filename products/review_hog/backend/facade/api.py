@@ -74,6 +74,9 @@ from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
 
+# The folded row names a few of its repositories, so people can tell which ones it holds.
+FOLDED_PREVIEW_SIZE = 3
+
 
 def list_review_skill_choices(team_id: int, user_id: int, kind: ReviewSkillKind) -> list[ReviewSkillChoice]:
     """The review skills of `kind` the user can see, by name, with the user's state for each.
@@ -448,13 +451,18 @@ def get_review_repository_overview(
     repositories = _project_repositories(team_id, user_id)
     listed = repositories.installation_repositories(installation_id, search)
     overview = RepositoryOverview(repositories.team, repositories.user, installation_id, listed)
-    entries, total = overview.page(listed, view=view, offset=offset, limit=limit)
+    entries, total = overview.page(view=view, offset=offset, limit=limit)
+    folds = view == RepositoryOverviewView.DIFFERS or (view == RepositoryOverviewView.ALL and not search.strip())
+    folded = overview.folded() if folds else []
     claim = repositories.claim_for(installation_id)
     return ReviewRepositoryOverviewPage(
         installation_id=installation_id,
         claim_scope=ReviewInstallationClaimScope(claim.scope) if claim is not None else None,
         entries=[_overview_entry(entry) for entry in entries],
         total=total,
+        folded=len(folded),
+        folded_preview=[entry.full_name for entry in folded[:FOLDED_PREVIEW_SIZE]],
+        folded_result=folded[0].my_result if folded else None,
         my_choices_unlike_default=overview.choices_unlike_default(),
     )
 
