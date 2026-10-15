@@ -5696,7 +5696,6 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
-        self.assertTrue(metadata["client_id_metadata_document_supported"])
 
     def test_metadata_advertises_every_method_cimd_registers_under(self):
         # Guards the drift that broke CIMD installs: a client registers under a method the
@@ -5744,6 +5743,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         response = self.client.get("/.well-known/oauth-authorization-server")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["client_id_metadata_document_supported"])
 
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_metadata_includes_region_for_cloud(self):
