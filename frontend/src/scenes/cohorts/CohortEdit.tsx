@@ -891,6 +891,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                         fileNameForExport: cohort.name,
                                                         cohortId: cohortId,
                                                         dataNodeLogicKey: dataNodeLogicKey,
+                                                        dataTableExpectedTotalRows: shouldShowCountWarning
+                                                            ? (cohort.count ?? undefined)
+                                                            : undefined,
                                                         columns: canRemovePersonFromCohort
                                                             ? {
                                                                   'person.$delete': {
