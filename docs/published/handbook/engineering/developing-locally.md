@@ -291,6 +291,11 @@ Create the flag with these variant keys before testing a rollout.
 - `list_resources` returns authorized dashboard or insight IDs scoped to the requested project.
   Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
   A supplied limit returns an empty, incomplete result if exceeded.
+- HogQL uses `list_resources(action=Action.QUERY)` to request a project-scoped row filter.
+  `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
+  A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
+  Incomplete filters deny every row. Query filters default to a 1,000-ID cap; `limit` overrides it.
+  Existing view, list, and write callers retain the PoC's inclusion-only results.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
 The pilot supports dashboard and insight objects, their resource types, projects, organizations, and roles.

@@ -65,6 +65,9 @@ class TestLegacyAuthorization(BaseTest):
         listed = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject)
         assert listed.complete
         assert listed.ids == (frozenset({str(self.dashboard_id)}) if Action.VIEW in expected else frozenset())
+        query_filter = api.list_resources(resource=self.dashboards, action=Action.QUERY, subject=self.subject)
+        assert query_filter.complete
+        assert query_filter.allows(str(self.dashboard_id)) == (Action.VIEW in expected)
         assert not api.check(resource=self.dashboards, action=Action.CREATE, subject=self.subject)
 
     @parameterized.expand(
@@ -103,6 +106,9 @@ class TestLegacyAuthorization(BaseTest):
         )
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
         assert not api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject).ids
+        assert not api.list_resources(
+            resource=self.dashboards, action=Action.QUERY, subject=self.subject, creator_exempt=True
+        ).allows(str(self.dashboard_id), created_by_user_id=self.reader.id, subject_user_id=self.reader.id)
         dashboard_testing.delete_dashboard(team_id=self.team.id, dashboard_id=self.dashboard_id)
         assert not api.check(resource=self.resource, action=Action.VIEW, subject=Subject(user_id=self.user.id))
 
@@ -154,3 +160,13 @@ class TestLegacyAuthorization(BaseTest):
         capped = api.list_resources(resource=self.dashboards, action=Action.VIEW, subject=self.subject, limit=1)
         assert not capped.complete and not capped.ids
         assert api.check(resource=self.resource, action=Action.MANAGE_ACCESS, subject=Subject(user_id=self.user.id))
+
+    def test_builtin_denial_applies_without_access_control_entitlement(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        result = api.list_resources(
+            resource=Resource(type=ResourceType.DATA_DELETION, project_id=self.team.id),
+            action=Action.QUERY,
+            subject=self.subject,
+        )
+        assert not result.allows("1")

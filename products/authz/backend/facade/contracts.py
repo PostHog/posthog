@@ -119,10 +119,38 @@ class DeleteRelationshipRequest:
 
 @dataclass(frozen=True, kw_only=True)
 class ResourceIds:
-    """Ids of the resources a subject may act on. `complete=False` means the set was capped."""
+    """The resources of one type a subject may act on, as the short list that differs from the rest.
+
+    `excluded=False`: `ids` are the only resources allowed. `excluded=True`: every resource except `ids`
+    is allowed, which is the usual answer when the project grants access by default. So an empty `ids`
+    means nothing when `excluded` is False and everything when it is True.
+    `creator_exempt` means resources the subject created are allowed whatever `ids` say. The caller
+    supplies the creator column, because only the enforcement point knows it.
+    `complete=False` means the list was capped. `ids` is then empty and `excluded` False, so the caller
+    fails closed.
+    """
 
     ids: frozenset[str]
     complete: bool
+    excluded: bool = False
+    creator_exempt: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.complete and (self.ids or self.excluded):
+            raise ValueError("A capped result allows nothing, so the caller fails closed.")
+
+    @property
+    def restricts(self) -> bool:
+        """Whether applying the result can remove rows."""
+        return not (self.excluded and not self.ids)
+
+    def allows(self, id: str, *, created_by_user_id: int | None = None, subject_user_id: int | None = None) -> bool:
+        """Whether one resource is allowed. Same rule as the QuerySet and HogQL adapters, for one object."""
+        if not self.complete:
+            return False
+        if self.creator_exempt and subject_user_id is not None and created_by_user_id == subject_user_id:
+            return True
+        return (id in self.ids) != self.excluded
 
 
 @dataclass(frozen=True, kw_only=True)

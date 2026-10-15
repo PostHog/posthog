@@ -120,6 +120,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.authz.backend.facade.contracts import ResourceIds
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -1985,6 +1986,27 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac.access_level = access_level
         ac.save()
         return ac
+
+    @parameterized.expand(
+        [(available, scope) for available in (True, False) for scope in ("dashboard", "warehouse_table")]
+    )
+    def test_sdk_decision_partitions_cache_without_legacy_rule_changes(
+        self, access_control_available: bool, scope: str
+    ) -> None:
+        if not access_control_available:
+            self.organization.available_product_features = []
+            self.organization.save()
+        with (
+            mock.patch("posthog.authz.api.list_resources") as list_resources,
+            mock.patch("posthog.hogql_queries.query_runner.queried_access_controlled_resources", return_value={scope}),
+        ):
+            list_resources.return_value = ResourceIds(ids=frozenset(), complete=True, excluded=True)
+            unrestricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
+            list_resources.return_value = ResourceIds(ids=frozenset({"1"}), complete=True, excluded=True)
+            restricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
+            list_resources.return_value = ResourceIds(ids=frozenset(), complete=False)
+            incomplete = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
+        assert len({unrestricted, restricted, incomplete}) == (3 if scope == "dashboard" else 1)
 
     @parameterized.expand(RUNNER_BASES)
     def test_resource_grant_changes_cache_key(self, _name, base):

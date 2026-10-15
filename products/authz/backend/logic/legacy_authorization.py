@@ -171,6 +171,63 @@ class LegacyAuthorization:
                     return ResourceIds(ids=frozenset(), complete=False)
         return ResourceIds(ids=frozenset(ids), complete=True)
 
+    def query_resource_filter(
+        self,
+        resource: Resource,
+        subject: Subject | None,
+        limit: int | None,
+        creator_exempt: bool,
+        user_access_control: UserAccessControl | None,
+    ) -> ResourceIds:
+        """Same shape as the OpenFGA list: only objects with a rule of their own can differ from the
+        resource level, so those are resolved one by one and the rest follow the resource level."""
+        if resource.id is not None or resource.project_id is None:
+            raise ValueError("List resources requires a resource category scoped to a project")
+        if limit is not None and limit < 1:
+            raise ValueError("Resource limit must be positive")
+        cap = limit if limit is not None else authorization.MAX_IDS
+        level: AccessControlLevelResource = "viewer"
+        if user_access_control is not None and subject is not None and subject.user_id == user_access_control.user.pk:
+            preloaded_user = user_access_control.user
+            if isinstance(preloaded_user, User) and preloaded_user.is_active:
+                self.users.setdefault(preloaded_user.id, preloaded_user)
+        user = self.user(subject)
+        if user is None:
+            return ResourceIds(ids=frozenset(), complete=True)
+        access = self.adopt(user, resource, user_access_control) or self.user_access(user, resource)
+
+        def build(ids: frozenset[str], *, excluded: bool) -> ResourceIds:
+            return ResourceIds(ids=ids, complete=True, excluded=excluded, creator_exempt=creator_exempt)
+
+        if not access.has_project_access:
+            return ResourceIds(ids=frozenset(), complete=True)
+        if access.is_organization_admin:
+            return build(frozenset(), excluded=True)
+        scope = cast(APIScopeObject, resource.type.value)
+        with_rule = access.object_ids_with_rules(scope)
+        if len(with_rule) > cap:
+            return ResourceIds(ids=frozenset(), complete=False)
+        allowed = {
+            id: access.check_access_level_for_ref(
+                ObjectAccessRef(resource=scope, id=id, team_id=resource.project_id, created_by_id=None), level
+            )
+            for id in with_rule
+        }
+        if access.check_access_level_for_resource(scope, level):
+            return build(frozenset(id for id, ok in allowed.items() if not ok), excluded=True)
+        return build(frozenset(id for id, ok in allowed.items() if ok), excluded=False)
+
+    def adopt(
+        self, user: User, resource: Resource, user_access_control: UserAccessControl | None
+    ) -> UserAccessControl | None:
+        """Reuse a caller's preloaded access control for its own user and project, so no rule loads twice."""
+        if user_access_control is None or user_access_control.team is None or user_access_control.user.pk != user.pk:
+            return None
+        team = user_access_control.team
+        if team.id != authorization.project_id(resource):
+            return None
+        return self.access.setdefault((user.id, team.id, team.organization_id), user_access_control)
+
 
 def evaluator() -> LegacyAuthorization:
     evaluators = request_context.legacy_evaluators.get()
@@ -188,7 +245,16 @@ def check(requests: Sequence[CheckRequest], context: Context | None) -> list[boo
 
 
 def list_resources(
-    resource: Resource, action: Action, subject: Subject | None, context: Context | None, limit: int | None
+    resource: Resource,
+    action: Action,
+    subject: Subject | None,
+    context: Context | None,
+    limit: int | None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> ResourceIds:
     authorization.validate_context(context)
-    return evaluator().list_resources(resource, action, subject, limit)
+    engine = evaluator()
+    if action == Action.QUERY:
+        return engine.query_resource_filter(resource, subject, limit, creator_exempt, user_access_control)
+    return engine.list_resources(resource, action, subject, limit)

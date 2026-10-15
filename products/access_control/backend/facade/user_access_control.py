@@ -1266,6 +1266,18 @@ class UserAccessControl:
             blocked_ids=frozenset(blocked_resource_ids), allowed_ids=frozenset(allowed_resource_ids)
         )
 
+    def object_ids_with_rules(self, resource: APIScopeObject) -> frozenset[str]:
+        """Ids of the `resource` objects that carry an object-level rule for this user, from the preload.
+
+        Only these objects can resolve to a level different from the resource level, so a caller that
+        narrows a list resolves each of them with `check_access_level_for_ref` and leaves the rest alone.
+        """
+        if not EE_AVAILABLE or not self._team or not self.access_controls_supported:
+            return frozenset()
+        return frozenset(
+            ac.resource_id for ac in self._cached_access_controls if ac.resource == resource and ac.resource_id
+        )
+
     @cached_property
     def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, frozenset[str]]:
         """Per-resource set of object IDs the user is denied (effective access resolves to
