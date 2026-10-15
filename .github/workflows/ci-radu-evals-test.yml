@@ -1,6 +1,9 @@
 name: Radu evals test
 
 on:
+    # Remove this temporary trigger after validating the pilot on its PR.
+    pull_request:
+        types: [labeled]
     workflow_dispatch:
         inputs:
             case_filter:
@@ -15,13 +18,20 @@ on:
 permissions:
     contents: read
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: false
-
 jobs:
     sql-evals:
         name: SQL evals with PostHog offline publishing
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'pull_request' &&
+             github.event.action == 'labeled' &&
+             github.event.label.name == 'radu-evals-test' &&
+             github.event.number == 114538 &&
+             github.event.pull_request.head.repo.full_name == github.repository)
+        # Skipped runs for unrelated labels must not cancel an active eval.
+        concurrency:
+            group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
         timeout-minutes: 90
         # One sandbox allows 16 GB, alongside the local PostHog services.
         runs-on: depot-ubuntu-24.04-8
@@ -30,6 +40,7 @@ jobs:
             COMPOSE_PROFILES: temporal
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            TRIALS: ${{ github.event_name == 'pull_request' && '1' || inputs.trials }}
 
         steps:
             - name: Check required secrets and inputs
@@ -38,7 +49,6 @@ jobs:
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  TRIALS: ${{ inputs.trials }}
               shell: bash
               run: |
                   missing=""
@@ -46,7 +56,7 @@ jobs:
                       [ -n "${!name}" ] || missing="$missing $name"
                   done
                   if [ -n "$missing" ]; then
-                      echo "::error::Missing organization Actions secrets (grant PostHog/posthog access):$missing"
+                      echo "::error::Missing Actions secrets available to PostHog/posthog:$missing"
                       exit 1
                   fi
                   if [[ ! "$TRIALS" =~ ^[1-9][0-9]*$ ]]; then
@@ -116,7 +126,6 @@ jobs:
                   LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   CASE_FILTER: ${{ inputs.case_filter }}
-                  TRIALS: ${{ inputs.trials }}
               run: |
                   python -m products.posthog_ai.eval_harness.harness sql/eval_sql::eval_sql \
                       --provider docker --max-sandboxes 1 \
