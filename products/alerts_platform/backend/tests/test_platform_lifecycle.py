@@ -456,9 +456,8 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(consecutive_failures=3)
-            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(
-                state="firing", firing_started_at=self.cutoff
-            )
+            copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+            platform_testing.start_firing(copied.id, team_id=self.team.id, at=self.cutoff)
         if disabled_between:
             disable_configurations(SourceKind.LOGS, team_id=self.team.id)
         with time_machine.travel(self.cutoff, tick=False):
@@ -516,7 +515,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             PlatformAlertConfiguration.objects.filter(id=copied.id).update(
                 consecutive_failures=5, check_status="broken"
             )
-            PlatformAlert.objects.filter(configuration=copied).update(state="firing", firing_started_at=self.cutoff)
+            platform_testing.start_firing(copied.id, team_id=self.team.id, at=self.cutoff)
 
         with time_machine.travel(self.cutoff, tick=False):
             self._copy(legacy_id, revive=True)

@@ -628,13 +628,16 @@ def _as_configured_now(
                 logger.exception("Failed to bring a platform logs copy up to date", check_id=str(check.id))
                 current.append(check)
                 continue
-        current.append(replace(check, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
+        # A logs mute lives on the configuration alone, so each instance takes the live one too.
+        instances = tuple(replace(instance, snooze_until=upsert.snooze_until) for instance in check.instances)
+        current.append(replace(check, instances=instances, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
     return current, stopped
 
 
 def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
     """A check whose logs alert no longer runs. It leaves the state alone and disables the copy."""
-    unchanged = ControlPlaneOutcome(new_state=AlertState(check.state), consecutive_failures=check.consecutive_failures)
+    state = check.instance().state
+    unchanged = ControlPlaneOutcome(new_state=AlertState(state), consecutive_failures=check.consecutive_failures)
     recorded = _recorded(
         check,
         outcome=unchanged,
@@ -645,7 +648,7 @@ def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
         disable=True,
     )
     _record_check_metrics(
-        check, new_state=check.state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
+        check, new_state=state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
     )
     return recorded, None
 
