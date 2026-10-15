@@ -1,4 +1,4 @@
-import { taskSources } from "@posthog/core/canvas/channelItems";
+import { sourceOf } from "@posthog/core/canvas/channelItems";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -60,10 +60,9 @@ export function useCreateTask() {
             const filters = taskKeys.filtersOf(query.queryKey);
             if (filters?.originProduct || filters?.pinned) return false;
             const { sources } = filters ?? {};
-            return (
-              !sources ||
-              taskSources([newTask]).some((source) => sources.includes(source))
-            );
+            if (!sources) return true;
+            const source = sourceOf(newTask);
+            return source !== null && sources.includes(source);
           },
         },
         (old) => insertTaskDedup(old, newTask),
