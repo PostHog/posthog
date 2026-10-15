@@ -1871,7 +1871,8 @@ class SignalReportListSerializer(SignalReportSerializer):
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
             "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the ranking score decile, then the priority as a tiebreak. "
+            "only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), "
+            "then the priority as a tiebreak. The priority ranker uses the priority only. "
             "Reports without a usable score sort after scored ones. Null for every other sort."
         ),
     )
@@ -1884,7 +1885,7 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = getattr(obj, "ranking_fixed_score", None) if ranker == "fixed" else None
+        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
         return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 

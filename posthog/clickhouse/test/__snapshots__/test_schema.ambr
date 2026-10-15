@@ -4016,6 +4016,64 @@
   
   '''
 # ---
+# name: test_create_table_query[logs34_to_pattern_buckets]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.logs34_to_pattern_buckets TO posthog_test.logs_pattern_buckets
+  (
+      `team_id` Int32,
+      `time_bucket` DateTime('UTC'),
+      `service_name` LowCardinality(String),
+      `namespace` LowCardinality(String),
+      `environment` LowCardinality(String),
+      `severity_text` LowCardinality(String),
+      `pattern_version` UInt8,
+      `pattern` String,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
+      `log_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      time_bucket,
+      service_name,
+      namespace,
+      environment,
+      severity_text,
+      pattern_version,
+      pattern,
+      maxSimpleState(retention_days) AS retention_days,
+      sumSimpleState(1) AS log_count
+  FROM
+  (
+      SELECT
+          team_id,
+          toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+          service_name,
+          if(
+              resource_attributes['k8s.namespace.name'] != '',
+              resource_attributes['k8s.namespace.name'],
+              resource_attributes['service.namespace']
+          ) AS namespace,
+          if(
+              resource_attributes['deployment.environment.name'] != '',
+              resource_attributes['deployment.environment.name'],
+              if(
+                  resource_attributes['deployment.environment'] != '',
+                  resource_attributes['deployment.environment'],
+                  resource_attributes['env']
+              )
+          ) AS environment,
+          lower(severity_text) AS severity_text,
+          pattern_version,
+          pattern,
+          toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
+      FROM posthog_test.logs34
+      WHERE pattern_version != 0
+  )
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  
+  '''
+# ---
 # name: test_create_table_query[logs34_to_resource_attributes3]
   '''
   
@@ -4201,14 +4259,15 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
   ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
-  TTL time_bucket + INTERVAL 42 DAY
-  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
   '''
 # ---
@@ -12805,14 +12864,15 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
   ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
-  TTL time_bucket + INTERVAL 42 DAY
-  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
   '''
 # ---

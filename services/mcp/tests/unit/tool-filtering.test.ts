@@ -1132,9 +1132,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
-                'today-rail-nav',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
+                'workflows-data-suggestions',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

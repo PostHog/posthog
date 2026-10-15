@@ -1137,9 +1137,9 @@ class SignalReportListPagination(LimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or fixed for the served "
-                "ranking model's fixed head. Null for every other sort. Each row's inbox_merge_key belongs "
-                "to this ranker."
+                "The ranker that ordered the page when sort=recommended: priority, or open, action or fixed "
+                "for that head of the served ranking model. Null for every other sort. Each row's "
+                "inbox_merge_key belongs to this ranker."
             ),
         }
         return paginated
@@ -2475,9 +2475,9 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-                    "ordering is supplied. recommended resolves per project to a ranker: the priority order, or "
-                    "the served ranking model's fixed head with unscored and stale reports in priority order "
-                    "after the scored ones. The response's ranker field names the one used."
+                    "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+                    "the open, action or fixed head of the served ranking model with unscored and stale reports "
+                    "in priority order after the scored ones. The response's ranker field names the one used."
                 ),
             ),
             OpenApiParameter(
