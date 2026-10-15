@@ -304,20 +304,18 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 5.0
 
-    def test_create_rejected_when_metrics_flag_disabled(
+    def test_create_allowed_with_metrics_flag_disabled(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
         mock_feature_enabled.side_effect = None
         mock_feature_enabled.return_value = False
         insight = self.create_metrics_insight()
-        response = self.create_alert(insight, lower=1.0, expected_status=400)
-        assert "not enabled" in response["detail"].lower() or "not supported" in response["detail"].lower()
+        alert = self.create_alert(insight, lower=1.0)
+        assert alert["insight"]["id"] == insight["id"]
 
-    def test_simulate_rejected_when_metrics_flag_disabled(
+    def test_simulate_with_metrics_flag_disabled_gets_unsupported_detector_error(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
-        # The simulate endpoint must apply the same feature gate as create/update — otherwise a
-        # flag-off account gets the ungated unsupported-detector error instead of the gated one.
         insight = self.create_metrics_insight()
         mock_feature_enabled.side_effect = None
         mock_feature_enabled.return_value = False
@@ -329,7 +327,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             },
         )
         assert response.status_code == 400, response.json()
-        assert "not enabled" in str(response.json()).lower()
+        assert "isn't supported for MetricsQuery" in str(response.json())
 
     def test_simulate_rejects_metrics_insight_with_flag_on(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock

@@ -1115,7 +1115,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'product-business-knowledge',
                 'field-notes',
                 'mcp-analytics-intent-routing',
-                'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
                 'web-analytics-path-cleaning-suggestions',
@@ -1139,7 +1138,7 @@ describe('Tool Filtering - Feature Flags', () => {
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

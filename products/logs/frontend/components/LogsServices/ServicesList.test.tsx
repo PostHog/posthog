@@ -1,8 +1,6 @@
 import { render } from '@testing-library/react'
 
 import type { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -37,7 +35,7 @@ describe('ServicesList', () => {
     const renderList = (services: ServiceRow[] = SERVICES, dateFrom = '-1h'): HTMLElement =>
         render(<ServicesList services={services} loading={false} searchTerm="" dateFrom={dateFrom} />).container
 
-    /** The metrics link is gated on the alpha flag and on metrics access, so a row only shows it for both. */
+    /** The metrics link is gated on metrics access, so a row only shows it with that access. */
     const enableMetricsLink = (): void => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
@@ -46,8 +44,6 @@ describe('ServicesList', () => {
                 [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
             },
         } as AppContext
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
     }
 
     it('keeps the DOM bounded by the viewport, not by the number of services', () => {

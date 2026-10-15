@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -24,13 +21,11 @@ describe('ViewServiceMetricsButton', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
     })
 
     afterEach(() => cleanup())
 
-    const renderButton = ({ flagOn = true, ...props }: any): void => {
-        featureFlagLogic.actions.setFeatureFlags([], flagOn ? { [FEATURE_FLAGS.METRICS]: true } : {})
+    const renderButton = (props: any): void => {
         render(
             <Provider>
                 <ViewServiceMetricsButton {...props} />
@@ -38,10 +33,7 @@ describe('ViewServiceMetricsButton', () => {
         )
     }
 
-    // Metrics is in alpha behind a flag. A link rendered without it lands on the feature
-    // preview gate, not a chart — a dead end reached from a GA product.
     it.each([
-        ['the metrics flag is off', { serviceName: 'checkout', flagOn: false }, AccessControlLevel.Viewer],
         ['the user cannot view metrics', { serviceName: 'checkout' }, undefined],
         ['there is no service name', { serviceName: '' }, AccessControlLevel.Viewer],
     ])('renders nothing when %s', (_name, props, level) => {

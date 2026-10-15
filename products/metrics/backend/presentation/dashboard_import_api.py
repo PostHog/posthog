@@ -17,7 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions import Conflict
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -33,7 +33,6 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     METRICS_DASHBOARD_IMPORT_FEATURE_FLAG,
-    METRICS_FEATURE_FLAG,
     DashboardImportError,
     DashboardImportInProgress,
     DashboardImportNotAllowed,
@@ -246,8 +245,6 @@ class PanelQueryCheckResponseSerializer(serializers.Serializer):
 class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
-    posthog_feature_flag = METRICS_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
     lookup_value_regex = "[0-9a-fA-F-]{36}"
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
