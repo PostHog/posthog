@@ -9,6 +9,9 @@ import type { RedisLike } from './cache/RedisCache'
 import { resolveSessionKey } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
+// WARNING: Unsolicited elicitation can interrupt users' work and turn the MCP into an advertising channel.
+// This interview flow is a narrow exception, not a general survey or promotion mechanism.
+// services/mcp/AGENTS.md requires human MCP owner approval before adding prompts or expanding their reach/frequency.
 export const MCP_INTERVIEW_RECRUITMENT_FLAG = 'mcp-interview-recruitment'
 
 const bookingUrlSchema = z.url().refine((value) => value.startsWith('https://'))

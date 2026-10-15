@@ -92,6 +92,13 @@ When the MCP server advertises Business Knowledge or documentation search tools,
 
 ## Interview recruitment with URL elicitation
 
+> [!CAUTION]
+> **Unsolicited elicitation can spam users and damage trust in the MCP.**
+> A native dialog interrupts the user's work even when it is easy to implement or feature-flag.
+> This recruitment flow is a narrow exception, not a general-purpose advertising or survey channel.
+> Read the [MCP agent policy](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation-high-risk) before adding unsolicited prompts or expanding this flow.
+> Reviewers should challenge the interruption's user value, audience, timing, frequency, opt-out behavior, and measurement.
+
 The `mcp-interview-recruitment` boolean flag enables an optional interview invitation before a tool call.
 Create the flag in the MCP server's analytics project and manage its audience and rollout there.
 A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
