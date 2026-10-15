@@ -436,18 +436,29 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "SELECT fe.group_0.properties.industry FROM events "
                 "JOIN posthog.flag_evaluations AS fe ON fe.distinct_id = events.distinct_id "
                 "WHERE events.timestamp >= now() - INTERVAL 1 DAY",
+                False,
             ),
             (
                 "where_references_joined_table",
                 "SELECT flag_evaluations.group_0.properties.industry FROM posthog.flag_evaluations AS flag_evaluations "
                 "JOIN events AS e ON e.distinct_id = flag_evaluations.distinct_id "
                 "WHERE flag_evaluations.timestamp >= now() - INTERVAL 1 DAY AND e.event = '$pageview'",
+                False,
+            ),
+            (
+                "where_names_only_the_outer_table",
+                "SELECT flag_evaluations.group_0.properties.industry FROM posthog.flag_evaluations AS flag_evaluations "
+                "JOIN events AS e ON e.distinct_id = flag_evaluations.distinct_id "
+                "WHERE flag_evaluations.timestamp >= now() - INTERVAL 1 DAY",
+                True,
             ),
         ]
     )
-    def test_group_join_with_an_explicit_join_reads_the_groups_of_the_right_rows(self, _name: str, query: str):
-        # The outer WHERE bounds only the outer table, and it can name the joined table. A key bound built from it
-        # drops the joined table's group or fails to compile.
+    def test_group_join_with_an_explicit_join_reads_the_groups_of_the_right_rows(
+        self, _name: str, query: str, key_bound: bool
+    ):
+        # The outer WHERE bounds only the outer table's rows. It can also name the joined table. A key bound is
+        # correct only for a group of the outer table and a WHERE that names no other table.
         create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -463,8 +474,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 query,
                 team=self.team,
                 context=HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True),
+                pretty=False,
             )
 
+        assert ("in(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):

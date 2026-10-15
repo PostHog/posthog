@@ -240,18 +240,22 @@ def _outer_prefilter(
 
     1. The outer's `FROM` is a table in `_PREFILTER_SOURCE_CHAINS`, either unaliased or aliased
        by the last part of its chain. Anything else (custom alias like `FROM events AS e` in funnels,
-       JOINed tables on the outer, or a subquery) means the WHERE may reference symbols
-       (`e.timestamp`, `p.id`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
+       or a subquery) means the WHERE may reference symbols
+       (`e.timestamp`, …) that don't exist in our inner `SELECT $group_N FROM <source table>`
        subquery — cloning a WHERE that names them would raise `Unable to resolve field` when the
        resolver walks the clone.
     2. The WHERE references the `timestamp` field — cheap heuristic for "the matched row
        set is bounded by a date range." Without that guard, a query whose WHERE is only
        `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
-    3. The outer query has no explicit JOIN. The WHERE may reference the joined table (`e.event`), which the
-       subquery's FROM does not contain, and it bounds only the outer table's rows, so it says nothing about
-       the group keys of a joined table.
-    4. The WHERE does not reference any lazy-join alias on the source table — including the
+    3. The group join hangs off the outer FROM table, not a table the query joins explicitly. The outer
+       WHERE bounds only the outer table's rows, so it says nothing about the group keys of a joined table.
+    4. Every field in the WHERE resolves on the outer FROM table, directly or through its lazy joins and
+       virtual tables. A field of an explicitly joined table (`e.event`) or a SELECT or ARRAY JOIN alias does
+       not exist in the subquery. A clone that names one fails to compile. The check reads field types rather than
+       `select_from.next_join`, because the lazy table resolver links each generated join into `next_join`
+       before it builds the next one.
+    5. The WHERE does not reference any lazy-join alias on the source table — including the
        per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
        Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
        subquery would re-trigger the resolver on the same lazy join during inner-subquery
@@ -275,8 +279,6 @@ def _outer_prefilter(
         return None
     if select_from.alias is not None and select_from.alias != source_chain[-1]:
         return None
-    if select_from.next_join is not None:
-        return None
     if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != source_chain[-1]:
         return None
 
@@ -284,6 +286,8 @@ def _outer_prefilter(
         return None
     guarded_aliases = _guarded_aliases(context, list(source_chain))
     if any(_chain_hits_guarded_alias(chain, guarded_aliases, source_chain) for chain in find_field_chains(where)):
+        return None
+    if select_from.type is None or _references_another_table(where, select_from.type):
         return None
     # The subquery repeats the outer FROM's alias. A WHERE that qualifies a field by that alias then still resolves.
     return clone_expr(where), ast.JoinExpr(table=ast.Field(chain=list(table.chain)), alias=select_from.alias)
@@ -314,6 +318,47 @@ class _TimestampReferenceFinder(TraversingVisitor):
 
 def _references_timestamp(expr) -> bool:
     finder = _TimestampReferenceFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _ForeignFieldFinder(TraversingVisitor):
+    """Walks an expression to see whether a field resolves outside the given table."""
+
+    def __init__(self, table_type: ast.Type):
+        super().__init__()
+        self.table_type = table_type
+        self.found = False
+
+    def visit_field(self, node: ast.Field):
+        if not _resolves_on(node.type, self.table_type):
+            self.found = True
+
+    # A nested query resolves its fields against its own FROM. The key subquery copies that FROM too.
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        pass
+
+
+def _resolves_on(field_type: ast.Type | None, table_type: ast.Type) -> bool:
+    if isinstance(field_type, ast.FieldAliasType):
+        # The resolver types a lambda argument as an alias in the lambda's own scope. The key subquery copies the
+        # lambda too. A SELECT or ARRAY JOIN alias does not exist in the key subquery.
+        return isinstance(field_type.type, ast.LambdaArgumentType)
+    if isinstance(field_type, ast.PropertyType):
+        field_type = field_type.field_type
+    if not isinstance(field_type, (ast.FieldType, ast.ExpressionFieldType, ast.FieldTraverserType)):
+        return False
+    owner = field_type.table_type
+    while isinstance(owner, (ast.LazyJoinType, ast.VirtualTableType)):
+        owner = owner.table_type
+    return owner == table_type
+
+
+def _references_another_table(expr: ast.Expr, table_type: ast.Type) -> bool:
+    finder = _ForeignFieldFinder(table_type)
     finder.visit(expr)
     return finder.found
 
