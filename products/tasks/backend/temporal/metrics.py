@@ -704,6 +704,7 @@ class StepTimer(ContextDecorator):
         origin_product: str | None = None,
         runtime: str | None = None,
         sandbox_backend: str | None = None,
+        status_tag: str | None = None,
     ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
@@ -711,6 +712,7 @@ class StepTimer(ContextDecorator):
         self.origin_product = origin_product
         self.runtime = runtime
         self.sandbox_backend = sandbox_backend
+        self.status_tag = status_tag
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
@@ -726,6 +728,7 @@ class StepTimer(ContextDecorator):
             origin_product=self.origin_product,
             runtime=self.runtime,
             sandbox_backend=self.sandbox_backend,
+            status_tag=self.status_tag,
         )
 
     def set_used_snapshot(self, used_snapshot: bool) -> None:
@@ -754,6 +757,8 @@ class StepTimer(ContextDecorator):
             "used_snapshot": _bool_label(self.used_snapshot),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
+        if self.status_tag is not None and exc_value is None:
+            attributes["status"] = str(posthoganalytics.get_tags().get(self.status_tag, "FAILED"))
         if self.boot_path is not None:
             attributes["boot_path"] = self.boot_path
         if self.origin_product is not None:

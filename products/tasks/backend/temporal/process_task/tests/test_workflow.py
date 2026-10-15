@@ -1519,11 +1519,15 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
 
 
 @pytest.mark.parametrize("timing_enabled", [False, True])
-async def test_shared_startup_boundaries_are_present_only_for_new_workflows(monkeypatch, timing_enabled):
+@pytest.mark.parametrize("same_run_resume", [False, True])
+async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
+    monkeypatch, timing_enabled, same_run_resume
+):
     instance = ProcessTaskWorkflow()
     instance._context = _build_context(github_integration_id=123)
     instance._context.state = {
         "startup_requested_at": "2026-01-01T00:00:00+00:00",
+        "same_run_resume": same_run_resume,
     }
     instance._startup_worker_started_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC) if timing_enabled else None
     instance._startup_context_loaded_at = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC) if timing_enabled else None
@@ -1550,8 +1554,12 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(monk
         assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
         assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
         assert properties["observed_at"] == now.isoformat()
-        assert properties["since_startup_requested_ms"] == 10000
-        assert properties["handoff_ms"] == 1000
+        if same_run_resume:
+            assert "since_startup_requested_ms" not in properties
+            assert "handoff_ms" not in properties
+        else:
+            assert properties["since_startup_requested_ms"] == 10000
+            assert properties["handoff_ms"] == 1000
         assert properties["worker_wait_ms"] == 1000
         assert properties["task_setup_ms"] == 1000
     else:

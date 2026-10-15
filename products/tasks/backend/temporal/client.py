@@ -292,7 +292,7 @@ async def _aget_task_run_for_metrics(run_id: str) -> TaskRun | None:
 
 
 @scoped_temporal(fresh=True, capture_exceptions=False)
-@StepTimer("dispatch")
+@StepTimer("dispatch", status_tag="dispatch_status")
 async def execute_task_processing_workflow_async(
     task_id: str,
     run_id: str,
@@ -360,6 +360,7 @@ async def execute_task_processing_workflow_async(
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -373,6 +374,7 @@ async def execute_task_processing_workflow_async(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",
@@ -393,7 +395,7 @@ async def execute_task_processing_workflow_async(
 
 
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
-@StepTimer("dispatch")
+@StepTimer("dispatch", status_tag="dispatch_status")
 def execute_task_processing_workflow(
     task_id: str,
     run_id: str,
@@ -468,6 +470,7 @@ def execute_task_processing_workflow(
         )
 
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        posthoganalytics.tag("dispatch_status", "COMPLETED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
     except Team.DoesNotExist as e:
@@ -481,6 +484,7 @@ def execute_task_processing_workflow(
             f"Failed to start task workflow: permission validation failed: {e}",
         )
     except WorkflowAlreadyStartedError:
+        posthoganalytics.tag("dispatch_status", "BLOCKED")
         observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
         logger.info(
             "task_processing_workflow_already_running",

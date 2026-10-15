@@ -752,6 +752,31 @@ def _record_boot_total(input: StartAgentServerInput) -> int | None:
     return boot_total_ms
 
 
+def _read_agent_boot_metrics(sandbox: SandboxBase, input: StartAgentServerInput) -> tuple[int | None, dict[str, int]]:
+    ctx = input.context
+    runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+    with StepTimer(
+        "read_agent_boot_metrics",
+        origin_product=ctx.origin_product,
+        runtime=runtime,
+        boot_path=input.boot_path,
+        used_snapshot=input.used_snapshot,
+    ):
+        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
+    if session_init_ms is not None:
+        record_agent_server_session_init_ms(
+            session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
+        )
+    record_agent_server_boot_phases_ms(
+        boot_phases_ms,
+        input.boot_path,
+        used_snapshot=input.used_snapshot,
+        origin_product=ctx.origin_product,
+        runtime=runtime,
+    )
+    return session_init_ms, boot_phases_ms
+
+
 @activity.defn
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
@@ -869,20 +894,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
-        with StepTimer("read_agent_boot_metrics"):
-            session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
-        if session_init_ms is not None:
-            record_agent_server_session_init_ms(
-                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            )
-        record_agent_server_boot_phases_ms(
-            boot_phases_ms,
-            input.boot_path,
-            used_snapshot=input.used_snapshot,
-            origin_product=ctx.origin_product,
-            runtime=runtime,
-        )
-
+        session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)
         boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
@@ -1079,20 +1091,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
-        with StepTimer("read_agent_boot_metrics"):
-            session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
-        if session_init_ms is not None:
-            record_agent_server_session_init_ms(
-                session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
-            )
-        record_agent_server_boot_phases_ms(
-            boot_phases_ms,
-            input.boot_path,
-            used_snapshot=input.used_snapshot,
-            origin_product=ctx.origin_product,
-            runtime=runtime,
-        )
-
+        session_init_ms, boot_phases_ms = _read_agent_boot_metrics(sandbox, input)
         boot_total_ms = _record_boot_total(input)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)

@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from prometheus_client import start_http_server
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -216,7 +217,7 @@ class Command(BaseCommand):
         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="failed").inc()
 
     @scoped_temporal(fresh=True, capture_exceptions=False)
-    @StepTimer("dispatch")
+    @StepTimer("dispatch", status_tag="dispatch_status")
     async def _process(
         self, client: Client, dispatch: TaskWorkflowDispatch, instance_id: str, semaphore: asyncio.Semaphore
     ) -> None:
@@ -248,6 +249,7 @@ class Command(BaseCommand):
                     and await dispatch_attempt_already_started(client, dispatch)
                 ):
                     await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                    posthoganalytics.tag("dispatch_status", "COMPLETED")
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="already_started").inc()
                     return
                 if not await sync_to_async(_user_can_dispatch)(run, options, require_task_control=is_scheduled_create):
@@ -325,11 +327,13 @@ class Command(BaseCommand):
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="rescheduled").inc()
                     return
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                posthoganalytics.tag("dispatch_status", "COMPLETED")
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="already_started").inc()
             except Exception as error:
                 await sync_to_async(reschedule)(dispatch.id, instance_id, str(error))
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="rescheduled").inc()
             else:
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                posthoganalytics.tag("dispatch_status", "COMPLETED")
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="accepted").inc()
                 observe_task_run_workflow_start(run, outcome="started", reason="dispatcher")

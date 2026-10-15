@@ -156,13 +156,18 @@ class TestTaskRunMetrics(TestCase):
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+        ):
             self.task.create_run(
                 environment=TaskRun.Environment.CLOUD,
                 extra_state={"run_source": "manual", "runtime_adapter": "codex"},
             )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
+        created_event = next(call for call in capture.call_args_list if call.kwargs.get("event") == "task_run_created")
+        assert created_event.kwargs["send_feature_flags"] is False
 
     def test_create_run_bounds_unexpected_state_labels(self) -> None:
         labels = {
@@ -374,7 +379,10 @@ class TestTaskRunMetrics(TestCase):
         temporal_client = MagicMock()
         temporal_client.start_workflow = AsyncMock()
 
-        with patch("products.tasks.backend.temporal.client.sync_connect") as mock_sync_connect:
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect") as mock_sync_connect,
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
             if sync_connect_side_effect is not None:
                 mock_sync_connect.side_effect = sync_connect_side_effect
             else:
@@ -391,6 +399,14 @@ class TestTaskRunMetrics(TestCase):
             assert _sample_value("posthog_tasks_task_run_workflow_start_total", labels) == before + 1
 
         assert mock_sync_connect.called is expect_sync_connect_called
+        dispatch = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.args
+            and call.args[0] == "task_startup_step_completed"
+            and call.kwargs["properties"]["step"] == "dispatch"
+        )
+        assert dispatch["status"] == ("COMPLETED" if _name == "started" else "FAILED")
 
     @parameterized.expand(
         [

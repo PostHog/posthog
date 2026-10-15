@@ -15,7 +15,6 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer
 
 
-@StepTimer("persist_sandbox_connection")
 def persist_sandbox_connection(
     *,
     run_id: str,

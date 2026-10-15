@@ -687,7 +687,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
-                send_feature_flags=event != "task_created",
+                send_feature_flags=event not in {"task_created", "task_run_created"},
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -792,6 +792,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
             raise ValueError("scheduled_at must be timezone-aware")
+        if scheduled_at is not None:
+            startup_requested_at = max(startup_requested_at, scheduled_at)
 
         expected_created_by_id = self.created_by_id
         expected_ownership_version = self.ownership_version

@@ -2806,7 +2806,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 }
             )
             requested_at = properties["startup_requested_at"]
-            if isinstance(requested_at, str):
+            if isinstance(requested_at, str) and not is_same_run_resume_state(self.context.state or {}):
                 try:
                     requested = datetime.fromisoformat(requested_at)
                     if requested.tzinfo is not None and requested <= now:

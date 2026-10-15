@@ -1077,14 +1077,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
 
             with StepTimer("sandbox_connect_credentials"):
                 credentials = sandbox.get_connect_credentials()
-            jwt_kid = persist_sandbox_connection(
-                run_id=ctx.run_id,
-                sandbox=sandbox,
-                credentials=credentials,
-                sandbox_created_at=sandbox_created_at,
-                task_runtime=ctx.task_runtime,
-                sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
-            )
+            with StepTimer(
+                "persist_sandbox_connection",
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+                used_snapshot=actual_used_snapshot,
+            ):
+                jwt_kid = persist_sandbox_connection(
+                    run_id=ctx.run_id,
+                    sandbox=sandbox,
+                    credentials=credentials,
+                    sandbox_created_at=sandbox_created_at,
+                    task_runtime=ctx.task_runtime,
+                    sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
+                )
         except Exception:
             try:
                 sandbox.destroy()
