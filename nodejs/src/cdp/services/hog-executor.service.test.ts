@@ -8,7 +8,9 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
@@ -29,8 +31,14 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { promisifyCallback } from '~/common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import {
+    createExampleInvocation,
+    createHogExecutionGlobals,
+    createHogFunction,
+    insertIntegration,
+} from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -60,15 +68,11 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    beforeEach(async () => {
-        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        hub = await createHub()
+    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
-            hub.encryptedFields
+            encryptedFields
         )
         const emailService = new EmailService(
             {
@@ -88,7 +92,7 @@ describe('Hog Executor', () => {
             new RecipientsManagerService(hub.postgres)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
-        executor = new HogExecutorAsyncService(
+        return new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
@@ -115,6 +119,14 @@ describe('Hog Executor', () => {
                 pushNotificationService: undefined as any,
             }
         )
+    }
+
+    beforeEach(async () => {
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        hub = await createHub()
+        executor = createExecutor(hub.encryptedFields)
     })
 
     afterEach(async () => {
@@ -1599,8 +1611,9 @@ describe('Hog Executor', () => {
                     type: 'mcp_event',
                     url: `${baseUrl}/`,
                     body: pendingBody,
-                    mcp_event_subscription: subscription,
+                    mcp_event_subscription: { id: subscription.id, generation: subscription.generation },
                 }
+                invocation.state.mcpEvent = { filterBytecode: subscription.filter_bytecode }
                 invocation.hogFunction.encrypted_inputs = {
                     mcp_credential: { value: 'phx_test_mcp_delivery' },
                 }
@@ -1650,57 +1663,94 @@ describe('Hog Executor', () => {
                 expect(mockRequest).not.toHaveBeenCalled()
             })
 
-            it.each(['success', 'http_error', 'connection_reset', 'rate_limit'])(
-                'handles %s callbacks without bypassing authorization',
-                async (failure) => {
-                    ;(internalFetch as jest.Mock)
-                        .mockResolvedValueOnce({
-                            status: 200,
-                            text: jest.fn().mockResolvedValue(
-                                JSON.stringify({
-                                    body: authorizedBody,
-                                    headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
-                                })
-                            ),
-                        })
-                        .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
-                    const receivedBody: Buffer[] = []
-                    mockRequest.mockClear()
-                    mockRequest.mockImplementation((req, res) => {
-                        req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
-                        req.on('end', () => {
-                            expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
-                            expect(req.headers['webhook-id']).toBe('event-123')
-                            if (failure === 'connection_reset') {
-                                res.destroy()
-                            } else {
-                                res.writeHead(failure === 'success' ? 200 : failure === 'rate_limit' ? 429 : 500, {
-                                    'Retry-After': '45',
-                                })
-                                res.end('retry')
-                            }
-                        })
+            it.each([
+                'success',
+                'http_error',
+                'connection_reset',
+                'rate_limit',
+                'rate_limit_overflow',
+                'rejected_signature',
+            ])('handles %s callbacks without bypassing authorization', async (failure) => {
+                ;(internalFetch as jest.Mock)
+                    .mockResolvedValueOnce({
+                        status: 200,
+                        text: jest.fn().mockResolvedValue(
+                            JSON.stringify({
+                                body: authorizedBody,
+                                headers: { 'webhook-id': 'event-123', 'webhook-signature': 'v1,test-signature' },
+                            })
+                        ),
                     })
-                    let result = await executor.executeWithAsyncFunctions(await mcpInvocation())
-                    expect(mockRequest).toHaveBeenCalledTimes(1)
-                    if (failure === 'success') {
-                        expect(result.finished).toBe(true)
-                        expect(result.error).toBeUndefined()
-                        expect(result.invocation.queueScheduledAt).toBeUndefined()
-                        return
-                    }
-                    expect(result.invocation.queueScheduledAt).toBeDefined()
-                    if (failure !== 'connection_reset') {
-                        expect(
-                            result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
-                        ).toBeGreaterThanOrEqual(45_000)
-                    }
-                    result = await executor.executeWithAsyncFunctions(result.invocation)
+                    .mockResolvedValueOnce({ status: 403, dump: jest.fn() })
+                const warning = jest.spyOn(logger, 'warn').mockImplementation(() => {})
+                const receivedBody: Buffer[] = []
+                mockRequest.mockClear()
+                mockRequest.mockImplementation((req, res) => {
+                    req.on('data', (chunk: Buffer) => receivedBody.push(chunk))
+                    req.on('end', () => {
+                        expect(Buffer.concat(receivedBody).toString()).toBe(authorizedBody)
+                        expect(req.headers['webhook-id']).toBe('event-123')
+                        if (failure === 'connection_reset') {
+                            res.destroy()
+                        } else {
+                            const status =
+                                failure === 'success'
+                                    ? 200
+                                    : failure.startsWith('rate_limit')
+                                      ? 429
+                                      : failure === 'rejected_signature'
+                                        ? 401
+                                        : 500
+                            res.writeHead(status, {
+                                'Retry-After': failure === 'rate_limit_overflow' ? '999999999999999999' : '45',
+                            })
+                            res.end('retry')
+                        }
+                    })
+                })
+                let result = await executor.executeWithAsyncFunctions(await mcpInvocation())
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                if (failure === 'success') {
+                    expect(result.finished).toBe(true)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    return
+                }
+                const callbackStatus = failure.startsWith('rate_limit')
+                    ? 429
+                    : failure === 'rejected_signature'
+                      ? 401
+                      : failure === 'http_error'
+                        ? 500
+                        : undefined
+                expect(warning).toHaveBeenCalledWith(
+                    '[MCP event delivery] Callback request failed',
+                    expect.objectContaining({
+                        subscriptionId: subscription.id,
+                        category: failure === 'connection_reset' ? 'connection' : 'http_error',
+                        status: callbackStatus,
+                    })
+                )
+                expect(JSON.stringify(result.logs)).toContain(callbackStatus ? `HTTP ${callbackStatus}` : 'connection')
+                expect(JSON.stringify(warning.mock.calls)).not.toContain('test-signature')
+                expect(JSON.stringify(warning.mock.calls)).not.toContain('phx_test_mcp_delivery')
+                if (failure === 'rejected_signature') {
                     expect(result.finished).toBe(true)
                     expect(result.error).toBeDefined()
-                    expect(mockRequest).toHaveBeenCalledTimes(1)
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    return
                 }
-            )
+                expect(result.invocation.queueScheduledAt?.isValid).toBe(true)
+                if (failure !== 'connection_reset' && failure !== 'rate_limit_overflow') {
+                    expect(
+                        result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
+                    ).toBeGreaterThanOrEqual(45_000)
+                }
+                result = await executor.executeWithAsyncFunctions(result.invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeDefined()
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+            })
         })
 
         describe('standard_webhooks', () => {
@@ -2156,7 +2206,10 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('replaces access token placeholders in body, headers, and url', async () => {
+        it.each([
+            ['the keys that built the inputs', (keys: string): string => keys],
+            ['a key rotation that promoted a new key', (keys: string): string => `${'n'.repeat(32)},${keys}`],
+        ])('puts each integration token only where the template placed it, under %s', async (_name, rotate) => {
             jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
@@ -2168,50 +2221,44 @@ describe('Hog Executor', () => {
                 })
             })
 
-            const mockIntegrationInputs = {
-                oauth: {
-                    value: {
-                        access_token_raw: 'actual_secret_token_12345',
-                    },
-                },
-            }
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const insertTokenIntegration = (token: string) =>
+                insertIntegration(hub.postgres, team.id, {
+                    kind: 'oauth',
+                    sensitive_config: { access_token: hub.encryptedFields.encrypt(token) },
+                })
+            const crm = await insertTokenIntegration('crm_secret_token')
+            const chat = await insertTokenIntegration('chat_secret_token')
 
-            jest.spyOn(executor['deps'].hogInputsService, 'loadIntegrationInputs').mockResolvedValue(
-                mockIntegrationInputs
+            const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
+            invocation.hogFunction.inputs = { crm: { value: crm.id }, chat: { value: chat.id } }
+            invocation.hogFunction.inputs_schema = [
+                { key: 'crm', type: 'integration', required: true },
+                { key: 'chat', type: 'integration', required: true },
+            ]
+            const { inputs } = await executor.hogExecutor.buildInputsWithGlobals(
+                invocation.hogFunction,
+                invocation.state.globals
             )
+            const lookAlike = ACCESS_TOKEN_PLACEHOLDER + crm.id
 
-            const invocation = createExampleInvocation()
-            invocation.state.globals.inputs = mockIntegrationInputs
-            invocation.hogFunction.inputs = {
-                oauth: { value: 123 },
-            }
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
                 type: 'fetch',
-                url: 'https://example.com/test?q=$$_access_token_placeholder_123',
+                url: `https://example.com/test?q=${inputs.chat.access_token}`,
                 method: 'POST',
-                headers: {
-                    'X-Test': '$$_access_token_placeholder_123',
-                    Authorization: 'Bearer $$_access_token_placeholder_123',
-                },
-                body: '$$_access_token_placeholder_123',
+                headers: { Authorization: `Bearer ${inputs.crm.access_token}`, 'X-Chat': inputs.chat.access_token },
+                body: JSON.stringify({ token: inputs.crm.access_token, title: lookAlike }),
             } as any
 
-            await executor.executeFetch(invocation)
+            await createExecutor(new EncryptedFields(rotate(hub.ENCRYPTION_SALT_KEYS))).executeFetch(invocation)
 
-            expect(jest.mocked(fetch).mock.calls[0] as any).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/test?q=actual_secret_token_12345",
-                  {
-                    "body": "actual_secret_token_12345",
-                    "headers": {
-                      "Authorization": "Bearer actual_secret_token_12345",
-                      "X-Test": "actual_secret_token_12345",
-                    },
-                    "method": "POST",
-                  },
-                ]
-            `)
+            const [url, options] = jest.mocked(fetch).mock.calls[0] as any
+            expect([url, options.headers, parseJSON(options.body)]).toEqual([
+                'https://example.com/test?q=chat_secret_token',
+                { Authorization: 'Bearer crm_secret_token', 'X-Chat': 'chat_secret_token' },
+                { token: 'crm_secret_token', title: lookAlike },
+            ])
         })
 
         describe('with non_failure_status_codes', () => {

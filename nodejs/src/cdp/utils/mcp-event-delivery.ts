@@ -17,9 +17,9 @@ export type McpEventDeliveryResult =
     | { ok: true; body: string; headers: Record<string, string> }
     | { ok: false; retryable: boolean; retryAfterMs?: number }
 
-type AuthorizationFailureCategory = 'dns' | 'connection' | 'timeout' | 'network' | 'invalid_response'
+export type McpEventDeliveryFailureCategory = 'dns' | 'connection' | 'timeout' | 'network' | 'invalid_response'
 
-function authorizationFailureCategory(error: unknown): AuthorizationFailureCategory {
+export function mcpEventDeliveryFailureCategory(error: unknown): McpEventDeliveryFailureCategory {
     const cause = error instanceof Error && error.cause ? error.cause : error
     const code = (cause as { code?: unknown } | null)?.code
     const name = (cause as { name?: unknown } | null)?.name
@@ -54,7 +54,8 @@ export function parseRetryAfterMs(header: string | string[] | undefined): number
         return undefined
     }
     const delay = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) * 1000 : Date.parse(raw) - Date.now()
-    return Number.isFinite(delay) ? Math.max(0, delay) : undefined
+    const boundedDelay = Math.max(0, delay)
+    return Number.isFinite(new Date(Date.now() + boundedDelay).getTime()) ? boundedDelay : undefined
 }
 
 export async function prepareMcpEventDelivery({
@@ -67,7 +68,7 @@ export async function prepareMcpEventDelivery({
     internalApiBaseUrl: string
 }): Promise<McpEventDeliveryResult> {
     const subscription = params.mcp_event_subscription
-    const logFailure = (category: AuthorizationFailureCategory | 'http_error', status?: number): void => {
+    const logFailure = (category: McpEventDeliveryFailureCategory | 'http_error', status?: number): void => {
         logger.warn('[MCP event delivery] Authorization request failed', {
             invocationId: invocation.id,
             teamId: invocation.teamId,
@@ -78,7 +79,8 @@ export async function prepareMcpEventDelivery({
         })
     }
     const credential = resolveHogFunctionInputValue(invocation.hogFunction, 'mcp_credential')
-    if (typeof credential !== 'string' || !credential) {
+    const matchedFilter = invocation.state.mcpEvent?.filterBytecode
+    if (typeof credential !== 'string' || !credential || !Array.isArray(matchedFilter)) {
         return { ok: false, retryable: false }
     }
 
@@ -91,7 +93,7 @@ export async function prepareMcpEventDelivery({
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
                 body: JSON.stringify({
                     generation: subscription.generation,
-                    filter_bytecode: subscription.filter_bytecode,
+                    filter_bytecode: matchedFilter,
                     function_id: invocation.hogFunction.id,
                     url: params.url,
                     body: params.body,
@@ -116,7 +118,7 @@ export async function prepareMcpEventDelivery({
         }
         return { ok: true, ...parsed.data }
     } catch (error) {
-        logFailure(authorizationFailureCategory(error))
+        logFailure(mcpEventDeliveryFailureCategory(error))
         return { ok: false, retryable: true }
     }
 }

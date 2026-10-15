@@ -11,9 +11,11 @@ describe('MCP event delivery authorization', () => {
     const invocation = {
         id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
         teamId: 123,
+        state: { mcpEvent: { filterBytecode: ['_H', 1] } },
         hogFunction: {
             id: 'eae89749-3d0c-4ddb-875a-04771a7b9e34',
             inputs: {},
+            filters: { bytecode: ['_H', 1, 30] },
             encrypted_inputs: { mcp_credential: { value: 'fake-user-credential' } },
         },
     } as unknown as CyclotronJobInvocationHogFunction
@@ -24,7 +26,6 @@ describe('MCP event delivery authorization', () => {
         mcp_event_subscription: {
             id: 'b69e52cb-f4de-47dc-95ae-60801343439b',
             generation: 'fe1d8590-2d5c-42c3-99d2-707653293785',
-            filter_bytecode: ['_H', 1],
         },
     }
 
@@ -55,7 +56,7 @@ describe('MCP event delivery authorization', () => {
                 headers: { 'Content-Type': 'application/json', Authorization: 'Bearer fake-user-credential' },
                 body: JSON.stringify({
                     generation: params.mcp_event_subscription.generation,
-                    filter_bytecode: params.mcp_event_subscription.filter_bytecode,
+                    filter_bytecode: invocation.state.mcpEvent!.filterBytecode,
                     function_id: invocation.hogFunction.id,
                     url: params.url,
                     body: params.body,
@@ -63,6 +64,17 @@ describe('MCP event delivery authorization', () => {
             })
         )
         expect(JSON.stringify(params)).not.toContain('fake-user-credential')
+    })
+
+    it('rejects persisted delivery work without matched-filter provenance', async () => {
+        const oldInvocation = { ...invocation, state: { ...invocation.state, mcpEvent: undefined } }
+        expect(
+            await prepareMcpEventDelivery({ invocation: oldInvocation, params, internalApiBaseUrl: 'http://web:8000' })
+        ).toEqual({
+            ok: false,
+            retryable: false,
+        })
+        expect(internalFetch).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -81,10 +93,15 @@ describe('MCP event delivery authorization', () => {
         })
     })
 
-    it.each(['seconds', 'date'])('preserves Retry-After as %s', async (format) => {
+    it.each(['seconds', 'date', 'overflow'])('preserves Retry-After as %s', async (format) => {
         const now = new Date('2026-01-01T00:00:00Z').getTime()
         jest.spyOn(Date, 'now').mockReturnValue(now)
-        const retryAfter = format === 'seconds' ? '45' : new Date(now + 45_000).toUTCString()
+        const retryAfter =
+            format === 'overflow'
+                ? '999999999999999999'
+                : format === 'seconds'
+                  ? '45'
+                  : new Date(now + 45_000).toUTCString()
         jest.mocked(internalFetch).mockResolvedValue({
             status: 429,
             headers: { 'retry-after': retryAfter },
@@ -93,7 +110,7 @@ describe('MCP event delivery authorization', () => {
         const result = await prepareMcpEventDelivery({ invocation, params, internalApiBaseUrl: 'http://web:8000' })
         expect(result).toMatchObject({ ok: false, retryable: true })
         if (!result.ok) {
-            expect(result.retryAfterMs).toBe(45_000)
+            expect(result.retryAfterMs).toBe(format === 'overflow' ? undefined : 45_000)
         }
     })
 

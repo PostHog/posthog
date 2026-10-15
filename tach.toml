@@ -955,6 +955,10 @@ depends_on = [
     "products.cdp",
     # Mentions that name a pull request and a command run through the commands facade.
     "products.commands",
+    # Link unfurls render insight charts through the exports facade.
+    "products.exports",
+    # Mention workflows check billing quota limits before they start a task.
+    "ee",
 ]
 layer = "modules"
 

@@ -263,6 +263,10 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         return self.status
 
+    def reset_disabled_status(self) -> None:
+        if self.enabled and self.status.get("state", 0) == HogFunctionState.DISABLED.value:
+            self.set_function_status(HogFunctionState.DEGRADED.value)
+
     def move_secret_inputs(self) -> None:
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}

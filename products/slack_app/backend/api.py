@@ -38,20 +38,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionCommandWorkflowInputs,
-    PostHogCodeSlackMentionWorkflowInputs,
-    SlackAppMentionWorkflowInputs,
-    derive_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
-from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkflow
-from posthog.temporal.ai.slack_app.slack_app_mention import (
-    SlackAppMentionWorkflow,
-    derive_slack_app_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -146,6 +132,22 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, is_triggering_message
+from products.slack_app.backend.temporal import (
+    PostHogCodeSlackMentionCommandWorkflowInputs,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
+    derive_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
+    PostHogCodeSlackMentionCommandWorkflow,
+)
+from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
+from products.slack_app.backend.temporal.slack_app_mention import (
+    SlackAppMentionWorkflow,
+    derive_slack_app_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 

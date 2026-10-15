@@ -90,6 +90,132 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
+## Interview recruitment with URL elicitation
+
+> [!CAUTION]
+> **Unsolicited elicitation can spam users and damage trust in the MCP.**
+> A native dialog interrupts the user's work even when it is easy to implement or feature-flag.
+> This recruitment flow is a narrow exception, not a general-purpose advertising or survey channel.
+> Read the [MCP agent policy](../../../../../services/mcp/AGENTS.md#unsolicited-elicitation-high-risk) before adding unsolicited prompts or expanding this flow.
+> Reviewers should challenge the interruption's user value, audience, timing, frequency, opt-out behavior, and measurement.
+
+The `mcp-interview-recruitment` multivariate flag selects one optional interview invitation before a tool call.
+Each variant key identifies a campaign and has its own invitation payload.
+To add an approved study, read [the integration guide](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md).
+Create the flag in the MCP server's analytics project and manage its audience and rollout there.
+A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
+development flag override explicitly enables it with an explicit `MCP_INTERVIEW_RECRUITMENT_PAYLOAD`.
+See the [local testing instructions](../../../../../services/mcp/INTERVIEW_RECRUITMENT.md#code-and-checks).
+
+Set each variant's JSON payload to customize its invitation without deploying:
+
+```json
+{
+  "message": "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch.",
+  "booking_url": "https://cal.com/adam-posthog/posthog-chat",
+  "min_completed_tool_calls": 3,
+  "min_session_age_seconds": 120
+}
+```
+
+Each variant must explicitly supply `message` and `booking_url`; omitted timing fields use the defaults above.
+A boolean `true` identifies the original `mcp-research` campaign, but requires the same explicit copy and URL.
+A missing payload skips recruitment; no invitation copy or booking URL is supplied by the code.
+A malformed payload, an empty message, a message over 1,000
+characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
+evaluation, with the same audience properties. Payload edits apply to subsequent requests without
+restarting the server. A displayed invitation keeps its original campaign, copy, and URL even if targeting changes.
+Use release conditions to assign variants, with higher-priority conditions first. One evaluation selects
+one campaign; no invitation queue is created for overlapping audiences.
+
+By default, an eligible conversation must complete three successful product tool calls and have been
+observed for at least 120 seconds. The earliest invitation is before its fourth product call, once both
+thresholds are met. Discovery commands, skills, documentation lookups, private scout tools, and failed calls do not count.
+The timer starts at the first eligible product request; it does not measure when the chat UI opened.
+The payload accepts 0–1,000 completed calls and 0–86,400 seconds. Setting both to zero permits an
+immediate invitation for testing.
+
+Progress is updated atomically in shared Redis, scoped to the user, instance, client, and conversation
+handle already resolved by the MCP Analytics SDK. The SDK returns a handle on the first call for the
+agent to echo on subsequent calls. If it is missing or changes, progress does not accumulate across
+those calls. This measures calls observed under that handle, not chat messages or an independently
+verified client UI conversation boundary. A client reusing a handle across chats also reuses its progress.
+The counter expires after 24 hours without eligible activity, caps at 1,000 completions, and deduplicates
+identical RPC IDs and tool arguments. A retried call with a new RPC ID is a new request. Continuations
+of an invitation do not increment it.
+
+Flag evaluation uses the authenticated user's distinct ID and the existing organization/project groups.
+Use existing person or group properties and cohorts for additional audience filters. The server does
+not inject client metadata as person-property overrides during flag evaluation.
+
+No client-name or task conditions are required in the flag. The server requires native URL
+elicitation support and enforces its surface and task exclusions independently of the flag.
+Use the flag for rollout and any additional audience filters. Alternative condition groups are OR
+conditions.
+
+Only requests classified as `mcp` can recruit. Other surfaces, including PostHog AI and recognized
+self-driving OAuth applications, always skip recruitment. Task-bound requests and credentials with
+`internal_run:read` also skip recruitment even if their source is `mcp` and the flag is enabled.
+Client names and consumer headers are self-reported; they do not prove a human is present.
+A third-party unattended agent using the same identity and capabilities as an interactive client
+cannot be distinguished by this feature.
+
+The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
+URL support. Legacy protocol connections and clients with only form support continue without an
+invitation. No MCP App, extra tool, or agent instruction is involved. The client displays the booking
+URL and asks permission to open it, using its own controls and labels. No questionnaire is displayed.
+The original tool runs after the client returns the invitation response, without waiting for a booking.
+Claude Code can keep its dialog open after opening the URL until the user chooses “I'm done.”
+The server cannot remove that client-controlled step. The `2026-07-28` protocol has no URL-elicitation
+completion notification; see the [SDK protocol notes](https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation).
+
+- Accepting the link records `booking_link_accepted` and stops further invitations. This records
+  permission to open the booking page, not a completed booking or permission to contact an account email.
+- Declining the invitation records `do_not_ask_again` and stops further invitations.
+- Canceling or abandoning the invitation starts a seven-day cooldown.
+
+Responses are JSON records in the MCP server's shared Redis, under
+`mcp:interview:{<identity hash>}:response`. The identity hash is the SHA-256 hex digest of
+`JSON.stringify([publicPostHogBaseUrl, distinctId])`; it scopes the preference to the authenticated
+user and PostHog instance, across tokens, sessions, and projects. Submitted records contain
+`distinct_id`, `campaign_id`, `response`, and `responded_at`. Suppression is shared across campaigns. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
+to inspect responses. This implementation records the invitation response; it does not send an email or track completed bookings.
+
+Accepted-link and opted-out records have no TTL. They remain suppressed until reset, provided Redis
+retains the records; this is not a separate durable database. Do not put these keys behind an
+expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
+Already-suppressed users skip progress writes and booking-link creation; the final reservation remains atomic.
+Redis failures skip new invitations. A response write must succeed before the original tool runs;
+the client can retry the continuation if that write fails.
+
+Recruitment analytics use the existing PostHog SDK and the MCP server's analytics project:
+
+| Event                                | Meaning                                                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `mcp interview invitation sent`      | The server returns a native invitation after reserving it. This does not confirm that the client rendered the dialog. |
+| `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
+| `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
+
+Every event carries the authenticated user's distinct ID, `campaign_id`, `invitation_id`, and the `feature_flag`
+key. The campaign comes from the selected variant and is retained for link opens and responses. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
+are unanswered, which can include abandonment, an open dialog, or a lost connection. An accepted
+response records permission to open the link; it does not establish that the booking page opened.
+
+The native dialog opens `/interview/<opaque UUID>` on the MCP host, which redirects to the configured
+HTTPS booking URL. Redis holds the destination and identity for seven days. Unknown or expired links
+return 404. Redirects disable caching and referrer forwarding, and HEAD requests do not count as opens.
+A GET can also come from a link scanner; this is a measured redirect request, not proof of a human visit
+or completed booking. Analytics delivery uses the SDK's normal best-effort pipeline and never blocks
+the original tool or a known booking redirect. Suppressed and impersonated requests do not recruit.
+
+To reset one user, delete that user's `:response` key and any matching
+`:response:mcp-interview:*` pending keys. Disable the flag or finish any open invitation before
+resetting. Do not reset all users just to test a change. Pending continuations expire after ten minutes
+and are bound to the original token, tool arguments, organization, and project. A changed context
+rejects the continuation before the tool runs. Consumed continuations retain a ten-minute marker
+and cannot run again. Expired or consumed errors require checking the original tool's outcome
+before retrying, because a write may already have succeeded.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
@@ -631,17 +757,19 @@ Captured-event subscriptions use `posthog.event_captured` with an explicit `proj
 
 The `mcp-events-preview` tool validates the same filters and returns up to five matching events from the past seven days. Its schema comes from the Django preview endpoint through the normal OpenAPI pipeline. Event descriptions and discovery instructions recommend previewing first and using the client’s native event-triggered task interface; `events/subscribe` is a protocol method, not an ordinary tool or `exec` command. Subscription creation validates filters even when the client skips preview.
 
-Each subscription creates one managed Hog Function from the existing webhook template, with its fetch call routed through the reserved `mcpEventFetch` operation. Older workers fail without sending. Subscription identity includes the authenticated principal, callback URL, event name, and canonical filter arguments. OAuth token refresh keeps the same principal when the user and application are unchanged. Ordinary destination APIs cannot inspect or change these managed functions; subscription reads are scoped to the owner and the original project environment.
+Each subscription creates one managed Hog Function with a fixed MCP-only program that calls the reserved `mcpEventFetch` operation. Older workers fail without sending. Subscription identity includes the authenticated principal, callback URL, event name, and canonical filter arguments. OAuth token refresh keeps the same principal when the user and application are unchanged. Ordinary destination APIs cannot inspect or change these managed functions; subscription reads are scoped to the owner and the original project environment.
 
 Django verifies the HTTPS callback challenge before activation and encrypts the callback configuration and subscribing credential at rest. The CDP worker calls the subscription's delivery-authorization endpoint before sending, using that credential. Django rechecks membership, scopes, filter access, lifecycle generation, and expiry, removes restricted event properties, and returns the exact body and fresh Standard Webhooks signing headers. This adds one internal API call per delivery attempt. The granted lifetime is at most 24 hours and is bounded by OAuth access-token expiry; clients refresh through `events/subscribe`.
 
 Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends one event per callback request, and rejects bodies larger than 256 KiB. Retries use bounded exponential backoff; each attempt rejects revoked, unsubscribed, expired, and stale-generation work. Requests already in flight can complete. A periodic sweep disables expired destinations. Signing-key rotation briefly signs with both keys. Replay is unavailable: subscription results and event envelopes return `cursor: null`.
 
-Delivery authorization uses a separate rate-limit budget from client API requests. Queued deliveries carry the compiled filter that matched; authorization checks its recorded property dependencies against the subscriber’s current permissions. Action and test-account filter refreshes update the compiled filter and its permission dependencies together. Newly queued events use the refreshed filter without renewal; queued work from an older filter is rejected. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
+Delivery authorization uses a separate rate-limit budget from client API requests. Invocation building snapshots the compiled filter when the event matches, before input resolution and queueing. Queued deliveries carry that immutable snapshot; authorization checks its recorded property dependencies against the subscriber’s current permissions. Action and test-account filter refreshes update the compiled filter and its permission dependencies together. Shared action edits also refresh managed destinations in child environments. Filter permissions cover element-chain and group-key aliases as well as property reads. Newly queued events use the refreshed filter without renewal; queued work from an older filter is rejected. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
 
-Managed destinations use a fixed MCP-only Hog program. Workers queue deliveries as `mcp_event`, so workers without this operation cannot send them. Signing keys stay in encrypted subscription configuration, and the subscribing credential stays out of resolved invocation globals.
+Renewal checks destination status after the database commit so CDP availability cannot hold the project admission lock.
 
-A dedicated worker job combines authorization and callback delivery under one retry policy. Delivery retries honor `Retry-After`, and authorization time counts toward async execution limits. Connection failures return to the queue for fresh authorization before another send. Operator logs record sanitized authorization failure categories and invocation identifiers.
+Workers queue deliveries as `mcp_event`, so workers without this operation cannot send them. Signing keys stay in encrypted subscription configuration, and the subscribing credential stays out of resolved invocation globals.
+
+A dedicated worker job combines authorization and callback delivery under one retry policy. Delivery retries honor `Retry-After`, and authorization time counts toward async execution limits. Connection failures return to the queue for fresh authorization before another send. Operator logs record sanitized authorization and callback failure categories, callback HTTP status, and invocation identifiers. Unsupported Retry-After values fall back to normal backoff without creating an invalid scheduled date.
 
 The backend implementation lives under `products/cdp/backend/`; protocol adaptation lives in `services/mcp/src/hono/event-subscriptions.ts`. Generated tooling is configured in `products/cdp/mcp/tools.yaml`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
 
