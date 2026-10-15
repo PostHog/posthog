@@ -28,7 +28,7 @@ from django.core.cache import cache
 from django.db import connections
 
 import structlog
-from clickhouse_driver.errors import UnexpectedPacketFromServerError, UnknownPacketFromServerError
+from clickhouse_driver.errors import ServerException, UnexpectedPacketFromServerError, UnknownPacketFromServerError
 
 from posthog.schema import HogQLQueryResponse
 
@@ -134,6 +134,8 @@ _FLOORED_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS)
 
 STORED_QUERY_TYPE_SUFFIX = ".stored"
 _STORED_READ_REJECTED = (QueryErrorCategory.USER_ERROR, QueryErrorCategory.ERROR)
+# SOCKET_TIMEOUT, NETWORK_ERROR and ALL_CONNECTION_TRIES_FAILED: a lost connection that the server reports.
+_SERVER_CONNECTION_ERROR_CODES = frozenset({209, 210, 279})
 
 
 def _stored_rows_rejected(error: Exception) -> bool:
@@ -141,6 +143,8 @@ def _stored_rows_rejected(error: Exception) -> bool:
 
     A read that ran out of time, memory or capacity fails harder on the raw tables. So does one that
     lost its connection or misread the protocol, which the classifier files with the rejected queries."""
+    if isinstance(error, ServerException) and error.code in _SERVER_CONNECTION_ERROR_CODES:
+        return False
     return (
         not isinstance(error, (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, UnexpectedPacketFromServerError))
         and classify_query_error(error) in _STORED_READ_REJECTED
@@ -566,6 +570,8 @@ class CuratedGitHubSource:
         reader = self._stored_ci_reader() if sources else None
         if reader is None:
             return None
+        if mark_in_use(self._team):
+            _start_refresh(self._team)
         for source in sources:
             floor = placeholders.get(source.floor_placeholder)
             if not (isinstance(floor, ast.Constant) and isinstance(floor.value, str)):
@@ -615,8 +621,6 @@ class CuratedGitHubSource:
             )
             if depot != self._depot_job_attempts() or not self._may_read(filter(None, raw_tables)):
                 return None
-        if mark_in_use(self._team):
-            _start_refresh(self._team)
         return StoredCiReader(self._team, source)
 
     def runs_cte(self) -> str:
