@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonBanner, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
@@ -31,11 +32,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
                 {queryString ? (
-                    <CodeSnippet
-                        language={Language.SQL}
-                        className="[&_pre]:max-h-96 [&_pre]:overflow-auto"
-                        thing="query"
-                    >
+                    <CodeSnippet language={Language.SQL} thing="query">
                         {queryString}
                     </CodeSnippet>
                 ) : (
@@ -43,32 +40,44 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                 )}
             </div>
 
-            <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Columns</h3>
-                <LemonTable
-                    size="small"
-                    key={id}
-                    pagination={{ pageSize: 10, useUrl: false }}
-                    dataSource={columns}
-                    rowKey="name"
-                    nouns={['column', 'columns']}
-                    emptyState="Columns appear after the view runs."
-                    columns={[
-                        {
-                            title: 'Name',
-                            key: 'name',
-                            render: (_, column: DatabaseSchemaField) => (
-                                <span className="font-mono">{column.name}</span>
-                            ),
-                        },
-                        {
-                            title: 'Type',
-                            key: 'type',
-                            render: (_, column: DatabaseSchemaField) => column.type,
-                        },
-                    ]}
-                />
-            </div>
+            <LemonCollapse
+                onChange={(activeKey) => {
+                    if (activeKey === 'columns') {
+                        posthog.capture('models query columns expanded', { column_count: columns.length })
+                    }
+                }}
+                panels={[
+                    {
+                        key: 'columns',
+                        header: `Columns (${columns.length})`,
+                        content: (
+                            <LemonTable
+                                size="small"
+                                key={id}
+                                pagination={{ pageSize: 10, useUrl: false }}
+                                dataSource={columns}
+                                rowKey="name"
+                                nouns={['column', 'columns']}
+                                emptyState="Columns appear after the view runs."
+                                columns={[
+                                    {
+                                        title: 'Name',
+                                        key: 'name',
+                                        render: (_, column: DatabaseSchemaField) => (
+                                            <span className="font-mono">{column.name}</span>
+                                        ),
+                                    },
+                                    {
+                                        title: 'Type',
+                                        key: 'type',
+                                        render: (_, column: DatabaseSchemaField) => column.type,
+                                    },
+                                ]}
+                            />
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
