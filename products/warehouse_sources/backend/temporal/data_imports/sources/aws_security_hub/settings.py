@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
@@ -12,6 +14,10 @@ class SecurityHubEndpoint:
     result_key: str
     primary_keys: tuple[str, ...]
     partition_key: str | None = None
+    page_size: int = 100
+    params: tuple[tuple[str, Any], ...] = ()
+    # Endpoint whose rows supply this endpoint's required path parameter, with that row field.
+    parent: tuple[str, str] | None = None
 
 
 ENDPOINTS: dict[str, SecurityHubEndpoint] = {
@@ -30,6 +36,26 @@ ENDPOINTS: dict[str, SecurityHubEndpoint] = {
         primary_keys=("standards_subscription_arn",),
     ),
     "insights": SecurityHubEndpoint(operation="GetInsights", result_key="Insights", primary_keys=("insight_arn",)),
+    "standards_controls": SecurityHubEndpoint(
+        operation="DescribeStandardsControls",
+        result_key="Controls",
+        primary_keys=("standards_subscription_arn", "standards_control_arn"),
+        parent=("enabled_standards", "StandardsSubscriptionArn"),
+    ),
+    "security_control_definitions": SecurityHubEndpoint(
+        operation="ListSecurityControlDefinitions",
+        result_key="SecurityControlDefinitions",
+        primary_keys=("security_control_id",),
+    ),
+    "products": SecurityHubEndpoint(operation="DescribeProducts", result_key="Products", primary_keys=("product_arn",)),
+    "members": SecurityHubEndpoint(
+        operation="ListMembers",
+        result_key="Members",
+        primary_keys=("account_id",),
+        page_size=50,
+        # The API defaults to enabled members only. Include invited and removed accounts too.
+        params=(("OnlyAssociated", False),),
+    ),
 }
 
 INCREMENTAL_FIELDS = {"findings": [incremental_field("updated_at")]}
@@ -38,6 +64,10 @@ ENDPOINT_DESCRIPTIONS = {
     "standards": "Available security standards and their descriptions.",
     "enabled_standards": "Enabled security standards and their subscription status.",
     "insights": "Custom insights with their filters and grouping fields. AWS managed insights are excluded.",
+    "standards_controls": "Controls in each enabled standard, with enablement status, severity, and disablement reasons.",
+    "security_control_definitions": "Security control definitions with titles, severity, and remediation guidance.",
+    "products": "Product integrations that can send findings to Security Hub, with vendor names and descriptions.",
+    "members": "Member accounts of the Security Hub administrator account and their relationship status.",
 }
 
 ACCESS_DENIED_CODES = frozenset({"AccessDenied", "AccessDeniedException", "InvalidAccessException"})
