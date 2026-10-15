@@ -1,4 +1,4 @@
-import type { MetricsReducer } from '~/queries/schema/schema-general'
+import type { MetricsCombineSeries, MetricsReducer } from '~/queries/schema/schema-general'
 
 /** One bucket. `value` is `null` for a non-representable aggregate (a gap). The schema's
  * `MetricsQueryPoint` declares `value: number` but the backend sends null, so this shape
@@ -61,6 +61,33 @@ export function flattenSeriesRows(series: ReducibleSeries[], reducers: MetricsRe
         values: Object.fromEntries(reducers.map((r) => [r, reduceSeries(s.points, r)])),
         series: s,
     }))
+}
+
+/** Collapses grouped series into one, keeping the highest (`max`) or lowest (`min`) value in each
+ * bucket. Series share one time grid. The result carries the labels of the series that holds the
+ * last non-null bucket, so a tile can name the worst series as it stands now. */
+export function combineSeries(series: ReducibleSeries[], how: MetricsCombineSeries): ReducibleSeries[] {
+    if (series.length <= 1) {
+        return series
+    }
+    const better = how === 'max' ? (a: number, b: number) => a > b : (a: number, b: number) => a < b
+    let owner = series[0]
+    const points = series[0].points.map((point, index) => {
+        let value: number | null = null
+        let holder: ReducibleSeries | null = null
+        for (const s of series) {
+            const candidate = s.points[index]?.value
+            if (candidate !== null && candidate !== undefined && (value === null || better(candidate, value))) {
+                value = candidate
+                holder = s
+            }
+        }
+        if (holder) {
+            owner = holder
+        }
+        return { time: point.time, value }
+    })
+    return [{ ...owner, points }]
 }
 
 /** The unit a panel renders with. The explicit display override always wins;

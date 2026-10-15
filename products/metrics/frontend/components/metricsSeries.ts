@@ -27,23 +27,34 @@ export const seriesNamePrefixes = (seriesList: NamableSeries[]): string[] => {
     return seriesList.map((series) => (showClause && series.clause ? `${series.clause} · ` : ''))
 }
 
-// Human-readable series name from its label map (e.g. "service.name=checkout, env=prod"),
-// falling back to the metric name then a provided default for ungrouped/unlabelled series.
-const formatSeriesName = (series: NamableSeries, fallback: string, prefix: string): string => {
-    const entries = Object.entries(series.labels ?? {})
-    if (entries.length > 0) {
-        return prefix + entries.map(([key, value]) => `${key}=${value}`).join(', ')
+const LEGEND_FORMAT_LABEL = /\{\{\s*([^}\s]+)\s*\}\}/g
+
+/** A series' name from its label map: the `legendFormat` template with each `{{label}}` filled in
+ * (a label the series lacks becomes empty), else "service.name=checkout, env=prod". Empty for an
+ * unlabelled series, so the caller can fall back to the metric name. */
+export const seriesLabelText = (labels: Record<string, string> | undefined, legendFormat?: string): string => {
+    const entries = Object.entries(labels ?? {})
+    if (entries.length === 0) {
+        return ''
     }
-    return prefix + (series.metric_name ?? fallback)
+    if (legendFormat) {
+        return legendFormat.replace(LEGEND_FORMAT_LABEL, (_, key: string) => labels?.[key] ?? '')
+    }
+    return entries.map(([key, value]) => `${key}=${value}`).join(', ')
 }
+
+// Human-readable series name from its labels, falling back to the metric name then a provided
+// default for ungrouped/unlabelled series.
+const formatSeriesName = (series: NamableSeries, fallback: string, prefix: string, legendFormat?: string): string =>
+    prefix + (seriesLabelText(series.labels, legendFormat) || (series.metric_name ?? fallback))
 
 /** Display names for a whole chart's series, index-aligned with the input. The clause
  * alias prefixes each name (e.g. "a · env=prod") only when the list plots more than
  * one clause — that is the case where two ungrouped series would otherwise collide,
  * and deciding here keeps every consumer (legend, series table) in agreement. */
-export const formatSeriesNames = (seriesList: NamableSeries[], fallback: string): string[] => {
+export const formatSeriesNames = (seriesList: NamableSeries[], fallback: string, legendFormat?: string): string[] => {
     const prefixes = seriesNamePrefixes(seriesList)
-    return seriesList.map((series, index) => formatSeriesName(series, fallback, prefixes[index]))
+    return seriesList.map((series, index) => formatSeriesName(series, fallback, prefixes[index], legendFormat))
 }
 
 /** Per series, the labels that differ between series. Labels with the same value on every series

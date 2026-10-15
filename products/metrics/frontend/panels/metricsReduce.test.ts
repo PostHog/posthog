@@ -1,6 +1,6 @@
 import type { MetricsQueryPoint, MetricsQuerySeries } from '~/queries/schema/schema-general'
 
-import { capReducers, flattenSeriesRows, reduceSeries, seriesUnit } from './metricsReduce'
+import { capReducers, combineSeries, flattenSeriesRows, reduceSeries, seriesUnit } from './metricsReduce'
 
 // The schema types `value` as `number`, but the backend sends `null` for a
 // non-representable bucket (the facade's `MetricPoint.value` is `float | None`).
@@ -166,6 +166,29 @@ describe('metricsReduce', () => {
 
         it('keeps a short list untouched', () => {
             expect(capReducers(['max', 'last'])).toEqual(['max', 'last'])
+        })
+    })
+
+    describe('combineSeries', () => {
+        const host = (name: string, values: (number | null)[]): MetricsQuerySeries =>
+            ({ labels: { 'host.name': name }, points: points(values) }) as MetricsQuerySeries
+
+        it('keeps the highest value in each bucket and names the series holding the latest one', () => {
+            const [worst] = combineSeries([host('web-1', [10, 20, 30]), host('web-2', [40, 5, 50])], 'max')
+            expect(worst.points.map((p) => p.value)).toEqual([40, 20, 50])
+            expect(worst.labels).toEqual({ 'host.name': 'web-2' })
+        })
+
+        it('keeps the lowest value for min', () => {
+            const [lowest] = combineSeries([host('web-1', [10, 20]), host('web-2', [40, 5])], 'min')
+            expect(lowest.points.map((p) => p.value)).toEqual([10, 5])
+            expect(lowest.labels).toEqual({ 'host.name': 'web-2' })
+        })
+
+        it('skips gaps, and leaves a gap where every series has one', () => {
+            const [worst] = combineSeries([host('web-1', [null, 3, null]), host('web-2', [7, null, null])], 'max')
+            expect(worst.points.map((p) => p.value)).toEqual([7, 3, null])
+            expect(worst.labels).toEqual({ 'host.name': 'web-1' })
         })
     })
 })

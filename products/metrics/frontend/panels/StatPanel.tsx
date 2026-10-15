@@ -8,7 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { flattenSeriesRows } from './metricsReduce'
+import { seriesLabelText } from '../components/metricsSeries'
+import { combineSeries, flattenSeriesRows } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
@@ -26,7 +27,8 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     const { timezone } = useValues(teamLogic)
     const reducer = resolveReducer(display)
     // A series with no non-null point has nothing to headline; drop it rather than render a "—" card.
-    const rows = flattenSeriesRows(series, [reducer]).filter((row) => row.values[reducer] !== null)
+    const shown = display.combineSeries ? combineSeries(series, display.combineSeries) : series
+    const rows = flattenSeriesRows(shown, [reducer]).filter((row) => row.values[reducer] !== null)
     // A single card fills the tile, and the tile title already names it. Grouped cards need their labels.
     const single = rows.length === 1
 
@@ -36,12 +38,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
 
     const cards = rows.slice(0, MAX_STAT_CARDS).map((row, index) => {
         const value = row.values[reducer] ?? null
-        const name =
-            Object.entries(row.labels)
-                .map(([k, v]) => `${k}=${v}`)
-                .join(', ') ||
-            row.metricName ||
-            fallbackName
+        const name = seriesLabelText(row.labels, display.legendFormat) || row.metricName || fallbackName
         const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
         const data = row.series.points.map((p) => p.value ?? 0)
         // The headline shows the hovered sparkline point, so it shares one scale with every point.
@@ -49,7 +46,8 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
         return (
             <MetricCard
                 key={index}
-                title={single ? null : name}
+                // A combined card names the series it shows, since that is the answer the tile is for.
+                title={single && !display.combineSeries ? null : name}
                 value={value ?? undefined}
                 data={data}
                 labels={row.series.points.map((p) => p.time)}

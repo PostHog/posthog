@@ -46,7 +46,8 @@ export function MetricsSeriesChart({
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(
             series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
-            fallbackName
+            fallbackName,
+            display?.legendFormat
         )
         return series.map((s, index) => ({
             key: `${index}`,
@@ -56,7 +57,7 @@ export function MetricsSeriesChart({
             color: getColorVar(seriesColor(index)),
             ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
         }))
-    }, [series, fallbackName, isArea])
+    }, [series, fallbackName, display?.legendFormat, isArea])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(

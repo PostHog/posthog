@@ -1,0 +1,867 @@
+{
+    "name": "Host health (OpenTelemetry)",
+    "description": "CPU and memory of hosts and processes that export OpenTelemetry system and process metrics.",
+    "panels": [
+        {
+            "key": "section_saturation",
+            "title": "Saturation",
+            "text": "## Saturation\nEach tile shows the worst host right now. The lists below rank every host by its peak in the selected range.",
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 1
+            }
+        },
+        {
+            "key": "hosts_reporting",
+            "title": "Hosts reporting",
+            "description": "Hosts that sent memory metrics in the latest interval. A dip in the sparkline is a host that went quiet.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "count"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 1,
+                "w": 3,
+                "h": 3
+            }
+        },
+        {
+            "key": "cpu_busy_now",
+            "title": "CPU busy (worst host)",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "(1 - a / b) * 100",
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 70
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ],
+                    "combineSeries": "max",
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 1,
+                "w": 3,
+                "h": 3
+            },
+            "description": "The busiest host right now."
+        },
+        {
+            "key": "memory_used_now",
+            "title": "Memory used (worst host)",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b * 100",
+                "display": {
+                    "type": "stat",
+                    "unit": "%",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 75
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ],
+                    "combineSeries": "max",
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 1,
+                "w": 3,
+                "h": 3
+            },
+            "description": "The host closest to running out of memory."
+        },
+        {
+            "key": "load_per_core_now",
+            "title": "Load/core (worst host)",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.load_average.1m",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.logical.count",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b",
+                "display": {
+                    "type": "stat",
+                    "reduce": "last",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 0.8
+                        },
+                        {
+                            "color": "danger",
+                            "value": 1
+                        }
+                    ],
+                    "combineSeries": "max",
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 1,
+                "w": 3,
+                "h": 3
+            },
+            "description": "More than 1 means threads are waiting for a CPU."
+        },
+        {
+            "key": "cpu_busy_top",
+            "title": "Peak CPU busy",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "(1 - a / b) * 100",
+                "display": {
+                    "type": "bargauge",
+                    "unit": "%",
+                    "reduce": "max",
+                    "yAxis": {
+                        "min": 0,
+                        "max": 100
+                    },
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 70
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 4,
+                "w": 4,
+                "h": 4
+            },
+            "description": "Each host's highest value in the selected range."
+        },
+        {
+            "key": "memory_used_top",
+            "title": "Peak memory used",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b * 100",
+                "display": {
+                    "type": "bargauge",
+                    "unit": "%",
+                    "reduce": "max",
+                    "yAxis": {
+                        "min": 0,
+                        "max": 100
+                    },
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 75
+                        },
+                        {
+                            "color": "danger",
+                            "value": 90
+                        }
+                    ],
+                    "legendFormat": "{{host.name}}"
+                },
+                "interval": "minute"
+            },
+            "layout": {
+                "x": 4,
+                "y": 4,
+                "w": 4,
+                "h": 4
+            },
+            "description": "Each host's highest value in the selected range."
+        },
+        {
+            "key": "load_per_core_top",
+            "title": "Peak load per core",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.load_average.1m",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.logical.count",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b",
+                "display": {
+                    "type": "bargauge",
+                    "reduce": "max",
+                    "thresholds": [
+                        {
+                            "color": "success",
+                            "value": 0
+                        },
+                        {
+                            "color": "warning",
+                            "value": 0.8
+                        },
+                        {
+                            "color": "danger",
+                            "value": 1
+                        }
+                    ],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 8,
+                "y": 4,
+                "w": 4,
+                "h": 4
+            },
+            "description": "Each host's highest value in the selected range."
+        },
+        {
+            "key": "section_processes",
+            "title": "Processes",
+            "text": "## Processes",
+            "layout": {
+                "x": 0,
+                "y": 8,
+                "w": 12,
+                "h": 1
+            }
+        },
+        {
+            "key": "process_memory_by_service",
+            "title": "Process memory by service and host",
+            "description": "Resident memory of each service on each host.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.memory.usage",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "By",
+                    "legendCalcs": ["last", "max"],
+                    "legendFormat": "{{service.name}} \u00b7 {{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 9,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "process_cpu_by_service",
+            "title": "Process CPU by service and host",
+            "description": "CPU cores each service uses on each host.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "process.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "service.name"
+                            },
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "legendCalcs": ["mean", "max"],
+                    "legendFormat": "{{service.name}} \u00b7 {{host.name}}",
+                    "unit": "cores"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 9,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "section_cpu",
+            "title": "CPU",
+            "text": "## CPU",
+            "layout": {
+                "x": 0,
+                "y": 13,
+                "w": 12,
+                "h": 1
+            }
+        },
+        {
+            "key": "cpu_busy_by_host",
+            "title": "CPU busy by host",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "eq",
+                                "value": "idle"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "(1 - a / b) * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "yAxis": {
+                        "min": 0,
+                        "max": 100,
+                        "startAtZero": true
+                    },
+                    "goalLines": [
+                        {
+                            "label": "Saturated",
+                            "value": 90
+                        }
+                    ],
+                    "legendCalcs": ["last", "max"],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 14,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "cpu_by_mode",
+            "title": "CPU by mode",
+            "description": "CPU cores in use, by mode. Filter to one host to see its breakdown.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "neq",
+                                "value": "idle"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "cpu.mode"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "legendCalcs": ["mean", "max"],
+                    "legendFormat": "{{cpu.mode}}",
+                    "unit": "cores"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 14,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "load_per_core_by_host",
+            "title": "Load per core by host",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.load_average.1m",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.logical.count",
+                        "aggregation": "avg",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b",
+                "display": {
+                    "type": "line",
+                    "goalLines": [
+                        {
+                            "label": "1 runnable thread per core",
+                            "value": 1
+                        }
+                    ],
+                    "legendCalcs": ["last", "max"],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 18,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "cpu_wait_steal",
+            "title": "CPU waiting (I/O + steal)",
+            "description": "Share of each host's CPU time spent waiting on disk or on the hypervisor.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "cpu.mode",
+                                "op": "regex",
+                                "value": "iowait|steal"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.cpu.time",
+                        "aggregation": "rate",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "legendFormat": "{{host.name}}",
+                    "legendCalcs": ["mean", "max"]
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 18,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "section_memory",
+            "title": "Memory",
+            "text": "## Memory",
+            "layout": {
+                "x": 0,
+                "y": 22,
+                "w": 12,
+                "h": 1
+            }
+        },
+        {
+            "key": "memory_used_by_host",
+            "title": "Memory used by host",
+            "description": "One-minute buckets, so a peak shows at its real height.",
+            "query": {
+                "kind": "MetricsQuery",
+                "interval": "minute",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "a / b * 100",
+                "display": {
+                    "type": "line",
+                    "unit": "%",
+                    "yAxis": {
+                        "min": 0,
+                        "max": 100,
+                        "startAtZero": true
+                    },
+                    "goalLines": [
+                        {
+                            "label": "OOM risk",
+                            "value": 90
+                        }
+                    ],
+                    "legendCalcs": ["last", "max"],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 23,
+                "w": 8,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_available_by_host",
+            "title": "Memory available by host",
+            "description": "Memory left before the host runs out. Lowest is the closest call.",
+            "query": {
+                "kind": "MetricsQuery",
+                "interval": "minute",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "system.memory.state",
+                                "op": "eq",
+                                "value": "used"
+                            }
+                        ],
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "b",
+                        "metricName": "system.memory.limit",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "host.name"
+                            }
+                        ]
+                    }
+                ],
+                "formula": "b - a",
+                "display": {
+                    "type": "table",
+                    "unit": "By",
+                    "reduce": "last",
+                    "legendCalcs": ["last", "min"],
+                    "legendFormat": "{{host.name}}"
+                }
+            },
+            "layout": {
+                "x": 8,
+                "y": 23,
+                "w": 4,
+                "h": 4
+            }
+        },
+        {
+            "key": "memory_by_state",
+            "title": "Memory by state",
+            "description": "Filter to one host to see what is using its memory.",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "system.memory.usage",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "system.memory.state"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "area",
+                    "unit": "By",
+                    "legendCalcs": ["last", "max"],
+                    "legendFormat": "{{system.memory.state}}"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 27,
+                "w": 12,
+                "h": 3
+            }
+        }
+    ]
+}
