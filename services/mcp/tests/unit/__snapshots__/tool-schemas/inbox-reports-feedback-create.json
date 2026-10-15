@@ -6,9 +6,9 @@
             "type": "string"
         },
         "note": {
-            "default": "",
             "description": "The person's context for why the report was or was not useful, up to 4000 characters.",
             "maxLength": 4000,
+            "minLength": 1,
             "type": "string"
         },
         "sentiment": {

@@ -13,6 +13,12 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+export const SignalReportFeedbackNoteSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe("The person's context for why the report was or was not useful, up to 4000 characters.")
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
+import { SignalReportFeedbackNoteSchema } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -372,11 +373,7 @@ const InboxReportsFeedbackCreateSchema = () => {
         normalizeParamAliases({ id: ['report_id'] }),
         SignalsReportsFeedbackCreateParams.omit({ project_id: true })
             .extend(SignalsReportsFeedbackCreateBody.shape)
-            .extend({
-                note: SignalsReportsFeedbackCreateBody.shape['note']
-                    .nonoptional()
-                    .describe("The person's context for why the report was or was not useful, up to 4000 characters."),
-            })
+            .extend({ note: SignalReportFeedbackNoteSchema })
     )
 }
 

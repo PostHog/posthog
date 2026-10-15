@@ -245,7 +245,7 @@ tools:
                     - report_id
             note:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
-                required: true
+                input_schema: SignalReportFeedbackNoteSchema
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_destroy
         enabled: true
