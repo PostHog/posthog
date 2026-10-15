@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
+import type { CachedNewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus } from '~/types'
 
@@ -17,6 +18,7 @@ import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 
 import { experimentLogic } from '../experimentLogic'
+import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { Exposures } from './Exposures'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -95,14 +97,24 @@ describe('health finding reporting', () => {
     }
 
     // The same experiment for a person with the health findings flag: the server sends the flag-state finding.
-    const renderHealthPanel = (exposures: Record<string, unknown>): void => {
-        logic.actions.setExperiment({
+    const renderHealthPanel = (
+        exposures: Record<string, unknown>,
+        primaryMetricsResults: CachedNewExperimentQueryResponse[] = []
+    ): void => {
+        const experiment = {
             ...NEW_EXPERIMENT,
             id: EXPERIMENT_ID,
             status: ExperimentStatus.Running,
             start_date: dayjs().subtract(3, 'day').toISOString(),
             feature_flag: { id: 1, key: 'checkout-flag', active: false, filters: { groups: [] } },
-        } as unknown as Experiment)
+            metrics: primaryMetricsResults.length
+                ? [{ kind: 'ExperimentMetric', metric_type: 'funnel', uuid: 'funnel-metric', series: [] }]
+                : [],
+        } as unknown as Experiment
+        logic.actions.setExperiment(experiment)
+        const metricsLogic = experimentMetricsLogic({ experiment })
+        metricsLogic.mount()
+        metricsLogic.actions.setPrimaryMetricsResults(primaryMetricsResults)
         logic.actions.loadExperimentHealthSuccess({
             findings: [
                 {
@@ -200,6 +212,18 @@ describe('health finding reporting', () => {
             ['srm', null, 'warning'],
             ['bias_risk_multiple_excluded', null, 'warning'],
         ])
+    })
+
+    it('reports the low power finding the page adds to the health panel as shown', () => {
+        renderHealthPanel(UNEVEN_EXPOSURES, [
+            {
+                baseline: { key: 'control', number_of_samples: 600, sum: 150, sum_squares: 150 },
+                variant_results: [{ key: 'test', number_of_samples: 400, sum: 140, sum_squares: 140 }],
+            } as unknown as CachedNewExperimentQueryResponse,
+        ])
+
+        expect(screen.getByText('Too little data to trust the results')).toBeInTheDocument()
+        expect(findingEvents()).toContainEqual(['experiment health finding shown', 'low_power', undefined])
     })
 
     it.each([
