@@ -19,7 +19,6 @@
                     "unit": "cores",
                     "reduce": "last"
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -48,7 +47,6 @@
                     "unit": "By",
                     "reduce": "last"
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -76,7 +74,6 @@
                     "type": "stat",
                     "reduce": "last"
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -115,7 +112,6 @@
                         }
                     ]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -153,7 +149,6 @@
                     "unit": "cores",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -192,7 +187,6 @@
                     "unit": "%",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -230,7 +224,6 @@
                     "unit": "%",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -267,7 +260,6 @@
                     "unit": "By",
                     "legendCalcs": ["last", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -303,7 +295,6 @@
                     "unit": "%",
                     "legendCalcs": ["last", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -340,7 +331,6 @@
                     "type": "line",
                     "legendCalcs": ["last", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -377,7 +367,6 @@
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -411,7 +400,6 @@
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -445,7 +433,6 @@
                     "type": "line",
                     "legendCalcs": ["mean", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
@@ -478,7 +465,6 @@
                     "type": "line",
                     "legendCalcs": ["last", "max"]
                 },
-                "interval": "second_15",
                 "dateRange": {
                     "date_from": "-1h"
                 }
