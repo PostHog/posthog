@@ -890,6 +890,18 @@ export function IconCancel(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Material Design Block icon. */
+export function IconBlock(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="m12 2c-5.52 0-10 4.48-10 10s4.48 10 10 10 10-4.48 10-10-4.48-10-10-10zm-8 10c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69l-11.21 11.21c-1.06-1.35-1.69-3.05-1.69-4.9zm8 8c-1.85 0-3.55-.63-4.9-1.69l11.21-11.21c1.06 1.35 1.69 3.05 1.69 4.9 0 4.42-3.58 8-8 8z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Workspace Premium icon. */
 export function IconPremium(props: LemonIconProps): JSX.Element {
     return (

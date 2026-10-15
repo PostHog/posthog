@@ -210,9 +210,11 @@ interface WatchFeedRowProps {
 function WatchCardPerson({
     observation,
     person,
+    children,
 }: {
     observation: ReplayObservationApi
     person: string | null | undefined
+    children?: React.ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -230,6 +232,8 @@ function WatchCardPerson({
                 ))}
             {person && <span aria-hidden>·</span>}
             <TZLabel time={observation.created_at} className="shrink-0" />
+            {children && <span aria-hidden>·</span>}
+            {children}
         </div>
     )
 }
@@ -399,7 +403,12 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                     </h3>
                 </Link>
                 <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
-                <WatchCardPerson observation={observation} person={person} />
+                <WatchCardPerson observation={observation} person={person}>
+                    <WatchFeedDismissButton
+                        className="relative z-10 -my-1"
+                        onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
+                    />
+                </WatchCardPerson>
                 {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
                     the border between two rows. */}
                 <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
@@ -416,9 +425,6 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         </span>
                     </p>
                 </div>
-            </div>
-            <div className="relative z-10 shrink-0 self-start">
-                <WatchFeedDismissButton onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)} />
             </div>
         </article>
     )

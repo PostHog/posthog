@@ -1,5 +1,6 @@
-import { IconThumbsDown } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
+import { IconBlock } from 'lib/lemon-ui/icons'
 
 import type { FeedDismissalReasonEnumApi } from '../../generated/api.schemas'
 import { feedDismissalMenuItems } from '../watchFeedDismissal'
@@ -14,7 +15,7 @@ export function WatchFeedDismissButton({ onDismiss, className }: WatchFeedDismis
         <LemonMenu placement="bottom-end" items={feedDismissalMenuItems(onDismiss)}>
             <LemonButton
                 size="xsmall"
-                icon={<IconThumbsDown />}
+                icon={<IconBlock />}
                 tooltip="Not useful"
                 aria-label="Not useful"
                 className={className}
