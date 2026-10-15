@@ -1,0 +1,41 @@
+@layer components {
+    /*
+     * Callout extends Item (outline variant + tone). Item supplies the tinted
+     * surface and border through --quill-item-tint / --quill-item-accent.
+     * These rules only adapt Item's list-row defaults to a block of prose.
+     * Multi-line callouts pin to the first line through the
+     * `has-data-[slot=item-description]:items-start` class in callout.tsx.
+     */
+
+    .quill-callout__icon {
+        color: var(--quill-item-accent, var(--muted-foreground));
+    }
+
+    /* A callout body is prose: no line clamp, wraps freely, full contrast */
+    .quill-callout .quill-item__title {
+        display: block;
+        width: auto;
+    }
+
+    .quill-callout .quill-item__description {
+        display: block;
+        overflow: visible;
+        color: var(--foreground);
+        -webkit-line-clamp: unset;
+        line-clamp: unset;
+    }
+
+    .quill-callout .quill-item__content {
+        min-width: 0;
+    }
+
+    .quill-callout__close {
+        flex-shrink: 0;
+        margin-inline-start: auto;
+    }
+
+    /* Keep the close button vertically centred on the first text line */
+    .quill-callout:has([data-slot='item-description']) .quill-callout__close {
+        translate: 0 -0.125rem;
+    }
+}
