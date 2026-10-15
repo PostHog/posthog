@@ -6,7 +6,7 @@ Never commit absolute event or user counts.**
 
 Queries 1 to 7 use a 90-day window; keep that consistent so trends are comparable.
 Queries 8 to 12 use 7 days because they are heavier.
-Queries 13 and 14 use 90 days.
+Queries 13 to 15 use 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
@@ -451,6 +451,39 @@ WHERE event = 'taxonomic filter category selected'
 GROUP BY group_type
 ORDER BY share_of_category_clicks_pct DESC
 LIMIT 30
+```
+
+### 15. Users who return to the same tab
+
+Per-user return to a category tab over 90 days.
+Backs the "reopen on the last category used" entry in [contested-decisions](contested-decisions.md).
+Suggested, Recent and Pinned do not count as a category.
+Category clicks carry no open ID, so "again" means on a later day.
+Counting a later session instead raises the first rate by about three points.
+The second rate divides by people who closed the legacy picker, so rebuild-only users are not in its base.
+
+```sql
+WITH tab_days AS (
+  SELECT person_id, toString(properties.groupType) AS group_type, uniqExact(toDate(timestamp)) AS days
+  FROM events
+  WHERE event = 'taxonomic filter category selected'
+    AND properties.groupType NOT IN ('suggested_filters', 'recent_filters', 'pinned_filters')
+    AND timestamp >= now() - INTERVAL 90 DAY
+  GROUP BY person_id, group_type
+),
+switchers AS (
+  SELECT person_id, max(days) >= 2 AS returned
+  FROM tab_days
+  GROUP BY person_id
+)
+SELECT
+  round(100 * countIf(returned) / count(), 1) AS switchers_returning_to_same_tab_pct,
+  round(100 * countIf(returned) / (
+    SELECT uniqExact(person_id) FROM events
+    WHERE event = 'taxonomic filter closed' AND properties.surface = 'legacy-pill'
+      AND timestamp >= now() - INTERVAL 90 DAY
+  ), 1) AS legacy_picker_users_returning_pct
+FROM switchers
 ```
 
 ## Updating the doc

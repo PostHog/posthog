@@ -9,7 +9,9 @@ Bring evidence, not seniority.
 - **Current position:** no.
   For an ordinary selection, legacy reopens on Suggested and the rebuild reopens on its `all` scope (`comboboxAllState` in `menu/TaxonomicFilterMenu.tsx`).
   Exceptions: with no selection the rebuild opens its top-level menu; HogQL and data warehouse selections reopen in their edit flows (`resolveSelectedOpenState` in `menu/TaxonomicFilterMenu.tsx`); legacy reopens a group in `OPEN_AS_SELF_ON_REOPEN` (`types.ts`) on itself.
-- **For changing:** about 44% of users who switch away from Suggested later pick the same tab again (about 11% of all picker users).
+- **For changing:** about 24% of users who click a category tab click the same tab again on a later day (about 9% of legacy picker users), over 90 days to 2026-10-15.
+  Source: [Query 15](refreshing-product-reality.md#15-users-who-return-to-the-same-tab).
+  An earlier draft said 44% and 11% with no recorded query, and no definition tried since reproduces them.
 - **Against changing:** a remembered tab is a hidden mode.
   The biggest measured failure is a category active while searching for something in another group.
   Recents already put the last pick at the top.
