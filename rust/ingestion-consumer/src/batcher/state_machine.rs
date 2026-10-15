@@ -1618,7 +1618,7 @@ mod tests {
     }
 
     /// Key `a` holds offsets 1 to 3 and key `b` offset 4. The ack for `a`
-    /// stops before its first unfinished offset, and a key with nothing
+    /// stops below its lowest unfinished offset, and a key with nothing
     /// finished gets no ack.
     #[rstest]
     #[case::a_middle_message_of_a_shared_key(&[2], &[1, 3, 4], Some(1))]

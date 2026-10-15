@@ -390,12 +390,15 @@ pub fn ack_mark(
     let first = keyed.next()?;
     // The mark tracks the key's first keyed partition, like `note_sent`.
     let partition = first.0;
-    // A resent message must stay above the mark. Send order is offset order
-    // on one partition, so the first unfinished message is the lowest.
+    // A resent message must stay above the mark. A partition revoked and
+    // regained inside one poll sends an offset twice, so send order is not
+    // offset order and the lowest unfinished offset bounds the mark.
     let resend_from = unfinished
         .into_iter()
-        .find(|&(unfinished_partition, _)| unfinished_partition == partition)
-        .map_or(i64::MAX, |(_, offset)| offset);
+        .filter(|&(unfinished_partition, _)| unfinished_partition == partition)
+        .map(|(_, offset)| offset)
+        .min()
+        .unwrap_or(i64::MAX);
     std::iter::once(first)
         .chain(keyed)
         .filter(|&(message_partition, offset, _)| {
@@ -685,6 +688,13 @@ mod tests {
             .batch()
             .note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend)
             .is_empty());
+    }
+
+    #[test]
+    fn a_redelivered_offset_keeps_the_ack_mark_below_every_unfinished_message() {
+        // The run sent offset 1, 2, then 1 again, and the worker accepted the
+        // first copy only, so the unfinished list runs 2 then 1.
+        assert_eq!(ack_mark([(0, 1, true)], [(0, 2), (0, 1)]), None);
     }
 
     #[test]
