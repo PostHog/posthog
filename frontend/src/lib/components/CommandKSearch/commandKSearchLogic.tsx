@@ -36,7 +36,7 @@ import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import type { CommandOpenSource } from '../Command/commandLogic'
 import { buildFilterOptions } from './commandKFilterOptions'
-import { KeyIntent } from './commandKKeys'
+import { ChipSelection, KeyIntent } from './commandKKeys'
 import {
     CursorContext,
     FilterDefinition,
@@ -96,6 +96,7 @@ export interface commandKSearchLogicValues {
     isDarkModeOn: boolean // themeLogic
     user: UserType | null // userLogic
     askAiQuestion: string
+    chipSelection: ChipSelection
     chips: QueryChip[]
     cursor: number
     cursorContext: CursorContext
@@ -118,7 +119,6 @@ export interface commandKSearchLogicValues {
     resultOpened: boolean
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
-    selectedChipIndex: number | null
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
@@ -223,8 +223,8 @@ export interface commandKSearchLogicActions {
         query: string
         requestId: string
     }
-    selectChip: (index: number | null) => {
-        index: number | null
+    selectChip: (index: ChipSelection) => {
+        index: ChipSelection
     }
     setChipsAndText: (
         chips: QueryChip[],
@@ -382,7 +382,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         setChipsAndText: (chips: QueryChip[], text: string, cursor: number) => ({ chips, text, cursor }),
         commitChip: (chip: QueryChip, token: QueryToken | null, via: CommitVia) => ({ chip, token, via }),
         removeChip: (index: number) => ({ index }),
-        selectChip: (index: number | null) => ({ index }),
+        selectChip: (index: ChipSelection) => ({ index }),
         editChip: (index: number) => ({ index }),
         completeFilterKey: (filter: FilterDefinition, negated: boolean) => ({ filter, negated }),
         applyKeyIntent: (intent: KeyIntent) => ({ intent }),
@@ -422,8 +422,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 removeChip: (state, { index }) => state.filter((_, i) => i !== index),
             },
         ],
-        selectedChipIndex: [
-            null as number | null,
+        chipSelection: [
+            null as ChipSelection,
             {
                 selectChip: (_, { index }) => index,
                 setInput: () => null,
@@ -684,9 +684,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             })
         }
 
-        const commit = (chip: QueryChip, token: QueryToken | null, text: string, via: CommitVia): void => {
+        const commit = (
+            chips: QueryChip[],
+            chip: QueryChip,
+            token: QueryToken | null,
+            text: string,
+            via: CommitVia
+        ): void => {
             const remaining = token ? removeToken(text, token) : { text, cursor: values.cursor }
-            actions.setChipsAndText(addChip(values.chips, chip), remaining.text, remaining.cursor)
+            actions.setChipsAndText(addChip(chips, chip), remaining.text, remaining.cursor)
             trackCommit(chip, via)
         }
 
@@ -745,30 +751,38 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             // Remote searches wait for a project, so a project that loads mid-query starts them.
             loadCurrentTeamSuccess: () => actions.syncRemote(),
             inputChanged: ({ text, cursor, pasted }) => {
+                // With everything selected, the edit replaced the chips along with the text.
+                const replacedAll = values.chipSelection === 'all'
+                const chips = replacedAll ? [] : values.chips
                 if (pasted) {
-                    const extracted = extractChips(text, values.chips, values.filterOptions)
-                    for (const chip of extracted.chips.filter((chip) => !values.chips.includes(chip))) {
+                    const extracted = extractChips(text, chips, values.filterOptions)
+                    for (const chip of extracted.chips.filter((chip) => !chips.includes(chip))) {
                         trackCommit(chip, 'paste')
                     }
                     actions.setChipsAndText(extracted.chips, extracted.text, extracted.text.length)
                     return
                 }
-                const edit = { previousText: values.text, previousCursor: values.cursor, text, cursor }
+                const edit = {
+                    previousText: replacedAll ? '' : values.text,
+                    previousCursor: replacedAll ? 0 : values.cursor,
+                    text,
+                    cursor,
+                }
                 if (isRedundantSpace(edit)) {
                     return
                 }
-                const committed = chipCommittedByEdit(edit, values.chips, values.filterOptions)
+                const committed = chipCommittedByEdit(edit, chips, values.filterOptions)
                 if (committed) {
-                    commit(committed.chip, committed.token, text, committed.via)
+                    commit(chips, committed.chip, committed.token, text, committed.via)
                 } else {
-                    actions.setInput(text, cursor)
+                    actions.setChipsAndText(chips, text, cursor)
                 }
             },
             setInput: onQueryChanged,
             setCursor: onQueryChanged,
             setChipsAndText: onQueryChanged,
             removeChip: onQueryChanged,
-            commitChip: ({ chip, token, via }) => commit(chip, token, values.text, via),
+            commitChip: ({ chip, token, via }) => commit(values.chips, chip, token, values.text, via),
             completeFilterKey: ({ filter, negated }) => {
                 const token = tokenAtCursor(values.text, values.cursor)
                 const replacement = `${negated ? '-' : ''}${filter.key}:`
@@ -804,6 +818,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         break
                     case 'select-chip':
                         actions.selectChip(intent.index)
+                        break
+                    case 'clear':
+                        actions.clearQuery()
                         break
                     case 'remove-chip':
                         actions.removeChip(intent.index)

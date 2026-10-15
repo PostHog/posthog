@@ -1,8 +1,9 @@
 """Evaluation of due insight alerts on the shared alerts platform.
 
 A parallel run. The production insight fleet evaluates the same alerts against
-`AlertConfiguration` and is the only stack that notifies anyone. This decides what the platform
-would have said and delivers nothing.
+`AlertConfiguration` and notifies their destinations. This decides what the platform would have
+said, and asks for a delivery only for the alerts in `LIVE_DELIVERY_INSIGHT_ALERT_IDS`. The
+platform still sends only to projects on its live delivery flag.
 
 Each platform row resolves to its production alert through `legacy_configuration_id`, because
 `check_alert_for_insight` reads the insight, the threshold and the condition off that model. The
@@ -15,8 +16,10 @@ same set of checks.
 """
 
 import time
+from collections.abc import Collection
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import Final
 
 from django.conf import settings
 
@@ -33,12 +36,16 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    AlertEventKind,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SkipReason,
+    SourceBatchEvaluation,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
@@ -61,6 +68,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +83,8 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
+SLOT_KEY_PREFIX = "slot:"
+
 # Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
 # parallel run leaves it out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
@@ -88,35 +98,64 @@ EVALUATED_INTERVALS = frozenset(
 )
 
 
+# The production insight alerts whose platform evaluations ask for a native delivery, as a test. The
+# platform's live delivery flag still has to be on for the project, and every other insight alert
+# keeps production as its only deliverer. Widening the test means adding an id here.
+LIVE_DELIVERY_INSIGHT_ALERT_IDS: Final = frozenset({"01a11d6f-598e-0000-8529-4bcb65526f6d"})
+
+# Which event each announced kind's destinations listen on. A resolve is left out, because
+# production never announces one and the analytics platform team has not agreed to start. A kind
+# with no event id reaches no destination.
+_EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
+    AlertEventKind.FIRING.value: LEGACY_INSIGHT_ALERT_EVENT,
+    AlertEventKind.ERRORED.value: INSIGHT_ALERT_ERRORED_EVENT_ID,
+}
+
+
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
     """Threshold alerts on a 15-minute or slower cadence. A detector alert makes its own decision,
     and the LLM detector makes a charged model call, so evaluating either in parallel costs twice."""
     return not alert.detector_config and alert.calculation_interval in EVALUATED_INTERVALS
 
 
-def plan_insight_batch(team_id: int, slot: str, cutoff: datetime, *, expires_at: float) -> tuple[str, ...]:
+def plan_insight_batch(
+    team_id: int, slot: str, cutoff: datetime, *, expires_at: float, exclude: Collection[str] = ()
+) -> tuple[str, ...]:
     """Admits the batch's checks into the pool, in id order, while it has room, and returns the
     ids it admitted.
 
     The checks left out keep their due time, so a later tick finds them again. `expires_at` comes
     from the workflow rather than the clock, so a retried attempt gets back the same admitted ids.
+
+    `exclude` names the checks the workflow already started. A running check holds its slot under
+    the same expiry, and a finished one stays due until the workflow records its outcome. Without
+    `exclude`, a later round would admit either one again.
     """
-    checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff)
-    if not checks:
+    # The pool admits at most its size per round, so more candidates than that only add reads.
+    candidates = due_check_ids(
+        team_id,
+        SourceKind.INSIGHT.value,
+        slot,
+        cutoff,
+        exclude=exclude,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+    )
+    if not candidates:
         return ()
     admitted = admit_evaluation_slots(
-        [str(check.id) for check in checks],
+        list(candidates),
         limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
         expires_at=expires_at,
         key=INFLIGHT_KEY,
     )
-    if len(admitted) < len(checks):
+    # Only on a batch's first round, because later rounds of a full pool would repeat it every few seconds.
+    if len(admitted) < len(candidates) and not exclude:
         logger.info(
             "Deferred platform insight checks over the pool limit",
             team_id=team_id,
             slot=slot,
             admitted=len(admitted),
-            deferred=len(checks) - len(admitted),
+            deferred=len(candidates) - len(admitted),
         )
     return tuple(admitted)
 
@@ -129,11 +168,12 @@ def evaluate_insight_check(
     *,
     held_until: float,
     evaluation_id: str,
-) -> PlatformAlertOutcome | None:
+) -> SourceBatchEvaluation | None:
     """Decides one admitted check, then frees its slot.
 
-    Returns None when the configuration is no longer due, because an earlier attempt already
-    recorded it or it was edited out of the batch. Writes nothing.
+    Returns the outcome with its delivery, if it asks for one. Returns None when the configuration
+    is no longer due, because an earlier attempt already recorded it or it was edited out of the
+    batch. Writes nothing.
     """
     try:
         checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
@@ -145,9 +185,28 @@ def evaluate_insight_check(
             lag_ms = int((datetime.now(UTC) - checks[0].next_check_at).total_seconds() * 1000)
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
-        return _decide(checks[0], cutoff, evaluation_id=evaluation_id)
+        outcome = _decide(checks[0], cutoff, evaluation_id=evaluation_id)
+        delivery = _delivery(checks[0], outcome)
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
     finally:
         release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
+    if outcome.kind.value not in _EVENT_IDS_BY_KIND:
+        return None
+    legacy_id = str(check.legacy_configuration_id) if check.legacy_configuration_id is not None else None
+    if legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+        return None
+    return AlertDeliveryRequest(
+        source=SourceKind.INSIGHT,
+        team_id=check.team_id,
+        configuration_id=str(check.id),
+        # The recorded key unchanged, so the delivery addresses the row this check wrote.
+        evaluation_key=outcome.evaluation_key,
+        destination_alert_id=legacy_id,
+        event_ids_by_kind=_EVENT_IDS_BY_KIND,
+    )
 
 
 def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -168,7 +227,22 @@ def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
 
 def _evaluation_key(check: PlatformAlertCheckInput, cutoff: datetime) -> str:
     """The due slot. An insight check is one scheduled run, not a window, so the slot names it."""
-    return f"slot:{slot_of(check.next_check_at, cutoff)}"
+    return evaluation_key_for_slot(slot_of(check.next_check_at, cutoff))
+
+
+def evaluation_key_for_slot(slot: str) -> str:
+    return f"{SLOT_KEY_PREFIX}{slot}"
+
+
+def slot_of_evaluation_key(evaluation_key: str) -> datetime | None:
+    """The due slot a key names, or None for another shape. Kept beside the minter, so a change to
+    one breaks the other's tests rather than the comparison silently."""
+    if not evaluation_key.startswith(SLOT_KEY_PREFIX):
+        return None
+    try:
+        return datetime.fromisoformat(evaluation_key.removeprefix(SLOT_KEY_PREFIX))
+    except ValueError:
+        return None
 
 
 def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str) -> PlatformAlertOutcome:

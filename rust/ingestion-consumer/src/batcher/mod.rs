@@ -17,6 +17,7 @@
 mod driver;
 pub mod in_flight;
 pub mod key_queues;
+pub mod packer;
 pub mod request;
 pub mod retry_policy;
 pub mod state_machine;

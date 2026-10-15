@@ -36,19 +36,25 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
             visible={visible}
             onVisibilityChange={(nextVisible) => (nextVisible ? setActiveExpressionEditorId(editorKey) : close())}
             closeOnClickInside={false}
-            placement="right-start"
+            placement="bottom-start"
             overlay={<BIFilterEditor index={index} onDone={close} />}
         >
             <BIPill
                 kind="filter"
                 label={label}
-                detail={getBIFilterValidationError(filter) ? 'Invalid' : filter.enabled === false ? 'Off' : undefined}
+                detail={
+                    getBIFilterValidationError(filter)
+                        ? 'Invalid'
+                        : filter.enabled === false
+                          ? 'Off'
+                          : getBIFilterSummary(filter)
+                }
                 title={`${label}: ${getBIFilterSummary(filter)}`}
                 shelf="filters"
                 index={index}
                 incomplete={!filter.field.expression.trim() && !filter.customExpression?.trim()}
                 className={cn(
-                    'h-5 w-full justify-between px-1.5 font-normal',
+                    'h-5 max-w-64 justify-between px-1.5 font-normal',
                     filter.enabled === false && 'opacity-50'
                 )}
                 aria-label={`${label} filter`}

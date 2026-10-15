@@ -353,6 +353,10 @@ export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimit
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2761,6 +2765,28 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -3057,6 +3083,10 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttri
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5474,6 +5504,28 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                default_email_integration_id: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        "ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted."
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5716,6 +5768,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
+    search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),
 })
 
 /**

@@ -7,6 +7,7 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
@@ -18,7 +19,6 @@ import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogs
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -32,11 +32,7 @@ export interface AttributeCellProps {
      * together.
      */
     cellKey?: string
-    /**
-     * Which property the popover's filter actions target. Defaults to a log attribute; the Person
-     * and Session columns pass a resource-attribute filter when that is where the row's value came
-     * from, so the filter matches the row it was added from.
-     */
+    /** Popover filter type, default log attribute. Pass resource attribute for values read from resource attributes. */
     filterType?: PropertyFilterType
 }
 

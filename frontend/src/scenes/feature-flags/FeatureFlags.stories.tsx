@@ -51,6 +51,14 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
+                '/api/projects/:team_id/feature_flags/2222222222222/': [
+                    500,
+                    {
+                        type: 'server_error',
+                        code: 'error',
+                        detail: 'Something went wrong.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
                     const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
                     if (flag?.id === DELETED_FLAG_ID) {
@@ -255,6 +263,12 @@ export const DeletedFeatureFlag: Story = {
 export const FeatureFlagNotFound: Story = {
     parameters: {
         pageUrl: urls.featureFlag(1111111111111),
+    },
+}
+
+export const FeatureFlagLoadFailed: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(2222222222222),
     },
 }
 

@@ -21,7 +21,14 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -43,6 +50,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
         self.sample_hogql_query = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -340,6 +348,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response_data["is_active"])
         want_query = {
             "connectionId": None,
+            "executionTarget": None,
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
@@ -413,6 +422,57 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(log.item_id, str(endpoint.id))
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
+
+    def test_delete_endpoint_is_refused_when_a_model_depends_on_it(self):
+        endpoint = create_endpoint_with_version(
+            name="blocked_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        backing_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="blocked_endpoint_v1",
+            query=self.sample_hogql_query,
+        )
+        version.enable_materialization(backing_query)
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+        )
+        dag = DAG.get_or_create_default(self.team)
+        endpoint_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=backing_query,
+            type=NodeType.ENDPOINT,
+        )
+        downstream_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=downstream_query,
+            type=NodeType.VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "has_dependents")
+        self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't delete blocked_endpoint_v1 yet. Something else reads from it. Update or delete it first.",
+        )
+        endpoint.refresh_from_db()
+        backing_query.refresh_from_db()
+        version.refresh_from_db()
+        self.assertFalse(endpoint.deleted)
+        self.assertFalse(backing_query.deleted)
+        self.assertEqual(version.saved_query_id, backing_query.id)
+        self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())
 
     def test_delete_endpoint_prevents_hard_delete(self):
         endpoint = create_endpoint_with_version(
@@ -1418,6 +1478,28 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         # No variables, but query is materializable
         assert data["can_materialize"] is True
         assert data["transformed_query"] is not None
+
+    def test_preview_invalid_hogql_returns_cant_materialize(self):
+        create_endpoint_with_version(
+            name="invalid-hogql-endpoint",
+            team=self.team,
+            query={
+                **self.variable_query,
+                "query": "SELECT substring(event) AS start_ts, count() FROM events "
+                "WHERE timestamp >= {variables.start_ts} GROUP BY start_ts",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/invalid-hogql-endpoint/materialization_preview/",
+            {},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["can_materialize"] is False
+        assert "substring" in data["reason"]
 
     def test_create_does_not_auto_materialize(self):
         endpoint_data = self._create_endpoint_with_variables("no-auto-mat")

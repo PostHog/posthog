@@ -227,9 +227,15 @@ Compilation failures fail the modeling job, without connecting to Trino or falli
 Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
 The compiler and materializer share this naming policy, so each compiled query can read upstream model outputs directly.
 The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
-ClickHouse materialization and publication continue independently.
-The DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or is ineligible for shadowing, even if ClickHouse succeeds.
-Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous dependency behavior.
+The shadow is a separate DAG run, so ClickHouse materialization and publication never wait for Trino.
+When an eligible organization's ClickHouse DAG run starts, it starts one `managed_warehouse_only` run of the same nodes as an abandoned child workflow, and does not wait for it.
+The shadow run has a fixed workflow id per DAG and cadence tier: `execute-dag-trino-{dag_id}:{tier}`, or `execute-dag-trino-{dag_id}` for runs outside a tier schedule.
+If the previous shadow run with that id is still running, the new one is skipped, so a slow Trino never builds a backlog.
+Shadow runs record their outcomes in managed warehouse job rows and metrics only: they run no data quality checks and send no failure notifications.
+Preemption is scoped to the run's engine, so the ClickHouse and Trino runs of a tier never cancel each other's jobs.
+A single-model materialization started outside a DAG run does not start a Trino shadow.
+Within the shadow run, the DAG waits for upstream Trino builds and skips dependent Trino builds when an upstream model fails or is ineligible for shadowing.
+Skipped managed warehouse jobs record the upstream node IDs. Existing Temporal histories retain their previous behavior, including the shadow inside the ClickHouse materialization.
 Run upstream materialized models before their dependents when selecting a subset of the DAG.
 Do not run the legacy DuckLake model-copy workflow against the same destinations while Trino owns their refreshes.
 Publication uses the DuckLake connector's atomic `CREATE OR REPLACE TABLE` operation, so a failed write preserves the previous table.

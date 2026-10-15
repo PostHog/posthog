@@ -9,8 +9,18 @@ import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
     PAGE_SIZE,
     VercelResumeConfig,
@@ -21,55 +31,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.ver
     _ms_to_iso8601,
     _should_stop_desc,
     get_billing_rows,
-    get_rows,
     validate_credentials,
     vercel_source,
 )
 
 
-class _FakeResumableManager:
-    def __init__(self, state: VercelResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[VercelResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> VercelResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: VercelResumeConfig) -> None:
-        self.saved.append(data)
+def _run(endpoint: str, script: Script, *, team_id: str | None = None, **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(VercelSource(), VercelSourceConfig(access_token="t", team_id=team_id))
+    return driver.run(endpoint, script, **kwargs)
 
 
-def _patch_fetch(monkeypatch: Any, responses: list[dict]) -> list[str]:
-    """Replace _fetch_page with a queue that returns canned pages in order, recording each URL."""
-    calls: list[str] = []
-    queue = list(responses)
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        calls.append(url)
-        return queue.pop(0)
-
-    monkeypatch.setattr(vercel, "_fetch_page", fake_fetch)
-    return calls
-
-
-def _collect(endpoint: str, manager: _FakeResumableManager, monkeypatch: Any, responses: list[dict], **kwargs: Any):
-    calls = _patch_fetch(monkeypatch, responses)
-    rows: list[dict] = []
-    for table in get_rows(
-        access_token="t",
-        endpoint=endpoint,
-        team_id=kwargs.get("team_id"),
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        should_use_incremental_field=kwargs.get("should_use_incremental_field", False),
-        db_incremental_field_last_value=kwargs.get("db_incremental_field_last_value"),
-        incremental_field=kwargs.get("incremental_field"),
-    ):
-        rows.extend(table.to_pylist())
-    return rows, calls
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.items for row in table.to_pylist()]
 
 
 class TestBuildParams:
@@ -159,33 +132,25 @@ class TestCursorFromPage:
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
     def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        response = requests.Response()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             ok, error = validate_credentials("token")
 
         assert ok is expected_ok, f"status={status}"
         assert (error is None) is expected_ok, f"status={status}"
+        assert network.requests_log[0].path == "/v2/user"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
-    def test_request_exception_returns_retry_message_without_leaking_raw_error(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, **k: session)
+    def test_request_exception_returns_retry_message_without_leaking_raw_error(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            ok, error = validate_credentials("token")
 
-        ok, error = validate_credentials("token")
         assert ok is False
         assert error == vercel._VERCEL_UNREACHABLE_ERROR
         assert "boom" not in (error or "")
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_transient_status_returns_retry_message_not_token_advice(self, status: int) -> None:
-        response = requests.Response()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             ok, error = validate_credentials("token")
 
         assert ok is False
@@ -195,32 +160,23 @@ class TestValidateCredentials:
 
     @parameterized.expand([(400,), (401,), (404,)])
     def test_credential_rejection_status_tells_the_user_to_replace_the_token(self, status: int) -> None:
-        response = requests.Response()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             ok, error = validate_credentials("token")
 
         assert ok is False
         assert error == vercel._VERCEL_INVALID_TOKEN_ERROR
 
     def test_non_ascii_token_is_rejected_without_a_request(self) -> None:
-        session = MagicMock()
-        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+        with scripted_network([]) as network:
             ok, error = validate_credentials("tok\u00e9n")
 
         assert ok is False
         assert error == vercel._VERCEL_UNSUPPORTED_CHARACTER_ERROR
-        assert session.get.call_count == 0
+        assert network.requests_log == []
 
     def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
-        response = requests.Response()
-        response.status_code = 418
-        session = MagicMock()
-        session.get.return_value = response
         with (
-            patch.object(vercel, "make_tracked_session", lambda *a, **k: session),
+            scripted_network(always(ScriptedResponse(status=418, json={}))),
             patch.object(vercel, "capture_exception") as capture,
         ):
             ok, error = validate_credentials("token")
@@ -293,124 +249,147 @@ class TestOpenBillingStreamRetry:
 
 
 class TestGetRows:
-    def test_resumes_from_saved_until_cursor(self, monkeypatch: Any) -> None:
-        responses = [{"deployments": [{"uid": "1", "created": 400}], "pagination": {"next": None}}]
-        manager = _FakeResumableManager(VercelResumeConfig(until=500))
-        rows, calls = _collect("deployments", manager, monkeypatch, responses)
+    def test_resumes_from_saved_until_cursor(self) -> None:
+        result = _run(
+            "deployments",
+            [ScriptedResponse(json={"deployments": [{"uid": "1", "created": 400}], "pagination": {"next": None}})],
+            resume_state=VercelResumeConfig(until=500),
+        )
 
-        assert [r["uid"] for r in rows] == ["1"]
-        assert "until=500" in calls[0]
+        assert [r["uid"] for r in _rows(result)] == ["1"]
+        assert result.params("until") == ["500"]
 
-    def test_events_stop_when_a_whole_page_shares_one_timestamp(self, monkeypatch: Any) -> None:
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _run(
+            "deployments",
+            [ScriptedResponse(json={"deployments": [{"uid": "1", "created": 400}], "pagination": {"next": None}})],
+        )
+
+        assert result.params("until") == [None]
+
+    def test_events_stop_when_a_whole_page_shares_one_timestamp(self) -> None:
         # The derived cursor can't advance past a page whose rows share a timestamp; the walk has
         # to end there rather than re-request the same page forever.
-        responses = [
-            {"events": [{"id": "e1", "createdAt": 500}, {"id": "e2", "createdAt": 500}]},
-            {"events": [{"id": "e3", "createdAt": 500}]},
-        ]
-        rows, calls = _collect("events", _FakeResumableManager(), monkeypatch, responses)
-
-        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
-        assert len(calls) == 2
-
-    def test_events_incremental_sends_since_and_stops_at_watermark(self, monkeypatch: Any) -> None:
-        responses = [
-            {"events": [{"id": "e1", "createdAt": 300}, {"id": "e2", "createdAt": 200}]},
-            {"events": [{"id": "e3", "createdAt": 120}]},
-            {"events": [{"id": "e4", "createdAt": 50}]},
-        ]
-        rows, calls = _collect(
+        result = _run(
             "events",
-            _FakeResumableManager(),
-            monkeypatch,
-            responses,
+            [
+                ScriptedResponse(json={"events": [{"id": "e1", "createdAt": 500}, {"id": "e2", "createdAt": 500}]}),
+                ScriptedResponse(json={"events": [{"id": "e3", "createdAt": 500}]}),
+            ],
+        )
+
+        assert [r["id"] for r in _rows(result)] == ["e1", "e2", "e3"]
+        assert len(result.requests) == 2
+
+    def test_events_incremental_sends_since_and_stops_at_watermark(self) -> None:
+        result = _run(
+            "events",
+            [
+                ScriptedResponse(json={"events": [{"id": "e1", "createdAt": 300}, {"id": "e2", "createdAt": 200}]}),
+                ScriptedResponse(json={"events": [{"id": "e3", "createdAt": 120}]}),
+                ScriptedResponse(json={"events": [{"id": "e4", "createdAt": 50}]}),
+            ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=150,
         )
 
-        assert [r["id"] for r in rows] == ["e1", "e2", "e3"]
-        assert "since=1970-01-01T00%3A00%3A00.150Z" in calls[0]
-        assert len(calls) == 2
+        assert [r["id"] for r in _rows(result)] == ["e1", "e2", "e3"]
+        assert result.requests[0].param("since") == "1970-01-01T00:00:00.150Z"
+        assert len(result.requests) == 2
 
-    def test_mid_page_yield_checkpoints_current_page_not_next(self, monkeypatch: Any) -> None:
+    def test_mid_page_yield_checkpoints_current_page_not_next(self) -> None:
         # Regression: a mid-page yield must checkpoint the cursor for the CURRENT page, not the
         # next one. Page two crosses the batcher's 2000-row chunk, so the batch yields while the
         # rest of page two is still unprocessed. Saving the next cursor (400) here would advance
         # the watermark past those rows and silently skip them after a crash/resume; the checkpoint
         # must stay at page two's own cursor (200) so resume re-fetches it (dedup handles the
         # already-yielded rows).
-        responses: list[dict] = [
-            {"deployments": [{"uid": "a", "created": 100}, {"uid": "b", "created": 99}], "pagination": {"next": 200}},
-            {
-                "deployments": [{"uid": str(i), "created": 100000 - i} for i in range(2500)],
-                "pagination": {"next": 400},
-            },
-            {"deployments": [], "pagination": {"next": None}},
-        ]
-        manager = _FakeResumableManager()
-        rows, _ = _collect("deployments", manager, monkeypatch, responses)
+        result = _run(
+            "deployments",
+            [
+                ScriptedResponse(
+                    json={
+                        "deployments": [{"uid": "a", "created": 100}, {"uid": "b", "created": 99}],
+                        "pagination": {"next": 200},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "deployments": [{"uid": str(i), "created": 100000 - i} for i in range(2500)],
+                        "pagination": {"next": 400},
+                    }
+                ),
+                ScriptedResponse(json={"deployments": [], "pagination": {"next": None}}),
+            ],
+        )
 
-        assert len(rows) == 2502
-        assert manager.saved == [VercelResumeConfig(until=200)]
-
-
-def _collect_fanout(monkeypatch: Any, responses: list[dict], team_id: str | None = None):
-    calls = _patch_fetch(monkeypatch, responses)
-    rows: list[dict] = []
-    for table in vercel.get_fanout_rows(access_token="t", endpoint="check_runs", team_id=team_id, logger=MagicMock()):
-        rows.extend(table.to_pylist())
-    return rows, calls
+        assert len(_rows(result)) == 2502
+        assert result.saved_states == [VercelResumeConfig(until=200)]
 
 
 class TestGetFanoutRows:
-    def test_fans_out_one_child_request_per_parent_deployment(self, monkeypatch: Any) -> None:
-        responses: list[dict] = [
-            {
-                "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
-                "pagination": {"next": None},
-            },
-            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
-            {"runs": [{"id": "r2", "deploymentId": "d2"}, {"id": "r3", "deploymentId": "d2"}]},
-        ]
-        rows, calls = _collect_fanout(monkeypatch, responses, team_id="team_1")
+    def test_fans_out_one_child_request_per_parent_deployment(self) -> None:
+        result = _run(
+            "check_runs",
+            [
+                ScriptedResponse(
+                    json={
+                        "deployments": [{"uid": "d1", "created": 200}, {"uid": "d2", "created": 100}],
+                        "pagination": {"next": None},
+                    }
+                ),
+                ScriptedResponse(json={"runs": [{"id": "r1", "deploymentId": "d1"}]}),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r2", "deploymentId": "d2"}, {"id": "r3", "deploymentId": "d2"}]}
+                ),
+            ],
+            team_id="team_1",
+        )
 
-        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
+        assert [r["id"] for r in _rows(result)] == ["r1", "r2", "r3"]
         # The parent is paged from the deployments endpoint; each child request fills the deployment
         # id into the check-runs path and carries teamId.
-        assert "/v6/deployments" in calls[0]
-        assert "/v2/deployments/d1/check-runs" in calls[1]
-        assert "/v2/deployments/d2/check-runs" in calls[2]
-        assert "teamId=team_1" in calls[1]
+        assert result.paths == ["/v6/deployments", "/v2/deployments/d1/check-runs", "/v2/deployments/d2/check-runs"]
+        assert result.requests[1].param("teamId") == "team_1"
         # The check-runs endpoint documents no limit/pagination params, so the shared `limit` must
         # not be appended to the child request.
-        assert "limit=" not in calls[1]
+        assert result.requests[1].param("limit") is None
 
-    def test_parent_row_missing_the_fan_out_field_is_skipped(self, monkeypatch: Any) -> None:
+    def test_parent_row_missing_the_fan_out_field_is_skipped(self) -> None:
         # A deployment row without `uid` can't seed a child path; skip it rather than crash the sync.
-        responses: list[dict] = [
-            {"deployments": [{"uid": "d1", "created": 200}, {"created": 100}], "pagination": {"next": None}},
-            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
-        ]
-        rows, calls = _collect_fanout(monkeypatch, responses)
+        result = _run(
+            "check_runs",
+            [
+                ScriptedResponse(
+                    json={
+                        "deployments": [{"uid": "d1", "created": 200}, {"created": 100}],
+                        "pagination": {"next": None},
+                    }
+                ),
+                ScriptedResponse(json={"runs": [{"id": "r1", "deploymentId": "d1"}]}),
+            ],
+        )
 
-        assert [r["id"] for r in rows] == ["r1"]
+        assert [r["id"] for r in _rows(result)] == ["r1"]
         # Only the uid-bearing parent issues a child request.
-        assert len(calls) == 2
+        assert len(result.requests) == 2
 
-    def test_fans_out_across_every_parent_page(self, monkeypatch: Any) -> None:
+    def test_fans_out_across_every_parent_page(self) -> None:
         # The parent deployments list paginates; the fan-out must visit deployments from every page,
         # not silently cap the child table at the first page of parents.
-        responses: list[dict] = [
-            {"deployments": [{"uid": "d1", "created": 300}], "pagination": {"next": 300}},
-            {"runs": [{"id": "r1", "deploymentId": "d1"}]},
-            {"deployments": [{"uid": "d2", "created": 100}], "pagination": {"next": None}},
-            {"runs": [{"id": "r2", "deploymentId": "d2"}]},
-        ]
-        rows, calls = _collect_fanout(monkeypatch, responses)
+        result = _run(
+            "check_runs",
+            [
+                ScriptedResponse(json={"deployments": [{"uid": "d1", "created": 300}], "pagination": {"next": 300}}),
+                ScriptedResponse(json={"runs": [{"id": "r1", "deploymentId": "d1"}]}),
+                ScriptedResponse(json={"deployments": [{"uid": "d2", "created": 100}], "pagination": {"next": None}}),
+                ScriptedResponse(json={"runs": [{"id": "r2", "deploymentId": "d2"}]}),
+            ],
+        )
 
-        assert [r["id"] for r in rows] == ["r1", "r2"]
+        assert [r["id"] for r in _rows(result)] == ["r1", "r2"]
         # Page two of the parent is requested with the first page's cursor.
-        assert "until=300" in calls[2]
+        assert result.requests[2].param("until") == "300"
 
 
 class TestVercelSource:
@@ -511,39 +490,37 @@ class TestBillingWindowStart:
 
 
 class TestGetBillingRows:
-    def _collect(
-        self, monkeypatch: Any, response: _FakeStreamResponse, team_id: str | None, **kwargs: Any
-    ) -> tuple[list[dict], str]:
-        captured: dict[str, str] = {}
-
-        def fake_open(session: Any, url: str, headers: dict[str, str], logger: Any) -> _FakeStreamResponse:
-            captured["url"] = url
-            return response
-
-        monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, **k: MagicMock())
-        monkeypatch.setattr(vercel, "_open_billing_stream", fake_open)
-
-        rows: list[dict] = []
-        for table in get_billing_rows("token", "billing_charges", team_id, MagicMock(), **kwargs):
-            rows.extend(table.to_pylist())
-        return rows, captured["url"]
-
-    def test_parses_jsonl_stamps_id_and_sorts_ascending(self, monkeypatch: Any) -> None:
-        response = _FakeStreamResponse(
-            [
-                '{"ChargePeriodStart": "2025-01-03T00:00:00.000Z", "ServiceName": "Functions"}',
-                "",
-                '{"ChargePeriodStart": "2025-01-01T00:00:00.000Z", "ServiceName": "Bandwidth"}',
-            ]
+    def test_parses_jsonl_stamps_id_and_sorts_ascending(self) -> None:
+        body = (
+            b'{"ChargePeriodStart": "2025-01-03T00:00:00.000Z", "ServiceName": "Functions"}\n'
+            b"\n"
+            b'{"ChargePeriodStart": "2025-01-01T00:00:00.000Z", "ServiceName": "Bandwidth"}\n'
         )
-        rows, url = self._collect(monkeypatch, response, team_id="team_9")
 
+        result = _run("billing_charges", [ScriptedResponse(body=body)], team_id="team_9")
+
+        assert result.raised is None
         # Blank line skipped, and rows arrive oldest-first regardless of stream order.
-        assert [r["ChargePeriodStart"] for r in rows] == [
+        assert [r["ChargePeriodStart"] for r in _rows(result)] == [
             "2025-01-01T00:00:00.000Z",
             "2025-01-03T00:00:00.000Z",
         ]
-        assert all(r["id"] for r in rows)
-        assert "teamId=team_9" in url
-        assert "from=" in url and "to=" in url
+        assert all(r["id"] for r in _rows(result))
+        assert result.paths == ["/v1/billing/charges"]
+        assert result.requests[0].param("teamId") == "team_9"
+        assert result.requests[0].param("from") is not None and result.requests[0].param("to") is not None
+
+    def test_closes_the_billing_stream_after_reading_it(self, monkeypatch: Any) -> None:
+        response = _FakeStreamResponse(
+            ['{"ChargePeriodStart": "2025-01-01T00:00:00.000Z", "ServiceName": "Bandwidth"}']
+        )
+        monkeypatch.setattr(vercel, "_open_billing_stream", lambda session, url, headers, logger: response)
+
+        rows = [
+            row
+            for table in get_billing_rows("token", "billing_charges", None, MagicMock())
+            for row in table.to_pylist()
+        ]
+
+        assert len(rows) == 1
         assert response.closed is True

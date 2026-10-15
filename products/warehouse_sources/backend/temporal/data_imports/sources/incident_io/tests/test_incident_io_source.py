@@ -1,15 +1,16 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.incidentio import (
     IncidentIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source import IncidentIoSource
 
-INCIDENT_IO_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.incident_io.make_tracked_session"
-)
 INCIDENT_IO_SOURCE_FN_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.incident_io.source.incident_io_source"
 )
@@ -62,13 +63,11 @@ class TestIncidentIoSource:
             ("v1", "https://api.incident.io/v2/follow_ups?page_size=1"),
         ],
     )
-    @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_validate_credentials_probes_the_pinned_version(self, mock_session, pinned, expected_url):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+    def test_validate_credentials_probes_the_pinned_version(self, pinned: str | None, expected_url: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            self.source.validate_credentials(self.config, self.team_id, schema_name="follow_ups", api_version=pinned)
 
-        self.source.validate_credentials(self.config, self.team_id, schema_name="follow_ups", api_version=pinned)
-
-        assert mock_session.return_value.get.call_args.args[0] == expected_url
+        assert [request.url for request in network.requests_log] == [expected_url]
 
     @pytest.mark.parametrize("pinned", ["v1", "v3"])
     @mock.patch(INCIDENT_IO_SOURCE_FN_PATCH)

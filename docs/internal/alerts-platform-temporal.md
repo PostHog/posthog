@@ -230,6 +230,11 @@ Flooring to the minute loses nothing that load spreading provides: `compute_shar
 whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
 than within one.
 
+A source can set `schedule_group` on an outcome to spread by team and group instead of by configuration, through `compute_team_shard_offset_seconds`.
+A team's alerts with one group and one cadence then share a batch key.
+Logs sets the group to the query shape (window, evaluation periods, projection eligibility), so alerts that can share a cohort query land in one batch, and alerts that cannot spread across slots.
+That keeps a batch under `MAX_COHORTS_PER_CYCLE` in the common case, where one slot per team would push a team with many shapes over it.
+
 ## Source evaluation bindings
 
 `products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
@@ -480,7 +485,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
-4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size. A batch refills the slots its finished checks free, in rounds within its tick, so the cap limits concurrency rather than checks per minute.
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.

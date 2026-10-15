@@ -117,6 +117,8 @@ For database sources, we recommend setting `partition_count` and `partition_size
 - `partition_count` refers to how many partitions there should exist for the `md5` mode
 - `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
 
+When a source sets no `partition_mode`, a new append-only table with a date or timestamp cursor uses `datetime` on that cursor. An append-only sync never merges rows, so a hash of the primary key helps nothing, and date partitions let a query that filters on the cursor skip the rest. A table that already has a layout keeps it.
+
 ## OAuth Configuration
 
 If your source uses OAuth (SourceFieldOauthConfig):

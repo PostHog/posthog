@@ -5,6 +5,7 @@ from django.core.cache import cache
 import structlog
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError, PullRequestRef
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import UserGitHubIntegration
@@ -57,13 +58,13 @@ def _integration_key(task: Task, user_id: int) -> tuple[str, int | str]:
 def _github_for_task(task: Task, team_id: int, user_id: int) -> GitHubIntegration | UserGitHubIntegration | None:
     user_integration = task.github_user_integration
     if user_integration is not None and user_integration.user_id == user_id:
-        return UserGitHubIntegration(user_integration)
+        return UserGitHubIntegration(user_integration, source="tasks", priority=Priority.NORMAL)
     if not task.github_integration_id:
         return None
     integration = Integration.objects.filter(team_id=team_id, kind="github", id=task.github_integration_id).first()
     if integration is None:
         return None
-    github = GitHubIntegration(integration)
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
     if github.access_token_expired():
         github.refresh_access_token()
     return github

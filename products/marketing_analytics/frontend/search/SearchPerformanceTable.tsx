@@ -3,9 +3,9 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@posthog/lemon-ui'
 
-import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -14,7 +14,6 @@ import {
     CurrencyCode,
     MarketingAnalyticsSearchMetrics,
     MarketingAnalyticsSearchQuery,
-    MarketingAnalyticsSearchQueryResponse,
     MarketingAnalyticsSearchRow,
 } from '~/queries/schema/schema-general'
 
@@ -22,30 +21,47 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
-import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
+import {
+    SEARCH_PERFORMANCE_QUERY_KEY,
+    SEARCH_PLATFORM_LABELS,
+    SearchMetrics,
+    searchPerformanceRowKey,
+} from './searchPerformance'
+import { searchPerformanceTableLogic } from './searchPerformanceTableLogic'
 import { SearchPositionCell } from './SearchPositionCell'
 
 export function SearchPerformanceTable({
     query,
     metrics,
+    wrapText = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
-    queryKey = 'marketing-search-performance',
+    queryKey = SEARCH_PERFORMANCE_QUERY_KEY,
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
+    wrapText?: boolean
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
 }): JSX.Element {
-    const logic = dataNodeLogic({
-        query,
-        key: queryKey,
-        dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    })
-    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
-    const { loadData } = useActions(logic)
-    const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
+    const logic = searchPerformanceTableLogic({ query, queryKey })
+    const {
+        searchResponse,
+        responseLoading,
+        responseError,
+        responseErrorObject,
+        queryId,
+        baseDataNodeProps,
+        rows,
+        goals,
+        conversionsLoading,
+        conversionsError,
+        conversionsErrorObject,
+        conversionsQueryId,
+        conversionsResponse,
+    } = useValues(logic)
+    const { loadData, loadConversions } = useActions(logic)
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
     const hasPositionSources = query.sources.some((source) =>
         ['GoogleSearchConsole', 'GoogleAds', 'BingAds'].includes(source.sourceType)
@@ -75,22 +91,69 @@ export function SearchPerformanceTable({
         )
     }
     return (
-        <BindLogic logic={dataNodeLogic} props={logic.props}>
+        <BindLogic logic={dataNodeLogic} props={baseDataNodeProps}>
             <div className="flex flex-wrap items-center gap-2 py-2">
                 <Reload />
                 <ElapsedTime />
             </div>
+            {query.includePostHogConversions &&
+                !responseLoading &&
+                searchResponse &&
+                (conversionsLoading ? (
+                    <div className="flex items-center gap-2 py-2 text-secondary" role="status">
+                        <Spinner className="text-xl" />
+                        <span>Loading PostHog conversions…</span>
+                    </div>
+                ) : conversionsError ? (
+                    <MarketingQueryError
+                        message="Could not load PostHog conversions. Your search data is still available."
+                        queryId={conversionsErrorObject?.queryId ?? conversionsQueryId}
+                        onRetry={() => loadConversions('force_async')}
+                        loading={conversionsLoading}
+                    />
+                ) : conversionsResponse ? (
+                    <LemonBanner
+                        type="info"
+                        action={
+                            goals.length === 0
+                                ? {
+                                      children: 'Configure conversion goals',
+                                      to: urls.settings('environment-marketing-analytics'),
+                                  }
+                                : undefined
+                        }
+                    >
+                        {goals.length === 0
+                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions.'
+                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution. ${
+                                  query.breakdown === 'page'
+                                      ? 'Conversions are matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.'
+                                      : 'Paid keywords are matched to the session’s utm_term and search source. Set utm_term to the keyword in your ad links. Organic query conversions are only available by landing page.'
+                              }`}
+                        {conversionsResponse.posthogConversionsWarning && (
+                            <p className="mb-0 mt-1">{conversionsResponse.posthogConversionsWarning}</p>
+                        )}
+                    </LemonBanner>
+                ) : null)}
+            {!responseLoading && searchResponse?.placementUnavailable && (
+                <LemonBanner type="info">
+                    Some Google Ads position data is unavailable. Check your access to keyword_placement_stats or ask a
+                    project admin for help. Traffic data is available.
+                </LemonBanner>
+            )}
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
-                className={clsx(
-                    'SearchPerformanceTable @max-[40rem]:[&_col:nth-child(2)]:w-10 @max-[40rem]:[&_th]:px-2 @max-[40rem]:[&_td]:px-2 @max-[40rem]:[&_th_svg]:hidden @max-[40rem]:[&_.sorting-indicator]:hidden',
-                    { 'SearchPerformanceTable--paginated': rows.length > 10 }
-                )}
+                firstColumnSticky
+                allowContentScroll
+                className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
+                    'SearchPerformanceTable--paginated': rows.length > 10,
+                    'SearchPerformanceTable--wrap-text': wrapText,
+                })}
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
                 loadingSkeletonRows={10}
-                rowKey={(row) => JSON.stringify([row.keyword, row.page, row.platform, row.matchType, row.currency])}
+                rowKey={searchPerformanceRowKey}
                 key={JSON.stringify(query)}
                 pagination={{ pageSize: 10, useUrl: false, showPageSelector: true }}
                 scrollToTopOnPageChange={false}
@@ -100,13 +163,23 @@ export function SearchPerformanceTable({
                     {
                         title: query.breakdown === 'page' ? 'Landing page' : 'Keyword or query',
                         key: 'keyword',
-                        width: '24%',
+                        width: 260,
                         render: (_, row) => (
                             <div className="min-w-0">
                                 {onSelect && (row.page || row.keyword) ? (
-                                    <LemonButton type="tertiary" size="xsmall" noPadding onClick={() => onSelect(row)}>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        noPadding
+                                        fullWidth
+                                        truncate={!wrapText}
+                                        onClick={() => onSelect(row)}
+                                    >
                                         <span
-                                            className="block truncate text-link"
+                                            className={clsx(
+                                                'block text-link',
+                                                wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                            )}
                                             title={row.page ?? row.keyword ?? ''}
                                         >
                                             {row.page ?? row.keyword}
@@ -114,7 +187,10 @@ export function SearchPerformanceTable({
                                     </LemonButton>
                                 ) : (
                                     <span
-                                        className="block truncate"
+                                        className={clsx(
+                                            'block',
+                                            wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                        )}
                                         title={row.page ?? row.keyword ?? 'Keyword unavailable'}
                                     >
                                         {row.page ?? row.keyword ?? 'Keyword unavailable'}
@@ -123,13 +199,16 @@ export function SearchPerformanceTable({
                                 <span className="text-xs text-secondary block truncate">
                                     {row.platform === 'GoogleSearchConsole'
                                         ? 'Organic search'
-                                        : [row.matchType, row.currency].filter(Boolean).join(' · ')}
+                                        : [SEARCH_PLATFORM_LABELS[row.platform], row.matchType, row.currency]
+                                              .filter(Boolean)
+                                              .join(' · ')}
                                 </span>
                             </div>
                         ),
                     },
                     {
-                        title: <span className="SearchPerformanceTable @max-[40rem]:sr-only">Platform</span>,
+                        title: 'Platform',
+                        width: 220,
                         key: 'platform',
                         render: (_, row) => (
                             <span
@@ -137,45 +216,28 @@ export function SearchPerformanceTable({
                                 title={SEARCH_PLATFORM_LABELS[row.platform]}
                             >
                                 <SourceIcon type={row.platform} size="xsmall" disableTooltip />
-                                <span className="hidden @min-[40rem]:inline truncate">
-                                    {SEARCH_PLATFORM_LABELS[row.platform]}
-                                </span>
+                                <span className="truncate">{SEARCH_PLATFORM_LABELS[row.platform]}</span>
                             </span>
                         ),
                     },
                     ...metricKeys.map((metric) => ({
                         title: (
-                            <span className="whitespace-normal wrap-anywhere">
-                                <span className="hidden @min-[40rem]:inline">
+                            <span className="whitespace-normal">
+                                {
                                     {
-                                        {
-                                            clicks: 'Clicks',
-                                            impressions: 'Impressions',
-                                            ctr: 'CTR',
-                                            cost: 'Cost',
-                                            conversions: 'Conversions',
-                                            cpc: 'CPC',
-                                            cpa: 'CPA',
-                                            position: 'Position',
-                                        }[metric]
-                                    }
-                                </span>
-                                <span className="@min-[40rem]:hidden">
-                                    {
-                                        {
-                                            clicks: 'Clicks',
-                                            impressions: 'Impr.',
-                                            ctr: 'CTR',
-                                            cost: 'Cost',
-                                            conversions: 'Conv.',
-                                            cpc: 'CPC',
-                                            cpa: 'CPA',
-                                            position: 'Pos.',
-                                        }[metric]
-                                    }
-                                </span>
+                                        clicks: 'Clicks',
+                                        impressions: 'Impressions',
+                                        ctr: 'CTR',
+                                        cost: 'Cost',
+                                        conversions: 'Reported conversions',
+                                        cpc: 'CPC',
+                                        cpa: 'Reported CPA',
+                                        position: 'Position',
+                                    }[metric]
+                                }
                             </span>
                         ),
+                        width: 200,
                         tooltip: {
                             clicks: 'Clicks reported by the search source',
                             impressions: 'Impressions reported by the search source',
@@ -183,7 +245,7 @@ export function SearchPerformanceTable({
                             cost: 'Spend in the ad account currency',
                             conversions: 'Conversions attributed by the ad platform',
                             cpc: 'Spend divided by clicks',
-                            cpa: 'Spend divided by conversions',
+                            cpa: 'Spend divided by conversions reported by the ad platform',
                             position:
                                 'Organic search position or paid search top and first-position impression percentages. Hover over a value for details.',
                         }[metric],
@@ -230,6 +292,54 @@ export function SearchPerformanceTable({
                             )
                         },
                     })),
+                    ...goals.flatMap((goal) =>
+                        (['conversions', 'costPerConversion'] as const).map((metric) => ({
+                            key: `${goal.id}-${metric}`,
+                            title: (
+                                <span className="whitespace-normal">
+                                    {metric === 'conversions' ? goal.name : `Cost per ${goal.name}`}
+                                </span>
+                            ),
+                            tooltip:
+                                metric === 'conversions'
+                                    ? 'Conversions attributed by PostHog'
+                                    : 'Spend divided by PostHog conversions. Unavailable without spend or conversions.',
+                            width: 220,
+                            align: 'right' as const,
+                            sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
+                                (a.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1) -
+                                (b.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1),
+                            render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                                if (conversionsLoading) {
+                                    return <LemonSkeleton className="h-4 w-16 ml-auto" />
+                                }
+                                const conversion = row.posthogConversions?.find((value) => value.id === goal.id)
+                                const value = conversion?.[metric]
+                                const money = metric === 'costPerConversion'
+                                const previous = money
+                                    ? conversion?.previousCostPerConversion
+                                    : conversion?.previousConversions
+                                const currency =
+                                    row.currency && Object.values(CurrencyCode).includes(row.currency as CurrencyCode)
+                                        ? (row.currency as CurrencyCode)
+                                        : null
+                                return (
+                                    <div className="SearchPerformanceTable__metric">
+                                        <ChangeValueCell
+                                            value={value == null ? null : [value, previous ?? null]}
+                                            compare={!!query.compareFilter?.compare}
+                                            kind={money && currency ? 'currency' : 'decimal'}
+                                            currency={currency ?? CurrencyCode.USD}
+                                            reverseColors={money}
+                                        />
+                                        {money && row.currency && (
+                                            <span className="block text-xs text-secondary">{row.currency}</span>
+                                        )}
+                                    </div>
+                                )
+                            },
+                        }))
+                    ),
                 ]}
             />
         </BindLogic>

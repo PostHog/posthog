@@ -264,6 +264,19 @@ export function resolveCreateDirectQueryEnabled(
     return sourceValues.direct_query_enabled !== false
 }
 
+export function buildCreateSourcePayload(
+    sourceValues: { access_method?: string; direct_query_enabled?: boolean },
+    connectorName: string
+): Record<string, any> {
+    const isDirectQueryMode = supportsDirectQuery(connectorName) && sourceValues.access_method === 'direct'
+    return {
+        ...sourceValues,
+        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
+        direct_query_enabled: resolveCreateDirectQueryEnabled(sourceValues, connectorName),
+        source_type: connectorName,
+    }
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -299,6 +312,15 @@ export class UnusableUploadedFileError extends Error {
 
 export const WRONG_UPLOADED_FILE_MESSAGE =
     'This JSON file is missing the fields PostHog needs. Upload the key file exactly as it was generated, without editing its contents.'
+
+// Mirrors the backend `prefix_required` check: a second unprefixed source of the same type would
+// write to the same table names, so the API rejects it.
+export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sourceType: string | undefined): boolean {
+    if (!sourceType || !sources) {
+        return false
+    }
+    return sources.some((source) => source.source_type === sourceType && !source.prefix)
+}
 
 export function resolveConnectErrorMessage(e: any): string {
     const detail = e?.detail === GENERIC_SERVER_ERROR_DETAIL ? undefined : e?.detail
@@ -476,8 +498,10 @@ export interface sourceWizardLogicValues {
         | 'Tables ready to query'
     nextButtonDisabledReason: string | null
     nextButtonText: string
+    prefixRequired: boolean
     requiredTables: any
     returnConfig: {
+        entryPoint?: string
         returnLabel: string
         returnUrl: string
     } | null
@@ -699,8 +723,10 @@ export interface sourceWizardLogicActions {
     }
     setReturnConfig: (
         returnUrl: string,
-        returnLabel: string
+        returnLabel: string,
+        entryPoint?: string
     ) => {
+        entryPoint: string | undefined
         returnLabel: string
         returnUrl: string
     }
@@ -939,6 +965,7 @@ export interface sourceWizardLogicMeta {
             showDestinationStep: boolean,
             arg: any,
             returnConfig: {
+                entryPoint?: string
                 returnLabel: string
                 returnUrl: string
             } | null,
@@ -948,6 +975,10 @@ export interface sourceWizardLogicMeta {
             selectedConnector: SourceConfigResponseApi | null,
             isManualLinkFormVisible: boolean
         ) => boolean | SourceConfigResponseApi
+        prefixRequired: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            selectedConnector: SourceConfigResponseApi | null
+        ) => boolean
         connectors: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
@@ -1028,7 +1059,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             source,
             searchParams,
         }),
-        setReturnConfig: (returnUrl: string, returnLabel: string) => ({ returnUrl, returnLabel }),
+        setReturnConfig: (returnUrl: string, returnLabel: string, entryPoint?: string) => ({
+            returnUrl,
+            returnLabel,
+            entryPoint,
+        }),
         clearReturnConfig: true,
         onClear: true,
         onBack: true,
@@ -1342,9 +1377,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         returnConfig: [
-            null as { returnUrl: string; returnLabel: string } | null,
+            null as { returnUrl: string; returnLabel: string; entryPoint?: string } | null,
             {
-                setReturnConfig: (_, { returnUrl, returnLabel }) => ({ returnUrl, returnLabel }),
+                setReturnConfig: (_, { returnUrl, returnLabel, entryPoint }) => ({
+                    returnUrl,
+                    returnLabel,
+                    entryPoint,
+                }),
                 clearReturnConfig: () => null,
             },
         ],
@@ -1736,6 +1775,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector: SourceConfigResponseApi | null, isManualLinkFormVisible: boolean) =>
                 selectedConnector || isManualLinkFormVisible,
+        ],
+        prefixRequired: [
+            (s) => [s.dataWarehouseSources, s.selectedConnector],
+            (
+                sources: PaginatedResponse<ExternalDataSource> | null,
+                selectedConnector: SourceConfigResponseApi | null
+            ): boolean => isPrefixRequired(sources?.results, selectedConnector?.name),
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
@@ -2277,6 +2323,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 posthog.capture('warehouse source connect completed', {
                     sourceType: values.selectedConnector.name,
                     returnLabel: values.returnConfig?.returnLabel,
+                    entry_point: values.returnConfig?.entryPoint,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
@@ -2380,11 +2427,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
+            const sourceType = values.selectedConnector.name
+            const startedAt = performance.now()
+            const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
+                posthog.capture('source wizard schemas loaded', {
+                    sourceType,
+                    success,
+                    schema_count: schemaCount,
+                    duration_ms: Math.round(performance.now() - startedAt),
+                })
+            }
+
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    getDatabaseSchemaPayload(values.source)
-                )
+                const schemas = await api.externalDataSources
+                    .database_schema(sourceType, getDatabaseSchemaPayload(values.source))
+                    .catch((e) => {
+                        captureSchemasLoaded(false, null)
+                        throw e
+                    })
+                captureSchemasLoaded(true, schemas.length)
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
@@ -2585,7 +2646,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const returnLabel = searchParams.returnLabel
 
             if (returnUrl && returnLabel) {
-                actions.setReturnConfig(returnUrl, returnLabel)
+                actions.setReturnConfig(returnUrl, returnLabel, searchParams.entry_point)
             } else {
                 actions.clearReturnConfig()
             }
@@ -2685,17 +2746,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
-                    const isDirectQueryMode =
-                        supportsDirectQuery(values.selectedConnector.name) && sourceValues.access_method === 'direct'
-                    const payload: Record<string, any> = {
-                        ...sourceValues,
-                        access_method: isDirectQueryMode ? 'direct' : 'warehouse',
-                        direct_query_enabled: resolveCreateDirectQueryEnabled(
-                            sourceValues,
-                            values.selectedConnector.name
-                        ),
-                        source_type: values.selectedConnector.name,
-                    }
+                    const payload = buildCreateSourcePayload(sourceValues, values.selectedConnector.name)
+                    const isDirectQueryMode = payload.access_method === 'direct'
                     actions.setIsLoading(true)
 
                     try {

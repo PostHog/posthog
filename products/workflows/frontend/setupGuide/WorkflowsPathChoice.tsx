@@ -20,6 +20,9 @@ export function WorkflowsPathChoice(): JSX.Element {
             >
                 Automate a process
             </LemonButton>
+            <LemonButton type="secondary" onClick={() => choosePath('broadcast')} data-attr="workflows-path-broadcast">
+                Send a broadcast
+            </LemonButton>
         </div>
     )
 }

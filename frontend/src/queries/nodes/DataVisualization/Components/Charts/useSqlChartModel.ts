@@ -24,6 +24,7 @@ import {
     exceedsMaxSeries,
     warnTooManySeries,
 } from './sqlLineGraphAdapter'
+import { resolveSQLReferenceLines } from './sqlReferenceLines'
 
 export interface SqlChartModel<TConfig> {
     series: Series<SqlLineSeriesMeta>[]
@@ -76,7 +77,11 @@ export function useSqlChartModel<
             xData,
             chartSettings,
             timezone,
-            goalLines,
+            goalLines: resolveSQLReferenceLines(
+                goalLines,
+                series,
+                visualizationType === ChartDisplayType.ActionsStackedBar && chartSettings.stackBars100
+            ),
             visualizationType,
             ySeriesData,
             series,

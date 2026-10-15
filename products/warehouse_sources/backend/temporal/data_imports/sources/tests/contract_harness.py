@@ -5,33 +5,18 @@ retry layers of the adapter, the REST client and the source all run as they do i
 waits add to a fake clock and take no real time.
 """
 
-import io
 import ast
-import sys
 import json
-import time
-import types
-import socket
 import asyncio
 import inspect
 import functools
-import ipaddress
 import contextlib
 import dataclasses
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
-from unittest import mock
-
-from django.db.backends.base.base import BaseDatabaseWrapper
-
-import tenacity
-import structlog
-from urllib3.connection import HTTPConnection, HTTPSConnection
-
 from posthog.dataclasses import frozen
-from posthog.security import url_validation
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ResumableSource,
@@ -42,6 +27,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import (
+    _SOURCES_PACKAGE,
+    FakeNetwork,
+    RecordedRequest,
+    RunStopped,
+    fake_environment,
+    http_response,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.inputs import source_inputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 # The longest time one request, with all of its retries and waits, may hold a worker.
@@ -56,10 +50,6 @@ STALL_BUDGET = "stall-budget"
 RATE_LIMIT_BUDGET = "rate-limit-budget"
 SAFE_POINT = "safe-point"
 
-# A run stops at one of these limits, because the source would not stop by itself.
-_CLOCK_LIMIT_SECONDS = 4 * 3600.0
-_REQUEST_LIMIT = 40
-_EMPTY_PAGE_COUNT = 8
 
 # Modules that open connections outside Python sockets, or from background threads. The fake network
 # cannot see or stop those connections, so a source that imports one of them is never run.
@@ -81,13 +71,7 @@ NATIVE_DRIVER_MODULES = (
 )
 
 _SOURCES_ROOT = Path(__file__).parents[1]
-_SOURCES_PACKAGE = "products.warehouse_sources.backend.temporal.data_imports.sources"
-_UNSET = object()
-_PUBLIC_ADDRESS = "93.184.216.34"
-_REAL_SLEEP = time.sleep
-_REAL_MONOTONIC = time.monotonic
-_REAL_TIME = time.time
-_REAL_ASYNC_SLEEP = asyncio.sleep
+_EMPTY_PAGE_COUNT = 8
 
 Mode = Literal["stall", "rate_limit", "empty_pages"]
 # Starts one extraction. The manager is None for a source that the pipeline treats as not resumable.
@@ -111,18 +95,6 @@ BOUNDED_CALL_SCENARIOS = (
     Scenario(mode="rate_limit", answered_first=1),
 )
 SAFE_POINT_SCENARIOS = (Scenario(mode="empty_pages"), Scenario(mode="empty_pages", list_bodies=True))
-
-
-class RunStopped(BaseException):
-    """Ends a run that passed a harness limit. A `BaseException`, so that `except Exception` in a source cannot hide it."""
-
-
-class NetworkBlockedError(OSError):
-    """The source opened a connection that does not go through `requests`, so the fake cannot answer it."""
-
-
-class DatabaseBlockedError(RuntimeError):
-    """The source read the application database, which the contract tests do not have."""
 
 
 def empty_page_body(next_url: str | None, page: int) -> dict[str, Any]:
@@ -159,268 +131,34 @@ def empty_page_body(next_url: str | None, page: int) -> dict[str, Any]:
     return body
 
 
-class FakeNetwork:
-    """Answers every HTTP request as the scenario says, and records what the source did."""
+class ScenarioResponder:
+    """Answers every HTTP request as the scenario says."""
 
     def __init__(self, scenario: Scenario) -> None:
         self.scenario = scenario
-        self.elapsed = 0.0
-        self.requests = 0
-        self.unbounded_requests = 0
-        self.blocked_connections = 0
-        self.blocked_database_reads = 0
-        self.longest_request_seconds = 0.0
-        self.longest_run_without_progress = 0
-        self.error: BaseException | None = None
-        self._request_key: bytes | None = None
-        self._request_started = 0.0
-        self._run_without_progress = 0
 
-    def advance(self, seconds: float | None) -> None:
-        if seconds is not None and seconds > 0:
-            self.elapsed += seconds
-        self.longest_request_seconds = max(self.longest_request_seconds, self.elapsed - self._request_started)
-        if self.elapsed > _CLOCK_LIMIT_SECONDS:
-            raise RunStopped("clock limit")
-
-    def note_progress(self) -> None:
-        """The source yielded an item or reached a safe point, so the pipeline could act."""
-        self._run_without_progress = 0
-
-    def respond(self, origin: str, sent: bytes, read_timeout: Any) -> io.BytesIO:
-        request_line = sent.split(b"\r\n", 1)[0]
-        method, _, target = request_line.partition(b" ")
-        path = target.rsplit(b" ", 1)[0].decode("latin-1") or "/"
-
-        # Attempts for the same method and URL, one after the other, are one request with its retries.
-        if request_line != self._request_key:
-            self._request_key = request_line
-            self._request_started = self.elapsed
-        self.requests += 1
-        self._run_without_progress += 1
-        self.longest_run_without_progress = max(self.longest_run_without_progress, self._run_without_progress)
-        if self.requests > _REQUEST_LIMIT:
-            raise RunStopped("request limit")
-
+    def respond(self, request: RecordedRequest, network: FakeNetwork) -> bytes:
         mode = self.scenario.mode
-        answered = self.requests <= self.scenario.answered_first
+        answered = network.requests <= self.scenario.answered_first
         if mode == "stall" and not answered:
-            if read_timeout is None or read_timeout is _UNSET:
-                self.unbounded_requests += 1
+            read_timeout = request.read_timeout
+            if read_timeout is None:
+                network.unbounded_requests += 1
                 raise RunStopped("request with no read timeout")
-            self.advance(float(read_timeout))
+            network.advance(float(read_timeout))
             raise TimeoutError("timed out")
 
         if mode == "rate_limit" and not answered:
-            return _http_response(
+            return http_response(
                 b"429 Too Many Requests", b"{}", [b"Retry-After: " + str(HOSTILE_RETRY_AFTER_SECONDS).encode()]
             )
 
-        last = mode == "empty_pages" and self.requests >= _EMPTY_PAGE_COUNT
-        next_url = None if last else f"{origin}{path.split('?', 1)[0]}?contract_page={self.requests + 1}"
+        last = mode == "empty_pages" and network.requests >= _EMPTY_PAGE_COUNT
+        next_url = None if last else f"{request.origin}{request.path}?contract_page={network.requests + 1}"
         headers = [] if next_url is None else [b"Link: <" + next_url.encode() + b'>; rel="next"']
-        if self.scenario.list_bodies and method == b"GET":
-            return _http_response(b"200 OK", b"[]", headers)
-        return _http_response(b"200 OK", json.dumps(empty_page_body(next_url, self.requests)).encode(), headers)
-
-
-def _http_response(status: bytes, body: bytes, headers: list[bytes]) -> io.BytesIO:
-    lines = [
-        b"HTTP/1.1 " + status,
-        b"Content-Type: application/json",
-        b"Content-Length: " + str(len(body)).encode(),
-        b"Connection: close",
-        *headers,
-    ]
-    return io.BytesIO(b"\r\n".join(lines) + b"\r\n\r\n" + body)
-
-
-class _FailingStream(io.RawIOBase):
-    def __init__(self, error: BaseException) -> None:
-        super().__init__()
-        self._error = error
-
-    def readable(self) -> bool:
-        return True
-
-    def readline(self, size: int | None = -1) -> bytes:
-        raise self._error
-
-    def readinto(self, buffer: Any) -> int:
-        raise self._error
-
-
-class _FakeSocket:
-    def __init__(self, network: FakeNetwork, origin: str) -> None:
-        self._network = network
-        self._origin = origin
-        self._sent = b""
-        self._read_timeout: Any = _UNSET
-
-    def settimeout(self, value: Any) -> None:
-        self._read_timeout = value
-
-    def gettimeout(self) -> Any:
-        return None if self._read_timeout is _UNSET else self._read_timeout
-
-    def sendall(self, data: Any, *args: Any) -> None:
-        self._sent += bytes(data)
-
-    def send(self, data: Any, *args: Any) -> int:
-        self._sent += bytes(data)
-        return len(data)
-
-    def makefile(self, *args: Any, **kwargs: Any) -> io.IOBase:
-        sent, self._sent = self._sent, b""
-        try:
-            return self._network.respond(self._origin, sent, self._read_timeout)
-        except (TimeoutError, RunStopped) as error:
-            # A real socket fails at the first read, and not when `http.client` wraps it.
-            return _FailingStream(error)
-
-    def setsockopt(self, *args: Any) -> None:
-        pass
-
-    def shutdown(self, *args: Any) -> None:
-        pass
-
-    def close(self) -> None:
-        pass
-
-
-class _MemoryRedis:
-    def __init__(self) -> None:
-        self._data: dict[str, Any] = {}
-
-    def ping(self) -> bool:
-        return True
-
-    def set(self, key: str, value: Any, **kwargs: Any) -> None:
-        self._data[key] = value
-
-    def get(self, key: str) -> Any:
-        return self._data.get(key)
-
-    def exists(self, key: str) -> int:
-        return int(key in self._data)
-
-    def delete(self, key: str) -> None:
-        self._data.pop(key, None)
-
-
-@functools.cache
-def _sleep_aliases() -> list[tuple[Any, str]]:
-    """Each `from time import sleep` binding in a loaded source module. A patch of `time.sleep` does not reach them."""
-    aliases: list[tuple[Any, str]] = []
-    for module_name, module in list(sys.modules.items()):
-        if not module_name.startswith(_SOURCES_PACKAGE):
-            continue
-        aliases.extend((module, name) for name, value in list(vars(module).items()) if value is _REAL_SLEEP)
-    return aliases
-
-
-def _controller_of(value: Any) -> tenacity.Retrying | None:
-    if isinstance(value, staticmethod | classmethod):
-        value = value.__func__
-    if not isinstance(value, types.FunctionType):
-        return None
-    controller = value.__dict__.get("retry")
-    return controller if isinstance(controller, tenacity.Retrying) else None
-
-
-@functools.cache
-def _retry_controllers() -> list[tenacity.Retrying]:
-    """Each synchronous tenacity controller that a `@retry` decorator put on a function or a method.
-
-    A test can replace the `sleep` of one for the rest of the process, for example
-    `RESTClient._send_request.retry.sleep = lambda *_: None`. That wait then never reaches the fake
-    clock, and the verdict of every later source depends on which tests ran before.
-    """
-    controllers: dict[int, tenacity.Retrying] = {}
-    for module in list(sys.modules.values()):
-        for value in list(getattr(module, "__dict__", {}).values()):
-            candidates = list(vars(value).values()) if inspect.isclass(value) else []
-            for candidate in [value, *candidates]:
-                if (controller := _controller_of(candidate)) is not None:
-                    controllers[id(controller)] = controller
-    return list(controllers.values())
-
-
-@contextlib.contextmanager
-def _waits_on_the_fake_clock(sleep: Callable[[float], None]) -> Iterator[None]:
-    """Give each retry controller the fake `sleep`, and put back what each one had. This is cheaper than `mock.patch`."""
-    controllers = _retry_controllers()
-    originals = [controller.sleep for controller in controllers]
-    for controller in controllers:
-        controller.sleep = sleep
-    try:
-        yield
-    finally:
-        for controller, original in zip(controllers, originals):
-            controller.sleep = original
-
-
-@contextlib.contextmanager
-def fake_environment(scenario: Scenario) -> Iterator[FakeNetwork]:
-    """Route HTTP to a `FakeNetwork`, block every other connection, and make each wait advance a fake clock."""
-    network = FakeNetwork(scenario)
-    redis = _MemoryRedis()
-
-    def connect(connection: Any) -> None:
-        scheme = "https" if isinstance(connection, HTTPSConnection) else "http"
-        default_port = 443 if scheme == "https" else 80
-        port = "" if connection.port in (None, default_port) else f":{connection.port}"
-        connection.sock = _FakeSocket(network, f"{scheme}://{connection.host}{port}")
-        connection.is_verified = True
-
-    def blocked_connection(*args: Any, **kwargs: Any) -> Any:
-        network.blocked_connections += 1
-        raise NetworkBlockedError("the contract tests allow no real connection")
-
-    def blocked_database(*args: Any, **kwargs: Any) -> Any:
-        network.blocked_database_reads += 1
-        raise DatabaseBlockedError("the contract tests have no database")
-
-    # A source that checks its host before it connects gets a public address. Nothing connects to it.
-    def resolve(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[Any]:
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (_PUBLIC_ADDRESS, int(port or 0)))]
-
-    def resolve_host_ips(host: str) -> set[Any]:
-        return {ipaddress.ip_address(_PUBLIC_ADDRESS)}
-
-    def sleep(seconds: float) -> None:
-        network.advance(seconds)
-
-    async def async_sleep(seconds: float, result: Any = None) -> Any:
-        network.advance(seconds)
-        return await _REAL_ASYNC_SLEEP(0, result)
-
-    @contextlib.contextmanager
-    def memory_redis(_manager: Any) -> Iterator[_MemoryRedis]:
-        yield redis
-
-    patches: list[Any] = [
-        mock.patch.object(HTTPConnection, "connect", connect),
-        mock.patch.object(HTTPSConnection, "connect", connect),
-        mock.patch.object(socket.socket, "connect", blocked_connection),
-        mock.patch.object(socket.socket, "connect_ex", blocked_connection),
-        mock.patch.object(socket.socket, "sendto", blocked_connection),
-        mock.patch.object(socket, "create_connection", blocked_connection),
-        mock.patch.object(socket, "getaddrinfo", resolve),
-        mock.patch.object(url_validation, "resolve_host_ips", resolve_host_ips),
-        mock.patch.object(BaseDatabaseWrapper, "ensure_connection", blocked_database),
-        mock.patch.object(time, "sleep", sleep),
-        mock.patch.object(time, "monotonic", lambda: _REAL_MONOTONIC() + network.elapsed),
-        mock.patch.object(time, "time", lambda: _REAL_TIME() + network.elapsed),
-        mock.patch.object(asyncio, "sleep", async_sleep),
-        mock.patch.object(ResumableSourceManager, "_get_redis", memory_redis),
-        *(mock.patch.object(module, name, sleep) for module, name in _sleep_aliases()),
-        _waits_on_the_fake_clock(sleep),
-    ]
-    with contextlib.ExitStack() as stack:
-        for patch in patches:
-            stack.enter_context(patch)
-        yield network
+        if self.scenario.list_bodies and request.method == "GET":
+            return http_response(b"200 OK", b"[]", headers)
+        return http_response(b"200 OK", json.dumps(empty_page_body(next_url, network.requests)).encode(), headers)
 
 
 def is_stub(source: _BaseSource[Any]) -> bool:
@@ -512,23 +250,6 @@ def placeholder_configs(config_class: type) -> Iterator[Any]:
             continue
 
 
-def source_inputs(schema_name: str) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="00000000-0000-4000-8000-000000000001",
-        source_id="00000000-0000-4000-8000-000000000002",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="00000000-0000-4000-8000-000000000003",
-        logger=structlog.get_logger("source_contract"),
-        reset_pipeline=False,
-    )
-
-
 def start_source(source: _BaseSource[Any], config: Any) -> StartExtraction:
     def start(inputs: SourceInputs) -> tuple[SourceResponse, ResumableSourceManager[Any] | None]:
         if isinstance(source, ResumableSource):
@@ -547,7 +268,7 @@ async def _drain_async(items: Any, on_item: Callable[[], None]) -> None:
 
 def run_extraction(start: StartExtraction, schema_name: str, scenario: Scenario) -> FakeNetwork:
     """Run one extraction to its end, or to its first error, and return what the fake network recorded."""
-    with fake_environment(scenario) as network:
+    with fake_environment(ScenarioResponder(scenario)) as network:
         try:
             response, manager = start(source_inputs(schema_name))
             items = response.items()
@@ -646,7 +367,7 @@ def check_source(source: _BaseSource[Any]) -> SourceStatus:
 
 
 def _check_source_with_config(source: _BaseSource[Any], config: Any) -> SourceStatus:
-    with fake_environment(Scenario(mode="empty_pages")) as discovery:
+    with fake_environment(ScenarioResponder(Scenario(mode="empty_pages"))) as discovery:
         try:
             schema_names = [schema.name for schema in source.get_schemas(config, team_id=1)]
         except (Exception, RunStopped) as error:

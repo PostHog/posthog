@@ -319,8 +319,13 @@ describe('navProductsTabLogic', () => {
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
         ])
         navProductsTabLogic.actions.openStarredSetup()
+        navProductsTabLogic.actions.setDraftStarred('Logs', true)
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(true)
+        navProductsTabLogic.actions.setDraftStarred('Logs', false)
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(false)
 
         navProductsTabLogic.actions.unselectAllStarred()
+        expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(true)
         navProductsTabLogic.actions.setDraftStarred('Logs', true)
         expect([...navProductsTabLogic.values.draftStarredPaths]).toEqual(['Logs'])
 

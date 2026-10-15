@@ -86,8 +86,10 @@ export interface tracingSceneLogicValues {
     } // tracingDataLogic
     spanTreeLoading: boolean // tracingDataLogic
     spans: Span[] // tracingDataLogic
+    spansError: string | null // tracingDataLogic
     spansLoading: boolean // tracingDataLogic
     sparklineData: TracingSparklineData // tracingDataLogic
+    sparklineError: string | null // tracingDataLogic
     sparklineLoading: boolean // tracingDataLogic
     totalMatchingFilters: number // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
@@ -115,6 +117,7 @@ export interface tracingSceneLogicValues {
     openTraceSpans: Span[] // tracingViewerLogic
     selectedSpanId: string | null // tracingViewerLogic
     selectedTraceId: string | null // tracingViewerLogic
+    selectedTraceLoadFailed: boolean // tracingViewerLogic
     selectedTraceTs: string | null // tracingViewerLogic
     sessionErrorBadgesEnabled: boolean // tracingViewerLogic
     traceIdentity: TraceIdentity // tracingViewerLogic
@@ -157,6 +160,8 @@ export interface tracingSceneLogicActions {
         serviceName: string
         spanName: string
     } // tracingDataLogic
+    fetchSpans: () => any // tracingDataLogic
+    fetchSparkline: () => any // tracingDataLogic
     handleFilterChange: (
         filterType: string,
         extraProps?: Record<string, unknown> | undefined
@@ -316,9 +321,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'spans',
                 'spansLoading',
+                'spansError',
                 'listRows',
                 'sparklineData',
                 'sparklineLoading',
+                'sparklineError',
                 'hasMoreToLoad',
                 'hasRunQuery',
                 'totalMatchingFilters',
@@ -359,6 +366,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'canLoadMoreTraceSpans',
                 'compareFlameSpanName',
                 'compareFlameServiceName',
+                'selectedTraceLoadFailed',
             ],
         ],
         actions: [
@@ -366,6 +374,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'runQuery',
                 'fetchNextPage',
+                'fetchSpans',
+                'fetchSparkline',
                 'loadTraceSpans',
                 'loadMoreTraceSpans',
                 'fetchAggregation',

@@ -105,8 +105,8 @@ import type {
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
-    UploadedMediaCreate201,
     UploadedMediaCreateBody,
+    UploadedMediaCreatedApi,
     UploadedMediaListParams,
     UploadedMediaStartUploadApi,
     UploadedMediaUploadStartedApi,
@@ -2790,7 +2790,7 @@ export const uploadedMediaCreate = async (
     projectId: string,
     uploadedMediaCreateBody?: UploadedMediaCreateBody,
     options?: RequestInit
-): Promise<UploadedMediaCreate201> => {
+): Promise<UploadedMediaCreatedApi> => {
     const formData = new FormData()
     if (uploadedMediaCreateBody?.image !== undefined) {
         formData.append(`image`, uploadedMediaCreateBody.image)
@@ -2799,10 +2799,24 @@ export const uploadedMediaCreate = async (
         formData.append(`purpose`, uploadedMediaCreateBody.purpose)
     }
 
-    return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {
+    return apiMutator<UploadedMediaCreatedApi>(getUploadedMediaCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getUploadedMediaDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/`
+}
+
+/**
+ * Remove an image from its media library. It stops appearing in the library list, but its URL keeps working, so content that already uses it (a sent email, a live template) is not broken.
+ */
+export const uploadedMediaDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUploadedMediaDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

@@ -348,7 +348,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
     ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
     ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
-    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
@@ -387,7 +386,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
     ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
     ['.github/workflows/build-hobby-installer.yml', HOBBY],
-    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
@@ -412,7 +411,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
     ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
     ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
-    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
@@ -1888,7 +1886,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 

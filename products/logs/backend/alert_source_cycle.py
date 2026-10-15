@@ -26,6 +26,7 @@ import structlog
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, slot_of
@@ -75,6 +76,7 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this path drift from
@@ -152,9 +154,6 @@ def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
     return None
 
 
-_WINDOW_MARKER = "window:"
-
-
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
@@ -167,30 +166,40 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str
     shape across sources. Both parts are read before anything is written, so a retry recomputes
     the same key.
     """
-    return f"slot:{slot_of(check.next_check_at, window_end)}|{_WINDOW_MARKER}{window_end.isoformat()}"
+    return f"slot:{slot_of(check.next_check_at, window_end)}|{WINDOW_MARKER}{window_end.isoformat()}"
 
 
-def window_end_of(evaluation_key: str) -> datetime | None:
-    """The window end `_evaluation_key` put in a key, for a reader that has only the key.
+@frozen
+class _QueryShape:
+    """The part of `_cohort_key` a configuration fixes. Checks that differ here never share a query."""
 
-    The inverse lives next to the minter so a change to one breaks the round trip rather than
-    silently returning None to a reader in another module.
-    """
-    _, marker, tail = evaluation_key.rpartition(_WINDOW_MARKER)
-    if not marker:
-        return None
-    try:
-        return datetime.fromisoformat(tail)
-    except ValueError:
-        return None
+    window_minutes: object
+    evaluation_periods: int
+    projection_eligible: bool
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QueryShape":
+        return cls(
+            window_minutes=check.condition.get("window_minutes"),
+            evaluation_periods=check.evaluation_periods,
+            projection_eligible=is_projection_eligible(check.source_config),
+        )
+
+
+def _schedule_group(check: PlatformAlertCheckInput) -> str:
+    # The platform puts a team's checks with one group in one slot and spreads different groups
+    # across slots, so one batch rarely holds more cohorts than `MAX_COHORTS_PER_CYCLE`.
+    shape = _QueryShape.of(check)
+    return f"{shape.window_minutes}:{shape.evaluation_periods}:{shape.projection_eligible}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
+    shape = _QueryShape.of(check)
     return (
-        LogsAlertCondition.of(check).window_minutes,
-        check.evaluation_periods,
+        shape.window_minutes,
+        shape.evaluation_periods,
         check.check_interval_minutes,
-        is_projection_eligible(check.source_config),
+        shape.projection_eligible,
         resolve_alert_date_to(check.next_check_at or now, checkpoint),
     )
 
@@ -325,6 +334,8 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
         disable=disable,
+        # A broken alert is never discovered again, so its slot does not matter.
+        schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),
     )
 
 
@@ -386,6 +397,11 @@ def _request(
         # Logs does not group, so its one row has the empty grouping key.
         incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
+        # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
+        source_alert_url=absolute_uri(f"/project/{check.team_id}/logs/alerts/{check.legacy_configuration_id}")
+        if check.legacy_configuration_id is not None
+        else None,
+        owned_by_platform=check.owned_by_platform,
     )
 
 

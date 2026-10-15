@@ -2277,6 +2277,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2 0.10.9",
+ "strum 0.28.0",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -8993,6 +8994,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -9598,7 +9600,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "serde",
  "thiserror 2.0.18",

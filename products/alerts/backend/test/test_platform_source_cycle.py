@@ -9,8 +9,6 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
-
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
@@ -20,22 +18,29 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
     evaluate_insight_check,
     plan_insight_batch,
 )
+from products.alerts.backend.temporal.platform_evaluate import (
+    InsightBatchPlanInputs,
+    plan_platform_insight_round_activity,
+)
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    AlertBatchKey,
     AlertEventKind,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
+    SourceEvaluationInputs,
     SourceKind,
 )
-from products.product_analytics.backend.facade.models import Insight
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
 # A Wednesday, so no weekend rule applies.
@@ -49,30 +54,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.addCleanup(get_client().delete, INFLIGHT_KEY)
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        insight = Insight.objects.create(
-            team=self.team,
-            name="insight",
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                interval=IntervalType.DAY,
-                trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-            ).model_dump(),
-        )
-        threshold = Threshold.objects.create(
-            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
-        )
-        fields: dict[str, Any] = {
-            "team": self.team,
-            "insight": insight,
-            "name": "alert",
-            "calculation_interval": AlertCalculationInterval.DAILY.value,
-            "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "condition": {"type": "absolute_value"},
-            "threshold": threshold,
-            "next_check_at": CUTOFF - timedelta(minutes=1),
-        }
-        fields.update(overrides)
-        return AlertConfiguration.objects.create(**fields)
+        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
 
     def _copy(self, alert: AlertConfiguration | None) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
@@ -96,10 +78,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         side_effect = result if isinstance(result, Exception) else None
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
-            outcome = evaluate_insight_check(
+            evaluation = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
             )
-        return outcome, query
+        self.deliveries = evaluation.deliveries if evaluation is not None else ()
+        return (evaluation.outcomes[0] if evaluation is not None else None), query
 
     def test_a_breach_fires_on_the_platform_and_leaves_the_production_alert_alone(self) -> None:
         alert = self._alert()
@@ -121,6 +104,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert platform_alert is not None and platform_alert.state == "firing"
         assert AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id) == before
         assert not AlertCheck.objects.filter(alert_configuration=alert).exists()
+
+    @parameterized.expand(
+        [
+            ("allowlisted", True, False),
+            ("not_allowlisted", False, False),
+            ("allowlisted_resolve", True, True),
+        ]
+    )
+    def test_only_an_allowlisted_firing_or_failure_asks_for_a_delivery(
+        self, _name: str, allowlisted: bool, was_firing: bool
+    ) -> None:
+        alert = self._alert()
+        configuration = self._copy(alert)
+        allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
+        if was_firing:
+            fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+            assert fired is not None
+            record_outcomes(self.team.id, (fired,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+        with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
+            self._evaluate(
+                configuration,
+                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+            )
+
+        expected = [
+            (
+                str(configuration.id),
+                str(alert.id),
+                {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
+            )
+        ]
+        assert [
+            (delivery.configuration_id, delivery.destination_alert_id, delivery.event_ids_by_kind)
+            for delivery in self.deliveries
+        ] == (expected if allowlisted and not was_firing else [])
 
     @parameterized.expand(
         [
@@ -180,5 +201,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.check_alert_for_insight", return_value=AlertEvaluationResult(value=1.0, breaches=[])):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
-        assert len(plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at + 60)) == 1
-        assert {str(first.id), str(second.id)} >= {admitted}
+        # Through the activity the workflow calls, so a dropped `exclude` there fails here too.
+        replanned = plan_platform_insight_round_activity(
+            InsightBatchPlanInputs(
+                evaluation=SourceEvaluationInputs(
+                    source=SourceKind.INSIGHT,
+                    cutoff=CUTOFF.isoformat(),
+                    batch_key=AlertBatchKey(team_id=self.team.id, slot=slot),
+                ),
+                expires_at=expires_at,
+                exclude=(admitted,),
+            )
+        )
+        assert replanned == list({str(first.id), str(second.id)} - {admitted})

@@ -27,7 +27,7 @@ export function BILocalFieldModal(): JSX.Element | null {
     })
     const { options, optionsLoading, hasMore, optionsError } = useValues(valuesLogic)
     const { setSearch, loadMore, loadOptions } = useActions(valuesLogic)
-    if (!draft || !definition) {
+    if (!draft || !definition || definition.kind === 'expression') {
         return null
     }
     const error = !draft.name.trim() ? 'Enter a name' : localFieldError(definition)

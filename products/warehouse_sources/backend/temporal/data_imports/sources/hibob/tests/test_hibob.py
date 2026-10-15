@@ -1,71 +1,30 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob import (
-    hibob_source,
-    validate_credentials,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob import validate_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import ENDPOINTS, HIBOB_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the hibob module.
-HIBOB_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.hibob.hibob.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.source import HiBobSource
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    resp.url = "https://api.hibob.com/probe"
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session, snapshotting each request (method/url/json/auth) AT SEND TIME."""
-    session.headers = {}
-    captured: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        captured.append(
-            {
-                "method": request.method,
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "json": dict(request.json) if request.json is not None else None,
-                "auth": request.auth,
-            }
-        )
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return captured
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(HiBobSource(), HiBobSourceConfig(service_user_id="service-id", service_user_token="token"))
 
 
 class TestGetRows:
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_error_is_not_retried_and_raises(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
+    def test_auth_error_is_not_retried_and_raises(self) -> None:
         # 401 trips HiBob's WAF on repeat, so it must fail loud without retrying.
-        _wire(session, [_response({"error": "unauthorized"}, status=401)])
+        result = _driver().run("tasks", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
 
-        with pytest.raises(Exception):
-            _rows(hibob_source("service-id", "token", "tasks", team_id=1, job_id="j"))
-
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, Exception)
+        assert result.paths == ["/v1/tasks"]
 
 
 class TestEmployeeHistoryTables:
@@ -94,22 +53,24 @@ class TestEmployeeHistoryTables:
         ],
         ids=["bare_entries", "wrapped_entries"],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_flattens_entries_per_employee_and_follows_query_cursor(
-        self, MockSession, endpoint, path, values_page_1, values_page_2
+        self,
+        endpoint: str,
+        path: str,
+        values_page_1: list[dict[str, Any]],
+        values_page_2: list[dict[str, Any]],
     ) -> None:
-        session = MockSession.return_value
-        captured = _wire(
-            session,
+        result = _driver().run(
+            endpoint,
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "results": [{"employeeId": "e1", "values": values_page_1}],
                         "response_metadata": {"next_cursor": "c2"},
                     }
                 ),
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "results": [{"employeeId": "e2", "values": values_page_2}, {"employeeId": "e3", "values": []}],
                         "response_metadata": {"next_cursor": None},
                     }
@@ -117,32 +78,29 @@ class TestEmployeeHistoryTables:
             ],
         )
 
-        response = hibob_source("service-id", "token", endpoint, team_id=1, job_id="j")
-        rows = _rows(response)
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 1, "status": "hired", "employeeId": "e1"},
             {"id": 2, "status": "employed", "employeeId": "e1"},
             {"id": 1, "status": "hired", "employeeId": "e2"},
         ]
-        assert response.primary_keys == ["employeeId", "id"]
-        assert [(c["method"], c["url"]) for c in captured] == [("GET", f"https://api.hibob.com{path}")] * 2
-        assert captured[0]["params"] == {"limit": 200}
-        assert captured[1]["params"] == {"limit": 200, "cursor": "c2"}
+        assert result.response is not None
+        assert result.response.primary_keys == ["employeeId", "id"]
+        assert [(request.method, request.path) for request in result.requests] == [("GET", path)] * 2
+        assert all(request.origin == "https://api.hibob.com" for request in result.requests)
+        assert result.queries == [{"limit": ("200",)}, {"limit": ("200",), "cursor": ("c2",)}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rejects_repeated_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_rejects_repeated_cursor(self) -> None:
+        result = _driver().run(
+            "employee_lifecycle",
             [
-                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
-                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+                ScriptedResponse(json={"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+                ScriptedResponse(json={"results": [], "response_metadata": {"next_cursor": "stalled"}}),
             ],
         )
 
-        with pytest.raises(ValueError, match="repeated cursor"):
-            _rows(hibob_source("service-id", "token", "employee_lifecycle", team_id=1, job_id="j"))
+        assert isinstance(result.raised, ValueError)
+        assert "repeated cursor" in str(result.raised)
 
 
 class TestSearchEndpoints:
@@ -156,33 +114,32 @@ class TestSearchEndpoints:
             ("skills", "/v1/skills/search", "/skill", "/skill/proficiencyLevels"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_posts_body_cursor_and_normalizes_pointer_keys(
-        self, MockSession, endpoint, path, prefix, requested_field
+        self, endpoint: str, path: str, prefix: str, requested_field: str
     ) -> None:
-        session = MockSession.return_value
-        captured = _wire(
-            session,
+        result = _driver().run(
+            endpoint,
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "items": [{f"{prefix}/id": 7, f"{prefix}/status": "active"}],
                         "response_metadata": {"next_cursor": "c2"},
                     }
                 ),
-                _response({"items": [{f"{prefix}/id": 8}], "response_metadata": {"next_cursor": None}}),
+                ScriptedResponse(json={"items": [{f"{prefix}/id": 8}], "response_metadata": {"next_cursor": None}}),
             ],
         )
 
-        rows = _rows(hibob_source("service-id", "token", endpoint, team_id=1, job_id="j"))
-
-        assert rows == [{"id": 7, "status": "active"}, {"id": 8}]
-        assert [(c["method"], c["url"]) for c in captured] == [("POST", f"https://api.hibob.com{path}")] * 2
-        assert "cursor" not in captured[0]["json"]
-        assert requested_field in captured[0]["json"]["fields"]
+        assert result.raised is None
+        assert result.rows == [{"id": 7, "status": "active"}, {"id": 8}]
+        assert [(request.method, request.path) for request in result.requests] == [("POST", path)] * 2
+        assert all(request.origin == "https://api.hibob.com" for request in result.requests)
+        first_body, second_body = (request.json() for request in result.requests)
+        assert "cursor" not in first_body
+        assert requested_field in first_body["fields"]
         # HiBob rejects a search asking for more than 50 fields.
-        assert len(captured[0]["json"]["fields"]) <= 50
-        assert captured[1]["json"]["cursor"] == "c2"
+        assert len(first_body["fields"]) <= 50
+        assert second_body["cursor"] == "c2"
         # The next sync must not start from the previous sync's cursor.
         body = HIBOB_ENDPOINTS[endpoint].body
         assert body is not None and "cursor" not in body
@@ -228,139 +185,137 @@ class TestNamedLists:
         ],
         ids=["documented_array", "keyed_by_list_name"],
     )
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_flattens_nested_items_with_list_name_and_parent(self, mock_make_session, payload) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _response(payload)
+    def test_flattens_nested_items_with_list_name_and_parent(self, payload: Any) -> None:
+        result = _driver().run("named_lists", [ScriptedResponse(json=payload)])
 
-        response = hibob_source("service-id", "token", "named_lists", team_id=1, job_id="j")
-        rows = _rows(response)
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": 1, "value": "Eng", "name": "Eng", "archived": False, "listName": "department", "parentId": None},
             {"id": 2, "value": "UK", "name": "UK", "archived": True, "listName": "site", "parentId": None},
             {"id": 3, "value": "London", "name": "London", "archived": False, "listName": "site", "parentId": 2},
         ]
-        assert response.primary_keys == ["listName", "id"]
-        assert session.get.call_args.args[0] == "https://api.hibob.com/v1/company/named-lists"
-        assert session.get.call_args.kwargs["params"] == {"includeArchived": "true"}
+        assert result.response is not None
+        assert result.response.primary_keys == ["listName", "id"]
+        assert result.paths == ["/v1/company/named-lists"]
+        assert result.params("includeArchived") == ["true"]
 
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_auth_error_fails_loud(self, mock_make_session) -> None:
-        mock_make_session.return_value.get.return_value = _response({"error": "unauthorized"}, status=401)
+    def test_auth_error_fails_loud(self) -> None:
+        result = _driver().run("named_lists", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
 
-        with pytest.raises(Exception):
-            _rows(hibob_source("service-id", "token", "named_lists", team_id=1, job_id="j"))
+        assert isinstance(result.raised, Exception)
+        assert result.paths == ["/v1/company/named-lists"]
 
 
 class TestTimeOffCalendars:
-    """The calendars stream fans out over employee ids (POST search), so it hand-rolls its own
-    session.post calls rather than riding the shared rest_client."""
+    """The calendars stream fans out over employee ids (POST search)."""
 
-    def _people_then_calendars(self, session, calendar_pages: list[Response], employees=None):
-        employees = employees if employees is not None else [{"id": "e1"}, {"id": "e2"}]
-        session.post.side_effect = [_response({"employees": employees}), *calendar_pages]
-
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_follows_cursor_until_exhausted(self, mock_make_session):
-        session = mock_make_session.return_value
-        self._people_then_calendars(
-            session,
+    def test_follows_cursor_until_exhausted(self) -> None:
+        result = _driver().run(
+            "time_off_calendars",
             [
-                _response(
-                    {"items": [{"/employeeCalendar/employeeId": "e1"}], "response_metadata": {"next_cursor": "n"}}
+                ScriptedResponse(json={"employees": [{"id": "e1"}]}),
+                ScriptedResponse(
+                    json={"items": [{"/employeeCalendar/employeeId": "e1"}], "response_metadata": {"next_cursor": "n"}}
                 ),
-                _response(
-                    {"items": [{"/employeeCalendar/employeeId": "e2"}], "response_metadata": {"next_cursor": None}}
+                ScriptedResponse(
+                    json={"items": [{"/employeeCalendar/employeeId": "e2"}], "response_metadata": {"next_cursor": None}}
                 ),
             ],
-            employees=[{"id": "e1"}],
         )
 
-        rows = _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+        assert result.raised is None
+        assert [row["employeeId"] for row in result.rows] == ["e1", "e2"]
+        assert result.paths == [
+            "/v1/people/search",
+            "/v1/timeoff/calendars/employees/search",
+            "/v1/timeoff/calendars/employees/search",
+        ]
+        assert all(request.method == "POST" for request in result.requests)
+        assert result.requests[2].json()["cursor"] == "n"
 
-        assert [row["employeeId"] for row in rows] == ["e1", "e2"]
-        assert session.post.call_count == 3  # people/search + two cursor pages
-        assert session.post.call_args_list[2].kwargs["json"]["cursor"] == "n"
-
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_auth_error_fails_loud(self, mock_make_session):
-        session = mock_make_session.return_value
+    def test_auth_error_fails_loud(self) -> None:
         # Repeated 401s trip HiBob's WAF, so the fan-out must raise rather than swallow the failure.
-        session.post.side_effect = [_response({"error": "unauthorized"}, status=401)]
+        result = _driver().run("time_off_calendars", [ScriptedResponse(status=401, json={"error": "unauthorized"})])
 
-        with pytest.raises(Exception):
-            _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+        assert isinstance(result.raised, Exception)
+        assert result.paths == ["/v1/people/search"]
 
 
 class TestWorkLocations:
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_fans_out_employer_ids_and_follows_cursor(self, mock_make_session):
-        session = mock_make_session.return_value
-        session.post.side_effect = [
-            _response({"items": [{"/employer/id": "11"}], "response_metadata": {"next_cursor": "e2"}}),
-            _response({"items": [{"/employer/id": "12"}], "response_metadata": {"next_cursor": None}}),
-            _response(
-                {
-                    "items": [{"/workLocation/id": "1", "/workLocation/employerId": "11", "/workLocation/name": "HQ"}],
-                    "response_metadata": {"next_cursor": "w2"},
-                }
-            ),
-            _response(
-                {
-                    "items": [
-                        {"/workLocation/id": "2", "/workLocation/employerId": "11", "/workLocation/name": "Home"}
-                    ],
-                    "response_metadata": {"next_cursor": None},
-                }
-            ),
-            _response({"items": [], "response_metadata": {"next_cursor": None}}),
-        ]
+    def test_fans_out_employer_ids_and_follows_cursor(self) -> None:
+        result = _driver().run(
+            "work_locations",
+            [
+                ScriptedResponse(json={"items": [{"/employer/id": "11"}], "response_metadata": {"next_cursor": "e2"}}),
+                ScriptedResponse(json={"items": [{"/employer/id": "12"}], "response_metadata": {"next_cursor": None}}),
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {"/workLocation/id": "1", "/workLocation/employerId": "11", "/workLocation/name": "HQ"}
+                        ],
+                        "response_metadata": {"next_cursor": "w2"},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "items": [
+                            {"/workLocation/id": "2", "/workLocation/employerId": "11", "/workLocation/name": "Home"}
+                        ],
+                        "response_metadata": {"next_cursor": None},
+                    }
+                ),
+                ScriptedResponse(json={"items": [], "response_metadata": {"next_cursor": None}}),
+            ],
+        )
 
-        response = hibob_source("service-id", "token", "work_locations", team_id=1, job_id="j")
-        rows = _rows(response)
-
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {"id": "1", "employerId": "11", "name": "HQ"},
             {"id": "2", "employerId": "11", "name": "Home"},
         ]
-        assert response.primary_keys == ["employerId", "id"]
-        calls = session.post.call_args_list
-        assert [call.args[0] for call in calls] == [
-            "https://api.hibob.com/v1/employers/search",
-            "https://api.hibob.com/v1/employers/search",
-            "https://api.hibob.com/v1/employers/11/work-locations/search",
-            "https://api.hibob.com/v1/employers/11/work-locations/search",
-            "https://api.hibob.com/v1/employers/12/work-locations/search",
+        assert result.response is not None
+        assert result.response.primary_keys == ["employerId", "id"]
+        assert result.paths == [
+            "/v1/employers/search",
+            "/v1/employers/search",
+            "/v1/employers/11/work-locations/search",
+            "/v1/employers/11/work-locations/search",
+            "/v1/employers/12/work-locations/search",
         ]
-        assert calls[1].kwargs["json"]["cursor"] == "e2"
-        assert "cursor" not in calls[2].kwargs["json"]
-        assert calls[3].kwargs["json"]["cursor"] == "w2"
-        assert "cursor" not in calls[4].kwargs["json"]
-        assert calls[2].kwargs["json"]["filters"] == []
+        assert all(request.method == "POST" for request in result.requests)
+        assert result.requests[1].json()["cursor"] == "e2"
+        assert "cursor" not in result.requests[2].json()
+        assert result.requests[3].json()["cursor"] == "w2"
+        assert "cursor" not in result.requests[4].json()
+        assert result.requests[2].json()["filters"] == []
 
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_rejects_repeated_cursor(self, mock_make_session):
-        session = mock_make_session.return_value
+    def test_rejects_repeated_cursor(self) -> None:
         stalled = {"items": [{"/employer/id": "11"}], "response_metadata": {"next_cursor": "stalled"}}
-        session.post.side_effect = [_response(stalled), _response(stalled)]
+        result = _driver().run("work_locations", [ScriptedResponse(json=stalled), ScriptedResponse(json=stalled)])
 
-        with pytest.raises(ValueError, match="repeated cursor"):
-            _rows(hibob_source("service-id", "token", "work_locations", team_id=1, job_id="j"))
+        assert isinstance(result.raised, ValueError)
+        assert "repeated cursor" in str(result.raised)
 
 
 class TestHiBobSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_response_metadata_per_endpoint(self, MockSession, endpoint) -> None:
-        config = HIBOB_ENDPOINTS[endpoint]
-        response = hibob_source("service-id", "token", endpoint, team_id=1, job_id="j")
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
+        if endpoint == "named_lists":
+            payload: Any = []
+        elif endpoint == "time_off_calendars":
+            payload = {"employees": []}
+        else:
+            payload = {}
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
 
-        assert response.name == endpoint
-        assert response.primary_keys == list(config.primary_keys)
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-        assert response.partition_keys is None
+        config = HIBOB_ENDPOINTS[endpoint]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == list(config.primary_keys)
+        assert result.response.sort_mode == "asc"
+        assert result.response.partition_mode is None
+        assert result.response.partition_keys is None
 
 
 class TestValidateCredentials:
@@ -373,15 +328,19 @@ class TestValidateCredentials:
             (401, False, "Invalid HiBob Service User credentials"),
         ],
     )
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected_valid, expected_error):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
+    def test_validate_credentials_status_mapping(
+        self, status_code: int, expected_valid: bool, expected_error: str | None
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            actual = validate_credentials("service-id", "token")
 
-        assert validate_credentials("service-id", "token") == (expected_valid, expected_error)
+        assert actual == (expected_valid, expected_error)
+        assert network.requests_log[0].path == "/v1/tasks"
 
-    @mock.patch(HIBOB_SESSION_PATCH)
-    def test_validate_credentials_surfaces_transport_errors(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("service-id", "token") == (False, "boom")
+    def test_validate_credentials_surfaces_transport_errors(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            valid, error = validate_credentials("service-id", "token")
+
+        assert valid is False
+        assert error is not None and "boom" in error
+        assert network.requests_log[0].path == "/v1/tasks"
