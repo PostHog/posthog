@@ -278,6 +278,9 @@ class TestUserAPI(APIBaseTest):
         assert response.json() == {"a bag": "of data"}
 
     def test_can_update_ui_configuration(self):
+        # Joining marks the starred setup done, and updates keep that key, so start from nothing.
+        self.user.ui_configuration = None
+        self.user.save(update_fields=["ui_configuration"])
         configuration = {
             "version": 1,
             "sidebar": {
