@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconFilter, IconPlus } from '@posthog/icons'
+import { IconFilter, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
@@ -12,6 +13,7 @@ import { BIResultFiltersCard } from './BIResultFiltersCard'
 import { BIShelfDropTarget } from './BIShelfDropTarget'
 
 export function BIFiltersCard(): JSX.Element {
+    const [resultFiltersOpen, setResultFiltersOpen] = useState(false)
     const { config } = useValues(biEditorLogic)
     const { addBlankFieldToShelf, setFilterGroup } = useActions(biEditorLogic)
 
@@ -49,10 +51,21 @@ export function BIFiltersCard(): JSX.Element {
                 />
             )}
             <LemonDropdown
+                visible={resultFiltersOpen}
+                onVisibilityChange={setResultFiltersOpen}
                 closeOnClickInside={false}
                 placement="bottom-end"
                 overlay={
                     <div className="w-72">
+                        <div className="flex justify-end">
+                            <LemonButton
+                                icon={<IconX />}
+                                type="tertiary"
+                                size="xsmall"
+                                aria-label="Close result filters"
+                                onClick={() => setResultFiltersOpen(false)}
+                            />
+                        </div>
                         <BIResultFiltersCard />
                     </div>
                 }
