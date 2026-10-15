@@ -812,8 +812,7 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        team = Team.objects.create(organization=self.organization, week_start_day=WeekStartDay.MONDAY)
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         runner.query_date_range = QueryDateRange(
             team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
@@ -826,7 +825,7 @@ class TestQueryRunner(BaseTest):
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team, _ = Team.objects.get_or_create(pk=42, organization=self.organization, defaults={"project": self.project})
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
@@ -840,7 +839,7 @@ class TestQueryRunner(BaseTest):
         # reading the same cache entry as the untagged one, or every preset user would
         # miss the cache on every load and the warm set would double.
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
         tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
@@ -855,7 +854,7 @@ class TestQueryRunner(BaseTest):
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team, _ = Team.objects.get_or_create(pk=42, organization=self.organization, defaults={"project": self.project})
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
@@ -865,7 +864,7 @@ class TestQueryRunner(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team, _ = Team.objects.get_or_create(pk=42, organization=self.organization, defaults={"project": self.project})
         team.timezone = "Europe/Vienna"
         team.save()
 
