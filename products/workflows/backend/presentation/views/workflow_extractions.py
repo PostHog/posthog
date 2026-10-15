@@ -49,6 +49,9 @@ class WorkflowExtractJWTAuthentication(ScopedServiceJWTAuthentication):
 class WorkflowExtractionFieldSerializer(serializers.Serializer):
     name = serializers.RegexField(
         FIELD_NAME_PATTERN,
+        error_messages={
+            "invalid": "Use only letters, digits and underscores, start with a letter or underscore, and keep it to 64 characters."
+        },
         help_text="The field name: letters, digits and underscores, not starting with a digit. At most 64 characters.",
     )
     type = serializers.ChoiceField(

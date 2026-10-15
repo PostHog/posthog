@@ -7391,3 +7391,82 @@ class TestClassifyActionValidation(APIBaseTest):
         response = self._post_flow(categories, question, model)
 
         assert response.status_code == expected, response.json()
+
+
+class TestExtractActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-extract"
+        template["name"] = "Extract with AI"
+        template["inputs_schema"] = [
+            {"key": "context", "type": "json", "label": "Text to read", "secret": False, "required": True},
+            {
+                "key": "fields",
+                "type": "dictionary",
+                "label": "Fields",
+                "secret": False,
+                "required": True,
+                "templating": False,
+            },
+        ]
+        sync_template_to_db(template)
+
+    def _post_flow(self, fields: Any, variable_type: str = "string"):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-extract",
+                "inputs": {"context": {"value": {"message": "Opened a PR"}}, "fields": {"value": fields}},
+            },
+            "output_variable": [{"key": "pr_url", "result_path": "pr_url"}],
+        }
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                {
+                    "name": "Test Flow",
+                    "actions": [trigger_action, action],
+                    "edges": [],
+                    "variables": [{"key": "pr_url", "type": variable_type, "label": "PR URL"}],
+                },
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+    def test_accepts_named_fields_mapped_into_typed_variables(self):
+        response = self._post_flow({"pr_url": "The URL of the pull request"}, variable_type="number")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("no_fields", {}, "actions__1__inputs__fields"),
+            ("name_starts_with_a_digit", {"1st": "The first thing"}, "actions__1__inputs__fields"),
+            ("blank_instruction", {"pr_url": "  "}, "actions__1__inputs__fields"),
+            ("instruction_is_not_text", {"pr_url": 42}, "actions__1__inputs__fields"),
+            ("too_many_fields", {f"f{i}": "x" for i in range(21)}, "actions__1__inputs__fields"),
+        ]
+    )
+    def test_rejects_fields_the_extraction_endpoint_would_refuse(self, _name, fields, attr):
+        response = self._post_flow(fields)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == attr
+
+    def test_rejects_a_field_mapped_into_a_variable_type_it_cannot_fill(self):
+        response = self._post_flow({"pr_url": "The URL of the pull request"}, variable_type="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions"
+        assert "pr_url" in response.json()["detail"]

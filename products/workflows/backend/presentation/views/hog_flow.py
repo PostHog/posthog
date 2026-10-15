@@ -309,6 +309,8 @@ from products.workflows.backend.presentation.views.message_assets import (
 from products.workflows.backend.presentation.views.workflow_classifications import (
     WorkflowClassificationRequestSerializer,
 )
+from products.workflows.backend.presentation.views.workflow_extractions import WorkflowExtractionRequestSerializer
+from products.workflows.backend.services.ai_extraction import ExtractionFieldType
 
 logger = structlog.get_logger(__name__)
 
@@ -562,6 +564,37 @@ _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 # The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
 _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
+
+# The "Extract with AI" step. Its fields reach the extraction endpoint, which refuses the same inputs the
+# Classify endpoint would, so a strict save applies the endpoint's limits and its field types.
+_EXTRACT_TEMPLATE_ID = "template-posthog-extract"
+
+
+def _extract_fields(action: dict) -> dict:
+    fields = ((action.get("config") or {}).get("inputs") or {}).get("fields") or {}
+    value = fields.get("value") if isinstance(fields, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _output_mappings(action: dict) -> list[dict]:
+    output_variable = action.get("output_variable")
+    mappings = output_variable if isinstance(output_variable, list) else [output_variable]
+    return [mapping for mapping in mappings if isinstance(mapping, dict)]
+
+
+def _extract_fields_in_unfillable_variables(actions: list[dict], variables: list[dict] | None) -> list[str]:
+    variable_types = {variable.get("key"): variable.get("type") for variable in variables or []}
+    unfillable: list[str] = []
+    for step in actions:
+        if (step.get("config") or {}).get("template_id") != _EXTRACT_TEMPLATE_ID:
+            continue
+        fields = _extract_fields(step)
+        for mapping in _output_mappings(step):
+            variable_type = variable_types.get(mapping.get("key"))
+            if mapping.get("result_path") in fields and variable_type not in (None, *ExtractionFieldType.values):
+                unfillable.append(f"{mapping['result_path']} ({variable_type} variable {mapping['key']})")
+    return unfillable
+
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1451,6 +1484,23 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not serializer.is_valid():
             raise serializers.ValidationError({"inputs": serializer.errors})
 
+    def _validate_extract_action(self, action: dict) -> None:
+        fields = _extract_fields(action)
+        names = list(fields)
+        if any(not isinstance(instruction, str) for instruction in fields.values()):
+            raise serializers.ValidationError({"inputs": {"fields": "Write every field instruction as text."}})
+        serializer = WorkflowExtractionRequestSerializer(
+            data={"output_fields": [{"name": name, "instruction": fields[name]} for name in names]}, partial=True
+        )
+        if serializer.is_valid():
+            return
+        errors = serializer.errors["output_fields"]
+        for name, field_errors in zip(names, errors):
+            if isinstance(field_errors, dict) and field_errors:
+                attribute, messages = next(iter(field_errors.items()))
+                raise serializers.ValidationError({"inputs": {"fields": f"{name} ({attribute}): {messages[0]}"}})
+        raise serializers.ValidationError({"inputs": {"fields": str(errors[0])}})
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1719,6 +1769,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_run_scout_action()
                 if strict and template_id == _CLASSIFY_TEMPLATE_ID:
                     self._validate_classify_action(data["config"]["inputs"])
+                if strict and template_id == _EXTRACT_TEMPLATE_ID:
+                    self._validate_extract_action(data)
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -3102,6 +3154,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile
         # (e.g. a cohort reference) fails at create rather than being silently stored.
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
+
+        if strict:
+            variables = data.get("variables", instance.variables if instance else [])
+            unfillable = _extract_fields_in_unfillable_variables(actions, variables)
+            if unfillable:
+                raise serializers.ValidationError(
+                    {
+                        "actions": "Extract with AI fills only text, number, and true or false variables. "
+                        f"Change the variable type for: {', '.join(unfillable)}."
+                    }
+                )
 
         # Graph wiring (dangling edges, branch-index range, abort_action, reachability) is enforced only on
         # the surgical /graph endpoint (which sets enforce_graph_structure and builds a clean graph by
