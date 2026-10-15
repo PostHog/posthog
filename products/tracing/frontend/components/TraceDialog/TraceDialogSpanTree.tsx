@@ -174,8 +174,8 @@ export function TraceDialogSpanTree(): JSX.Element {
         <div className="flex flex-col h-full min-h-0">
             <div className="flex items-center text-[11px] text-muted border-b py-1" aria-hidden>
                 <span className="w-16 shrink-0 px-2">Start</span>
-                <span className="w-96 shrink-0">Span</span>
-                <span className="relative grow h-4">
+                <span className="w-96 shrink min-w-48">Span</span>
+                <span className="relative grow min-w-16 h-4">
                     {getTimelineTicks(timeline.durationUs).map((tickUs) => (
                         <span
                             key={tickUs}

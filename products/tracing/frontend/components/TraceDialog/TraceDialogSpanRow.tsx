@@ -87,7 +87,7 @@ export function TraceDialogSpanRow({
                 +{formatDuration(Math.max(startUs - timeline.startUs, 0) * 1_000)}
             </span>
             <span
-                className="pointer-events-none relative self-stretch w-96 shrink-0 flex items-center gap-1.5 min-w-0 pr-2"
+                className="pointer-events-none relative self-stretch w-96 shrink min-w-48 flex items-center gap-1.5 pr-2"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ paddingLeft: indentPx(row.depth) }}
             >
@@ -166,7 +166,7 @@ export function TraceDialogSpanRow({
                     </button>
                 )}
             </span>
-            <span className="pointer-events-none relative grow self-stretch my-1.5" aria-hidden>
+            <span className="pointer-events-none relative grow min-w-16 self-stretch my-1.5" aria-hidden>
                 {!isMissingParent && (
                     <span
                         className="absolute inset-y-0"

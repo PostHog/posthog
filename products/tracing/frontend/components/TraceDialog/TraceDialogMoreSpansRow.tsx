@@ -11,11 +11,11 @@ export interface TraceDialogMoreSpansRowProps {
 export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpansRowProps): JSX.Element {
     const { parent, hiddenCount } = row
     return (
-        // No gap between the columns: the span row has none, so the tree lines on both line up.
+        // Same columns and no gap as the span row, so the tree lines on both line up at any width.
         <div className="flex items-center w-full h-full text-xs text-muted border-l-[3px] border-l-transparent">
             <span className="w-16 shrink-0" aria-hidden />
             <span
-                className="relative self-stretch w-96 shrink-0 flex items-center gap-2"
+                className="relative self-stretch w-96 shrink min-w-48 flex items-center gap-2"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ paddingLeft: indentPx(row.depth) + 22 }}
             >
@@ -32,6 +32,8 @@ export function TraceDialogMoreSpansRow({ row, onShowAll }: TraceDialogMoreSpans
                     Show all
                 </LemonButton>
             </span>
+            <span className="grow min-w-16" aria-hidden />
+            <span className="w-20 shrink-0" aria-hidden />
         </div>
     )
 }
