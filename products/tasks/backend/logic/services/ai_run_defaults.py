@@ -38,13 +38,19 @@ from posthog.models.user import User
 
 from products.tasks.backend.constants import REASONING_EFFORTS
 from products.tasks.backend.feature_flags import (
+    fx_runtime_enabled,
     get_model_access_error,
     get_required_model_flag,
     pi_cloud_runtime_enabled,
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
-from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter, validate_model_selection
+from products.tasks.backend.temporal.process_task.utils import (
+    ReasoningEffort,
+    RuntimeAdapter,
+    get_permission_mode_choices,
+    validate_model_selection,
+)
 
 PI_REASONING_EFFORTS = frozenset(ReasoningEffort) - {ReasoningEffort.ULTRACODE}
 
@@ -71,6 +77,7 @@ def resolve_ai_run_selection(
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
 ) -> ResolvedAIRunConfig:
     """The effective runtime selection for a new run: the caller's own selection when it
     pins anything, otherwise the stored defaults.
@@ -89,7 +96,7 @@ def resolve_ai_run_selection(
             source="explicit",
         )
 
-    resolved = resolve_ai_run_defaults(team_id, user_id)
+    resolved = resolve_ai_run_defaults(team_id, user_id, initial_permission_mode=initial_permission_mode)
     usable = bool(resolved.runtime == runtime and resolved.model and (runtime == PI or resolved.runtime_adapter))
     if not usable:
         return ResolvedAIRunConfig(runtime=runtime, reasoning_effort=reasoning_effort, source="none")
@@ -133,6 +140,7 @@ def apply_ai_run_defaults(
         runtime_adapter=selection.get("runtime_adapter"),
         model=selection.get("model"),
         reasoning_effort=selection.get("reasoning_effort"),
+        initial_permission_mode=selection.get("initial_permission_mode"),
     )
     if resolved.source not in ("user", "team"):
         return None
@@ -144,7 +152,11 @@ def apply_ai_run_defaults(
 
 
 def resolve_ai_run_defaults(
-    team_id: int, user_id: int | None, *, user_preferences: dict[str, Any] | None = None
+    team_id: int,
+    user_id: int | None,
+    *,
+    user_preferences: dict[str, Any] | None = None,
+    initial_permission_mode: str | None = None,
 ) -> ResolvedAIRunConfig:
     """The stored default AI run triple: the acting user's per-project preference wins
     wholesale, then the project default, then empty.
@@ -167,6 +179,14 @@ def resolve_ai_run_defaults(
         if resolved.runtime == PI:
             team = Team.objects.filter(id=canonical_team_id).first()
             if not (user and team and pi_cloud_runtime_enabled(team, user)):
+                return False
+        if resolved.runtime_adapter == RuntimeAdapter.FX.value:
+            if initial_permission_mode and initial_permission_mode not in get_permission_mode_choices(
+                RuntimeAdapter.FX.value
+            ):
+                return False
+            team = Team.objects.filter(id=canonical_team_id).first()
+            if not (team and fx_runtime_enabled(user.distinct_id if user else None, str(team.organization_id))):
                 return False
         if get_required_model_flag(resolved.model) is None:
             return True

@@ -19,6 +19,9 @@ describe('composerModes', () => {
         [RuntimeAdapterEnumApi.Claude, CodexMode.ReadOnly, false],
         [RuntimeAdapterEnumApi.Codex, CodexMode.ReadOnly, true],
         [RuntimeAdapterEnumApi.Codex, ClaudeMode.AcceptEdits, false],
+        [RuntimeAdapterEnumApi.Fx, ClaudeMode.AcceptEdits, true],
+        [RuntimeAdapterEnumApi.Fx, ClaudeMode.Plan, false],
+        [RuntimeAdapterEnumApi.Fx, CodexMode.ReadOnly, false],
     ])('%s offers %s: %s', (adapter, mode, offered) => {
         expect(getModesForRuntimeAdapter(adapter).includes(mode)).toBe(offered)
     })
@@ -42,6 +45,9 @@ describe('composerModes', () => {
         [RuntimeAdapterEnumApi.Codex, ClaudeMode.Default, CodexMode.Auto],
         [RuntimeAdapterEnumApi.Claude, CodexMode.ReadOnly, ClaudeMode.Plan],
         [RuntimeAdapterEnumApi.Claude, CodexMode.FullAccess, ClaudeMode.BypassPermissions],
+        [RuntimeAdapterEnumApi.Fx, ClaudeMode.Plan, ClaudeMode.Default],
+        [RuntimeAdapterEnumApi.Fx, CodexMode.ReadOnly, ClaudeMode.Default],
+        [RuntimeAdapterEnumApi.Fx, CodexMode.FullAccess, CodexMode.FullAccess],
         // Shared on both, so it passes straight through.
         [RuntimeAdapterEnumApi.Codex, ClaudeMode.Plan, ClaudeMode.Plan],
     ])('%s coerces %s → %s', (adapter, mode, expected) => {

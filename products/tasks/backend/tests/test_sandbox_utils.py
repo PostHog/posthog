@@ -103,12 +103,14 @@ def test_can_mint_readonly_github_token_matches_mint_eligibility(resolved, expec
 
 @parameterized.expand(
     [
-        ("full_credential_run_reuses", False, 5),
-        ("read_only_run_clones_fresh", True, None),
+        ("full_credential_run_reuses", {"github_read_access": False}, 5),
+        ("read_only_run_clones_fresh", {"github_read_access": True}, None),
+        ("claude_run_reuses", {"runtime_adapter": "claude"}, 5),
+        ("fx_run_clones_fresh", {"runtime_adapter": "fx"}, None),
     ]
 )
-def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
-    _name: str, read_access: bool, expected: int | None
+def test_repository_snapshot_reuse_is_refused_for_read_only_and_fx_runs(
+    _name: str, state: dict, expected: int | None
 ) -> None:
     # A repository snapshot keeps its creator's write-capable token in every `.git/config` and is
     # never fetched again, so restoring one for a read-only run hands the agent a write token and
@@ -126,7 +128,7 @@ def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
         github_integration_id=5,
         repository="acme/app",
         distinct_id="d",
-        state={"github_read_access": read_access},
+        state=state,
     )
 
     assert _repository_snapshot_integration_id(ctx, has_repo=True) == expected

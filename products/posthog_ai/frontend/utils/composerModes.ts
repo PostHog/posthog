@@ -74,6 +74,14 @@ const CODEX_MODES: PermissionMode[] = [
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
 ]
 
+const FX_MODES: PermissionMode[] = [
+    InitialPermissionModeEnumApi.Default,
+    InitialPermissionModeEnumApi.AcceptEdits,
+    InitialPermissionModeEnumApi.Auto,
+    InitialPermissionModeEnumApi.BypassPermissions,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+]
+
 // Hidden from the picker, exactly as the desktop app hides them: its `allowBypassPermissions` setting
 // defaults to off and filters these two out of the menu (ModeSelector.tsx). Uncomment them here once the
 // web surface has the equivalent setting. They stay in the vocabularies above on purpose — a run already
@@ -90,7 +98,10 @@ export function getModesForRuntimeAdapter(runtimeAdapter: string): PermissionMod
 
 /** Every mode a runtime accepts, gated or not — what coercion and label lookup resolve against. */
 export function getRuntimeModeVocabulary(runtimeAdapter: string): PermissionMode[] {
-    return runtimeAdapter === RuntimeAdapterEnumApi.Codex ? CODEX_MODES : CLAUDE_MODES
+    if (runtimeAdapter === RuntimeAdapterEnumApi.Codex) {
+        return CODEX_MODES
+    }
+    return runtimeAdapter === RuntimeAdapterEnumApi.Fx ? FX_MODES : CLAUDE_MODES
 }
 
 /** Both runtimes open on Auto — the agent gets to work instead of waiting on a plan approval. */
@@ -123,6 +134,9 @@ export function resolveModeForRuntimeAdapter(runtimeAdapter: string, mode: Permi
     }
     if (runtimeAdapter === RuntimeAdapterEnumApi.Codex) {
         return CODEX_FALLBACKS[mode] ?? CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto
+    }
+    if (runtimeAdapter === RuntimeAdapterEnumApi.Fx) {
+        return InitialPermissionModeEnumApi.Default
     }
     return CLAUDE_FALLBACKS[mode] ?? InitialPermissionModeEnumApi.Default
 }

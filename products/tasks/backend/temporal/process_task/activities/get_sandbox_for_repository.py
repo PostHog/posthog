@@ -39,6 +39,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
 from products.tasks.backend.temporal.process_task.utils import (
+    RuntimeAdapter,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -189,7 +190,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
-        if has_repo and github_integration_id is not None and not ctx.custom_image_name:
+        is_fx_run = (ctx.state or {}).get("runtime_adapter") == RuntimeAdapter.FX.value
+        if has_repo and github_integration_id is not None and not ctx.custom_image_name and not is_fx_run:
             assert repository is not None
             with StepTimer(
                 "snapshot_lookup",

@@ -94,6 +94,7 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
+    RuntimeAdapter,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
@@ -402,6 +403,8 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     that holds both guarantees.
     """
     if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+        return None
+    if (ctx.state or {}).get("runtime_adapter") == RuntimeAdapter.FX.value:
         return None
     return ctx.github_integration_id
 

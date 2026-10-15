@@ -24,6 +24,7 @@ FACADE = "products.tasks.backend.facade.api"
 
 TEAM_TRIPLE = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
 USER_TRIPLE = {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"}
+FX_TRIPLE = {"runtime_adapter": "fx", "model": "gpt-6-sol", "reasoning_effort": None}
 PI_PREFS_WITH_PI_ONLY_EFFORT = {
     "runtime": "pi",
     "runtime_adapter": None,
@@ -232,6 +233,22 @@ class TestModelAccessGating(APIBaseTest):
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "team"
         assert (resolved.runtime, resolved.model) == ("acp", "gpt-5.5")
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, None, "user"),
+            ("flag_on_with_a_mode_fx_runs", True, "auto", "user"),
+            ("flag_off", False, None, "team"),
+            ("plan_mode", True, "plan", "team"),
+            ("read_only_mode", True, "read-only", "team"),
+        ]
+    )
+    def test_fx_default_needs_the_flag_and_a_mode_fx_can_run(self, _name, flag_enabled, mode, expected_source):
+        self._set_user(FX_TRIPLE)
+        self._set_team(USER_TRIPLE)
+        with patch(f"{RESOLVER}.fx_runtime_enabled", return_value=flag_enabled):
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id, initial_permission_mode=mode)
+        assert resolved.source == expected_source
 
     def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
         User.objects.filter(id=self.user.id).update(distinct_id=None)

@@ -270,7 +270,7 @@ def _runtime_adapter_by_provider() -> dict[str, str]:
         get_provider_for_runtime_adapter,
     )
 
-    by_provider = {}
+    by_provider: dict[str, str] = {}
     for adapter in RuntimeAdapter:
         provider = get_provider_for_runtime_adapter(adapter)
         if provider is not None:
