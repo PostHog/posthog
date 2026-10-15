@@ -75,17 +75,21 @@ LIMIT 40
 
 Measures engaged opens only. The legacy picker sends `taxonomic filter
 closed` only after the user interacts, so untouched dismissals are
-missing. The rebuild sends it on every close: split by `surface` before
-comparing the two.
+missing. The rebuild sends it on every close, so the query splits by
+`surface`. Write back the legacy rows (`legacy-pill`, `legacy-control`)
+as the engaged-open rate. Never pool the rebuild row with them.
 
 ```sql
 SELECT
+  properties.surface AS surface,
   round(100 * countIf(toBool(properties.hadSelection)) / count(), 1) AS selection_rate_pct,
   quantile(0.5)(toFloat(properties.dwellMs)) AS p50_dwell_ms,
   quantile(0.9)(toFloat(properties.dwellMs)) AS p90_dwell_ms
 FROM events
 WHERE event = 'taxonomic filter closed'
   AND timestamp >= now() - INTERVAL 90 DAY
+GROUP BY surface
+ORDER BY surface
 ```
 
 ### 5. Selection-source mix
@@ -150,6 +154,9 @@ opens that don't emit the click are merged into the previous one.
 Suggested sends no `taxonomic filter empty result`, so the
 without-category empty rate is too low. `category_then_empty_ratio` only
 compares opens with a category pick, so it does not have this bias.
+The rebuild sends `taxonomic filter menu category changed` instead of
+`taxonomic filter category selected`. The query maps one to the other,
+and skips a change back to `all` because that does not narrow search.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
@@ -158,14 +165,18 @@ WITH opens AS (
     $session_id AS sid,
     arraySplit(
       (e, i) -> e = 'taxonomic filter add filter clicked' AND i > 1,
-      groupArray(event),
-      arrayEnumerate(groupArray(event))
+      groupArray(step),
+      arrayEnumerate(groupArray(step))
     ) AS chunks
   FROM (
-    SELECT $session_id, event, timestamp
+    SELECT
+      $session_id,
+      if(event = 'taxonomic filter menu category changed', 'taxonomic filter category selected', event) AS step,
+      timestamp
     FROM events
-    WHERE event IN ('taxonomic filter add filter clicked', 'taxonomic filter category selected',
-                    'taxonomic filter empty result', 'taxonomic filter item selected')
+    WHERE (event IN ('taxonomic filter add filter clicked', 'taxonomic filter category selected',
+                     'taxonomic filter empty result', 'taxonomic filter item selected')
+           OR (event = 'taxonomic filter menu category changed' AND properties.toChip != 'all'))
       AND timestamp >= now() - INTERVAL 7 DAY
       AND $session_id IS NOT NULL
     ORDER BY timestamp

@@ -2,7 +2,7 @@
 
 There are two live surfaces, and the rebuild is a parallel
 reimplementation of the legacy data and group layer, not a skin over it.
-A behaviour change usually has to land in both, or the two arms diverge.
+A behavior change usually has to land in both, or the two arms diverge.
 
 ## Two surfaces
 

@@ -69,7 +69,7 @@ component paths.
 Useful published work for picker decisions:
 
 - Nielsen Norman Group: recognition over recall, mode errors, search
-  results behaviour.
+  results behavior.
 - Baymard Institute: no-results pages, autocomplete, search scope.
 - Furnas et al., "The vocabulary problem in human-system communication"
   (1987).

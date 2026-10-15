@@ -24,7 +24,7 @@ change needs. The references hold the detail and the evidence.
    test green. Ordering, promotion, position-0 and default-tab changes need
    explicit human sign-off.
 3. **Two surfaces, two implementations.** The rebuild reimplements the
-   legacy data layer. Most behaviour changes land in both, or the arms
+   legacy data layer. Most behavior changes land in both, or the arms
    diverge. See [surfaces-and-mirroring](references/surfaces-and-mirroring.md).
 4. **Telemetry is a public contract.** Dashboards and replay scanners read
    these events. Never rename or repurpose a property silently. See
@@ -67,7 +67,7 @@ Detail, windows and caveats: [product-reality](references/product-reality.md).
 3. **Check the principles and contested decisions** that apply. If your
    change reverses a documented decision, say so and bring evidence.
 4. **Make the change in both surfaces**, or say explicitly why not.
-5. **Lock behaviour with React Testing Library tests** at the call sites
+5. **Lock behavior with React Testing Library tests** at the call sites
    you touched. Agents find this component confusing; RTL tests are the
    fastest guard. See [testing-patterns](references/testing-patterns.md).
 6. **Decide how you will know it worked** before merging. Ship ordering or
