@@ -621,7 +621,7 @@ export interface LogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -791,7 +791,7 @@ export interface LogsAlertConfigurationDetailApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -893,7 +893,7 @@ export interface PatchedLogsAlertConfigurationApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+     * Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
@@ -1070,7 +1070,7 @@ export interface LogsAlertSimulateRequestApi {
      */
     datapoints_to_alarm?: number
     /**
-     * Minutes to wait after firing before sending another notification.
+     * Minimum minutes between the fire and resolve notifications. 0 means no minimum.
      * @minimum 0
      */
     cooldown_minutes?: number
