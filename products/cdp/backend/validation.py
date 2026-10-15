@@ -908,6 +908,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "posthog_ticket_tags",
                         "customer_analytics_account_properties",
                         "customer_analytics_account_relationships",
+                        "task_repository",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
