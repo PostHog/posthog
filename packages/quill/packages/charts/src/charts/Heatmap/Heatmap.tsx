@@ -72,6 +72,9 @@ export interface HeatmapCellStyle {
     color?: string
     /** Draw a dashed outline and no fill, for a cell whose value is not final yet. */
     outlined?: boolean
+    /** Fill the cell at the lightest step when its value is 0. Use it for a cell with a real zero,
+     *  so that it reads apart from a cell that has no data. */
+    filled?: boolean
 }
 
 export interface HeatmapConfig {
@@ -311,7 +314,7 @@ function HeatmapInner({
                     continue
                 }
                 const value = row[c]
-                if (!(value > 0)) {
+                if (!(value > 0) && !style?.filled) {
                     continue
                 }
                 ctx.fillStyle = rampFor(style?.color ?? drawAccent)(normalizeCount(value, max, scale))

@@ -95,7 +95,7 @@ export function HeatmapCellLabels({
                 // An outlined cell has no fill, so it contrasts against the background.
                 const style = styles[row]?.[col]
                 const fill =
-                    value > 0 && !style?.outlined
+                    (value > 0 || style?.filled) && !style?.outlined
                         ? mixColors(
                               background,
                               style?.color ? toSrgbColor(style.color) : fillAccent,

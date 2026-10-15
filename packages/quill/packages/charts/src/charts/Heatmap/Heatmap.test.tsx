@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { rawDrag, renderHogChart } from '../../testing'
-import { Heatmap, type HeatmapBrushData, type HeatmapCellDatum } from './Heatmap'
+import { Heatmap, type HeatmapBrushData, type HeatmapCellDatum, type HeatmapCellStyle } from './Heatmap'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e'],
@@ -116,9 +116,7 @@ describe('Heatmap', () => {
     // Both cases guard the label's contrast step against the cell's real fill. Reading the chart
     // accent instead would print white text on a pale cell and dark text on an unfilled one.
     describe('cellStyle', () => {
-        function labelColor(
-            cellStyle: (cell: HeatmapCellDatum) => { color?: string; outlined?: boolean } | null
-        ): string {
+        function labelColor(cellStyle: (cell: HeatmapCellDatum) => HeatmapCellStyle | null): string {
             const { chart } = renderHogChart(
                 <Heatmap
                     xLabels={X_LABELS}
@@ -143,6 +141,28 @@ describe('Heatmap', () => {
 
         it('contrasts the label against the background on an outlined cell', () => {
             expect(labelColor(() => ({ outlined: true }))).toBe(DARK_TEXT)
+        })
+
+        // A retention cohort at 0% is a real value, and must not look like a cell past its end.
+        it.each([
+            { filled: false, fills: 0 },
+            { filled: true, fills: X_LABELS.length * Y_LABELS.length },
+        ])('paints $fills fills on an all-zero grid when filled is $filled', async ({ filled, fills }) => {
+            const zeros = Y_LABELS.map(() => X_LABELS.map(() => 0))
+            const { chart } = renderHogChart(
+                <Heatmap
+                    xLabels={X_LABELS}
+                    yLabels={Y_LABELS}
+                    cells={zeros}
+                    theme={THEME}
+                    config={{ cellStyle: () => ({ filled }) }}
+                />
+            )
+            const ctx = chart.element.querySelector('canvas')!.getContext('2d') as unknown as {
+                __getDrawCalls: () => { type: string }[]
+            }
+            await waitFor(() => expect(ctx.__getDrawCalls().some((call) => call.type === 'clearRect')).toBe(true))
+            expect(ctx.__getDrawCalls().filter((call) => call.type === 'fillRect')).toHaveLength(fills)
         })
     })
 

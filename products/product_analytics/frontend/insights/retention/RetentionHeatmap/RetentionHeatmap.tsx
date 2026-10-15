@@ -156,7 +156,7 @@ export function RetentionHeatmap({
             if (row.inProgress[cell.xIndex]) {
                 return { outlined: true }
             }
-            return row.isMean ? { color: meanColor } : null
+            return row.isMean ? { color: meanColor, filled: true } : { filled: true }
         },
         [rowAt, meanColor]
     )
