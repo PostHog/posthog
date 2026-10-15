@@ -38,7 +38,8 @@ Suggested will seem to shrink as rebuild use grows.
 ## Shared events (both surfaces)
 
 Keep these comparable across arms. Add a property to both emitters or
-neither. All carry `surface`.
+neither. All carry `surface` on both surfaces, except
+`include stale toggled`, which carries it on the rebuild only.
 
 - `taxonomic filter closed`: `dwellMs`, `hadSelection`,
   `categoryRailDocked`. Legacy also sends `groupType`; the rebuild omits

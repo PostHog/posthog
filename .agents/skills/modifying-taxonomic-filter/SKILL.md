@@ -36,7 +36,8 @@ change needs. The references hold the detail and the evidence.
   touch a category tab (~95%).
 - The Suggested view carries roughly three quarters of selections. About
   half of those come from recents.
-- Position matters: ~52% of picks are row 0, ~85% are in the top three.
+- Position matters: ~52% of legacy picks are row 0, ~85% are in the top
+  three.
 - The biggest failure is a category picked first, then a search that finds
   nothing. Most empty searches are the right word in the wrong tab.
 - Customers report broken UI and missing items far more than slowness.

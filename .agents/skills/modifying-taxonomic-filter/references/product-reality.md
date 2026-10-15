@@ -19,7 +19,9 @@ older than about three months.
 - The previous figure (~34%, May 2026) came from before close telemetry
   was complete. Don't compare the two numbers as a trend.
 - **Position is everything.** Row 0 takes ~52% of picks, row 1 ~23%,
-  row 2 ~10%. About 85% of picks are in the top three rows.
+  row 2 ~10%. About 85% of picks are in the top three rows. These are
+  legacy figures: the rebuild's `all` scope counts recents and pinned
+  rows in its positions, so its numbers do not compare.
 - **~95% of engaged opens never select a category** (7-day sample, legacy
   picker, sessions split at each `taxonomic filter closed`).
 - **Suggested carries about three quarters of selections.** Roughly half of

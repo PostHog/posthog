@@ -289,6 +289,10 @@ banner shown, then switched. Write back the step ratios.
   person, session and suggestion list is too low: two queries with the
   same list count once. The query returns both, and the true rate lies
   between them.
+- The backend sends `event match answered` for every call, even when the
+  model never answered. The query leaves out `outcome` values
+  `unavailable`, `wrong_length` and `only_values`, so the base is real
+  model answers.
 - Selections have no exposure ID to pair with a suggestion, so the
   selection step compares person-sessions on both sides.
 - Every experiment arm sends `search intent predicted`, but only the
@@ -299,9 +303,11 @@ banner shown, then switched. Write back the step ratios.
 ```sql
 SELECT
   round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
-    / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_low_pct,
+    / countIf(event = 'taxonomic filter event match answered'
+              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_low_pct,
   round(100 * countIf(event = 'taxonomic filter event match suggested')
-    / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_high_pct,
+    / countIf(event = 'taxonomic filter event match answered'
+              AND toString(properties.outcome) NOT IN ('unavailable', 'wrong_length', 'only_values')), 1) AS match_suggested_per_answer_high_pct,
   round(100 * uniqIf((person_id, $session_id), event = 'taxonomic filter event match selected')
     / uniqIf((person_id, $session_id), event = 'taxonomic filter event match suggested'), 1) AS sessions_selecting_per_session_suggested_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
