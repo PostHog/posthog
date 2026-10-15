@@ -88,19 +88,29 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         ).toEqual([other.person_id])
     })
 
-    it('starts the run on redelivery when queueing the masked run failed', async () => {
+    it('on redelivery after a partly failed queue, starts only the runs that were not queued', async () => {
+        hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = 1
         const flow = cohortFlow(42, 'entered')
         flow.trigger_masking = HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking
         await insertHogFlow(hub.postgres, flow)
-        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
-        mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+        const queuedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const failedChange = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const messages = [createKafkaMessage(queuedChange), createKafkaMessage(failedChange)]
+        mockQueueInvocations.mockImplementation((batch: CyclotronJobInvocationHogFlow[]) =>
+            batch[0].state.personId === failedChange.person_id
+                ? Promise.reject(new Error('queue unavailable'))
+                : Promise.resolve()
+        )
 
-        const failed = await processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(change)]))
+        const failed = await processor.processBatch(await processor._parseKafkaBatch(messages))
         await expect(failed.backgroundTask).rejects.toThrow('queue unavailable')
-        const redelivered = await processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(change)]))
+        mockQueueInvocations.mockResolvedValue(undefined)
+        const redelivered = await processor.processBatch(await processor._parseKafkaBatch(messages))
         await redelivered.backgroundTask
 
-        expect(redelivered.invocations).toHaveLength(1)
+        expect(
+            redelivered.invocations.map((invocation) => (invocation as CyclotronJobInvocationHogFlow).state.personId)
+        ).toEqual([failedChange.person_id])
     })
 
     it('fails the batch when loading workflows fails, so the change is retried', async () => {

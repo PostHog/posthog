@@ -92,7 +92,10 @@ export class HogFlowInvocationPipeline {
             // touching the executor.
             eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean
         }
-    ): Promise<{ invocations: CyclotronJobInvocation[]; release: () => Promise<void> }> {
+    ): Promise<{
+        invocations: CyclotronJobInvocation[]
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
+    }> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
         const eligibilityFn = options?.eligibilityFn

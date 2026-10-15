@@ -1,3 +1,4 @@
+import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -49,10 +50,12 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     protected hogflowQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowPipeline: HogFlowInvocationPipeline
+    private queueConfig: Pick<PluginsServerConfig, 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'>
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: { hogflowQueue: JobQueue }) {
         super(config, deps)
         this.hogflowQueue = jobQueues.hogflowQueue
+        this.queueConfig = config
         // A fresh group starts at the tip. Replaying the retained topic would start runs for old changes.
         this.kafkaConsumer = createKafkaConsumer(
             { groupId: 'cdp-cohort-membership-trigger-consumer', topic: KAFKA_COHORT_MEMBERSHIP_CHANGED },
@@ -91,13 +94,25 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
                 instrumentFn(
                     { key: 'cdp.background_task.queue_hogflow_invocations', sendException: false },
                     async () => {
+                        // One insert per chunk, so a failure leaves a known set of runs queued.
+                        const queued: CyclotronJobInvocation[] = []
                         try {
-                            await this.hogflowQueue.queueInvocations(invocations)
+                            for (const batch of chunk(
+                                invocations,
+                                this.queueConfig.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
+                            )) {
+                                await this.hogflowQueue.queueInvocations(batch)
+                                queued.push(...batch)
+                            }
                         } catch (err) {
-                            // The batch is retried, and the retry would find these runs masked by their own claims.
-                            await release()
+                            // The batch is retried. Runs that never reached the queue release their claims, or the
+                            // retry finds them masked. Queued runs keep theirs, so their people do not run twice.
+                            await release(queued)
+                            const queuedIds = new Set(queued.map((invocation) => invocation.id))
                             this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
-                                invocations.map((invocation) => invocation.id)
+                                invocations
+                                    .filter((invocation) => !queuedIds.has(invocation.id))
+                                    .map((invocation) => invocation.id)
                             )
                             throw err
                         }
