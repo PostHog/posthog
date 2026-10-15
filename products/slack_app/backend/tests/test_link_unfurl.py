@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -86,6 +87,14 @@ class TestParsePosthogResourceLink:
             ("flag", "https://us.posthog.com/project/42/feature_flags/412", "flag", "412"),
             ("inbox_report", f"https://us.posthog.com/project/42/inbox/reports/{_TASK_ID}", "report", _TASK_ID),
             ("insight_new", "https://x.com/project/1/insights/new", None, None),
+            (
+                "adhoc_insight",
+                "https://x.com/project/1/insights/new#q=%7B%22kind%22%3A%22InsightVizNode%22%7D",
+                "adhoc_insight",
+                "new",
+            ),
+            ("adhoc_broken_query", "https://x.com/project/1/insights/new#q=%7Bnot-json", None, None),
+            ("adhoc_query_not_an_object", "https://x.com/project/1/insights/new#q=%5B1%5D", None, None),
             ("ticket_new", "https://x.com/support/tickets/new", None, None),
             ("flag_by_key", "https://us.posthog.com/project/42/feature_flags/my-flag", None, None),
             ("replay", "https://us.posthog.com/project/42/replay/0192f0a0", None, None),
@@ -314,6 +323,81 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert (
             inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
         )
+
+    @parameterized.expand([("query_access", True), ("no_query_access", False)])
+    @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
+    @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
+    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_adhoc_insight_link_posts_no_card_and_queues_its_chart(
+        self,
+        _name: str,
+        query_access: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        _mock_flag: MagicMock,
+        mock_sync_connect: MagicMock,
+        mock_delay: MagicMock,
+    ) -> None:
+        mock_delay.side_effect = lambda **kwargs: start_slack_unfurl_charts(**json.loads(json.dumps(kwargs)))
+        if not query_access:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(resource="query", team=self.team, access_level="none")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_sync_connect.return_value.start_workflow = AsyncMock()
+        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
+        url = f"http://testserver/project/{self.team.pk}/insights/new#q={quote(json.dumps(query))}"
+
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
+            self.integration,
+        )
+
+        mock_slack_integration_class.return_value.client.chat_unfurl.assert_not_called()
+        start_workflow = mock_sync_connect.return_value.start_workflow
+        if not query_access:
+            start_workflow.assert_not_called()
+            return
+        inputs = start_workflow.call_args.args[1]
+        assert [chart.query for chart in inputs.charts] == [query]
+        blocks = inputs.unfurls[url]["blocks"]
+        assert "Unsaved insight" in blocks[0]["text"]["text"]
+        assert "Trends insight" in blocks[1]["elements"][0]["text"]
+
+    @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
+    @patch("products.slack_app.backend.slack_link_unfurl.sync_connect")
+    @patch("products.slack_app.backend.slack_link_unfurl.is_slack_app_insight_unfurl_charts_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_adhoc_link_beside_another_link_is_not_unfurled(
+        self,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        _mock_flag: MagicMock,
+        mock_sync_connect: MagicMock,
+        mock_delay: MagicMock,
+    ) -> None:
+        mock_delay.side_effect = lambda **kwargs: start_slack_unfurl_charts(**json.loads(json.dumps(kwargs)))
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_sync_connect.return_value.start_workflow = AsyncMock()
+        base = f"http://testserver/project/{self.team.pk}"
+        saved = f"{base}/insights/{self.insight.short_id}"
+        adhoc = (
+            f"{base}/insights/new#q={quote(json.dumps({'kind': 'InsightVizNode', 'source': {'kind': 'TrendsQuery'}}))}"
+        )
+
+        handle_posthog_link_unfurl(
+            {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": saved}, {"url": adhoc}]},
+            self.integration,
+        )
+
+        assert list(mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]) == [saved]
+        inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert [chart.url for chart in inputs.charts] == [saved]
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

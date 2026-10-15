@@ -902,10 +902,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
@@ -989,10 +986,7 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
@@ -1038,10 +1032,7 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,

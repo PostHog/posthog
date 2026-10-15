@@ -12,6 +12,8 @@ from temporalio import activity
 
 from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
 
+from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
+
 logger = structlog.get_logger(__name__)
 
 # Long enough to recognise the thread, short enough to stay one line in a DM.
@@ -150,7 +152,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     # of a Slack Connect channel and past the approval gate that keeps customer-facing
     # writes gated. Refuse rather than fork-and-discover-later, and carry the flag
     # onto the run so the destination inherits the source's posture.
-    is_ext_shared = _source_channel_is_ext_shared(slack, source_channel)
+    is_ext_shared = channel_is_ext_shared(slack, source_channel)
     if is_ext_shared and not _channel_is_approved(slack_team_id, source_channel):
         logger.info("slack_app_fork_refused", reason="ext_shared_unapproved", slack_team_id=slack_team_id)
         _ephemeral(
@@ -262,23 +264,6 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
         is_ext_shared_channel=is_ext_shared,
         has_source_task=bool(source_task_id),
     )
-
-
-def _source_channel_is_ext_shared(slack: Any, channel: str) -> bool:
-    """Whether the forked channel is a Slack Connect channel.
-
-    Unlike events, interactivity payloads carry no ``is_ext_shared_channel`` on the
-    envelope, so this costs a ``conversations.info`` round trip. Fails closed: an
-    unreadable channel is treated as externally shared, which at worst asks the user
-    to approve a channel that did not need it.
-    """
-    try:
-        info = slack.client.conversations_info(channel=channel)
-        conversation = info.get("channel", {}) or {}
-        return bool(conversation.get("is_ext_shared") or conversation.get("is_pending_ext_shared"))
-    except Exception:
-        logger.warning("slack_app_fork_channel_info_failed", channel=channel)
-        return True
 
 
 def _read_thread_root(slack: Any, channel: str, thread_ts: str) -> dict[str, Any] | None:

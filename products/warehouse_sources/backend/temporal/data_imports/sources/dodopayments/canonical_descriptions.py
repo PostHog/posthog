@@ -364,4 +364,65 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the credit entitlement was last modified.",
         },
     },
+    "payment_line_items": {
+        "description": "Line items of each payment: the products and metered charges the payment was collected for.",
+        "docs_url": f"{_DOCS_ROOT}/payments/retrieve-line-items",
+        "columns": {
+            "payment_id": "Payment the line item belongs to.",
+            "payment_created_at": "Timestamp when the parent payment was created, in UTC.",
+            "currency": "Currency of the parent payment, as an ISO 4217 code.",
+            "items_id": "Identifier of the item the line was charged for.",
+            "name": "Name of the item.",
+            "description": "Description of the item.",
+            "amount": "Amount charged for the item, in the smallest currency unit.",
+            "tax": "Tax charged on the item, in the smallest currency unit.",
+            "refundable_amount": "Part of the amount that can still be refunded, in the smallest currency unit.",
+        },
+    },
+    "subscription_usage_history": {
+        "description": "Metered usage of each usage-based subscription, one row per billing period.",
+        "docs_url": f"{_DOCS_ROOT}/subscriptions/get-usage-history",
+        "columns": {
+            "subscription_id": "Subscription the usage belongs to.",
+            "start_date": "Start date of the billing period.",
+            "end_date": "End date of the billing period.",
+            "meters": (
+                "Usage of each meter in the billing period: meter id and name, consumed units, free "
+                "threshold, chargeable units, price per unit, currency and total price."
+            ),
+        },
+    },
+    "payout_breakup_details": {
+        "description": (
+            "Balance ledger entries settled in each payout, converted into the payout currency at the "
+            "rate the payout settled at."
+        ),
+        "docs_url": f"{_DOCS_ROOT}/payouts/list-breakup-details",
+        "columns": {
+            "payout_id": "Payout the entry was settled in.",
+            "id": "Unique identifier of the balance ledger entry.",
+            "created_at": "Timestamp when the entry was created.",
+            "event_type": "Type of balance ledger event, for example payment, refund, dispute or payment_fees.",
+            "description": "Human-readable description of the transaction.",
+            "reference_object_id": "ID of the related object, for example a payment or refund ID.",
+            "original_amount": "Amount in the original currency, in that currency's smallest unit.",
+            "original_currency": "Original currency, as an ISO 4217 code.",
+            "payout_currency_amount": "Amount converted into the payout currency, in its smallest unit.",
+            "usd_equivalent_amount": "USD equivalent of the original amount, in cents.",
+        },
+    },
+    "credit_entitlement_balances": {
+        "description": "Credit balance of each customer for each credit entitlement.",
+        "docs_url": f"{_DOCS_ROOT}/credit-entitlements/list-balances",
+        "columns": {
+            "id": "Unique identifier of the balance.",
+            "credit_entitlement_id": "Credit entitlement the balance is for.",
+            "customer_id": "Customer the balance belongs to.",
+            "balance": "Remaining credit balance.",
+            "overage": "Credits consumed beyond the balance.",
+            "created_at": "Timestamp when the balance was created.",
+            "updated_at": "Timestamp when the balance was last modified.",
+            "last_transaction_at": "Timestamp of the last credit transaction on the balance.",
+        },
+    },
 }
