@@ -764,10 +764,13 @@ describe('infiniteListLogic', () => {
             })
         })
 
-        it('marks a 403 as forbidden so the list does not offer a retry that cannot succeed', async () => {
+        it.each([
+            { code: 'permission_denied', forbidden: true },
+            { code: 'feature_flag_required', forbidden: false },
+        ])('marks a 403 with code $code as forbidden: $forbidden', async ({ code, forbidden }) => {
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags': () => [403, { detail: 'permission denied' }],
+                    '/api/projects/:team/feature_flags': () => [403, { detail: 'denied', code }],
                 },
             })
             initKeaTests()
@@ -786,14 +789,14 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: true,
-                    remoteFetchForbidden: true,
+                    remoteFetchForbidden: forbidden,
                 })
 
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.FeatureFlags,
-                forbidden: true,
+                forbidden,
             })
         })
 

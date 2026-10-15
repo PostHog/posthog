@@ -17,6 +17,7 @@ import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import {
     hasRecentContext,
@@ -999,7 +1000,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         if (!isBreakpoint(error) && !aborted) {
                             // Carry the query that was in flight when this run errored so the
                             // reducer can attribute the failure to the right query string.
-                            actions.remoteItemsFetchFailedForQuery(searchQuery, error?.status === 403)
+                            actions.remoteItemsFetchFailedForQuery(searchQuery, isAccessDeniedError(error))
                         }
                         throw error
                     } finally {
@@ -1147,7 +1148,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
-        // A 403 means the user lacks permission for this list, so a retry can never succeed.
+        // A permission_denied 403 means the user lacks access to this list, so a retry can never succeed.
+        // Other 403s, such as feature_flag_required, can clear on their own, so they keep the retry.
         remoteFetchForbidden: [
             false,
             {

@@ -740,7 +740,10 @@ export const ForbiddenFetchExplainsAccess: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/feature_flags': () => [403, { detail: 'permission denied' }],
+                '/api/projects/:team_id/feature_flags': () => [
+                    403,
+                    { detail: 'permission denied', code: 'permission_denied' },
+                ],
             },
         }),
     ],
