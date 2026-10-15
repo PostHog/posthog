@@ -5,7 +5,6 @@ import { LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog
 
 import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import { WorkflowSuggestionCard } from '../suggestions/WorkflowSuggestionCard'
-import { WorkflowSuggestionRow } from '../suggestions/WorkflowSuggestionRow'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 export function WizardSuggestionsStep({ fallback }: { fallback: JSX.Element }): JSX.Element {
@@ -34,18 +33,21 @@ export function WizardSuggestionsStep({ fallback }: { fallback: JSX.Element }): 
             {generating ? (
                 <>
                     <LemonSkeleton className="h-44 rounded" />
-                    <LemonSkeleton className="h-12 rounded" />
-                    <LemonSkeleton className="h-12 rounded" />
+                    <div className="grid grid-cols-2 gap-4">
+                        <LemonSkeleton className="h-44 rounded" />
+                        <LemonSkeleton className="h-44 rounded" />
+                    </div>
                 </>
             ) : (
                 <>
                     <WorkflowSuggestionCard card={top} surface="onboarding_wizard" primary />
                     {rest.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                            <span className="text-xs font-semibold text-secondary">More from your data</span>
-                            {rest.map((card) => (
-                                <WorkflowSuggestionRow key={card.key} card={card} surface="onboarding_wizard" />
-                            ))}
+                        <div className="@container">
+                            <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
+                                {rest.map((card) => (
+                                    <WorkflowSuggestionCard key={card.key} card={card} surface="onboarding_wizard" />
+                                ))}
+                            </div>
                         </div>
                     )}
                 </>
