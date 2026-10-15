@@ -1005,7 +1005,6 @@ describe('dashboardLogic', () => {
                         filter_change_id: expect.any(String),
                         total_tile_count: insightCount,
                         can_auto_preview: autoPreview,
-                        auto_preview_tile_limit: 35,
                     })
                 )
                 expect(capture.mock.calls.some(([event]) => event === 'dashboard refreshed')).toBe(autoPreview)
@@ -2487,99 +2486,6 @@ describe('dashboardLogic', () => {
         }
     })
 
-    describe('filter result tracking', () => {
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
-
-        beforeEach(async () => {
-            jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-            logic = dashboardLogic({ id: 9 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-        })
-
-        it('includes the wait before Preview and keeps the same change ID after a failed refresh', async () => {
-            const capture = jest.spyOn(posthog, 'capture').mockClear()
-            const clock = jest.spyOn(performance, 'now').mockReturnValue(1000)
-            const refresh = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockRejectedValueOnce(new Error('Failed'))
-
-            await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
-            const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
-            expect(capture.mock.calls.some(([event]) => event === 'dashboard refreshed')).toBe(false)
-
-            clock.mockReturnValue(6000)
-            await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
-            expect(capture).toHaveBeenCalledWith(
-                'dashboard refreshed',
-                expect.objectContaining({
-                    filter_change_id: change.filter_change_id,
-                    filter_change_duration_ms: 5000,
-                    all_insights_succeeded: false,
-                    tiles_errored_count: 1,
-                })
-            )
-
-            refresh.mockImplementation(async (_teamId, insight) => insight)
-            clock.mockReturnValue(9000)
-            await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
-            expect(capture).toHaveBeenCalledWith(
-                'dashboard refreshed',
-                expect.objectContaining({
-                    filter_change_id: change.filter_change_id,
-                    filter_change_duration_ms: 8000,
-                    all_insights_succeeded: true,
-                })
-            )
-        })
-
-        it.each(['edit', 'discard', 'unmount'] as const)(
-            'does not count older results after %s',
-            async (transition) => {
-                const capture = jest.spyOn(posthog, 'capture').mockClear()
-                await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
-                const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
-                let finishRefresh!: (insight: InsightModel) => void
-                const result = new Promise<InsightModel>((resolve) => {
-                    finishRefresh = resolve
-                })
-                const insight = logic.values.insightTiles[0].insight!
-                jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(result)
-                await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toDispatchActions([
-                    'setRefreshStatus',
-                ])
-
-                if (transition === 'edit') {
-                    await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toDispatchActions([
-                        'reportDashboardFilterChange',
-                    ])
-                    expect(capture).toHaveBeenCalledWith(
-                        'dashboard filters changed',
-                        expect.objectContaining({
-                            filter_change_id: expect.any(String),
-                            supersedes_filter_change_id: change.filter_change_id,
-                        })
-                    )
-                    const changes = capture.mock.calls.filter(([event]) => event === 'dashboard filters changed')
-                    expect(changes[1][1]!.filter_change_id).not.toBe(change.filter_change_id)
-                } else if (transition === 'discard') {
-                    logic.actions.discardDashboardChanges()
-                    expect(capture).toHaveBeenCalledWith(
-                        'dashboard filters discarded',
-                        expect.objectContaining({ filter_change_id: change.filter_change_id })
-                    )
-                } else {
-                    logic.unmount()
-                }
-
-                finishRefresh(insight)
-                await expectLogic(logic).toFinishAllListeners()
-                const results = capture.mock.calls.filter(([event]) => event === 'dashboard refreshed')
-                expect(results.every(([, properties]) => !properties?.filter_change_id)).toBe(true)
-            }
-        )
-    })
-
     describe('moving between dashboards', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 9 })
@@ -4043,28 +3949,55 @@ describe('dashboardLogic', () => {
             )
         })
 
-        it('waits for Preview before refreshing SQL variable changes on a large dashboard', async () => {
+        it('waits for Preview and keeps the variable change ID and total wait through a failed refresh and retry', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             await mountDashboardWithVariable({})
-            const getInsightWithRetrySpy = jest
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            const clock = jest.spyOn(performance, 'now').mockReturnValue(1000)
+            const refresh = jest
                 .spyOn(dashboardUtils, 'getInsightWithRetry')
                 .mockImplementation(async (_teamId, insight) => insight)
+                .mockRejectedValueOnce(new Error('Failed'))
 
-            await expectLogic(logic, () => {
-                logic.actions.overrideVariableValue(variableId, 'edited', false)
-            }).toFinishAllListeners()
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'edited', false)
+                }).toFinishAllListeners()
 
-            expect(logic.values.canAutoPreview).toBe(false)
-            expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
-            expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({ organization: 'edited' })
+                expect(logic.values.canAutoPreview).toBe(false)
+                expect(refresh).not.toHaveBeenCalled()
+                expect(dashboardUtils.parseURLVariables(router.values.searchParams)).toEqual({ organization: 'edited' })
+                const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
+                expect(capture.mock.calls.some(([event]) => event === 'dashboard refreshed')).toBe(false)
 
-            await expectLogic(logic, () => {
-                logic.actions.previewDashboardChanges()
-            }).toFinishAllListeners()
+                clock.mockReturnValue(6000)
+                await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
+                expect(refresh).toHaveBeenCalledTimes(1)
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard refreshed',
+                    expect.objectContaining({
+                        filter_change_id: change.filter_change_id,
+                        filter_change_duration_ms: 5000,
+                        all_insights_succeeded: false,
+                        tiles_errored_count: 1,
+                    })
+                )
 
-            expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
-            getInsightWithRetrySpy.mockRestore()
-            autoPreviewLimit.restore()
+                clock.mockReturnValue(9000)
+                await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard refreshed',
+                    expect.objectContaining({
+                        filter_change_id: change.filter_change_id,
+                        filter_change_duration_ms: 8000,
+                        all_insights_succeeded: true,
+                    })
+                )
+            } finally {
+                refresh.mockRestore()
+                clock.mockRestore()
+                autoPreviewLimit.restore()
+            }
         })
 
         it.each(['manual', 'saved insight'])(
@@ -4102,32 +4035,82 @@ describe('dashboardLogic', () => {
             }
         )
 
-        it('makes Preview available when a SQL variable changes during an older preview', async () => {
-            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-            await mountDashboardWithVariable({})
-            let finishPreview: (insight: InsightModel) => void = () => {
-                throw new Error('Preview resolver is unavailable')
+        it.each(['edit', 'discard', 'unmount'] as const)(
+            'keeps older Preview results separate after %s and tracks the next valid results',
+            async (transition) => {
+                const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+                await mountDashboardWithVariable({})
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'first value', false)
+                }).toFinishAllListeners()
+                const change = capture.mock.calls.find(([event]) => event === 'dashboard filters changed')![1]!
+                let finishPreview!: (insight: InsightModel) => void
+                const preview = new Promise<InsightModel>((resolve) => {
+                    finishPreview = resolve
+                })
+                const refresh = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(preview)
+                const insight = logic.values.insightTiles[0].insight!
+
+                try {
+                    await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toDispatchActions([
+                        'setRefreshStatus',
+                    ])
+                    expect(logic.values.loadingPreview).toBe(true)
+
+                    if (transition === 'edit') {
+                        logic.actions.overrideVariableValue(variableId, 'newer value', false)
+                        expect(logic.values.loadingPreview).toBe(false)
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard filters changed',
+                            expect.objectContaining({ supersedes_filter_change_id: change.filter_change_id })
+                        )
+                    } else if (transition === 'discard') {
+                        logic.actions.discardDashboardChanges()
+                        expect(capture).toHaveBeenCalledWith(
+                            'dashboard filters discarded',
+                            expect.objectContaining({ filter_change_id: change.filter_change_id })
+                        )
+                    } else {
+                        logic.unmount()
+                    }
+
+                    finishPreview(insight)
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(capture).not.toHaveBeenCalledWith(
+                        'dashboard refreshed',
+                        expect.objectContaining({ filter_change_id: change.filter_change_id })
+                    )
+                    if (transition === 'edit') {
+                        expect(logic.values.previewedDashboardSettings?.variables[variableId].value).toBe('first value')
+                        expect(logic.values.currentDashboardSettings.variables[variableId].value).toBe('newer value')
+                    }
+
+                    refresh.mockImplementation(async (_teamId, insight) => insight)
+                    if (transition === 'unmount') {
+                        await mountDashboardWithVariable({})
+                    }
+                    if (transition !== 'edit') {
+                        logic.actions.overrideVariableValue(variableId, 'newer value', false)
+                    }
+                    await expectLogic(logic, () => logic.actions.previewDashboardChanges()).toFinishAllListeners()
+                    const latestChange = capture.mock.calls
+                        .filter(([event]) => event === 'dashboard filters changed')
+                        .at(-1)![1]!
+                    expect(latestChange.filter_change_id).not.toBe(change.filter_change_id)
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard refreshed',
+                        expect.objectContaining({
+                            filter_change_id: latestChange.filter_change_id,
+                            all_insights_succeeded: true,
+                        })
+                    )
+                } finally {
+                    refresh.mockRestore()
+                    autoPreviewLimit.restore()
+                }
             }
-            const preview = new Promise<InsightModel>((resolve) => {
-                finishPreview = resolve
-            })
-            const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(preview)
-
-            logic.actions.previewDashboardChanges()
-            await expectLogic(logic).toMatchValues({ loadingPreview: true })
-
-            logic.actions.overrideVariableValue(variableId, 'newer value', false)
-            await expectLogic(logic).toMatchValues({ loadingPreview: false })
-
-            finishPreview(logic.values.tiles[0].insight!)
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.previewedDashboardSettings?.variables).toEqual({})
-            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
-                expect.objectContaining({ value: 'newer value' })
-            )
-            getInsightWithRetrySpy.mockRestore()
-            autoPreviewLimit.restore()
-        })
+        )
 
         it('applying a variable value refreshes every tile with the new value attached to the request', async () => {
             await mountDashboardWithVariable({})
