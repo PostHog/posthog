@@ -9,9 +9,8 @@ def fetch_scored_sessions_page_sql(replay_events_table: str = SESSION_REPLAY_EVE
     %(day_start)s ('YYYY-MM-DD 00:00:00', UTC), %(cursor_session_id)s,
     %(cursor_team_id)s, %(page_size)s.
 
-    The opted-in-team filter runs in Python on each page, not here: inlining
-    the opted-in id list (twice) blew past ClickHouse's 1 MiB max_query_size
-    once enough teams opted in.
+    There is deliberately no opted-in-team filter: scores carry no session
+    content, and rows from teams the mirror does not cover join to nothing.
 
     The cursor predicate and ORDER BY use the same (session_id, team_id) tuple,
     so pages tile the partition exactly; a page shorter than page_size means

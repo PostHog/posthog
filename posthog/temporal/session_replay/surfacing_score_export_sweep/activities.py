@@ -1,8 +1,7 @@
-"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → filter → Parquet → S3 put.
+"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → Parquet → S3 put.
 
-Rows carry raw team and session ids, as the ML mirror's metadata does, so they join onto
-`block-metadata`. Only teams whose organization opted into AI training are exported, the same
-gate the mirror applies, so no other team's ids or scores reach the ML bucket.
+Every scored session is exported with raw team and session ids, as the ML mirror's metadata
+carries them, so rows join onto `block-metadata` wherever the mirror wrote the session.
 Object keys are deterministic, so retries and the re-export window overwrite;
 an empty partition still writes an empty object so deleted sessions drop out
 rather than going stale.
@@ -23,7 +22,6 @@ from botocore.client import Config
 from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
@@ -120,16 +118,9 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
     )
 
 
-def ai_training_opted_in_team_ids() -> frozenset[int]:
-    """Only `True` is consent: the column is nullable, and null reads as opted out everywhere."""
-    return frozenset(Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True))
-
-
-def _page_table(rows: list[_ScoredRow], opted_in_team_ids: frozenset[int]) -> pa.Table:
+def _page_table(rows: list[_ScoredRow]) -> pa.Table:
     records: list[dict[str, Any]] = []
     for team_id, session_id, started_at, score in rows:
-        if team_id not in opted_in_team_ids:
-            continue
         if started_at.tzinfo is None:
             started_at = started_at.replace(tzinfo=UTC)
         records.append(
@@ -160,8 +151,6 @@ def _upload(key: str, body: bytes) -> None:
 
 @activity.defn
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
-    opted_in_team_ids = await sync_to_async(ai_training_opted_in_team_ids, thread_sensitive=False)()
-
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
     sink = io.BytesIO()
@@ -172,7 +161,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         while True:
             rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
             if rows:
-                table = await sync_to_async(_page_table, thread_sensitive=False)(rows, opted_in_team_ids)
+                table = await sync_to_async(_page_table, thread_sensitive=False)(rows)
                 await sync_to_async(writer.write_table, thread_sensitive=False)(table)
                 rows_total += table.num_rows
                 cursor = (rows[-1][1], rows[-1][0])

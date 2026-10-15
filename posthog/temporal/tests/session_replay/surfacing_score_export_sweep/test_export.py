@@ -3,15 +3,11 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from django.test import TestCase
-
 import pyarrow.parquet as pq
 
-from posthog.models import Organization, Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep.activities import (
     _PARQUET_SCHEMA,
     _page_table,
-    ai_training_opted_in_team_ids,
     export_days,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
@@ -36,47 +32,30 @@ class TestExportDays:
         assert export_days(EXPORT_FLOOR_DAY) == []
 
 
-def _write_pages(pages: list[list[tuple[int, str, datetime, float]]], opted_in: frozenset[int]) -> bytes:
+def _write_pages(pages: list[list[tuple[int, str, datetime, float]]]) -> bytes:
     sink = io.BytesIO()
     writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
     for page in pages:
-        writer.write_table(_page_table(page, opted_in))
+        writer.write_table(_page_table(page))
     writer.close()
     return sink.getvalue()
 
 
 class TestPartitionParquet:
-    def test_exports_raw_ids_of_opted_in_teams_only_across_pages(self) -> None:
+    def test_exports_raw_ids_and_round_trips_across_pages(self) -> None:
         started_at = datetime(2026, 10, 14, 12, 30, tzinfo=UTC)
         session_id = "019a1f2e-13d0-7c07-a301-d2e19a7c2a55"
-        opted_out_session_id = "019a1f2e-13d0-7c07-a301-d2e19a7c2a56"
-        body = _write_pages(
-            [[(42, session_id, started_at, 0.75)], [(43, opted_out_session_id, started_at, 0.25)]],
-            frozenset({42}),
-        )
+        body = _write_pages([[(42, session_id, started_at, 0.75)], [(43, "another-session", started_at, 0.25)]])
 
         table = pq.read_table(io.BytesIO(body))
-        assert table.to_pylist() == [
-            {
-                "session_id": session_id,
-                "team_id": "42",
-                "started_at": started_at,
-                "surfacing_score": pytest.approx(0.75),
-            }
-        ]
-        assert opted_out_session_id not in body.decode("latin-1")
+        assert table.num_rows == 2
+        row = table.to_pylist()[0]
+        assert row["session_id"] == session_id
+        assert row["team_id"] == "42"
+        assert row["started_at"] == started_at
+        assert row["surfacing_score"] == pytest.approx(0.75)
 
     def test_no_pages_still_writes_a_readable_object_with_the_schema(self) -> None:
-        table = pq.read_table(io.BytesIO(_write_pages([], frozenset())))
+        table = pq.read_table(io.BytesIO(_write_pages([])))
         assert table.num_rows == 0
         assert table.schema.names == ["session_id", "team_id", "started_at", "surfacing_score"]
-
-
-class TestOptedInTeams(TestCase):
-    def test_only_an_explicit_opt_in_counts(self) -> None:
-        teams = {}
-        for consent in (True, False, None):
-            organization = Organization.objects.create(name=f"org {consent}", is_ai_training_opted_in=consent)
-            teams[consent] = Team.objects.create(organization=organization, name=f"team {consent}")
-
-        assert ai_training_opted_in_team_ids() == frozenset({teams[True].id})
