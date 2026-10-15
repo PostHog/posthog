@@ -1091,7 +1091,7 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
 
         assert grouped([], limit=2) == [self.SERVICE_B, self.SERVICE_A]
         # The quieter group still comes back when it is open, ahead of a worse one the limit cuts.
-        assert grouped([{"service_name": self.SERVICE_A}], limit=1) == [self.SERVICE_A]
+        assert grouped([{"service_name": self.SERVICE_A}], limit=1) == [self.SERVICE_A, self.SERVICE_B]
 
     @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_a_limit_keeps_the_groups_that_breach_n_of_m_over_a_worse_latest_period(self):
@@ -1113,15 +1113,17 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
             worst_is_highest=True,
             threshold_count=5,
             datapoints_to_alarm=2,
-            limit=2,
+            limit=1,
             max_execution_time=30,
             ch_user=ClickHouseUser.DEFAULT,
         ).execute_rolling_checks(nca=nca, window_minutes=5, cadence_minutes=5, period_count=3)
 
+        # The row past the limit is the worst group cut.
         assert [(g.labels["service_name"], [c.count for c in g.counts]) for g in result.groups] == [
             (steady, [10, 10, 10]),
             (spike, [0, 0, 100]),
         ]
+        assert result.truncated
 
     @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_single_alert_cohort_matches_per_alert_path(self):

@@ -36,6 +36,23 @@ def _transition(
     )
 
 
+def _facets(services: list[str], levels: list[str]) -> dict[str, Any]:
+    route = {"key": "http.route", "type": "log_attribute", "operator": "exact", "value": ["/checkout"]}
+    return {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "service_name", "type": "log", "operator": "exact", "value": services},
+                    {"key": "severity_level", "type": "log", "operator": "exact", "value": levels},
+                    route,
+                ],
+            }
+        ],
+    }
+
+
 class TestLogsPlatformAlertWording(SimpleTestCase):
     @parameterized.expand(
         [
@@ -106,7 +123,11 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         service_names: list[str],
         severity_levels: list[str],
     ) -> None:
-        filters = {"serviceNames": ["api", "worker"], "severityLevels": ["error", "warn"]}
+        filters = {
+            "serviceNames": ["api", "worker"],
+            "severityLevels": ["error", "warn"],
+            "filterGroup": _facets(["api", "worker"], ["error", "warn"]),
+        }
         transition = replace(_transition(filters=filters), labels=labels)
 
         description = describe_logs_transition(project_id=7, transition=transition)
@@ -122,6 +143,8 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         assert url.path == "/project/7/logs"
         assert json.loads(params["serviceNames"][0]) == service_names
         assert json.loads(params["severityLevels"][0]) == severity_levels
+        # The logs scene reads a column's selection from `filterGroup` when the group holds one.
+        assert json.loads(params["filterGroup"][0]) == _facets(service_names, severity_levels)
         assert json.loads(params["dateRange"][0]) == {
             "date_from": "2026-10-08T17:55:00+00:00",
             "date_to": "2026-10-08T18:05:00+00:00",

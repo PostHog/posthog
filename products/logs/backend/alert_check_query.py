@@ -1,6 +1,5 @@
 import time
 import datetime as dt
-import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -29,6 +28,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
+from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
 
@@ -598,11 +598,6 @@ class BatchedAlertCheckQuery:
         )
 
 
-# The columns a grouped logs alert may split on. Both are low-cardinality columns of the logs table,
-# and `service_name` leads its primary key, so grouping on them stays cheap.
-GROUPABLE_LOGS_COLUMNS: frozenset[str] = frozenset({"service_name", "severity_text"})
-
-
 @dataclass(frozen=True)
 class GroupCounts:
     labels: dict[str, str]
@@ -611,9 +606,11 @@ class GroupCounts:
 
 @dataclass(frozen=True)
 class GroupedRollingResult:
+    # When `truncated`, the last group is the row past the query's limit: the worst group it cut.
     groups: list[GroupCounts]
     period_starts: list[dt.datetime]
     query_duration_ms: int
+    truncated: bool
 
     def zero_counts(self) -> list[BucketedCount]:
         """The counts of a group with no matching log in any period, which returns no row."""
@@ -628,7 +625,8 @@ class GroupedAlertCheckQuery:
 
     Rows come back with the open groups first, then the groups that breach `datapoints_to_alarm`
     of the periods, then worst first, and `limit` cuts the rest. An open group has to come back
-    whatever its count, or a check could not resolve it.
+    whatever its count, or a check could not resolve it. The query reads one row past `limit` and
+    keeps it, so a caller can tell a cut result from one that fits and judge the worst group cut.
     """
 
     def __init__(
@@ -649,7 +647,7 @@ class GroupedAlertCheckQuery:
     ) -> None:
         if alert.team_id != team.id:
             raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
-        unknown = set(group_by) - GROUPABLE_LOGS_COLUMNS
+        unknown = set(group_by) - GROUP_COLUMNS.keys()
         if not group_by or unknown:
             raise ValueError(f"A logs alert cannot group by {sorted(unknown) or 'nothing'}")
         self.team = team
@@ -684,29 +682,30 @@ class GroupedAlertCheckQuery:
             for row in response.results
         ]
         return GroupedRollingResult(
-            groups=groups, period_starts=[start for start, _ in ranges], query_duration_ms=duration_ms
+            groups=groups,
+            period_starts=[start for start, _ in ranges],
+            query_duration_ms=duration_ms,
+            truncated=len(groups) > self.limit,
         )
 
     def _build_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
         columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in self.group_by]
         periods = _period_count_columns(ranges)
         breach_op = ast.CompareOperationOp.Gt if self.worst_is_highest else ast.CompareOperationOp.Lt
-        breaches: list[ast.Expr] = [
-            ast.Call(
-                name="toInt",
-                args=[
-                    ast.CompareOperation(
-                        op=breach_op,
-                        left=ast.Field(chain=[f"period_{i}"]),
-                        right=ast.Constant(value=self.threshold_count),
-                    )
-                ],
-            )
-            for i in range(len(ranges))
-        ]
-        breached_periods = functools.reduce(
-            lambda total, breach: ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=total, right=breach),
-            breaches,
+        breached_periods = ast.Call(
+            name="arraySum",
+            args=[
+                ast.Array(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=breach_op,
+                            left=ast.Field(chain=[f"period_{i}"]),
+                            right=ast.Constant(value=self.threshold_count),
+                        )
+                        for i in range(len(ranges))
+                    ]
+                )
+            ],
         )
         order_by = [
             # Ranked by the N-of-M verdict before the worst count, so a steady breach the limit
@@ -739,7 +738,7 @@ class GroupedAlertCheckQuery:
             where=self.where_expr,
             group_by=[ast.Field(chain=[column]) for column in self.group_by],
             order_by=order_by,
-            limit=ast.Constant(value=self.limit),
+            limit=ast.Constant(value=self.limit + 1),
         )
 
 

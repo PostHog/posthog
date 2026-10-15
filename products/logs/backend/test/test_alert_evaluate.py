@@ -348,9 +348,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.GroupedAlertCheckQuery") as query,
         ):
-            # `counts` is in the order the query ranks groups, and the query cuts it at its limit.
+            # `counts` is in the order the query ranks groups, and the query keeps one row past its limit.
             query.return_value.execute_rolling_checks.side_effect = lambda *_args: GroupedRollingResult(
-                groups=groups[: query.call_args.kwargs["limit"]], period_starts=[now], query_duration_ms=1
+                groups=groups[: query.call_args.kwargs["limit"] + 1],
+                period_starts=[now],
+                query_duration_ms=1,
+                truncated=len(groups) > query.call_args.kwargs["limit"],
             )
             return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
 
