@@ -182,7 +182,7 @@ def _matches_hostname_pattern(host: str) -> bool:
     return len(host) <= _MAX_HOSTNAME_LENGTH and _BARE_HOSTNAME.fullmatch(host) is not None
 
 
-def _canonicalize_host(host: str) -> str:
+def canonicalize_host(host: str) -> str:
     """The one form every host check runs on.
 
     We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
@@ -198,6 +198,9 @@ def _canonicalize_host(host: str) -> str:
     except ValueError:  # UnicodeError, which the codec raises, subclasses this
         pass
     return host.lower().rstrip(".")
+
+
+_canonicalize_host = canonicalize_host
 
 
 def _host_shape_error(host: str) -> str | None:
