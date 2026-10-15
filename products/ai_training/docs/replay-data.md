@@ -314,3 +314,110 @@ Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
 All processes that enqueue deletion work, including the general-purpose Temporal worker, need the key table setting.
 Shared Django and Temporal workers cannot delete keys from the key table.
+
+## v4 raw dataset
+
+v4 records sessions without scrubbing them.
+An on-demand fleet in the ML account anonymizes the sessions that a run selects, so ingestion does no PII work.
+v4 runs beside v3, which is unchanged.
+The infrastructure is in `posthog-cloud-infra`: the `rrweb-v4` and `images-v4` buckets in the ML training account, and the `ai-research-replay-v4-keys` table in prod-us.
+
+### Gate
+
+A session is in v4 when the organization opts in to AI training and the session passes this gate:
+
+```text
+hash       = md5(session_id) as lowercase hex
+value      = integer of the first 8 hex digits
+percentage = (value % 10000) / 100
+include    = percentage < SESSION_RECORDING_ML_V4_SAMPLE_PERCENTAGE
+```
+
+- A percentage of 100 or more includes every session, and 0 or less includes none. The default is 0.
+- The gate is the same function as the session feature recorder's rollout gate, so at the same percentage the two lanes select the same sessions.
+- Capture keys every replay message with the session ID, so the recorder applies the gate to the Kafka key before it reads the payload.
+- Raising the percentage keeps every session that a lower percentage includes.
+
+### Keys
+
+v4 copies the v3 key design with a day in place of the month:
+
+| Row          | `pk`                       | `sk`                   | Attributes                                                                        |
+| ------------ | -------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| Team day key | `team:{team_id}`           | `day:{YYYY-MM-DD}`     | `team_id` (N), `key_day` (S), `wrapped_key` (B), `expires_at` (N)                 |
+| Session key  | `team:{team_id}:shard:{n}` | `session:{session_id}` | `team_id` (N), `key_day` (S), `sealed_key` (B), `key_nonce` (B), `expires_at` (N) |
+
+- `n` is the v3 shard: the first 8 hex digits of `sha256(session_id)` as an integer, modulo 32.
+- `key_day` is the UTC day on which the recorder first stored data for the team or session.
+- KMS wraps a team day key with the encryption context `{"purpose": "ai-research-v4", "team_id": ..., "key_day": ...}`.
+- A session key is sealed under the team day key with HKDF-SHA256 (empty salt, info `ml-session-key-wrap`) and AES-256-GCM. The additional authenticated data is the canonical JSON of `{"key_day", "purpose": "ai-research-v4", "session_id", "team_id"}`.
+- `expires_at` is the end of day `key_day + 8`, in epoch seconds. DynamoDB TTL removes the row after that.
+- A deletion replaces the key material with `deleted: true`, as in v3. A writer that loses a conditional put to a deleted row drops the session.
+- Writers store keys before the objects that use them, as in v3.
+
+The recorder derives two more keys from the team day key with HKDF-SHA256 and an empty salt:
+
+- The image content key, with info `ml-image-content-key`, keys the HMAC of an inline image.
+- The image URL key, with info `ml-image-url-key`, keys the HMAC of a remote image URL.
+
+Image and URL references therefore cannot be compared across teams or days.
+
+### Envelope
+
+v4 objects use the v3 `AISR03` frame.
+The additional authenticated data is the canonical JSON of `{"v": 4, "context": ...}`, so a v3 reader never opens a v4 object.
+
+| Object                 | Key          | `context`                                                                         |
+| ---------------------- | ------------ | --------------------------------------------------------------------------------- |
+| Session block          | session key  | `teamId`, `sessionId`, `keyDay`, `kind: "rrweb"`, `codec: "zstd"`                 |
+| Inline image in a pack | team day key | `teamId`, `keyDay`, `kind: "image"`, `codec: "none"`, `ref` (the image reference) |
+| Fetched image          | team day key | `teamId`, `keyDay`, `kind: "image-url"`, `codec: "none"`, `ref` (the object key)  |
+| Sealed index value     | session key  | `teamId`, `sessionId`, `keyDay`, `kind: "index"`, `ref` (the column name)         |
+
+A sealed index value uses the v3 JSON envelope with `"v": 4`.
+
+### References
+
+- An inline image becomes `image:v4:{team_id}:{YYYY-MM-DD}:{hash}` in the block, where the date is its key day.
+- A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM-DD}:{hash}`.
+- `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
+- The recorder takes only base64 PNG, JPEG, GIF and WebP data URIs, under the v3 size limits. Anything else stays inline in the sealed block.
+
+### Layout
+
+Every raw prefix is partitioned by the UTC day of the write.
+
+| Bucket      | Prefix                                 | Contents                                                                        |
+| ----------- | -------------------------------------- | ------------------------------------------------------------------------------- |
+| `rrweb-v4`  | `blocks/dt={day}/`                     | One object per recorder flush: sealed session blocks, each found by byte range  |
+| `rrweb-v4`  | `index/blocks/dt={day}/`               | Parquet, one row per block                                                      |
+| `rrweb-v4`  | `index/images/dt={day}/`               | Parquet, one row per stored inline image                                        |
+| `images-v4` | `images/packs/dt={day}/{team_id}/`     | One object per recorder flush and team: sealed images, each found by byte range |
+| `images-v4` | `images/url/dt={day}/{team_id}/{hash}` | One sealed fetched image                                                        |
+
+Both buckets expire every object after 7 days, and the key rows expire one day later.
+
+### Block index
+
+Every count in a block row covers that block only, so a session row is the sum, minimum, maximum or first value of its block rows.
+
+| Group       | Columns                                                                                                                                                                                                                                                         |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Location    | `team_id`, `session_id`, `key_day`, `block_s3_key`, `block_byte_start`, `block_byte_end`                                                                                                                                                                        |
+| Time        | `first_ts_ms`, `last_ts_ms`, `event_count`, `byte_size`                                                                                                                                                                                                         |
+| Source      | `snapshot_source`, `snapshot_library`, `host`                                                                                                                                                                                                                   |
+| Playability | `full_snapshots`, `events_before_first_full_snapshot`, `orphan_mutations`, `max_gap_ms`, `dom_nodes`, `dom_text_chars`, `remote_stylesheets`, `inline_stylesheets`, `iframes`, `canvases`, `videos`, `shadow_roots`, `cold_start`, `node_cap_reached`           |
+| Activity    | `active_ms`, `clicks`, `rage_clicks`, `dead_clicks`, `keypresses`, `inputs`, `scrolls`, `mouse_moves`, `touches`, `selections`, `media_events`, `viewport_resizes`, `navigations`, `console_errors`, `console_warnings`, `network_requests`, `network_failures` |
+| Context     | `viewport_width`, `viewport_height`, `touch_input`                                                                                                                                                                                                              |
+| Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`                                                                                                                                                                                                |
+| Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes                                                                                                                                      |
+| Sealed      | `urls`: the visited URLs as a sealed index value                                                                                                                                                                                                                |
+
+`cold_start` is true when the recorder sees a session for the first time after its first event, for example after a partition rebalance.
+Its playability columns then describe only the part of the session the recorder saw.
+
+### Remote images
+
+The recorder sends each remote image URL to the `session_replay_image_fetch_v4` topic in the v3 job shape, keyed by registrable domain.
+The v4 image fetcher applies the v3 fetch policy and stores each image, sealed and unscrubbed, under `images/url/`.
+It does not send images to the scrub lane.
