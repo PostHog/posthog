@@ -191,11 +191,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return attrs
 
     def _require_viewer_access(self, parent: Dashboard | Insight, field: str, label: str) -> None:
-        if not isinstance(self.context["request"].user, User):
-            return
-        access_controls = self.context["view"].user_access_control.for_team_ids([parent.team_id])
-        user_access_control = access_controls.get(parent.team_id)
-        if user_access_control is None or not user_access_control.check_access_level_for_object(parent, "viewer"):
+        user_access_control = self.context["view"].user_access_control
+        if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids([parent], "viewer"):
             raise serializers.ValidationError({field: f"You need viewer access to this {label} to annotate it."})
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:

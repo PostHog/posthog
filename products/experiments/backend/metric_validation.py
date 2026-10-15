@@ -223,7 +223,12 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
 
 
 def validate_metric_action_ids(
-    metrics: list[dict] | None, team: Team, *, user: Any, known_action_ids: set[int] | None = None
+    metrics: list[dict] | None,
+    team: Team,
+    *,
+    user: Any,
+    known_action_ids: set[int] | None = None,
+    require_existing: bool = True,
 ) -> None:
     """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team,
     and that ``user`` has viewer access to each of them.
@@ -235,6 +240,9 @@ def validate_metric_action_ids(
     metric, so an update is checked for what it introduces rather than for everything it
     resends. Without it, deleting a referenced action makes every later metric
     edit fail on the resent arrays. See ``update_experiment``.
+
+    ``require_existing=False`` checks access only. Attached saved metrics use it, because a saved
+    metric keeps working after one of its actions is deleted.
     """
     _, action_ids = extract_entity_nodes(metrics)
     if known_action_ids:
@@ -242,9 +250,10 @@ def validate_metric_action_ids(
     if not action_ids:
         return
 
-    actions = list(Action.objects.filter(id__in=action_ids, team_id=team.id, deleted=False))
+    referenced = Action.objects.filter(id__in=action_ids, team_id=team.id)
+    actions = list(referenced.filter(deleted=False) if require_existing else referenced)
     missing = action_ids - {action.id for action in actions}
-    if missing:
+    if require_existing and missing:
         missing_str = ", ".join(str(aid) for aid in sorted(missing))
         raise ValidationError(
             f"Action(s) with ID {missing_str} not found or deleted. "
@@ -254,13 +263,7 @@ def validate_metric_action_ids(
     # Synthetic principals (project secret API keys) and userless system writes bypass access control.
     if not isinstance(user, User):
         return
-    access_controls = UserAccessControl(user=user, team=team).for_team_ids({action.team_id for action in actions})
-    denied = sorted(
-        action.id
-        for action in actions
-        if action.team_id not in access_controls
-        or not access_controls[action.team_id].check_access_level_for_object(action, "viewer")
-    )
+    denied = UserAccessControl(user=user, team=team).denied_object_ids(actions, "viewer")
     if denied:
         raise PermissionDenied(
             f"You don't have viewer access to action(s) {', '.join(map(str, denied))}. "

@@ -1140,14 +1140,8 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = list(Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids))
-    access_controls = user_access_control.for_team_ids({action.team_id for action in actions})
-    denied_ids = sorted(
-        action.id
-        for action in actions
-        if action.team_id not in access_controls
-        or not access_controls[action.team_id].check_access_level_for_object(action, "viewer")
-    )
+    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    denied_ids = user_access_control.denied_object_ids(actions, "viewer")
     if denied_ids:
         raise serializers.ValidationError(
             f"You don't have viewer access to action(s) {', '.join(map(str, denied_ids))}. "

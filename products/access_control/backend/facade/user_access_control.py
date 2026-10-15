@@ -883,6 +883,17 @@ class UserAccessControl:
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
+    def denied_object_ids(self, objects: Iterable[Model], required_level: AccessControlLevel) -> list[Any]:
+        """Primary keys of the objects this user lacks `required_level` on, each checked with its own team's rules."""
+        team_objects = [(cast(Any, obj).team_id, obj) for obj in objects]
+        access_controls = self.for_team_ids({team_id for team_id, _ in team_objects})
+        return sorted(
+            obj.pk
+            for team_id, obj in team_objects
+            if team_id not in access_controls
+            or not access_controls[team_id].check_access_level_for_object(obj, required_level)
+        )
+
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """
         Special case for checking if the user can modify the access levels for an object.
