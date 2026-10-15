@@ -15,6 +15,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
+    give_back_ownership,
     record_outcomes,
     slot_of,
     take_ownership,
@@ -28,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
+    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -150,6 +152,65 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert not taken
         self.configuration.refresh_from_db()
         assert (self.configuration.owner, self._alert().state) == ("source", "firing")
+
+    @parameterized.expand(
+        [
+            ("firing", {}, {"state": "firing"}, HandbackRefusal.FIRING),
+            (
+                "snoozed_inside_a_firing",
+                {},
+                {"state": "snoozed", "firing_started_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                HandbackRefusal.FIRING,
+            ),
+            (
+                "broken_is_never_due",
+                {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC), "check_status": "broken"},
+                {},
+                None,
+            ),
+            (
+                "disabled_while_a_check_runs",
+                {"enabled": False, "next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)},
+                {},
+                None,
+            ),
+            ("check_due", {"next_check_at": datetime(2026, 9, 16, 9, tzinfo=UTC)}, {}, HandbackRefusal.CHECK_DUE),
+            (
+                "calendar_schedule",
+                {"recurrence_unit": "daily", "anchor_time": "09:00"},
+                {},
+                HandbackRefusal.NOT_PORTABLE,
+            ),
+            ("grouped", {}, {"grouping_key": "service=api"}, HandbackRefusal.NOT_PORTABLE),
+        ]
+    )
+    def test_the_platform_keeps_an_alert_its_source_cannot_take_back(
+        self,
+        _name: str,
+        configuration_fields: dict[str, Any],
+        alert_fields: dict[str, Any],
+        refusal: HandbackRefusal | None,
+    ) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                **{
+                    "legacy_configuration_id": legacy_id,
+                    "owner": "platform",
+                    "next_check_at": self.cutoff + timedelta(minutes=5),
+                    **configuration_fields,
+                }
+            )
+            PlatformAlert.objects.create(team=self.team, configuration=self.configuration, **alert_fields)
+
+        handback = give_back_ownership(team_id=self.team.id, legacy_configuration_id=legacy_id, at=self.cutoff)
+
+        assert (handback if isinstance(handback, HandbackRefusal) else None) == refusal
+        self.configuration.refresh_from_db()
+        assert self.configuration.owner == ("platform" if refusal else "source")
+        if refusal is None:
+            # A check that started before the handback finds the row no longer due and records nothing.
+            assert self.configuration.next_check_at is not None and self.configuration.next_check_at > self.cutoff
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
