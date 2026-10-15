@@ -1240,9 +1240,10 @@ class ReplayObservationViewSet(
     )
     def feed_dismissal(self, request: Request, **kwargs: Any) -> Response:
         observation = self.get_object()
+        user = cast(User, request.user)
         if request.method == "DELETE":
             ReplayObservationFeedDismissal.objects.filter(
-                team_id=observation.team_id, observation=observation, user=request.user
+                team_id=observation.team_id, observation=observation, user=user
             ).delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         input_serializer = ObservationFeedDismissalSerializer(data=request.data)
@@ -1250,7 +1251,7 @@ class ReplayObservationViewSet(
         ReplayObservationFeedDismissal.objects.update_or_create(
             team_id=observation.team_id,
             observation=observation,
-            user=request.user,
+            user=user,
             defaults={"reason": input_serializer.validated_data["reason"]},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
