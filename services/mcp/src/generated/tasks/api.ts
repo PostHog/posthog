@@ -431,10 +431,13 @@ export const TasksCreateBody = () => zod.object({
             "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     runtime_adapter: zod
-        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .union([
+            zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex"
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
         ),
     model: zod
         .string()
@@ -1152,10 +1155,13 @@ export const TasksMeConfigCreateBody = () => zod
                 "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
             ),
         runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .union([
+                zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod
             .string()
@@ -1241,10 +1247,13 @@ export const TasksConfigCreateBody = () => zod
                 "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
             ),
         runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .union([
+                zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod
             .string()

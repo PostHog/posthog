@@ -64,8 +64,10 @@ def test_every_model_resolves_to_the_recorded_triple(snapshot) -> None:
     assert _resolved_catalog() == snapshot(extension_class=JSONSnapshotExtension)
 
 
-def test_every_runtime_adapter_has_catalog_models() -> None:
+def test_every_catalog_runtime_adapter_has_catalog_models() -> None:
     for adapter in RuntimeAdapter:
+        if adapter == RuntimeAdapter.FX:
+            continue
         assert model_catalog.models_for_runtime_adapter(adapter.value), (
             f"runtime adapter '{adapter.value}' has no models in the catalog, so every picker "
             f"and validator would treat it as serving nothing"

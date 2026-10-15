@@ -74,6 +74,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactStatus,
     TaskArtifactType,
     get_model_access_error,
+    get_permission_mode_choices,
     get_reasoning_effort_error,
     get_runtime_adapter_for_model,
 )
@@ -433,11 +434,7 @@ def get_initial_permission_mode_error(initial_permission_mode: str | None, runti
     # composers to pin the model just to state a mode, blocking server-side default resolution.
     if runtime_adapter is None:
         return None
-    allowed_permission_modes = (
-        list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-        if runtime_adapter == RuntimeAdapter.CODEX.value
-        else list(INITIAL_PERMISSION_MODE_CHOICES)
-    )
+    allowed_permission_modes = get_permission_mode_choices(runtime_adapter)
     if initial_permission_mode in allowed_permission_modes:
         return None
     allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
@@ -4251,11 +4248,7 @@ class WarmTaskResumeRequestSerializer(serializers.Serializer):
             if runtime_adapter is None:
                 errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
             else:
-                allowed_permission_modes = (
-                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
-                    if runtime_adapter == RuntimeAdapter.CODEX.value
-                    else list(INITIAL_PERMISSION_MODE_CHOICES)
-                )
+                allowed_permission_modes = get_permission_mode_choices(runtime_adapter)
                 if initial_permission_mode not in allowed_permission_modes:
                     allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
                     errors["initial_permission_mode"] = (

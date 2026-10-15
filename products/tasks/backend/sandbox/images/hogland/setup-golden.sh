@@ -62,6 +62,9 @@ AGENTSH_SHA256_ARM64=d1393a27943d207442ea077b1d36d9561a8af5613e7b67d9f7d4fafd006
 RTK_VERSION=0.43.0
 RTK_SHA256_AMD64=ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609
 RTK_SHA256_ARM64=5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731
+FX_VERSION=0.0.13
+FX_SHA256_AMD64=53a3b30ce1541048f8fa4b42b7bc68161466bb2e3708db104449a58af3807430
+FX_SHA256_ARM64=78f6a8171193a1d2033f93d1b5a2940ea4a62147daf60a37ae670a9bf85f12e9
 
 APT_PACKAGES="curl wget git vim nano tree htop unzip zip jq \
 build-essential pkg-config musl \
@@ -293,6 +296,19 @@ tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk
 rm /tmp/rtk.tar.gz
 rtk --version
 
+log "fx ${FX_VERSION}"
+fx_arch="$(dpkg --print-architecture)"
+case "$fx_arch" in
+    amd64) fx_asset="fx-linux-x86_64.tar.gz"; fx_sha256="$FX_SHA256_AMD64" ;;
+    arm64) fx_asset="fx-linux-aarch64.tar.gz"; fx_sha256="$FX_SHA256_ARM64" ;;
+    *) echo "Unsupported architecture for fx: $fx_arch" >&2; exit 1 ;;
+esac
+fetch "https://github.com/vercel-labs/fx/releases/download/v${FX_VERSION}/${fx_asset}" /tmp/fx.tar.gz
+echo "${fx_sha256}  /tmp/fx.tar.gz" | sha256sum -c -
+tar -xzf /tmp/fx.tar.gz -C /usr/local/bin fx
+rm /tmp/fx.tar.gz
+fx --version
+
 # --- Agent SDK: @posthog/agent, npm-installed at AGENT_VERSION ----------------
 # Mirrors Dockerfile.sandbox-base's `npm install @posthog/agent@${AGENT_VERSION}`
 # into /scripts. The workflow resolves and pins an exact published version so the
@@ -427,6 +443,7 @@ node --version
 npm --version
 gh --version
 rtk --version
+fx --version
 agentsh --version
 test -x /scripts/node_modules/.bin/agent-server
 test -x /opt/posthog/bin/git

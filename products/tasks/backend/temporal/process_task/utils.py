@@ -29,6 +29,7 @@ from products.tasks.backend.constants import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     EVAL_INTERACTION_ORIGIN,
+    FX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -119,6 +120,7 @@ USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "po
 class RuntimeAdapter(LabeledStrEnum):
     CLAUDE = "claude", "claude"
     CODEX = "codex", "codex"
+    FX = "fx", "fx"
 
 
 class LLMProvider(StrEnum):
@@ -140,9 +142,13 @@ class ReasoningEffort(StrEnum):
 CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
+# fx has no catalog models: it runs any gateway chat model, so it is listed here and not in the catalog.
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
-    RuntimeAdapter(adapter): LLMProvider(provider)
-    for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
+    **{
+        RuntimeAdapter(adapter): LLMProvider(provider)
+        for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
+    },
+    RuntimeAdapter.FX: LLMProvider.OPENAI,
 }
 
 
@@ -197,6 +203,14 @@ def get_provider_for_runtime_adapter(
         return None
 
 
+def get_permission_mode_choices(runtime_adapter: str) -> list[str]:
+    if runtime_adapter == RuntimeAdapter.CODEX.value:
+        return CODEX_INITIAL_PERMISSION_MODE_CHOICES
+    if runtime_adapter == RuntimeAdapter.FX.value:
+        return FX_INITIAL_PERMISSION_MODE_CHOICES
+    return INITIAL_PERMISSION_MODE_CHOICES
+
+
 def clamp_initial_permission_mode(
     runtime_adapter: str | None,
     initial_permission_mode: str | None,
@@ -214,9 +228,9 @@ def clamp_initial_permission_mode(
             return initial_permission_mode
         return "auto"
     if (
-        runtime_adapter == RuntimeAdapter.CLAUDE.value
+        runtime_adapter in (RuntimeAdapter.CLAUDE.value, RuntimeAdapter.FX.value)
         and initial_permission_mode is not None
-        and initial_permission_mode not in INITIAL_PERMISSION_MODE_CHOICES
+        and initial_permission_mode not in get_permission_mode_choices(runtime_adapter)
     ):
         return "default"
     return initial_permission_mode
@@ -309,7 +323,11 @@ def validate_model_selection(
         raise ValidationError(f"Unknown runtime_adapter '{adapter_value}'. Valid values: {valid_adapters}.")
 
     owning_adapter = get_runtime_adapter_for_model(model)
-    if adapter_value is not None and owning_adapter is not None and owning_adapter.value != adapter_value:
+    if (
+        adapter_value not in (None, RuntimeAdapter.FX.value)
+        and owning_adapter is not None
+        and owning_adapter.value != adapter_value
+    ):
         raise ValidationError(
             f"Model '{model}' runs on runtime_adapter '{owning_adapter.value}', not '{adapter_value}'. "
             f"Models for '{adapter_value}': {', '.join(get_models_for_runtime_adapter(adapter_value))}."

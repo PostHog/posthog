@@ -48,6 +48,7 @@ _FETCH_TIMEOUT_SECONDS = 3.0
 RUNTIME_ADAPTER_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude (Anthropic)",
     "codex": "Codex (OpenAI)",
+    "fx": "fx",
 }
 
 REASONING_EFFORT_DISPLAY_NAMES: dict[str, str] = model_catalog.REASONING_EFFORT_LABELS
@@ -273,7 +274,7 @@ def _runtime_adapter_by_provider() -> dict[str, str]:
     for adapter in RuntimeAdapter:
         provider = get_provider_for_runtime_adapter(adapter)
         if provider is not None:
-            by_provider[provider.value] = adapter.value
+            by_provider.setdefault(provider.value, adapter.value)
     return by_provider
 
 

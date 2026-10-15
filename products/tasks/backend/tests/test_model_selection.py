@@ -6,6 +6,7 @@ from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.temporal.process_task.utils import (
     RuntimeAdapter,
+    clamp_initial_permission_mode,
     get_runtime_adapter_for_model,
     runtime_adapter_serves_model,
     validate_model_selection,
@@ -40,6 +41,9 @@ def test_get_runtime_adapter_for_model(model: str | None, expected: RuntimeAdapt
         pytest.param("claude", "claude-sonnet-5", None, id="pair-without-effort"),
         pytest.param(None, None, None, id="nothing-selected"),
         pytest.param("claude", "a-model-no-adapter-claims", None, id="model-outside-the-catalogue"),
+        pytest.param("fx", "gpt-6-sol", None, id="fx-with-codex-model"),
+        pytest.param("fx", "claude-sonnet-5", None, id="fx-with-claude-model"),
+        pytest.param("fx", "a-model-no-adapter-claims", None, id="fx-with-model-outside-the-catalogue"),
     ],
 )
 def test_valid_selections_pass(runtime_adapter, model, reasoning_effort) -> None:
@@ -55,11 +59,28 @@ def test_valid_selections_pass(runtime_adapter, model, reasoning_effort) -> None
         ),
         pytest.param("bedrock", "claude-sonnet-5", None, "Unknown runtime_adapter", id="unknown-adapter"),
         pytest.param("claude", "claude-sonnet-4-6", "max", "not supported", id="effort-above-what-model-offers"),
+        pytest.param("fx", "gpt-6-sol", "high", "not supported", id="fx-with-effort"),
     ],
 )
 def test_invalid_selections_raise(runtime_adapter, model, reasoning_effort, expected_message) -> None:
     with pytest.raises(ValidationError, match=expected_message):
         validate_model_selection(runtime_adapter, model, reasoning_effort)
+
+
+@pytest.mark.parametrize(
+    "runtime_adapter,requested,expected",
+    [
+        pytest.param("fx", "plan", "default", id="fx-plan"),
+        pytest.param("fx", "read-only", "default", id="fx-read-only"),
+        pytest.param("fx", "full-access", "full-access", id="fx-full-access"),
+        pytest.param("fx", "acceptEdits", "acceptEdits", id="fx-accept-edits"),
+        pytest.param("fx", None, None, id="fx-unset"),
+        pytest.param("claude", "full-access", "default", id="claude-codex-mode"),
+        pytest.param("codex", "bypassPermissions", "auto", id="codex-claude-mode"),
+    ],
+)
+def test_clamp_initial_permission_mode(runtime_adapter, requested, expected) -> None:
+    assert clamp_initial_permission_mode(runtime_adapter, requested) == expected
 
 
 @pytest.mark.parametrize(

@@ -158,7 +158,7 @@ def _bool_label(value: bool | None) -> str:
     return "true" if value else "false"
 
 
-_ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
+_ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex", "fx"}
 
 
 def sandbox_runtime_label(use_vm_sandbox: bool) -> str:

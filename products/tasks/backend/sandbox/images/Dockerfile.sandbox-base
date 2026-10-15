@@ -151,6 +151,24 @@ RUN set -eux; \
     rm /tmp/rtk.tar.gz && \
     rtk --version
 
+# Install fx (https://fx.sh), the coding agent runs use when their runtime adapter is fx.
+ARG FX_VERSION=0.0.13
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) fx_asset="fx-linux-x86_64.tar.gz"; \
+             fx_sha256="53a3b30ce1541048f8fa4b42b7bc68161466bb2e3708db104449a58af3807430" ;; \
+      arm64) fx_asset="fx-linux-aarch64.tar.gz"; \
+             fx_sha256="78f6a8171193a1d2033f93d1b5a2940ea4a62147daf60a37ae670a9bf85f12e9" ;; \
+      *) echo "Unsupported architecture for fx: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/fx.tar.gz \
+      "https://github.com/vercel-labs/fx/releases/download/v${FX_VERSION}/${fx_asset}" && \
+    echo "${fx_sha256}  /tmp/fx.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/fx.tar.gz -C /usr/local/bin fx && \
+    rm /tmp/fx.tar.gz && \
+    fx --version
+
 ###
 # Agent SDK
 ###

@@ -386,6 +386,22 @@ class TestGetTaskProcessingContextActivity:
                     async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("flag_enabled", [True, False])
+    def test_fx_run_needs_the_fx_runtime_flag(self, activity_environment, test_task, flag_enabled):
+        task_run = test_task.create_run(extra_state={"runtime_adapter": "fx", "model": "gpt-6-sol"})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with (
+            override_settings(DEBUG=False),
+            patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=flag_enabled),
+        ):
+            if flag_enabled:
+                async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            else:
+                with pytest.raises(ProcessTaskFatalError, match="fx runtime is not available"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
         task_run = test_task.create_run()
         test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}

@@ -568,7 +568,14 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_AGENT_RUNTIME=pi" in first_command
         assert "POSTHOG_AGENT_RUNTIME=pi" in retry_command
 
-    def test_start_agent_server_rejects_an_image_without_pi_support(self) -> None:
+    @pytest.mark.parametrize(
+        "launch_kwargs,message",
+        [
+            ({"agent_runtime": "pi"}, "does not support the Pi runtime"),
+            ({"runtime_adapter": "fx"}, "does not support the fx runtime"),
+        ],
+    )
+    def test_start_agent_server_rejects_an_image_without_runtime_support(self, launch_kwargs, message) -> None:
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -583,13 +590,13 @@ class TestDockerSandboxUnit:
             patch.object(
                 sandbox, "execute", return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             ),
-            pytest.raises(RuntimeError, match="does not support the Pi runtime"),
+            pytest.raises(RuntimeError, match=message),
         ):
             sandbox.start_agent_server(
                 "posthog/posthog",
                 "task-123",
                 "run-456",
-                agent_runtime="pi",
+                **launch_kwargs,
             )
 
     def test_parse_repo_mount_map_empty(self):

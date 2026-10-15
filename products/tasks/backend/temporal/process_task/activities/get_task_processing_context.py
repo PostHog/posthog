@@ -55,7 +55,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
+from products.tasks.backend.feature_flags import fx_runtime_enabled, is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
@@ -1415,6 +1415,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         model_access = resolve_model_access(state)
     except ValueError as error:
         raise ProcessTaskFatalError(str(error), {"run_id": run_id}, cause=error, capture=False) from error
+    if state.get("runtime_adapter") == "fx" and not fx_runtime_enabled(distinct_id, organization_id):
+        raise ProcessTaskFatalError(
+            "The fx runtime is not available for your account.",
+            {"run_id": run_id},
+            cause=ValueError("fx runtime requested without the fx runtime flag"),
+            capture=False,
+        )
     if model_access.adapter is not None:
         _ensure_subscription_allowed(
             adapter=model_access.adapter,

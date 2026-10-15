@@ -950,12 +950,14 @@ export const TaskRuntimeEnumApi = {
 /**
  * * `claude` - claude
  * * `codex` - codex
+ * * `fx` - fx
  */
 export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
 
 export const RuntimeAdapterEnumApi = {
     Claude: 'claude',
     Codex: 'codex',
+    Fx: 'fx',
 } as const
 
 /**
@@ -1210,7 +1212,8 @@ export interface TaskRunDetailDTOApi {
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
      *
@@ -1626,7 +1629,8 @@ export interface TaskCreateApi {
     /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
      * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -1862,7 +1866,8 @@ export interface TaskWriteApi {
     /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
      * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -1999,7 +2004,8 @@ export interface PatchedTaskWriteApi {
     /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
      * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -2935,7 +2941,8 @@ export interface WarmTaskResumeRequestApi {
     /** Agent runtime adapter to start before the next message is submitted.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi
     /** LLM model to start before the next message is submitted. */
     model?: string
@@ -3076,7 +3083,8 @@ export interface TaskRunBootstrapCreateRequestApi {
     /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi
     /** LLM model identifier to run in the selected runtime. */
     model?: string
@@ -4368,7 +4376,8 @@ export interface TasksAIRunPreferencesApi {
     /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
      * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
@@ -4521,7 +4530,8 @@ export interface ModelChoiceApi {
     /** Runtime that drives this model, such as 'claude' or 'codex'.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter: RuntimeAdapterEnumApi
     model: string
     /** Display name for the model, such as 'Claude Opus 4.8'. */
@@ -5143,7 +5153,8 @@ export interface WarmTaskRequestApi {
     /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
      *
      * * `claude` - claude
-     * * `codex` - codex */
+     * * `codex` - codex
+     * * `fx` - fx */
     runtime_adapter?: RuntimeAdapterEnumApi | null
     /**
      * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.

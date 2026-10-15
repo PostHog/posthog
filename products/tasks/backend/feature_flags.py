@@ -11,6 +11,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    FX_RUNTIME_FEATURE_FLAG,
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
@@ -176,6 +177,27 @@ def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
         )
     except Exception:
         logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
+def fx_runtime_enabled(distinct_id: str | None, organization_id: str) -> bool:
+    if settings.DEBUG:
+        return True
+    if not distinct_id:
+        return False
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                FX_RUNTIME_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("fx runtime flag check failed; treating as disabled")
         return False
 
 

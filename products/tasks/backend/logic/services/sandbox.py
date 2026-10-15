@@ -431,6 +431,7 @@ AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
 AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
     "auto_publish": "autoPublish",
     "exec_permission_regex": "posthogExecPermissionRegex",
+    "fx_runtime": "POSTHOG_FX_BINARY_PATH",
     "pi_runtime": "POSTHOG_AGENT_RUNTIME",
     "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
 }

@@ -5409,6 +5409,13 @@ class TestTaskAPI(BaseTaskAPITest):
                 "bypassPermissions",
                 "Invalid choice 'bypassPermissions' for runtime_adapter 'codex'. Supported values: 'plan', 'auto', 'read-only', 'full-access'.",
             ),
+            (
+                "fx_rejects_plan_mode",
+                "fx",
+                "gpt-6-sol",
+                "plan",
+                "Invalid choice 'plan' for runtime_adapter 'fx'. Supported values: 'default', 'acceptEdits', 'auto', 'bypassPermissions', 'full-access'.",
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

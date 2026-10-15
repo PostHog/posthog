@@ -67062,6 +67062,7 @@ export namespace Schemas {
     /**
      * * `claude` - claude
      * * `codex` - codex
+     * * `fx` - fx
      */
     export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
 
@@ -67069,6 +67070,7 @@ export namespace Schemas {
     export const RuntimeAdapterEnum = {
       Claude: 'claude',
       Codex: 'codex',
+      Fx: 'fx',
     } as const;
 
     /**
@@ -67081,7 +67083,8 @@ export namespace Schemas {
       /** Runtime that drives this model, such as 'claude' or 'codex'.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter: RuntimeAdapterEnum;
       model: string;
       /** Display name for the model, such as 'Claude Opus 4.8'. */
@@ -75542,7 +75545,8 @@ export namespace Schemas {
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
        *
@@ -86597,7 +86601,8 @@ export namespace Schemas {
       /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
          * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -100582,6 +100587,14 @@ export namespace Schemas {
       output_tokens?: number | null;
     }
 
+    export type TrialRunEvidenceRuntimeAdapterEnum = typeof TrialRunEvidenceRuntimeAdapterEnum[keyof typeof TrialRunEvidenceRuntimeAdapterEnum];
+
+
+    export const TrialRunEvidenceRuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
+
     export type TrialEvidenceSourceKindEnum = typeof TrialEvidenceSourceKindEnum[keyof typeof TrialEvidenceSourceKindEnum];
 
 
@@ -100627,7 +100640,7 @@ export namespace Schemas {
       execution_status: string;
       exclusion_reason?: string | null;
       model: string;
-      runtime_adapter: RuntimeAdapterEnum;
+      runtime_adapter: TrialRunEvidenceRuntimeAdapterEnum;
       service_tier?: string | null;
       reasoning_effort: string;
       skill_body_sha256: string;
@@ -109490,7 +109503,8 @@ export namespace Schemas {
       /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
          * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -110179,7 +110193,8 @@ export namespace Schemas {
       /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum;
       /** LLM model identifier to run in the selected runtime. */
       model?: string;
@@ -111199,7 +111214,8 @@ export namespace Schemas {
       /** Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
          * LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.
@@ -111264,7 +111280,8 @@ export namespace Schemas {
       /** Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
          * Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.
@@ -113630,7 +113647,8 @@ export namespace Schemas {
       /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum | null;
       /**
          * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.
@@ -113698,7 +113716,8 @@ export namespace Schemas {
       /** Agent runtime adapter to start before the next message is submitted.
        *
        * * `claude` - claude
-       * * `codex` - codex */
+       * * `codex` - codex
+       * * `fx` - fx */
       runtime_adapter?: RuntimeAdapterEnum;
       /** LLM model to start before the next message is submitted. */
       model?: string;

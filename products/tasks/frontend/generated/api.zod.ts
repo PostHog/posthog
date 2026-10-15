@@ -676,10 +676,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     runtime_adapter: zod
-        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .union([
+            zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex"
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
         ),
     model: zod
         .string()
@@ -875,10 +878,13 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     runtime_adapter: zod
-        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .union([
+            zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex"
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
         ),
     model: zod
         .string()
@@ -1032,10 +1038,13 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     runtime_adapter: zod
-        .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+        .union([
+            zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+            zod.null(),
+        ])
         .optional()
         .describe(
-            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex"
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
         ),
     model: zod
         .string()
@@ -1798,11 +1807,11 @@ export const TasksWarmResumeCreateBody = /* @__PURE__ */ zod
             .uuid()
             .describe("ID of the task's latest terminal run whose snapshot and conversation should be resumed."),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .enum(['claude', 'codex', 'fx'])
+            .describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx')
             .optional()
             .describe(
-                'Agent runtime adapter to start before the next message is submitted.\n\n\* `claude` - claude\n\* `codex` - codex'
+                'Agent runtime adapter to start before the next message is submitted.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'
             ),
         model: zod.string().optional().describe('LLM model to start before the next message is submitted.'),
         reasoning_effort: zod
@@ -1970,11 +1979,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Optional signal report identifier when this run was started from Inbox.'),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .enum(['claude', 'codex', 'fx'])
+            .describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx')
             .optional()
             .describe(
-                "Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
@@ -3027,10 +3036,13 @@ export const TasksMeConfigCreateBody = /* @__PURE__ */ zod
                 "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
             ),
         runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .union([
+                zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod
             .string()
@@ -3104,10 +3116,13 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
                 "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
             ),
         runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .union([
+                zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod
             .string()
@@ -3297,10 +3312,13 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted."
             ),
         runtime_adapter: zod
-            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .union([
+                zod.enum(['claude', 'codex', 'fx']).describe('\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.\n\n\* `claude` - claude\n\* `codex` - codex\n\* `fx` - fx"
             ),
         model: zod
             .string()

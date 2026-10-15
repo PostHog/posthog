@@ -46,6 +46,7 @@ HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+FX_RUNTIME_FEATURE_FLAG = "tasks-fx-runtime"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and
@@ -266,6 +267,7 @@ ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS: frozenset[str] = frozenset({DEFAU
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["plan", "auto", "read-only", "full-access"]
+FxPermissionMode = Literal["default", "acceptEdits", "auto", "bypassPermissions", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 
 # Starting a task authorizes its selected PostHog project, not projects reached through connections.
@@ -274,6 +276,7 @@ POSTHOG_EXEC_PERMISSION_REGEX = r"^posthog-connection-(call|forward)$"
 
 INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(ClaudePermissionMode))
 CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermissionMode))
+FX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(FxPermissionMode))
 ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
     arg for member in get_args(InitialPermissionMode) for arg in get_args(member)
 ]

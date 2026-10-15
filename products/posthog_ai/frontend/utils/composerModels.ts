@@ -15,7 +15,9 @@ import {
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
     MODELS,
     REASONING_EFFORT_LABELS,
+    RUNTIME_ADAPTERS,
     RUNTIME_OPTIONS,
+    type RuntimeAdapter as CatalogRuntimeAdapter,
 } from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
@@ -106,9 +108,16 @@ export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string 
 // The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
 // so the picker opens on Faster/Smarter; a default that sits off the ladder sends it straight to Advanced.
 function ladderDefaultModel(runtimeAdapter: RuntimeAdapterEnumApi): string | undefined {
+    if (!isCatalogRuntimeAdapter(runtimeAdapter)) {
+        return undefined
+    }
     return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].find(
         (notch) => notch.effort === DEFAULT_COMPOSER_EFFORT
     )?.model
+}
+
+function isCatalogRuntimeAdapter(runtimeAdapter: RuntimeAdapterEnumApi): runtimeAdapter is CatalogRuntimeAdapter {
+    return (RUNTIME_ADAPTERS as readonly string[]).includes(runtimeAdapter)
 }
 
 export function getDefaultModelForRuntimeAdapter(
@@ -118,7 +127,9 @@ export function getDefaultModelForRuntimeAdapter(
 ): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
-    const defaultModel = DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter]
+    const defaultModel = isCatalogRuntimeAdapter(runtimeAdapter)
+        ? DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter]
+        : undefined
     const ladderModel = ladderDefaultModel(runtimeAdapter)
     return (
         models.find((option) => option.model === preferredModel)?.model ??
@@ -144,6 +155,9 @@ export function getCapabilityLadder(
     catalogue: ModelChoiceApi[],
     runtimeAdapter: RuntimeAdapterEnumApi
 ): CapabilityNotch[] {
+    if (!isCatalogRuntimeAdapter(runtimeAdapter)) {
+        return []
+    }
     return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].filter((notch) =>
         catalogue.some((option) => option.model === notch.model && option.supported_efforts.includes(notch.effort))
     )

@@ -84,7 +84,7 @@ AGENT_SERVER_FREE_PORT_SCRIPT = (
     'pids=$(agent_server_pids); [ -n "$pids" ] && echo "$pids" | xargs kill -KILL 2>/dev/null; true'
 )
 
-AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "auto_publish", "exec_permission_regex")
+AGENT_SERVER_LAUNCH_CAPABILITIES = ("pi_runtime", "fx_runtime", "auto_publish", "exec_permission_regex")
 AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX = "__posthog_agent_preflight_capability="
 AGENT_SERVER_PREFLIGHT_REUSE_MARKER = "__posthog_agent_preflight_reuse=1"
 AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
@@ -745,6 +745,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
         if agent_runtime == "pi" and not preflight.supports("pi_runtime"):
             raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
+
+        if runtime_adapter == "fx" and not preflight.supports("fx_runtime"):
+            raise RuntimeError("Installed sandbox agent-server does not support the fx runtime")
 
         if auto_publish and not preflight.supports("auto_publish"):
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")

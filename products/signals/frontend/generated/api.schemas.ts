@@ -4580,13 +4580,10 @@ export interface TrialRunJudgmentApi {
     output_tokens?: number | null
 }
 
-/**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+export type TrialRunEvidenceRuntimeAdapterEnumApi =
+    (typeof TrialRunEvidenceRuntimeAdapterEnumApi)[keyof typeof TrialRunEvidenceRuntimeAdapterEnumApi]
 
-export const RuntimeAdapterEnumApi = {
+export const TrialRunEvidenceRuntimeAdapterEnumApi = {
     Claude: 'claude',
     Codex: 'codex',
 } as const
@@ -4636,7 +4633,7 @@ export interface TrialRunEvidenceApi {
     execution_status: string
     exclusion_reason?: string | null
     model: string
-    runtime_adapter: RuntimeAdapterEnumApi
+    runtime_adapter: TrialRunEvidenceRuntimeAdapterEnumApi
     service_tier?: string | null
     reasoning_effort: string
     skill_body_sha256: string
