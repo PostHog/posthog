@@ -159,7 +159,7 @@ class CustomerIOSource(
             "github.com/customerio/cdp-analytics-swift",
             "github.com/customerio/customerio-ios-fcm",
         ),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     supported_versions = ("v1",)

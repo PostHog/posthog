@@ -62,7 +62,7 @@ The generic report mechanics live in the harness prompt; this body carries only 
 
 Close out empty (after one scratchpad entry) if any of these hold:
 
-- `customer_analytics` not in the profile's `products_in_use`, or `system.accounts` is empty → `not-in-use:customer_analytics_billing_and_usage:team{team_id}`.
+- `system.accounts` is empty → `not-in-use:customer_analytics_billing_and_usage:team{team_id}`. Do not close out on `products_in_use`: it lists onboarding, not usage.
 - The billing views are unreachable → `pattern:customer_analytics_billing_and_usage:no-billing-source:team{team_id}`.
   Without MRR share you cannot weight severity or apply the <5% suppression — don't guess; close out and let the entry mark the gap.
 - The roster doesn't join to billing (Orient's overlap check finds ~0 `external_id` ↔ `organization_id` matches) → `pattern:customer_analytics_billing_and_usage:billing-join-unlinked:team{team_id}`.

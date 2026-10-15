@@ -696,6 +696,11 @@ class BIFilterOperator(StrEnum):
     CUSTOM = "custom"
 
 
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
+
+
 class BIQueryLimit(float, Enum):
     NUMBER_100 = 100
     NUMBER_1000 = 1000
@@ -1767,6 +1772,11 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
+
+
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):

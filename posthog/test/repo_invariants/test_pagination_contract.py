@@ -105,6 +105,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
+    # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
+    "products.business_knowledge.backend.api.libraries.KnowledgeLibraryViewSet",
     "products.business_knowledge.backend.api.playground.BusinessKnowledgePlaygroundChatViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeGapSuggestionViewSet",
     "products.business_knowledge.backend.api.views.KnowledgeSourceViewSet",
@@ -211,6 +213,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.replay_vision.backend.api.vision_alerts.VisionAlertViewSet",
     "products.review_hog.backend.presentation.views.blind_spots.ReviewBlindSpotsConfigViewSet",
     "products.review_hog.backend.presentation.views.perspectives.ReviewPerspectiveConfigViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewInstallationClaimViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewRepositoryChoiceViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewRepositoryViewSet",
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",

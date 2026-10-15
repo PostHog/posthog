@@ -690,6 +690,26 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
         pass
 
 
+def send_completion_before_exec(timeout: float = 0.5) -> None:
+    """Send this invocation's ``command_completed`` before ``os.exec*`` replaces the process.
+
+    hogli sends ``command_completed`` after the command returns, and a command
+    that exec-replaces itself never returns. The wait is bounded by *timeout*.
+    The invocation is marked inactive afterwards, so an exec that fails and
+    falls through to a normal exit does not send a second event. Never raises.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return
+    root = ctx.find_root()
+    _fire_telemetry(root, 0)
+    root.meta["hogli.telemetry_active"] = False
+    try:
+        telemetry.flush(timeout)
+    except Exception:
+        pass
+
+
 def _fire_post_command_hooks(command: str | None, exit_code: int) -> None:
     """Run registered post-command hooks. Never raises."""
     for hook in post_command_hooks:

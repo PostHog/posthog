@@ -80,7 +80,7 @@ The full SQL cookbook is in [`references/queries.md`](references/queries.md) —
 
 A scheduled run can start with a `<precheck_result>` block. Its row counts the `$mcp_tool_call` events of the last 7 days, so MCP is in use. When the block is present, skip this check.
 
-If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Write one scratchpad entry and stop:
+If the profile's `surfaces["signals-scout-mcp-tool-calls"]` entry reads `in_use: false` (or, when it reads `in_use: null`, a 7-day `count()` is ~0), this project isn't using the PostHog MCP. Absence from `top_events` does not prove that, because it keeps only the top events by volume. Write one scratchpad entry and stop:
 
 - key: `not-in-use:mcp_analytics` (the scratchpad is already team-scoped — no id in the key)
 - content: brief note ("checked at {timestamp}, no $mcp_tool_call events in 7d")
@@ -90,7 +90,7 @@ If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count
 - Governed baseline: when your run prompt has a _Governed metrics_ section and `metric-list` shows an approved metric for the project-wide MCP tool-call failure rate, run it via `data-catalog-metric-run` as the baseline and refresh `pattern:mcp_analytics:baseline` from its output. Per-tool, per-category, struggle, and latency numbers stay cookbook SQL.
 - `scout-scratchpad-search` (`text=mcp`) — durable steering from past runs. `pattern:` entries hold the baseline rates and the captured **regime** (hono vs external-SDK) so you don't re-probe it cold; `noise:` / `addressed:` / `dedupe:` say what's benign, fixed, or already filed; `report:` / `reviewer:` entries point at the open report for a category and who owns it.
 - `scout-runs-list` (last 7d) — what prior MCP runs found and ruled out.
-- `scout-project-profile-get` — confirm `$mcp_tool_call` reach off `top_events`.
+- `scout-project-profile-get` — `surfaces["signals-scout-mcp-tool-calls"]` for whether MCP is in use, and `$mcp_tool_call` reach off `top_events` when it ranks there.
 - `inbox-reports-list` (`search`=a category or tool name, `ordering=-updated_at`) — the reports already in the inbox. A category you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring. Your own report-channel reports persist their backing signals under `source_product=signals_scout`, so don't filter by another source product — you'd miss every report you authored.
 
 ## Field-coverage probe

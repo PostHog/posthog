@@ -302,8 +302,8 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.9.0",
 ]
-# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Dev only:
-# no image installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
+# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Only
+# Dockerfile.dagster-ml installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
 inbox-ranking = [
     "onnx~=1.21.0",
     "onnxruntime~=1.30.0",
@@ -644,28 +644,6 @@ ignore_imports = [
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.tools",
     "products.notifications.backend.presentation.views -> products.notifications.backend.cache",
     "products.notifications.backend.presentation.views -> products.notifications.backend.models",
-    "products.review_hog.backend.presentation.views.project_settings -> products.review_hog.backend.automatic_review_rules",
-    "products.review_hog.backend.presentation.views.project_settings -> products.review_hog.backend.models",
-    "products.review_hog.backend.presentation.views.project_settings -> products.review_hog.backend.preferences",
-    "products.review_hog.backend.presentation.views.project_settings -> products.review_hog.backend.repository_settings",
-    "products.review_hog.backend.presentation.views.repositories -> products.review_hog.backend.activity_logging",
-    "products.review_hog.backend.presentation.views.repositories -> products.review_hog.backend.automatic_review_rules",
-    "products.review_hog.backend.presentation.views.repositories -> products.review_hog.backend.models",
-    "products.review_hog.backend.presentation.views.repositories -> products.review_hog.backend.ownership",
-    "products.review_hog.backend.presentation.views.repositories -> products.review_hog.backend.repository_settings",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.models",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.pr_status",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.preferences",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.requested_reviews",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.artefact_content",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.constants",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.models.issues_review",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.models.split_pr_into_chunks",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.persistence",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.progress",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.review_design",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.review_state",
-    "products.review_hog.backend.presentation.views.reviews -> products.review_hog.backend.reviewer.tools.github_meta",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
     "products.tracing.backend.presentation.views -> products.tracing.backend.has_spans_query_runner",
