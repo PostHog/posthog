@@ -1,5 +1,6 @@
 import json
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Final, cast
@@ -11,13 +12,28 @@ from django.utils import timezone
 from pydantic import JsonValue
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from posthog.schema import CachedHogQLQueryResponse, HogQLQuery, HogQLQueryResponse
+
+from posthog.hogql import ast
+from posthog.hogql.printer import to_printed_hogql
+
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.cdp.backend.mcp_event_delivery import MCP_EVENT_NAME, verify_callback
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.cdp.backend.filters import compile_filters_expr
+from products.cdp.backend.mcp_event_delivery import MCP_EVENT_MAX_BYTES, MCP_EVENT_NAME, signed_headers, verify_callback
 from products.cdp.backend.mcp_event_destination import MCPEventDestination
+from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
+from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.tasks.mcp_events import expire_mcp_event_subscriptions
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
@@ -65,6 +81,57 @@ class MCPEventSubscriptions:
         arguments = json.dumps({"project_id": self.team.pk, "filters": filters}, sort_keys=True, separators=(",", ":"))
         identity = json.dumps([self.principal, MCP_EVENT_NAME, url, arguments], separators=(",", ":"))
         return uuid5(NAMESPACE_URL, hashlib.sha256(identity.encode()).hexdigest())
+
+    def preview(self, raw_filters: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        filters = self.normalize_filters(raw_filters)
+        expression = compile_filters_expr(filters, self.team)
+        cutoff = timezone.now() - timedelta(days=7)
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=[field]) for field in ("uuid", "event", "distinct_id", "timestamp", "properties")],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    expression,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=cutoff),
+                    ),
+                ]
+            ),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            limit=ast.Constant(value=5),
+        )
+        with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.QUERY, api_queries_budgeted=True):
+            runner = HogQLQueryRunner(
+                query=HogQLQuery(query=to_printed_hogql(query, self.team)), team=self.team, user=self.user
+            )
+            runner.is_query_service = True
+            result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            assert isinstance(result, (HogQLQueryResponse, CachedHogQLQueryResponse))
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
+        restricted_event_properties = MCPEventPropertyAccess.with_group_aliases(
+            set(split_restricted_property_names(restrictions).event), team=self.team
+        )
+        examples: list[JsonValue] = []
+        for row in result.results or []:
+            properties = json.loads(row[4]) if isinstance(row[4], str) else row[4]
+            if not isinstance(properties, dict):
+                properties = {}
+            examples.append(
+                {
+                    "eventId": str(row[0]),
+                    "name": MCP_EVENT_NAME,
+                    "timestamp": row[3].isoformat() if hasattr(row[3], "isoformat") else str(row[3]),
+                    "data": {
+                        "event": str(row[1]),
+                        "distinct_id": str(row[2]),
+                        "properties": MCPEventPropertyAccess.redact(properties, restricted_event_properties),
+                    },
+                    "cursor": None,
+                }
+            )
+        return {"filters": filters, "examples": examples, "lookback_days": 7, "sample_limit": 5}
 
     def subscribe(
         self,
@@ -218,3 +285,60 @@ class MCPEventSubscriptions:
         if len(candidates) == EXPIRY_BATCH_SIZE:
             expire_mcp_event_subscriptions.delay()
         return count
+
+    def authorize_delivery(
+        self,
+        *,
+        subscription: MCPEventSubscription,
+        generation: str,
+        body: str,
+        url: str,
+        function_id: str,
+        filter_bytecode: list[JsonValue],
+    ) -> dict[str, JsonValue]:
+        if (
+            not subscription.active
+            or subscription.expires_at <= timezone.now()
+            or str(subscription.generation) != generation
+            or subscription.delivery["url"] != url
+            or str(subscription.hog_function_id) != function_id
+        ):
+            raise PermissionDenied("This subscription is no longer active.")
+        compiled_filters = subscription.hog_function.filters if subscription.hog_function is not None else None
+        if not isinstance(compiled_filters, dict) or filter_bytecode != compiled_filters.get("bytecode"):
+            raise PermissionDenied("The queued filter has changed.")
+        dependencies = compiled_filters.get("mcp_property_dependencies")
+        if not isinstance(dependencies, dict):
+            raise PermissionDenied("Renew the subscription before delivering events.")
+        MCPEventFilterAccessValidator.validate_snapshot(dependencies, team=self.team, user=self.user)
+        if len(body.encode()) > MCP_EVENT_MAX_BYTES:
+            raise ValidationError("The event exceeds the 256 KiB delivery limit.")
+        event = MCPEventEnvelopeSerializer.parse(body)
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
+        restricted_names = MCPEventPropertyAccess.with_group_aliases(
+            set(split_restricted_property_names(restrictions).event), team=self.team
+        )
+        event = replace(
+            event,
+            data=replace(event.data, properties=MCPEventPropertyAccess.redact(event.data.properties, restricted_names)),
+        )
+        serialized = MCPEventEnvelopeSerializer.render(event)
+        if len(serialized.encode()) > MCP_EVENT_MAX_BYTES:
+            raise ValidationError("The event exceeds the 256 KiB delivery limit.")
+        headers = signed_headers(
+            subscription_id=str(subscription.pk),
+            webhook_id=event.eventId,
+            body=serialized,
+            secret=subscription.delivery["secret"],
+        )
+        previous_secret_until = subscription.delivery.get("previous_secret_until")
+        if previous_secret_until and timezone.now() < datetime.fromisoformat(previous_secret_until):
+            old_headers = signed_headers(
+                subscription_id=str(subscription.pk),
+                webhook_id=event.eventId,
+                body=serialized,
+                secret=subscription.delivery["previous_secret"],
+                signed_at=int(headers["webhook-timestamp"]),
+            )
+            headers["webhook-signature"] += " " + old_headers["webhook-signature"]
+        return {"body": serialized, "headers": cast(dict[str, JsonValue], headers)}
