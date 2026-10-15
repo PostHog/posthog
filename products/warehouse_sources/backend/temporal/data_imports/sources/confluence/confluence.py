@@ -124,10 +124,11 @@ def confluence_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CONFLUENCE_ENDPOINTS[endpoint]
+    updated_at_path = config.updated_at_path
     subdomain = normalize_subdomain(subdomain)
     incremental_watermark = (
         db_incremental_field_last_value
-        if config.updated_at_path and should_use_incremental_field and incremental_field == "updated_at"
+        if updated_at_path and should_use_incremental_field and incremental_field == "updated_at"
         else None
     )
 
@@ -144,8 +145,7 @@ def confluence_source(
             "data_selector": "results",
         },
     }
-    if config.updated_at_path:
-        updated_at_path = config.updated_at_path
+    if updated_at_path:
         endpoint_resource["data_map"] = lambda row: _with_updated_at(row, updated_at_path)
 
     rest_config: RESTAPIConfig = {
@@ -157,7 +157,7 @@ def confluence_source(
             "auth": {"type": "http_basic", "username": email, "password": api_token},
             "paginator": ConfluenceLinkPaginator(
                 _site_origin(subdomain),
-                updated_at_path=config.updated_at_path if config.sort_mode == "desc" else None,
+                updated_at_path=updated_at_path if config.sort_mode == "desc" else None,
                 stop_when_updated_at_or_before=incremental_watermark,
             ),
         },
@@ -185,12 +185,12 @@ def confluence_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    if incremental_watermark is not None:
+    if incremental_watermark is not None and updated_at_path is not None:
         parsed_watermark = parse_datetime_value(incremental_watermark)
         if parsed_watermark is not None:
             resource.add_filter(
                 lambda row: (
-                    (updated_at := parse_datetime_value(row.get("updated_at"))) is None
+                    (updated_at := parse_datetime_value(_get_nested_value(row, updated_at_path))) is None
                     or updated_at >= parsed_watermark
                 )
             )
