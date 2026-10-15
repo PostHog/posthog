@@ -688,6 +688,8 @@ _NEGATIVE_OPERATOR_COMPLEMENTS = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    # The scalar semver_neq arm drops missing and non-semver values, so it is not NOT(semver_eq).
+    # Callers that negate this complement, such as array properties and logs resource filters, keep those values.
     PropertyOperator.SEMVER_NEQ: PropertyOperator.SEMVER_EQ,
 }
 
