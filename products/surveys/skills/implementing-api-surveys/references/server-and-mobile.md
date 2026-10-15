@@ -10,14 +10,15 @@ GET /api/surveys/?token=<project token>
 
 Use the PostHog host for the project's region (or the user's proxy). The project token is the public project API key, not a personal API key. The response is `{"surveys": [...]}` and holds running, non-archived surveys. It does not apply per-person eligibility. Find the survey by `id`, then decide eligibility with the server SDK's feature flag evaluation for that person:
 
-- `linked_flag_key` and `targeting_flag_key`, when set, must be enabled for the person.
-- `internal_targeting_flag_key` must be enabled. It turns off for people who already responded or dismissed, based on the person properties below.
+- `linked_flag_key`, when set, must be enabled for the person. If `conditions.linkedFlagVariant` is set, the flag must return that variant.
+- `targeting_flag_key`, when set, must be enabled.
+- `internal_targeting_flag_key` must be enabled, unless the survey can show repeatedly (`schedule` is `always`, or `conditions.events.repeatedActivation` is true with events set). It turns off for people who already responded, dismissed, or saw a survey within the wait period, based on the person properties below.
 
-Skip any flag that is null.
+Skip any flag that is null. URL, selector and device conditions describe a browser page, so apply them in your own routing if the survey uses them.
 
 ## Capture the events
 
-Capture the same events as the browser, using the properties in [event-contract.md](event-contract.md). Identify the person with `distinct_id`. Then set the person property that excludes them from the survey yourself:
+Capture the same events as the browser, using the properties in [event-contract.md](event-contract.md). Identify the person with `distinct_id`. Set the person properties that posthog-js would set: `$survey_last_seen_date` on `survey shown`, which the wait period reads, and the responded or dismissed key that excludes the person from the survey:
 
 ```js
 // Node example. Other server SDKs take the same event, properties and $set.
@@ -51,13 +52,25 @@ function dismissSurvey(posthog, distinctId, survey) {
   })
 }
 
+function showSurvey(posthog, distinctId, survey) {
+  posthog.capture({
+    distinctId,
+    event: 'survey shown',
+    properties: {
+      $survey_id: survey.id,
+      $survey_iteration: survey.current_iteration,
+      $set: { $survey_last_seen_date: new Date().toISOString() },
+    },
+  })
+}
+
 function interactionKey(survey, kind) {
-  const suffix = survey.current_iteration ? `/${survey.current_iteration}` : ''
+  const suffix = survey.current_iteration > 0 ? `/${survey.current_iteration}` : ''
   return `$survey_${kind}/${survey.id}${suffix}`
 }
 ```
 
-Use the iteration suffix only when the survey repeats (`iteration_count > 0`). `survey.current_iteration` is null otherwise. The backend writes these keys in the same form.
+This matches how posthog-js builds the key. A repeating survey has a null `current_iteration` only briefly after launch, before its first iteration starts.
 
 ## Browser rendering a server-sent survey
 

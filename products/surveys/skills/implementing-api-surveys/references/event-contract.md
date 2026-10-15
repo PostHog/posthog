@@ -10,14 +10,14 @@ These are the events and properties posthog-js sends for its own surveys. Other 
 | `survey sent`      | Each submission, partial or final                  | `$survey_id`, `$survey_iteration`, `$survey_submission_id`, `$survey_completed`, `$survey_questions`, `$survey_response_<question_id>` |
 | `survey dismissed` | The respondent closes the survey without answering | `$survey_id`, `$survey_iteration`                                                                                                      |
 
-`$survey_iteration` is `survey.current_iteration` (null when the survey does not repeat).
+`$survey_iteration` is `survey.current_iteration`.
 
 ## Property values
 
 - `$survey_submission_id`: one UUID per submission, reused for the partial sends and the final send.
 - `$survey_completed`: `true` on the final send, `false` on a partial send.
 - `$survey_questions`: `survey.questions.map(({ id, question }) => ({ id, question }))`.
-- `$survey_response_<question_id>`: keyed by the question's id from `posthog:survey-get`. Rating as a string (`"9"`). Multiple choice as an array of strings. Open text as a string. Omit unanswered questions.
+- `$survey_response_<question_id>`: keyed by the question's id from `posthog:survey-get`. Rating as a number (`9`); a numeric string also works. Multiple choice as an array of strings. Open text as a string. Omit unanswered questions.
 
 ## Person properties that exclude the person afterwards
 
@@ -26,7 +26,7 @@ These are the events and properties posthog-js sends for its own surveys. Other 
 | `survey sent`      | `$survey_responded/<id>` or `$survey_responded/<id>/<iteration>` |
 | `survey dismissed` | `$survey_dismissed/<id>` or `$survey_dismissed/<id>/<iteration>` |
 
-Use the iteration form when the survey has `iteration_count > 0`. Targeting flags read these keys, so a person who has them set stops matching the survey. posthog-js 1.249.2 and newer sets them on capture in the browser. Server SDKs must set them with `$set`.
+Use the iteration form when `current_iteration` is greater than 0, as posthog-js does. Targeting flags read these keys, so a person who has them set stops matching the survey. posthog-js 1.249.2 and newer sets them on capture in the browser. Server SDKs must set them with `$set`.
 
 ## Counting and billing
 

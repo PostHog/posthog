@@ -27,7 +27,7 @@ Before writing UI, find:
 
 - The framework and the existing component library or design system. Build the survey from those components, not a generic modal.
 - Where PostHog is initialized, and the installed SDK and version (`package.json` or lockfile, or the server language's manifest).
-- Where the survey should appear. If the trigger is an event, route or user state, wire that trigger in the app. PostHog does not do it for `api` surveys.
+- Where the survey should appear. Pick one owner for the trigger. Either keep the survey's own `conditions` (events, URL, selector), and `getActiveMatchingSurveys` returns it only once they match, or leave those conditions empty and decide in app code. Doing both hides the survey.
 
 Pick the path:
 
@@ -38,20 +38,24 @@ Pick the path:
 
 Require posthog-js 1.249.2 or newer. Older versions do not set the person properties and seen state on capture. Tell the user to upgrade rather than adding them by hand.
 
-Fetch the survey after flags load. Flag-based targeting needs flags, and the callback fires once.
+Fetch the survey after flags load, because targeting is evaluated with flags. `onFeatureFlags` runs again on every flag reload (after `identify`, and after each response), so guard against rendering twice.
 
 ```js
+let rendered = false
 posthog.onFeatureFlags(() => {
+  if (rendered) return
   posthog.getActiveMatchingSurveys((surveys) => {
     const survey = surveys.find((s) => s.id === SURVEY_ID)
-    if (survey) renderSurvey(survey)
+    if (!survey || rendered) return
+    rendered = true
+    renderSurvey(survey)
   })
 })
 ```
 
-`getActiveMatchingSurveys` applies the survey's targeting for this person. Render only what it returns.
+`SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
 
-Capture three events. Exact property names and value shapes are in [event-contract.md](references/event-contract.md).
+Capture three events. `answers` maps each question id to its answer, and holds every answer given so far in this submission. Exact property names and value shapes are in [event-contract.md](references/event-contract.md).
 
 ```js
 function onShown(survey) {
@@ -86,7 +90,8 @@ Rules that cause silent data problems:
 
 - Generate one `$survey_submission_id` (`crypto.randomUUID()`) when the respondent starts, and reuse it for every send of that submission. PostHog deduplicates and bills responses by this id. Events without it each count as a separate response.
 - `$survey_completed` is `false` for a partial send and `true` for the final send.
-- Ratings go as strings. Multiple choice goes as an array of strings. Send a `$survey_response_<question_id>` key only for answered questions.
+- Send every answer so far on each send, not only the newest one. PostHog keeps the latest event per submission id.
+- Ratings go as a number, as posthog-js sends them. Multiple choice goes as an array of strings. Send a `$survey_response_<question_id>` key only for answered questions.
 - Dismiss means close without answering. Do not send `survey dismissed` after a final `survey sent`.
 
 ## 4. Do not set seen state by hand in the browser
@@ -97,7 +102,7 @@ posthog-js sets `$survey_responded/<id>[/<iteration>]` or `$survey_dismissed/...
 
 Ask the user to trigger the survey once in the real app and submit it. Then:
 
-1. Call `posthog:surveys-responses-list` for the survey `id`. Rows resolve question text server-side. Confirm the answer appears under the right question and the shape is right (string for rating, list for multiple choice).
+1. Call `posthog:surveys-responses-list` for the survey `id`. Rows resolve question text server-side. Confirm the answer appears under the right question, and that multiple choice answers arrive as a list.
 2. Call `posthog:survey-stats` for the survey `id`. Confirm `shown` and `sent` counts moved, and that one submission is one response, not two.
 3. If nothing arrives, check the project token and that `survey sent` appears in the live events, then follow `debugging-surveys`. Do not guess.
 
