@@ -96991,6 +96991,11 @@ export namespace Schemas {
          * @nullable
          */
       total: number | null;
+      /** What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` describes the last completed turn, which can differ. Null until the turn records its mode, shortly before its review sessions start.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
     }
 
     export interface ReviewResolutionStatus {
