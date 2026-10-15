@@ -299,7 +299,7 @@ export interface insightDataLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined
@@ -356,7 +356,7 @@ export interface insightDataLogicActions {
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards: number[] | null
+            dashboards?: number[] | undefined
             deleted: boolean
             derived_name?: string | null | undefined
             description?: string | undefined

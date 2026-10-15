@@ -50,6 +50,7 @@ import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import {
     filtersPlaceholderBindings,
@@ -3149,10 +3150,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // dropping the insight's existing dashboard links.
                 const dashboardId = values.dashboardId
                 if (dashboardId) {
-                    const existingDashboardIds = [
-                        ...(values.editingInsight.dashboard_tiles?.map((tile) => tile.dashboard_id) ?? []),
-                        ...(values.editingInsight.dashboards ?? []),
-                    ]
+                    const existingDashboardIds = liveDashboardIds(values.editingInsight.dashboard_tiles)
                     insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
                 }
 

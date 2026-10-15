@@ -38,6 +38,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    TextChoices,
     Value,
     When,
 )
@@ -178,6 +179,7 @@ from products.tasks.backend.repository_config_analytics import (
     repositories_differ,
 )
 from products.tasks.backend.visibility import (
+    PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
     scout_trial_visibility_q,
     task_control_q,
@@ -6926,6 +6928,46 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
+#: Built from the two source classes, so a new origin product becomes a source without an edit here.
+#: Product-private origin products are left out because the task list never shows their tasks.
+# django-stubs types only the class-body form of TextChoices; Django supports this functional form.
+TaskListSource = TextChoices(  # type: ignore[call-overload]
+    "TaskListSource",
+    [
+        # The value is also the label, so the API docs show "posthog_ai", not a title-cased "Posthog Ai".
+        (source.upper(), (source, source))
+        for source in sorted(
+            {
+                *TaskClientProvenance.values,
+                *(
+                    product
+                    for product in Task.OriginProduct.values
+                    if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
+                ),
+            }
+        )
+    ],
+)
+
+
+def _task_sources_q(sources: list[str]) -> Q:
+    user_created = Q(origin_product=Task.OriginProduct.USER_CREATED)
+    matches = Q(pk__in=[])
+    for source in sources:
+        if source == TaskClientProvenance.POSTHOG_DESKTOP:
+            # A user-created task with no other known client counts as desktop, the same as the desktop app.
+            matches |= user_created & ~Q(
+                client_provenance__in=[TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB]
+            )
+        elif source == TaskClientProvenance.POSTHOG_WEB:
+            # PostHog AI runs in the web app, so the desktop app shows its tasks as web tasks too.
+            matches |= (user_created & Q(client_provenance=source)) | Q(origin_product=Task.OriginProduct.POSTHOG_AI)
+        elif source in TaskClientProvenance.values:
+            matches |= user_created & Q(client_provenance=source)
+        else:
+            matches |= Q(origin_product=source)
+    return matches
+
 
 def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
@@ -6945,6 +6987,10 @@ def _list_tasks_queryset(
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
+
+    sources = filters.get("sources")
+    if sources:
+        qs = qs.filter(_task_sources_q(sources))
 
     stage = filters.get("stage")
     if stage:
