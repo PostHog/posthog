@@ -942,8 +942,10 @@ class HogQLQueryExecutor:
             )
 
             workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
-                workload = clickhouse_context.workload
+            table_workload = clickhouse_context.workload
+            # Logs, spans and metrics tables exist only on the logs cluster, so the caller's workload cannot move them.
+            if table_workload == Workload.LOGS or (workload == Workload.DEFAULT and table_workload is not None):
+                workload = table_workload
             if use_new_events_cluster(self.team.pk, self.query_modifiers):
                 if get_query_tags().product == Product.ENDPOINTS or workload not in (
                     Workload.DEFAULT,

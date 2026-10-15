@@ -51,6 +51,7 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.workload import Workload
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
@@ -444,6 +445,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
         mock_sync_execute.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("events_offline", "SELECT 1 FROM events", Workload.OFFLINE, Workload.OFFLINE),
+            ("spans_default", "SELECT 1 FROM posthog.trace_spans", Workload.DEFAULT, Workload.LOGS),
+            ("spans_offline", "SELECT 1 FROM posthog.trace_spans", Workload.OFFLINE, Workload.LOGS),
+        ]
+    )
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_logs_cluster_tables_run_on_the_logs_workload(
+        self, _name, query, requested, expected, mock_sync_execute
+    ) -> None:
+        execute_hogql_query(query, team=self.team, workload=requested)
+
+        self.assertEqual(mock_sync_execute.call_args.kwargs["workload"], expected)
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_clickhouse_query_short_circuits_on_empty_sql(self, mock_sync_execute):
