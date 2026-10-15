@@ -15,6 +15,7 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ConnectedAppApi,
     DataDeletionPreviewApi,
     DataDeletionRequestApi,
     DataDeletionRequestCreateApi,
@@ -149,6 +150,36 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOauthConnectedAppsListUrl = () => {
+    return `/api/oauth/connected-apps/`
+}
+
+/**
+ * Returns all OAuth applications that can currently act as the requesting user, whether they hold an unexpired access token or an unrevoked refresh token.
+ * @summary List connected OAuth applications
+ */
+export const oauthConnectedAppsList = async (options?: RequestInit): Promise<ConnectedAppApi[]> => {
+    return apiMutator<ConnectedAppApi[]>(getOauthConnectedAppsListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOauthConnectedAppsRevokeCreateUrl = (id: string) => {
+    return `/api/oauth/connected-apps/${id}/revoke/`
+}
+
+/**
+ * Revokes all tokens and grants for the specified application for the current user.
+ * @summary Revoke a connected OAuth application
+ */
+export const oauthConnectedAppsRevokeCreate = async (id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getOauthConnectedAppsRevokeCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
