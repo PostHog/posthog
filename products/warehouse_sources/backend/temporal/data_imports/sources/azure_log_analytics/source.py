@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_
     azure_log_analytics_source,
     discover_tables,
     parse_table_names,
+    table_unreadable_reason,
     validate_credentials as validate_log_analytics_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.settings import (
@@ -38,7 +39,8 @@ def log_analytics_schemas(table_names: list[str]) -> list[SourceSchema]:
         SourceSchema(
             name=table_name,
             supports_incremental=True,
-            supports_append=True,
+            # The watermark re-reads its boundary and the last hour, which only merge dedupes.
+            supports_append=False,
             incremental_fields=INCREMENTAL_FIELDS,
             default_incremental_lookback_seconds=INGESTION_LOOKBACK_SECONDS,
         )
@@ -171,6 +173,22 @@ List the tables to sync, one per line, for example `AppRequests` or `MyEvents_CL
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def get_endpoint_permissions(
+        self,
+        config: AzureLogAnalyticsSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        client = AzureLogAnalyticsClient(
+            config.tenant_id,
+            config.client_id,
+            config.client_secret,
+            config.workspace_id,
+            structlog.get_logger(__name__),
+        )
+        return {endpoint: table_unreadable_reason(client, endpoint) for endpoint in endpoints}
 
     def validate_credentials(
         self,

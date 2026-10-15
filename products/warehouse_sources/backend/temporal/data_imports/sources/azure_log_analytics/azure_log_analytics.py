@@ -1,7 +1,8 @@
 import re
 import json
+import time
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -32,15 +33,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 # A query runs for up to three minutes server-side before Log Analytics cancels it.
 REQUEST_TIMEOUT_SECONDS = (30, 200)
-# Five attempts with each wait capped at a minute keeps one request's throttle waits under the
-# five-minute hold the source contract allows, whatever Retry-After asks for.
 MAX_RETRY_ATTEMPTS = 5
 MAX_BACKOFF_SECONDS = 60.0
+# One request with its retries and waits holds the worker for five minutes at most (the source
+# contract), so a retry only starts when a full-length attempt still fits in the budget.
+RETRY_BUDGET_SECONDS = 300.0
+MAX_REQUEST_SECONDS = float(sum(REQUEST_TIMEOUT_SECONDS))
+# A page that hits a result-size or execution limit is read again with half as many rows.
+MIN_PAGE_SIZE = 100
 
 _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 # The cursor values are embedded in KQL, so they must keep the exact shape Log Analytics returns.
 _DATETIME_LITERAL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$")
-_ITEM_ID_LITERAL_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
+_ITEM_ID_LITERAL_RE = re.compile(r"^[A-Za-z0-9-]{0,128}$")
 # TimeGenerated as KQL renders it (100 ns precision), so the cursor matches rows exactly. Dropped
 # from every row before it is yielded.
 CURSOR_COLUMN = "__posthog_cursor"
@@ -52,12 +57,19 @@ class AzureLogAnalyticsRetryableError(Exception):
     pass
 
 
+class AzureLogAnalyticsPartialResultError(ValueError):
+    """The query hit a service limit and returned only part of its rows."""
+
+    pass
+
+
 @frozen
 class AzureLogAnalyticsResumeConfig:
-    # The last row of the last page staged: its TimeGenerated exactly as returned (100 ns
-    # precision, which a Python datetime cannot hold) and its _ItemId as the tie-breaker.
+    # Where the next page starts: after this TimeGenerated (exactly as KQL renders it, 100 ns
+    # precision, which a Python datetime cannot hold) and this _ItemId. An empty item_id means
+    # "at or after" the time, which starts a day window or a watermark.
     time_generated: str
-    item_id: str
+    item_id: str = ""
 
 
 def validate_workspace_id(workspace_id: str) -> str:
@@ -170,6 +182,7 @@ class AzureLogAnalyticsClient:
         url = f"{API_HOST}/v1/workspaces/{self._workspace_id}/query"
         attempt = 0
         reminted = False
+        started = time.monotonic()
 
         while True:
             token = self._token or self.mint_token()
@@ -188,11 +201,12 @@ class AzureLogAnalyticsClient:
 
             if response.status_code == 429 or response.status_code >= 500:
                 attempt += 1
-                if attempt >= MAX_RETRY_ATTEMPTS:
+                delay = _backoff_seconds(response, attempt)
+                elapsed = time.monotonic() - started
+                if attempt >= MAX_RETRY_ATTEMPTS or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS:
                     raise AzureLogAnalyticsRetryableError(
                         f"Azure Log Analytics error (retryable): status={response.status_code}"
                     )
-                delay = _backoff_seconds(response, attempt)
                 self._logger.debug(
                     f"Azure Log Analytics throttled: status={response.status_code}, sleeping {delay}s (attempt {attempt})"
                 )
@@ -216,7 +230,9 @@ def rows_from_response(payload: Any) -> list[dict[str, Any]]:
     # syncing those as if complete would lose the rest silently.
     if isinstance(payload.get("error"), dict):
         error = payload["error"]
-        raise ValueError(f"Azure Log Analytics returned a partial result: {error.get('code')} {error.get('message')}")
+        raise AzureLogAnalyticsPartialResultError(
+            f"Azure Log Analytics returned a partial result: {error.get('code')} {error.get('message')}"
+        )
     tables = payload.get("tables") or []
     if not tables:
         return []
@@ -262,28 +278,54 @@ def _format_datetime_literal(value: Any) -> str:
 
 def build_query(
     table: str,
-    resume: AzureLogAnalyticsResumeConfig | None,
-    watermark: Any,
+    after: AzureLogAnalyticsResumeConfig,
+    before: str | None,
     page_size: int,
 ) -> str:
     if not TABLE_NAME_RE.match(table):
         raise ValueError(f"{table!r} is not a valid Log Analytics table name.")
+    for literal in (after.time_generated, before):
+        if literal is not None and not _DATETIME_LITERAL_RE.match(literal):
+            raise ValueError("Azure Log Analytics cursor has an unexpected shape")
+    if not _ITEM_ID_LITERAL_RE.match(after.item_id):
+        raise ValueError("Azure Log Analytics cursor has an unexpected shape")
+
+    moment = f"datetime({after.time_generated})"
     # Re-assigning _ItemId makes it a visible column in the result.
     lines = [table, f"| extend {ITEM_ID_FIELD} = {ITEM_ID_FIELD}, {CURSOR_COLUMN} = tostring({TIMESTAMP_FIELD})"]
-    if resume is not None:
-        if not _DATETIME_LITERAL_RE.match(resume.time_generated) or not _ITEM_ID_LITERAL_RE.match(resume.item_id):
-            raise ValueError("Azure Log Analytics resume cursor has an unexpected shape")
-        moment = f"datetime({resume.time_generated})"
+    if after.item_id:
         lines.append(
             f"| where {TIMESTAMP_FIELD} > {moment} or "
-            f"({TIMESTAMP_FIELD} == {moment} and strcmp({ITEM_ID_FIELD}, '{resume.item_id}') > 0)"
+            f"({TIMESTAMP_FIELD} == {moment} and strcmp({ITEM_ID_FIELD}, '{after.item_id}') > 0)"
         )
-    elif watermark is not None:
-        lines.append(f"| where {TIMESTAMP_FIELD} >= datetime({_format_datetime_literal(watermark)})")
+    else:
+        lines.append(f"| where {TIMESTAMP_FIELD} >= {moment}")
+    if before is not None:
+        lines.append(f"| where {TIMESTAMP_FIELD} < datetime({before})")
     # _ItemId breaks ties, so a page that ends inside one TimeGenerated value resumes without gaps.
     lines.append(f"| sort by {TIMESTAMP_FIELD} asc, {ITEM_ID_FIELD} asc")
     lines.append(f"| take {page_size}")
     return "\n".join(lines)
+
+
+def window_end(after: AzureLogAnalyticsResumeConfig, today: date) -> str | None:
+    """The end of the one-day window the cursor sits in, or None for today's open-ended window.
+
+    Each page sorts only the rows left in one day, so a backfill never re-scans the whole table
+    for every page. The last window has no end, so rows stamped in the future still sync.
+    """
+    day = date.fromisoformat(after.time_generated[:10])
+    if day >= today:
+        return None
+    return f"{(day + timedelta(days=1)).isoformat()}T00:00:00Z"
+
+
+def _first_cursor(client: AzureLogAnalyticsClient, table: str, watermark: Any) -> AzureLogAnalyticsResumeConfig | None:
+    if watermark is not None:
+        return AzureLogAnalyticsResumeConfig(time_generated=_format_datetime_literal(watermark))
+    rows = client.query(f"{table} | summarize start = min({TIMESTAMP_FIELD}) | project start = tostring(start)")
+    start = str(rows[0].get("start") or "") if rows else ""
+    return AzureLogAnalyticsResumeConfig(time_generated=start) if start else None
 
 
 def get_rows(
@@ -296,22 +338,48 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
         logger.debug(f"Azure Log Analytics: resuming {table} after {resume.time_generated}")
+    after = resume or _first_cursor(client, table, watermark)
+    if after is None:
+        return
 
+    today = datetime.now(UTC).date()
+    page_size = PAGE_SIZE
     while True:
-        rows = client.query(build_query(table, resume, watermark, PAGE_SIZE))
-        if not rows:
-            return
-        last = rows[-1]
-        resume = AzureLogAnalyticsResumeConfig(
-            time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
-        )
+        before = window_end(after, today)
+        try:
+            rows = client.query(build_query(table, after, before, page_size))
+        except AzureLogAnalyticsPartialResultError:
+            if page_size <= MIN_PAGE_SIZE:
+                raise
+            page_size = max(MIN_PAGE_SIZE, page_size // 2)
+            logger.debug(f"Azure Log Analytics: {table} page hit a service limit, retrying with {page_size} rows")
+            continue
+
+        window_done = len(rows) < page_size
+        if not window_done:
+            last = rows[-1]
+            after = AzureLogAnalyticsResumeConfig(
+                time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
+            )
+        elif before is not None:
+            after = AzureLogAnalyticsResumeConfig(time_generated=before)
+        elif rows:
+            last = rows[-1]
+            after = AzureLogAnalyticsResumeConfig(
+                time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
+            )
         for row in rows:
             row.pop(CURSOR_COLUMN, None)
-        if len(rows) >= PAGE_SIZE:
-            # Staged before the yield it covers: the pipeline commits it once this page is written.
-            resumable_source_manager.save_state(resume)
-        yield rows
-        if len(rows) < PAGE_SIZE:
+
+        # Staged before the yield it covers, the final page included: the pipeline commits it once
+        # the page is written.
+        resumable_source_manager.save_state(after)
+        if rows:
+            yield rows
+        else:
+            # A day with no rows yields nothing; the pipeline only sees a shutdown at an item or here.
+            resumable_source_manager.safe_point()
+        if window_done and before is None:
             return
 
 
@@ -320,6 +388,23 @@ def discover_tables(client: AzureLogAnalyticsClient) -> list[str]:
         f"Usage | where TimeGenerated > ago({DISCOVERY_LOOKBACK_DAYS}d) | distinct DataType | sort by DataType asc"
     )
     return [str(row["DataType"]) for row in rows if TABLE_NAME_RE.match(str(row.get("DataType") or ""))]
+
+
+def table_unreadable_reason(client: AzureLogAnalyticsClient, table: str) -> str | None:
+    """Why the query API cannot read `table`, or None when it can.
+
+    Basic and Auxiliary plan tables are only readable through the search API, and the query API
+    rejects them with a 400. A throttle or an outage is not a reason, so those count as readable.
+    """
+    try:
+        client.query(f"{table} | take 0")
+    except requests.HTTPError as error:
+        if getattr(error.response, "status_code", None) == 400:
+            return f"Log Analytics can't query this table. Basic and Auxiliary plan tables aren't supported.{_error_description(error.response)}"
+        return None
+    except (AzureLogAnalyticsRetryableError, requests.RequestException):
+        return None
+    return None
 
 
 def _probe_failure_message(error: Exception, table: str | None) -> str:
