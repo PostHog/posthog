@@ -17,6 +17,7 @@ on:
 
 permissions:
     contents: read
+    actions: read
 
 jobs:
     sql-evals:
@@ -96,6 +97,15 @@ jobs:
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT="$pythonLocation" uv sync --frozen --dev
+
+            - name: Restore pre-migrated test database
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TEST: '1'
+                  SELF_CAPTURE: '0'
+              run: |
+                  bin/hogli db:download-schema
+                  bin/hogli db:restore-test-db
 
             - name: Install the local LLM gateway
               working-directory: services/llm-gateway
