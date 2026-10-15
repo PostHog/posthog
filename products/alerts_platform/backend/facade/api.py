@@ -47,9 +47,22 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return platform_lifecycle.slot_of(next_check_at, cutoff)
 
 
-def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
+def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copy one of a source's own configurations in. True when it created the row."""
-    return platform_lifecycle.upsert_configuration(upsert)
+    return platform_lifecycle.upsert_configuration(upsert, revive=revive)
+
+
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+    """Copy one configuration in only when its team already runs that source here.
+
+    `revive` says the source alert was just created or turned back on, so the copy starts clean.
+    """
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
+
+
+def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
+    """Write a source's current settings onto its copy, leaving the schedule and state alone."""
+    platform_lifecycle.refresh_settings(team_id, configuration_id, upsert)
 
 
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
@@ -57,9 +70,13 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     return platform_lifecycle.take_ownership(handover)
 
 
-def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:
-    """Switch off a source's copies, or one team's. Returns how many it switched off."""
-    return platform_lifecycle.disable_configurations(source_kind.value, team_id=team_id)
+def disable_configurations(
+    source_kind: SourceKind, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switch off a source's copies, or one team's, or the copies of named source alerts. Returns how many it switched off."""
+    return platform_lifecycle.disable_configurations(
+        source_kind.value, team_id=team_id, legacy_configuration_ids=legacy_configuration_ids
+    )
 
 
 def list_configurations(

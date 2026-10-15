@@ -15,15 +15,17 @@ later edit can still be customized.
 
 from __future__ import annotations
 
-from collections.abc import Collection
+import hashlib
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
-from products.alerts.backend.facade.contracts import DestinationEligibility, DestinationHoldBack
+from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility, DestinationHoldBack
 from products.alerts.backend.logic.destination_configs import (
     SPEC_BY_TEMPLATE_ID,
     WEBHOOK_HEADERS,
+    SlackDestination,
     WebhookDestination,
     added_webhook_headers,
     input_value,
@@ -39,13 +41,34 @@ EDIT_TRACKING_STARTED: Final = datetime(2026, 8, 4, tzinfo=UTC)
 # A function is saved in the moments after it is built. A later save means a person changed it.
 RESAVED_AFTER: Final = timedelta(seconds=60)
 
-_WEBHOOK_INPUT_HOLD_BACKS: Final = {
-    "body": DestinationHoldBack.WEBHOOK_BODY,
-    "method": DestinationHoldBack.WEBHOOK_METHOD,
+# An edited input missing here changes the message.
+_INPUT_HOLD_BACKS: Final[dict[str, dict[str, DestinationHoldBack]]] = {
+    WebhookDestination.template_id: {
+        "body": DestinationHoldBack.WEBHOOK_BODY,
+        "method": DestinationHoldBack.WEBHOOK_METHOD,
+    },
+    SlackDestination.template_id: {
+        "icon_emoji": DestinationHoldBack.MESSAGE_COSMETIC,
+        "username": DestinationHoldBack.MESSAGE_COSMETIC,
+    },
 }
 
 _DERIVED_FILTER_KEYS: Final = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
 
+
+_BUCKET_BY_HOLD_BACK: Final = {
+    DestinationHoldBack.REFUSED_ADDRESS: DestinationBucket.REFUSED_ADDRESS,
+    DestinationHoldBack.NO_TEMPLATE: DestinationBucket.CODE,
+    DestinationHoldBack.CODE: DestinationBucket.CODE,
+    DestinationHoldBack.MESSAGE_COSMETIC: DestinationBucket.COSMETIC,
+    DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER: DestinationBucket.TEMPLATED_HEADERS,
+    DestinationHoldBack.WEBHOOK_HEADERS: DestinationBucket.STATIC_HEADERS,
+}
+_BUCKET_ORDER: Final = tuple(DestinationBucket)
+
+
+# The alert-id match is an OR of JSON containment clauses, so a team's alerts are read in batches.
+_ALERT_BATCH_SIZE: Final = 200
 
 # Only these receive alert events. Any other function on the same event id reads captured events.
 _RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__source": "internal-events"}
@@ -62,6 +85,44 @@ def classify_alert_destinations(
         .filter(**_RECEIVES_ALERT_EVENTS)
         .order_by("created_at", "id")
     )
+    return _classify(team_id, functions)
+
+
+def classify_destinations_by_alert(
+    *, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, tuple[DestinationEligibility, ...]]:
+    """The destination functions of several alerts of one team, keyed by alert id."""
+    by_alert: dict[str, list[DestinationEligibility]] = {alert_id: [] for alert_id in alert_ids}
+    for start in range(0, len(alert_ids), _ALERT_BATCH_SIZE):
+        batch = set(alert_ids[start : start + _ALERT_BATCH_SIZE])
+        functions = list(
+            owned_alert_destinations_qs(
+                team_id=team_id, alert_ids=batch, allowed_event_ids=allowed_event_ids, known_templates_only=False
+            )
+            .filter(**_RECEIVES_ALERT_EVENTS)
+            .order_by("created_at", "id")
+        )
+        for function, eligibility in zip(functions, _classify(team_id, functions)):
+            for alert_id in _named_alert_ids(function.filters) & batch:
+                by_alert[alert_id].append(eligibility)
+    return {alert_id: tuple(eligibilities) for alert_id, eligibilities in by_alert.items()}
+
+
+def classify_unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str]
+) -> tuple[DestinationEligibility, ...]:
+    """Every unbound destination function of a team, with what native delivery cannot carry for each."""
+    unbound_ids = unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+    if not unbound_ids:
+        return ()
+    return _classify(
+        team_id, list(HogFunction.objects.filter(team_id=team_id, id__in=unbound_ids).order_by("created_at", "id"))
+    )
+
+
+def _classify(team_id: int, functions: list[HogFunction]) -> tuple[DestinationEligibility, ...]:
+    if not functions:
+        return ()
     first_revisions: dict[UUID, HogFunctionRevision] = {
         revision.hog_function_id: revision
         for revision in HogFunctionRevision.objects.for_team(team_id)
@@ -75,9 +136,16 @@ def classify_alert_destinations(
             hog_function_id=function.id,
             template_id=function.template_id,
             hold_backs=_hold_backs(function, first_revisions.get(function.id)),
+            code_hash=hashlib.md5((function.hog or "").encode(), usedforsecurity=False).hexdigest(),
         )
         for function in functions
     )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    buckets = {_BUCKET_BY_HOLD_BACK.get(hold_back, DestinationBucket.PORTABLE) for hold_back in eligibility.hold_backs}
+    return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
 
 
 def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
@@ -101,6 +169,16 @@ def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[st
     return tuple(function_id for function_id, filters in candidates if not _bound_to_one_alert(filters))
 
 
+def _named_alert_ids(filters: Any) -> set[str]:
+    # Matches `owned_alert_destinations_qs`, which reads an alert id under any operator.
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    return {
+        prop["value"]
+        for prop in properties or ()
+        if isinstance(prop, dict) and prop.get("key") == "alert_id" and isinstance(prop.get("value"), str)
+    }
+
+
 def _bound_to_one_alert(filters: Any) -> bool:
     # Only an exact match on one alert id scopes a function to that alert. Any other operator,
     # such as `is_not`, still lets it fire for other alerts.
@@ -115,10 +193,13 @@ def _bound_to_one_alert(filters: Any) -> bool:
 
 
 def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | None) -> tuple[DestinationHoldBack, ...]:
-    template_id = function.template_id or ""
+    template_id = function.template_id
+    if not template_id:
+        return (DestinationHoldBack.NO_TEMPLATE,)
+    code_edited = first_revision is not None and function.hog != first_revision.content.get("hog")
     spec = SPEC_BY_TEMPLATE_ID.get(template_id)
     if spec is None:
-        return (DestinationHoldBack.UNRECOGNIZED_TEMPLATE,)
+        return (DestinationHoldBack.OTHER_TEMPLATE, *((DestinationHoldBack.CODE,) if code_edited else ()))
 
     found: list[DestinationHoldBack] = []
     if function.masking:
@@ -145,7 +226,7 @@ def _hold_backs(function: HogFunction, first_revision: HogFunctionRevision | Non
 
     first_snapshot = first_revision.content
 
-    if function.hog != first_snapshot.get("hog"):
+    if code_edited:
         found.append(DestinationHoldBack.CODE)
     if function.inputs_schema != first_snapshot.get("inputs_schema"):
         found.append(DestinationHoldBack.CUSTOM_INPUTS)
@@ -177,10 +258,7 @@ def _input_hold_backs(
             continue
         if value == first_value and _templating(inputs, key) == _templating(first_inputs, key):
             continue
-        if is_webhook and key in _WEBHOOK_INPUT_HOLD_BACKS:
-            found.append(_WEBHOOK_INPUT_HOLD_BACKS[key])
-        else:
-            found.append(DestinationHoldBack.MESSAGE)
+        found.append(_INPUT_HOLD_BACKS.get(template_id, {}).get(key, DestinationHoldBack.MESSAGE))
     return found
 
 

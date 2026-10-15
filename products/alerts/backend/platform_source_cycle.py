@@ -63,6 +63,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
     increment_state_transition,
     record_scheduler_lag,
@@ -82,6 +83,8 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # The history row's error for a check ClickHouse refused for load. Stable, because a comparison
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
+
+SLOT_KEY_PREFIX = "slot:"
 
 # Real-time is the most expensive cadence and the one production holds to a tighter budget, so the
 # parallel run leaves it out until it agrees with production elsewhere.
@@ -155,6 +158,7 @@ def plan_insight_batch(
             admitted=len(admitted),
             deferred=len(candidates) - len(admitted),
         )
+        safe_record(increment_checks_deferred, SourceKind.INSIGHT.value, len(candidates) - len(admitted))
     return tuple(admitted)
 
 
@@ -225,7 +229,22 @@ def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
 
 def _evaluation_key(check: PlatformAlertCheckInput, cutoff: datetime) -> str:
     """The due slot. An insight check is one scheduled run, not a window, so the slot names it."""
-    return f"slot:{slot_of(check.next_check_at, cutoff)}"
+    return evaluation_key_for_slot(slot_of(check.next_check_at, cutoff))
+
+
+def evaluation_key_for_slot(slot: str) -> str:
+    return f"{SLOT_KEY_PREFIX}{slot}"
+
+
+def slot_of_evaluation_key(evaluation_key: str) -> datetime | None:
+    """The due slot a key names, or None for another shape. Kept beside the minter, so a change to
+    one breaks the other's tests rather than the comparison silently."""
+    if not evaluation_key.startswith(SLOT_KEY_PREFIX):
+        return None
+    try:
+        return datetime.fromisoformat(evaluation_key.removeprefix(SLOT_KEY_PREFIX))
+    except ValueError:
+        return None
 
 
 def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str) -> PlatformAlertOutcome:

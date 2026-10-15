@@ -16,20 +16,24 @@ the shared machine configured with this source's policy, not from the logs produ
 
 import time
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from django.conf import settings
 
 import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -57,6 +61,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
     increment_deliveries_deferred,
     increment_notifications_muted,
@@ -78,6 +83,7 @@ from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKin
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_alert_backfill import platform_upsert_of
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -104,6 +110,14 @@ BATCH_QUERY_BUDGET_SECONDS = 25
 MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
+# With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
+# query never runs after its slot frees for another batch.
+CHECKPOINT_QUERY_SECONDS = 10
+
+INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
+# Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
+# enough that a worker that dies mid-batch frees its slot within a minute.
+BATCH_SLOT_LEASE_SECONDS = 60
 
 
 @frozen
@@ -134,12 +148,19 @@ class LogsAlertCondition:
             window_minutes=condition["window_minutes"],
         )
 
-    def as_source_config(self) -> dict[str, int | str]:
-        return {
-            "threshold_count": self.threshold_count,
-            "threshold_operator": self.threshold_operator,
-            "window_minutes": self.window_minutes,
-        }
+
+# The copy's settings a check takes from the logs alert as it is now. The schedule stays the
+# platform's own once the copy exists.
+_SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+# The snooze lives on the alert row rather than the copy, and no history row states it.
+_LIVE_FIELDS: Final = (*_SETTINGS_FIELDS, "snooze_until")
 
 
 def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
@@ -147,8 +168,6 @@ def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
     every check in the batch, so one malformed row would otherwise stop the whole batch."""
     try:
         LogsAlertCondition.of(check)
-    except (KeyError, TypeError):
-        return "The alert's threshold is missing from its configuration"
     except ValueError as error:
         return f"The alert's threshold is invalid: {error}"
     return None
@@ -376,7 +395,7 @@ def _request(
     announcement, because a paging destination needs one resolve for every trigger. An alert
     with no such destination gets no incident action, so its edges start no delivery.
     """
-    destination_alert_id = str(check.legacy_configuration_id or check.id)
+    destination_alert_id = str(check.legacy_configuration_id)
     incident_action = decide_incident_action(
         AlertState(check.state), outcome.new_state, policy=PLATFORM_LOGS_ALERT_POLICY
     )
@@ -555,6 +574,72 @@ def _evaluate_cohort(
     return decided
 
 
+def _as_configured_now(
+    checks: Sequence[PlatformAlertCheckInput], *, team_id: int, now: datetime
+) -> tuple[list[PlatformAlertCheckInput], list[Decision]]:
+    """Reads each check's logs alert, so the check evaluates what the logs stack evaluates.
+
+    The copy is a seed, so an edit made in the logs product since the backfill lives only on the
+    logs row. Evaluating the copy as stored would read that drift as disagreement. A drifted copy's
+    settings are written back before it is evaluated, because history and messages read the stored
+    copy, so a message would otherwise quote the old threshold. The write leaves the schedule alone,
+    so a retried attempt finds the same checks due. A changed check interval still needs a backfill.
+
+    A copy whose logs alert is gone or disabled stops: the logs stack runs no check for it, so it
+    switches itself off, and the next backfill turns it back on if the alert is enabled again.
+    """
+    legacy_ids = [check.legacy_configuration_id for check in checks]
+    alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
+    current: list[PlatformAlertCheckInput] = []
+    stopped: list[Decision] = []
+    for check in checks:
+        alert = alerts.get(check.legacy_configuration_id)
+        if alert is None or not alert.enabled:
+            stopped.append(_stopped(check, now=now))
+            continue
+        if not isinstance(alert.filters, dict):
+            # The copy cannot be built, and raising would stop every other check in the batch.
+            stopped.append(
+                _held(
+                    check,
+                    apply_broken_config(_snapshot(check, ())),
+                    skip=SkipReason.BROKEN_CONFIG,
+                    now=now,
+                    error_message="The alert's filters are not an object.",
+                )
+            )
+            continue
+        upsert = platform_upsert_of(alert)
+        if any(getattr(check, field) != getattr(upsert, field) for field in _SETTINGS_FIELDS):
+            try:
+                refresh_settings(team_id, check.id, upsert)
+            except Exception:
+                # History records the stored copy, so the check evaluates that copy and stays true to it.
+                logger.exception("Failed to bring a platform logs copy up to date", check_id=str(check.id))
+                current.append(check)
+                continue
+        current.append(replace(check, **{field: getattr(upsert, field) for field in _LIVE_FIELDS}))
+    return current, stopped
+
+
+def _stopped(check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
+    """A check whose logs alert no longer runs. It leaves the state alone and disables the copy."""
+    unchanged = ControlPlaneOutcome(new_state=AlertState(check.state), consecutive_failures=check.consecutive_failures)
+    recorded = _recorded(
+        check,
+        outcome=unchanged,
+        evaluation_key=_evaluation_key(check, now),
+        kind=AlertEventKind.CHECK,
+        notified=False,
+        now=now,
+        disable=True,
+    )
+    _record_check_metrics(
+        check, new_state=check.state, notification=NotificationAction.NONE, skip=SkipReason.SOURCE_RULE, now=now
+    )
+    return recorded, None
+
+
 def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name: str) -> _Triage:
     """Splits a batch into the checks a query can answer, the ones already decided, and the muted.
 
@@ -632,20 +717,47 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
+    # One slot per batch, because a batch runs its cohort queries one after another, so the batches
+    # in flight bound the parallel run's concurrent queries across the fleet. A batch the pool turns
+    # away records nothing, so its checks stay due and a later tick finds them again.
+    # Unique per execution: a redispatch of a batch whose old query still runs must hold its own slot.
+    member = f"{team_id}:{slot}:{uuid4().hex}"
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+        safe_record(increment_checks_deferred, SourceKind.LOGS.value, len(checks))
+        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
+    try:
+        return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
+    finally:
+        release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _evaluate_admitted(
+    team_id: int, slot: str, cutoff: datetime, checks: Sequence[PlatformAlertCheckInput], *, started_at: float
+) -> SourceBatchEvaluation:
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
-    triage = _triage(checks, now=cutoff, tz_name=team.timezone)
+    current, stopped = _as_configured_now(checks, team_id=team_id, now=cutoff)
+    triage = _triage(current, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:
         # Returns before the checkpoint query below, which nothing left would use.
-        return _collect(triage.decided, team_id, slot, started_at)
-    decided = list(triage.decided)
+        return _collect([*stopped, *triage.decided], team_id, slot, started_at)
+    decided = [*stopped, *triage.decided]
 
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
     try:
-        checkpoint = fetch_live_logs_checkpoint(team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS)
+        checkpoint = fetch_live_logs_checkpoint(
+            team, ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS, max_execution_time=CHECKPOINT_QUERY_SECONDS
+        )
     except Exception as error:
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None

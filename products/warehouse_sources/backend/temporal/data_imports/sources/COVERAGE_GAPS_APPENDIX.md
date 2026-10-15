@@ -5286,7 +5286,7 @@ Today (14): `campaign_discount_codes`, `campaign_members`, `campaign_teams`, `ca
 
 Diffed against: <https://givebutter.com/docs/api.json>
 
-- [ ] `Messages (GET /v1/messages)` — compare donor outreach volume, delivery status, recipient counts, and campaign timing with donation activity (medium)
+- [x] `Messages (GET /v1/messages)` — compare donor outreach volume, delivery status, recipient counts, and campaign timing with donation activity (medium) Added as `messages` (full refresh). The endpoint accepts no timestamp filter.
 
 Note: Parsed all GET operations in the official OpenAPI specification and compared them with the static endpoint catalog. Household responses already contain contacts, so the household contacts endpoint adds no missing membership data. Excluded webhook activity, webhook management, and SSO operations.
 
@@ -6711,9 +6711,9 @@ Today (5): `events`, `markets`, `milestones`, `series`, `trades`
 
 Diffed against: <https://docs.kalshi.com/openapi.yaml>
 
-- [ ] `Market candlesticks (GET /trade-api/v2/markets/candlesticks)` — analyze price, volume, and liquidity trends using historical time buckets (high)
-- [ ] `Historical markets (GET /trade-api/v2/historical/markets)` — retain archived contracts needed to interpret older trades and long-term market outcomes (high)
-- [ ] `Historical trades (GET /trade-api/v2/historical/trades)` — recover trades before the historical cutoff for complete volume and price history (high)
+- [x] `Market candlesticks (GET /trade-api/v2/markets/candlesticks)` — analyze price, volume, and liquidity trends using historical time buckets (high)
+- [x] `Historical markets (GET /trade-api/v2/historical/markets)` — retain archived contracts needed to interpret older trades and long-term market outcomes (high)
+- [x] `Historical trades (GET /trade-api/v2/historical/trades)` — recover trades before the historical cutoff for complete volume and price history (high)
 - [ ] `Positions (GET /trade-api/v2/portfolio/positions; GET /trade-api/v2/historical/positions)` — measure account exposure, realized profit, and trading fees for current and archived positions (high)
 - [ ] `Fills (GET /trade-api/v2/portfolio/fills; GET /trade-api/v2/historical/fills)` — analyze account execution prices, fees, and trading volume across current and archived fills (high)
 - [ ] `Settlements (GET /trade-api/v2/portfolio/settlements)` — reconcile settled contracts with payouts and account trading results (high)
@@ -10587,10 +10587,10 @@ Today (13): `cloud_resources`, `controls`, `devices`, `framework_requirements`, 
 
 Diffed against: <https://developer.secureframe.com/>
 
-- [ ] `poam_items (GET /poam_items)` — Plan of Action & Milestones — the open remediation backlog with owners and due dates (high)
-- [ ] `framework_asset_scopes (GET /devices/{id}/framework_asset_scopes, /cloud_resources/{id}/…, /repositories/{id}/…)` — the join that says which framework each already-synced asset is in scope for; without it assets can't be filtered by framework (high)
-- [ ] `ssp_policies (GET /ssp_policies)` — the policy inventory, a compliance object with no equivalent in the current tables (medium)
-- [ ] `comments (GET /comments)` — remediation discussion attached to controls, tests and risks — the activity trail (medium)
+- [x] `poam_items (GET /poam_items)` — Plan of Action & Milestones — the open remediation backlog with owners and due dates (high)
+- [x] `framework_asset_scopes (GET /devices/{id}/framework_asset_scopes, /cloud_resources/{id}/…, /repositories/{id}/…)` — the join that says which framework each already-synced asset is in scope for; without it assets can't be filtered by framework (high)
+- [x] `ssp_policies (GET /ssp_policies)` — the policy inventory, a compliance object with no equivalent in the current tables (medium)
+- [x] `comments (GET /comments)` — remediation discussion attached to controls, tests and risks — the activity trail (medium)
 - [ ] `trust_center_requests (GET /trust_center_requests)` — inbound access requests to the trust center, a demand signal worth trending (medium)
 - [ ] `ssp_report_assessment_objectives (GET /ssp_report_assessment_objectives)` — per-objective assessment results underpinning control status (medium)
 - [ ] `ssp_reports (GET /ssp_reports)` — System Security Plan report headers, the parent for all ssp\_\* sections (low)
@@ -10990,10 +10990,10 @@ Today (2): `logs`, `workflows`
 
 Diffed against: <https://docs.sim.ai/openapi.json>
 
-- [ ] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
-- [ ] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
-- [ ] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
-- [ ] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
+- [x] `List Workflow Versions (GET /api/v2/workflows/{workflowId}/versions)` — resolve deploymentVersionId in execution logs and compare failures across deployment versions (high)
+- [x] `List Workspaces (GET /api/v2/workspaces)` — resolve workspaceId in workflows and compare automation activity across workspaces (high)
+- [x] `List Tables and List Rows (GET /api/v2/tables; GET /api/v2/tables/{tableId}/rows)` — analyze records created by automation, including enrichment outcomes attached to table rows (high)
+- [x] `List Organization Usage Events (GET /api/v2/organizations/{organizationId}/usage/events)` — measure credit consumption across workflows, chat, and other usage sources (high)
 - [ ] `List Billing Logs (GET /api/v2/billing/logs)` — reconcile credit charges with automation activity over time (medium)
 - [ ] `List Audit Logs (GET /api/v2/audit-logs)` — track changes to workflows and workspace resources for governance analysis (medium)
 - [ ] `List Workspace Members (GET /api/v2/workspaces/{workspaceId}/members)` — analyze workspace membership and inherited organization access (medium)
@@ -12153,10 +12153,10 @@ Today (4): `ad_revenue_report`, `app_report`, `campaign_report`, `sk_ad_network_
 
 Diffed against: <https://api-docs.tenjin.com/assets/index-BBavDbPH.js>
 
-- [ ] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
-- [ ] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
+- [x] `Cohort retention and revenue reports (GET /v2/reports/spend?metrics=users_1d,sessions_1d,retention_1d,revenues_1d,roas_1d)` — measure retention and return on advertising spend, which the fixed spend metric set cannot produce (high)
+- [x] `Spend by campaign and country (GET /v2/reports/spend?group_by=campaign,country)` — compare acquisition costs and conversion rates across countries within each campaign (medium)
 - [ ] `Spend by creative (GET /v2/reports/spend?group_by=creative)` — compare creative performance and identify inefficient advertising spend (medium)
-- [ ] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
+- [x] `Ad revenue by placement (GET /v2/reports/ad_revenue?group_by=ad_placement)` — compare monetization revenue and efficiency across advertising placements (medium)
 - [ ] `SKAN Apple reports (GET /v2/reports/skan_apple)` — analyze Apple-sourced SKAdNetwork postbacks alongside network-sourced reports (medium)
 - [ ] `Campaigns (GET /v2/campaigns)` — add campaign metadata and account relationships to daily campaign performance reports (medium)
 
