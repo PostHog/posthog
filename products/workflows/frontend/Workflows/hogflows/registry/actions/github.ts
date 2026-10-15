@@ -53,5 +53,17 @@ registerActionNodeCategory({
             description: 'Close, reopen, or edit the title or body of an issue or pull request.',
             config: { template_id: 'template-github-update-issue', inputs: {} },
         },
+        {
+            type: 'function',
+            name: 'Assign users',
+            description: 'Assign users to an issue or pull request.',
+            config: { template_id: 'template-github-add-assignees', inputs: {} },
+        },
+        {
+            type: 'function',
+            name: 'Request reviewers',
+            description: 'Request reviews from users or teams on a pull request.',
+            config: { template_id: 'template-github-request-reviewers', inputs: {} },
+        },
     ],
 })

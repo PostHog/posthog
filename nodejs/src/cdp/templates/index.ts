@@ -8,11 +8,13 @@ import { template as clickupTemplate } from './_destinations/clickup/clickup.tem
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
+import { template as githubAddAssigneesTemplate } from './_destinations/github/github-add-assignees.template'
 import { template as githubAddLabelsTemplate } from './_destinations/github/github-add-labels.template'
 import { template as githubCreateCommentTemplate } from './_destinations/github/github-create-comment.template'
 import { template as githubFindCommentTemplate } from './_destinations/github/github-find-comment.template'
 import { template as githubGetPullRequestTemplate } from './_destinations/github/github-get-pull-request.template'
 import { template as githubRemoveLabelTemplate } from './_destinations/github/github-remove-label.template'
+import { template as githubRequestReviewersTemplate } from './_destinations/github/github-request-reviewers.template'
 import { template as githubUpdateIssueTemplate } from './_destinations/github/github-update-issue.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
@@ -139,6 +141,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     githubRemoveLabelTemplate,
     githubGetPullRequestTemplate,
     githubUpdateIssueTemplate,
+    githubAddAssigneesTemplate,
+    githubRequestReviewersTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
