@@ -31,13 +31,25 @@ from posthog.personhog_client.proto import (
     WriteDistinctIdsRequest,
 )
 
-from . import datatypes, lookups, observe, repairs, team_scan
+from . import datatypes, lookups, observe, repairs, restore_verbs, team_scan
 
 # The most rows a personhog repair write takes in one call.
 WRITE_BATCH_SIZE = 250
 
 # A key whose last recorded outcome is one of these needs nothing more, so a resumed run skips it.
-DONE_OUTCOMES = frozenset({"repaired", "tombstoned", "republished", "buried", "detached", "already_detached"})
+DONE_OUTCOMES = frozenset(
+    {
+        "repaired",
+        "tombstoned",
+        "republished",
+        "buried",
+        "detached",
+        "already_detached",
+        "restored",
+        "already_restored",
+        "folded",
+    }
+)
 
 
 class VerbError(Exception):
@@ -77,6 +89,14 @@ class VerbContext:
                 group=row.get("group"),
                 outcome=outcome,
                 detail=detail,
+            )
+        )
+
+    def emit_extra(self, *, kind: str, key: str, group: str | None, outcome: str, **detail: Any) -> None:
+        """Record an action on a key the report has no row for, such as the old person of a merge."""
+        self.emit(
+            VerbAction(
+                verb=self.verb, team_id=self.team_id, kind=kind, key=key, group=group, outcome=outcome, detail=detail
             )
         )
 
@@ -417,4 +437,7 @@ VERBS: dict[str, VerbFn] = {
     "merge_stale": merge_stale,
     "bury": bury,
     "detach_stray": detach_stray,
+    "restore": restore_verbs.restore,
+    "fold": restore_verbs.fold,
+    "merge": restore_verbs.merge,
 }
