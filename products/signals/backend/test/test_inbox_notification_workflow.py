@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -23,6 +23,7 @@ from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     _compute_inbox_notification_state,
     _send_report_inbox_notifications,
+    start_report_inbox_notification_workflow,
 )
 
 TASK_QUEUE = "test-inbox-notification-queue"
@@ -119,6 +120,24 @@ def test_send_skips_when_report_not_ready(team):
         sent = _send_report_inbox_notifications(team.id, str(report.id))
     assert sent == 0
     mock_dispatch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_start_report_inbox_notification_workflow_uses_standard_flow() -> None:
+    client = AsyncMock()
+    with patch(
+        "products.signals.backend.temporal.inbox_notification.async_connect",
+        new=AsyncMock(return_value=client),
+    ):
+        await start_report_inbox_notification_workflow(team_id=17, report_id="report-id")
+
+    client.start_workflow.assert_awaited_once()
+    args, kwargs = client.start_workflow.await_args
+    assert args == (
+        SignalReportInboxNotificationWorkflow.run,
+        InboxNotificationInput(team_id=17, report_id="report-id"),
+    )
+    assert kwargs["id"] == SignalReportInboxNotificationWorkflow.workflow_id_for(17, "report-id")
 
 
 class _Recorder:
