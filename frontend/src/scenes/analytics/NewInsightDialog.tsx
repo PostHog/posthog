@@ -39,7 +39,7 @@ export function NewInsightDialog(): JSX.Element {
                     <DialogTitle>New insight</DialogTitle>
                     <DialogDescription>Start from the question you want answered.</DialogDescription>
                 </DialogHeader>
-                <DialogBody className="flex flex-col gap-5">
+                <DialogBody className="@container/new-insight flex flex-col gap-5">
                     {sections.map((section) => (
                         <InsightSection key={section.title} section={section} />
                     ))}
@@ -56,7 +56,7 @@ function InsightSection({ section }: { section: QuestionSection }): JSX.Element 
                 <ItemTitle>{section.title}</ItemTitle>
                 <ItemDescription>{section.description}</ItemDescription>
             </div>
-            <ItemGroup className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+            <ItemGroup className="grid grid-cols-2 gap-2 @3xl/new-insight:grid-cols-4">
                 {section.cards.map((spec) => (
                     <InsightCard key={spec.key} spec={spec} />
                 ))}

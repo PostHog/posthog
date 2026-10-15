@@ -762,6 +762,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 return
             }
             if (changed) {
+                // A cold open with filters is a visit too, so it reports `views list loaded` like a plain one.
+                cache.visitStartedAt = performance.now()
+                cache.visitCached = false
                 actions.setFiltersFromUrl(filters)
             } else {
                 // A visit shows the last loaded rows at once and reads again, so a new item shows up on return.

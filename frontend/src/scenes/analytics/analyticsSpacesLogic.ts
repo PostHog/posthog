@@ -265,6 +265,9 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             false,
             { loadSpaces: () => false, loadSpacesSuccess: () => false, loadSpacesFailure: () => true },
         ],
+        // The last loaded shortcuts persist, so starred spaces show at once on the next visit and refresh in place.
+        // pinned: storage key for the persisted shortcuts. Renaming it blanks everyone's sidebar until the load.
+        shortcuts: [[] as FileSystemEntry[], { persist: true }, {}],
         // The path being starred or unstarred, so its button shows progress and ignores a second click.
         starring: [null as string | null, { toggleStar: (_, { space }) => space.path, toggleStarDone: () => null }],
         deletingSpace: [

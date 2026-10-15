@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -271,4 +273,38 @@ export const ListError: Story = {
 
 export const ListSpace: Story = {
     parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
+}
+
+export const ListShareDialog: Story = {
+    parameters: { pageUrl: urls.analyticsList() },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-list-row-share]')).toBeTruthy())
+        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-list-row-share]')!)
+        await canvas.findAllByText('Finance')
+    },
+}
+
+export const ListSpaceDeleteDialog: Story = {
+    parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-space-manage]')).toBeTruthy())
+        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-space-manage]')!)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-space-delete]')).toBeTruthy())
+        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-space-delete]')!)
+        await canvas.findByText('Delete "Growth"')
+    },
+}
+
+export const ListNewInsightDialog: Story = {
+    parameters: { pageUrl: urls.analyticsList() },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-list-new]')).toBeTruthy())
+        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-list-new]')!)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-new-insight]')).toBeTruthy())
+        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-new-insight]')!)
+        await canvas.findByText('How does it change over time?')
+    },
 }
