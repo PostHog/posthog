@@ -484,8 +484,8 @@ class VercelIntegration:
     def refresh_installation_account(installation: OrganizationIntegration) -> None:
         installation_id = installation.integration_id
         access_token = VercelIntegration._get_access_token(installation)
-        if not access_token:
-            raise RuntimeError(f"No access token for Vercel installation {installation_id}")
+        if not installation_id or not access_token:
+            raise RuntimeError(f"Vercel installation row {installation.pk} has no installation ID or access token")
 
         account = VercelAPIClient(bearer_token=access_token).get_installation_account(installation_id)
 
