@@ -170,19 +170,25 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
             assert self.database.call_args.kwargs["user"] is self.user
             assert self.database.call_args.kwargs["bypass_warehouse_access_control"] is False
 
-    def test_only_selected_sources_and_current_period_need_coverage(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_only_selected_sources_and_current_period_need_coverage(self, ready: bool) -> None:
         assert self.query.marketingAnalyticsCostFallback is not None
         self.query.marketingAnalyticsCostFallback.sourceIds = ["b"]
+        self.query.marketingAnalyticsCostFallback.series = self.live_series[1:]
         self.query.compareFilter = CompareFilter(compare=False)
-        self.ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        self.ensure.return_value = LazyComputationResult(ready=ready, job_ids=[])
         result = self.runner().resolve_query()
-        series = result.series[0]
-        assert isinstance(series, DataWarehouseNode)
-        assert series.table_name == "marketing_costs_precomputed"
-        assert series.properties is not None
-        source_filter = series.properties[-1]
-        assert isinstance(source_filter, DataWarehousePropertyFilter)
-        assert source_filter.value == ["b"]
+        if ready:
+            series = result.series[0]
+            assert isinstance(series, DataWarehouseNode)
+            assert series.table_name == "marketing_costs_precomputed"
+            assert series.properties is not None
+            source_filter = series.properties[-1]
+            assert isinstance(source_filter, DataWarehousePropertyFilter)
+            assert source_filter.value == ["b"]
+        else:
+            assert result.series == self.live_series[1:]
+            assert result.breakdownFilter is None
         assert self.ensure.call_count == 1
         assert self.ensure.call_args.kwargs["insert_query"].select == [ast.Constant(value="b")]
 

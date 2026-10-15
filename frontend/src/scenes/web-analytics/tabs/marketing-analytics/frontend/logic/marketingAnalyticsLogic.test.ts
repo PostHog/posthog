@@ -1011,6 +1011,18 @@ describe('marketingAnalyticsLogic', () => {
             expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
         ])
         expect(logic.values.hasSyncedMarketingSources).toBe(true)
+        expect(logic.values.marketingChartSourceIds).toEqual([sourceId])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+            expect.objectContaining({ id: tableId, table_name: table.name }),
+        ])
+        logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+        expect(logic.values.marketingChartSourceIds).toEqual([])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([])
+        logic.actions.setIntegrationFilter({ integrationSourceIds: [sourceId] })
+        expect(logic.values.marketingChartSourceIds).toEqual([sourceId])
+        expect(logic.values.createMarketingDataWarehouseNodes).toEqual([
+            expect.objectContaining({ id: tableId, table_name: table.name }),
+        ])
         if (type === 'managed') {
             for (const status of [ExternalDataSchemaStatus.Running, ExternalDataSchemaStatus.Failed, undefined]) {
                 databaseTableListLogic.actions.loadDatabaseSuccess({
