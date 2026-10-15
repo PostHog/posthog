@@ -99,10 +99,6 @@ jobs:
                   DOCKER_METADATA_ANNOTATIONS_LEVELS: index
               with:
                   images: ${{ steps.aws-ecr.outputs.registry }}/${{ env.ECR_IMAGE }}
-                  labels: |
-                      org.opencontainers.image.title=posthog
-                      org.opencontainers.image.url=https://github.com/PostHog/posthog
-                      org.opencontainers.image.source=https://github.com/PostHog/posthog
                   annotations: |
                       org.opencontainers.image.title=posthog
                       org.opencontainers.image.url=https://github.com/PostHog/posthog
