@@ -432,10 +432,15 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
                 _create_event(team=self.team, event=WIDELY_SENT_EVENT, distinct_id="real", timestamp=sent_at + gap)
         flush_persons_and_events()
 
-        result = self._check(self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}]))
+        never_sent_twice = {"kind": "EventsNode", "event": SENT_ON_THE_FREE_PLAN}
+        query = self._query(
+            [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}, never_sent_twice], kind="StickinessQuery"
+        )
+
+        result = self._check(query)
 
         duplicates = next(check for check in result.checks if check.key == DUPLICATES)
-        assert duplicates.events == 10
+        assert (duplicates.events, duplicates.top_events) == (10, [WIDELY_SENT_EVENT])
 
     @parameterized.expand(
         [

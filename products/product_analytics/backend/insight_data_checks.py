@@ -224,7 +224,7 @@ def _top_three(values_by_key: tuple[list[str], list[int]] | None) -> list[str]:
         return []
     keys, values = values_by_key
     ranked = sorted(zip(keys, values), key=lambda key_and_value: key_and_value[1], reverse=True)
-    return [key for key, _ in ranked if key][:3]
+    return [key for key, value in ranked if key and value > 0][:3]
 
 
 def _count_events_per_day(
