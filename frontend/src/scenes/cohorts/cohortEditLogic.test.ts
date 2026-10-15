@@ -456,10 +456,17 @@ describe('cohortEditLogic', () => {
             })
         })
 
-        it('does not delete the cohort when the editor closes during the workflow check', async () => {
+        it.each([
+            ['delete', (): void => logic.actions.deleteCohort()],
+            ['blocked save', (): void => logic.actions.saveCohort()],
+        ])('does nothing after the %s workflow check when the editor has closed', async (_, start) => {
             let releaseLookup: () => void = () => {}
             const lookupHeld = new Promise<void>((resolve) => {
                 releaseLookup = resolve
+            })
+            let lookupStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => {
+                lookupStarted = resolve
             })
             let lookupAnswered: () => void = () => {}
             const answered = new Promise<void>((resolve) => {
@@ -468,22 +475,27 @@ describe('cohortEditLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/cohorts/:id/blocking_workflows/': async () => {
+                        lookupStarted()
                         await lookupHeld
                         lookupAnswered()
-                        return [200, { results: [], total: 0, hidden: 0, has_more: false }]
+                        return [200, blockingWorkflows]
                     },
                 },
             })
             await initCohortLogic({ id: 1 })
+            // The cohorts list keeps the modal logic mounted after the editor closes.
+            cohortBlockingWorkflowsModalLogic.mount()
             const deleteSpy = jest.spyOn(cohortsModel.actions, 'deleteCohort')
 
-            logic.actions.deleteCohort()
+            start()
+            await started
             logic.unmount()
             releaseLookup()
             await answered
             await expectLogic(cohortsModel).toFinishAllListeners()
 
             expect(deleteSpy).not.toHaveBeenCalled()
+            expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(null)
         })
 
         it('lists the blocking workflows when the API refuses an edit that stops realtime updates', async () => {

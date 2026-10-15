@@ -999,6 +999,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                         if (error.code === COHORT_USED_BY_WORKFLOWS_ERROR_CODE && typeof cohort.id === 'number') {
                             const workflows = await loadBlockingWorkflows(values.currentProjectId, cohort.id)
+                            breakpoint()
                             if (workflows) {
                                 actions.openBlockingWorkflowsModal({
                                     action: 'edit',

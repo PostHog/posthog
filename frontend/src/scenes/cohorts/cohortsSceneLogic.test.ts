@@ -185,6 +185,19 @@ describe('cohortsSceneLogic', () => {
                 has_more: false,
             })
 
+            it('deletes every cohort when a second delete starts before the first check finishes', async () => {
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                useMocks({ get: { '/api/projects/:team/cohorts/:id/blocking_workflows/': workflowsBlock(0) } })
+
+                await expectLogic(logic, () => {
+                    logic.actions.requestDeleteCohort({ id: 1 })
+                    logic.actions.requestDeleteCohort({ id: 2 })
+                }).toDispatchActions([
+                    logic.actionCreators.deleteCohort({ id: 1 }),
+                    logic.actionCreators.deleteCohort({ id: 2 }),
+                ])
+            })
+
             it.each([
                 ['lists the blocking workflows instead of deleting', 1],
                 ['deletes when no workflow relies on the cohort', 0],
