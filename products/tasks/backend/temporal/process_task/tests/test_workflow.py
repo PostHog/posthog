@@ -1518,6 +1518,56 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
     )
 
 
+@pytest.mark.parametrize("timing_enabled", [False, True])
+@pytest.mark.parametrize("same_run_resume", [False, True])
+async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
+    monkeypatch, timing_enabled, same_run_resume
+):
+    instance = ProcessTaskWorkflow()
+    instance._context = _build_context(github_integration_id=123)
+    instance._context.state = {
+        "startup_requested_at": "2026-01-01T00:00:00+00:00",
+        "same_run_resume": same_run_resume,
+    }
+    instance._startup_worker_started_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC) if timing_enabled else None
+    instance._startup_context_loaded_at = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC) if timing_enabled else None
+    now = datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC)
+    instance._chain_started_at = now
+    instance._agent_ready_at = now
+    track = AsyncMock()
+    monkeypatch.setattr(instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=now))
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "info",
+        Mock(return_value=SimpleNamespace(start_time=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC))),
+    )
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", Mock())
+
+    instance._schedule_boot_milestone("agent_first_activity_observed")
+    await instance._flush_boot_telemetry_tasks()
+
+    properties = track.call_args.args[1]
+    if timing_enabled:
+        assert properties["startup_requested_at"] == "2026-01-01T00:00:00+00:00"
+        assert properties["workflow_accepted_at"] == "2026-01-01T00:00:01+00:00"
+        assert properties["worker_started_at"] == "2026-01-01T00:00:02+00:00"
+        assert properties["context_loaded_at"] == "2026-01-01T00:00:03+00:00"
+        assert properties["observed_at"] == now.isoformat()
+        if same_run_resume:
+            assert "since_startup_requested_ms" not in properties
+            assert "handoff_ms" not in properties
+        else:
+            assert properties["since_startup_requested_ms"] == 10000
+            assert properties["handoff_ms"] == 1000
+        assert properties["worker_wait_ms"] == 1000
+        assert properties["task_setup_ms"] == 1000
+    else:
+        assert "startup_requested_at" not in properties
+        assert "observed_at" not in properties
+        assert "since_startup_requested_ms" not in properties
+
+
 @pytest.mark.parametrize(
     ("origin_product", "team_id"),
     [

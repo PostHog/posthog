@@ -1,19 +1,21 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { type MetricsSeriesRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
@@ -25,6 +27,7 @@ function SamplesTab(): JSX.Element {
     const { hasMetricName } = useValues(metricsViewerLogic)
     const { timezone } = useValues(teamLogic)
     const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -87,7 +90,18 @@ function SamplesTab(): JSX.Element {
                                         ts: sample.timestamp,
                                     })}
                                     className="font-mono"
-                                    onClick={() => tracePivotClicked(sample)}
+                                    onClick={(event) => {
+                                        tracePivotClicked(sample)
+                                        openTraceDialog(
+                                            event,
+                                            {
+                                                traceId: sample.trace_id,
+                                                spanId: sample.span_id || null,
+                                                ts: sample.timestamp,
+                                            },
+                                            { entryPoint: 'metric_sample' }
+                                        )
+                                    }}
                                 >
                                     {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
                                     <span data-attr="metrics-trace-pivot">
@@ -110,28 +124,68 @@ function SamplesTab(): JSX.Element {
     )
 }
 
-const SEPARATOR_SEGMENTS = /[^/._:-]*[/._:-]?/g
+const SCROLL_INTERVAL_MS = 16
+const SCROLL_STEP_PX = 8
 
-/** One `key=value` label with the key muted, so the values are easy to scan.
- * With `wrap`, `<wbr>` lets a long value break after `=` and after separators instead of mid-word.
- * Chrome breaks at `<wbr>` even in nowrap text, so truncated names must not get it. */
-function SeriesNamePart({ part, wrap = false }: { part: string; wrap?: boolean }): JSX.Element {
-    const separatorIndex = part.indexOf('=')
-    if (separatorIndex < 1) {
-        return <>{part}</>
+/** Scrolls long labels sideways, with hold-to-scroll buttons on hover as in the logs table. */
+function HorizontalScroll({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const contentRef = useRef<HTMLDivElement>(null)
+    const intervalRef = useRef<number | null>(null)
+    const [canScroll, setCanScroll] = useState(false)
+
+    const stopScrolling = (): void => {
+        if (intervalRef.current !== null) {
+            clearInterval(intervalRef.current)
+            intervalRef.current = null
+        }
     }
-    const value = part.slice(separatorIndex + 1)
-    const segments = wrap ? (value.match(SEPARATOR_SEGMENTS)?.filter(Boolean) ?? [value]) : [value]
+    const startScrolling = (direction: 'left' | 'right'): void => {
+        stopScrolling()
+        const step = (): void =>
+            scrollRef.current?.scrollBy({ left: direction === 'left' ? -SCROLL_STEP_PX : SCROLL_STEP_PX })
+        step()
+        intervalRef.current = window.setInterval(step, SCROLL_INTERVAL_MS)
+    }
+    useEffect(() => stopScrolling, [])
+
     return (
-        <>
-            <span className="text-tertiary">{part.slice(0, separatorIndex + 1)}</span>
-            {segments.map((segment, index) => (
-                <Fragment key={index}>
-                    {wrap && <wbr />}
-                    {segment}
-                </Fragment>
-            ))}
-        </>
+        <div
+            className={clsx('relative min-w-0 group/scroll', className)}
+            onMouseEnter={() => {
+                const element = scrollRef.current
+                const content = contentRef.current
+                setCanScroll(!!element && !!content && content.offsetWidth > element.clientWidth)
+            }}
+        >
+            <div ref={scrollRef} className="overflow-x-auto hide-scrollbar whitespace-nowrap">
+                <div className="flex w-max">
+                    <div ref={contentRef}>{children}</div>
+                    {/* Lets the end of the text scroll clear of the buttons. */}
+                    {canScroll && <div className="w-20 shrink-0" />}
+                </div>
+            </div>
+            {canScroll && (
+                <LogRowScrollButtons
+                    onStartScrolling={startScrolling}
+                    onStopScrolling={stopScrolling}
+                    className="group-hover/scroll:opacity-100"
+                />
+            )}
+        </div>
+    )
+}
+
+function LabelValue({ value }: { value: string }): JSX.Element {
+    return value ? <>{value}</> : <span className="text-tertiary italic">(empty)</span>
+}
+
+/** Compact so the series column keeps its width. The tooltip has the exact value. */
+function SeriesValue({ value }: { value: number }): JSX.Element {
+    return (
+        <Tooltip title={humanFriendlyNumber(value, 2)}>
+            <span className="font-mono">{humanFriendlyLargeNumber(value)}</span>
+        </Tooltip>
     )
 }
 
@@ -140,6 +194,8 @@ function SeriesTab(): JSX.Element {
     const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
     const { seriesRowExpanded } = useActions(metricsUsageTrackingLogic)
     const [expandedNames, setExpandedNames] = useState<string[]>([])
+    // A row can lose its distinct labels after a filter change while its name stays in expandedNames.
+    const isRowExpanded = (row: MetricsSeriesRow): boolean => row.labels.length > 0 && expandedNames.includes(row.name)
 
     return (
         <LemonTable
@@ -148,22 +204,22 @@ function SeriesTab(): JSX.Element {
             size="small"
             rowKey={(row: MetricsSeriesRow) => row.name}
             emptyState={hasMetricName ? 'No series in the selected range.' : 'Pick a metric to see its series.'}
-            rowClassName={(row) => (expandedNames.includes(row.name) ? '[&>td]:align-top' : null)}
+            rowClassName={(row) => (isRowExpanded(row) ? '[&>td]:align-top' : null)}
             columns={[
                 {
                     key: 'toggle',
                     width: 0,
                     render: (_, row) => {
-                        if (!row.hasLabels) {
+                        if (!row.labels.length) {
                             return null
                         }
-                        const isExpanded = expandedNames.includes(row.name)
+                        const isExpanded = isRowExpanded(row)
                         return (
                             <LemonButton
                                 noPadding
                                 active={isExpanded}
                                 icon={isExpanded ? <IconCollapse /> : <IconExpand />}
-                                title={isExpanded ? 'Show less' : 'Show full series name'}
+                                title={isExpanded ? 'Show less' : 'Show the labels of this series'}
                                 onClick={() => {
                                     if (isExpanded) {
                                         setExpandedNames(expandedNames.filter((name) => name !== row.name))
@@ -182,7 +238,7 @@ function SeriesTab(): JSX.Element {
                     key: 'series',
                     width: '100%',
                     render: (_, row) => {
-                        const isExpanded = expandedNames.includes(row.name)
+                        const isExpanded = isRowExpanded(row)
                         return (
                             <span className={clsx('flex gap-1.5', isExpanded ? 'items-start' : 'items-center')}>
                                 <span
@@ -190,26 +246,33 @@ function SeriesTab(): JSX.Element {
                                     // Dynamic per-series colour can't be a Tailwind class.
                                     style={{ backgroundColor: getColorVar(row.color) }}
                                 />
-                                {isExpanded ? (
-                                    // wrap-anywhere keeps the min-content width small, so long values wrap instead of widening the column.
-                                    <span className="flex-1 min-w-0 flex flex-col gap-1">
-                                        {row.nameParts.map((part, index) => (
-                                            <span key={index} className="wrap-anywhere pl-3 -indent-3">
-                                                <SeriesNamePart part={part} wrap />
-                                            </span>
-                                        ))}
-                                    </span>
-                                ) : (
-                                    // w-0 + min-w-full fills the column without the text widening it.
-                                    <span className="w-0 min-w-full truncate" title={row.name}>
-                                        {row.nameParts.map((part, index) => (
-                                            <Fragment key={index}>
-                                                {index > 0 && ', '}
-                                                <SeriesNamePart part={part} />
-                                            </Fragment>
-                                        ))}
-                                    </span>
-                                )}
+                                <HorizontalScroll className="w-0 flex-1">
+                                    {isExpanded ? (
+                                        <div className="flex flex-col gap-1">
+                                            {row.labels.map(([key, value], index) => (
+                                                <span key={key}>
+                                                    {index === 0 && row.prefix}
+                                                    <span className="text-tertiary">{key}=</span>
+                                                    <LabelValue value={value} />
+                                                </span>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <span title={row.name}>
+                                            {row.labels.length
+                                                ? [
+                                                      row.prefix,
+                                                      ...row.labels.map(([key, value], index) => (
+                                                          <Fragment key={key}>
+                                                              {index > 0 && <span className="text-tertiary"> · </span>}
+                                                              <LabelValue value={value} />
+                                                          </Fragment>
+                                                      )),
+                                                  ]
+                                                : row.fallbackName}
+                                        </span>
+                                    )}
+                                </HorizontalScroll>
                             </span>
                         )
                     },
@@ -218,13 +281,13 @@ function SeriesTab(): JSX.Element {
                     title: 'Latest',
                     key: 'latest',
                     align: 'right',
-                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.latest, 2)}</span>,
+                    render: (_, row) => <SeriesValue value={row.latest} />,
                 },
                 {
                     title: 'Total',
                     key: 'total',
                     align: 'right',
-                    render: (_, row) => <span className="font-mono">{humanFriendlyNumber(row.total, 2)}</span>,
+                    render: (_, row) => <SeriesValue value={row.total} />,
                 },
             ]}
         />

@@ -52,6 +52,7 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
+    cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
@@ -131,6 +132,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Per-call deadline on the identity connection; it outlasts identity's own leader attempts. */
+    PERSONHOG_IDENTITY_TIMEOUT_MS: number
     /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
     PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
@@ -373,6 +376,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
         PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,

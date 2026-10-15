@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +44,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecurityHubResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SECURITY_HUB|AWSSECURITYHUB)_",),
+        npm=("@aws-sdk/client-securityhub",),
+        cargo=("aws-sdk-securityhub",),
+        go=("github.com/aws/aws-sdk-go-v2/service/securityhub",),
+        maven=("software.amazon.awssdk:securityhub", "com.amazonaws:aws-java-sdk-securityhub"),
+        rubygems=("aws-sdk-securityhub",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (SECURITY_HUB_API_VERSION,)
     default_version = SECURITY_HUB_API_VERSION
@@ -117,9 +127,9 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
             name=ExternalDataSourceType.AWSSECURITYHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Security Hub",
-            caption="""Sync Security Hub CSPM findings, standards, and custom insights from the configured AWS region.
+            caption="""Sync Security Hub CSPM findings, standards, controls, product integrations, member accounts, and custom insights from the configured AWS region.
 
-Grant `securityhub:GetFindings`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, and `securityhub:GetInsights` to the IAM user or role.
+Grant `securityhub:GetFindings`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, and `securityhub:ListMembers` to the IAM user or role.
 Enter its access key ID and secret access key. Add a session token for temporary credentials.
 Enable Security Hub CSPM in the selected region.
 If you select an aggregation region, AWS can also return findings from linked regions.""",

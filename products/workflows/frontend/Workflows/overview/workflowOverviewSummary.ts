@@ -1,7 +1,7 @@
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { getRegisteredTriggerTypes } from '../hogflows/registry/triggers/triggerTypeRegistry'
-import { FREQUENCY_OPTIONS, TTL_OPTIONS } from '../hogflows/steps/StepTrigger'
+import { PERSON_FREQUENCY_OPTIONS, getRegisteredTriggerTypes } from '../hogflows/registry/triggers/triggerTypeRegistry'
+import { TTL_OPTIONS } from '../hogflows/steps/StepTrigger'
 import type { HogFlow } from '../hogflows/types'
 
 export const EXIT_CONDITION_LABELS: Record<HogFlow['exit_condition'], string> = {
@@ -59,7 +59,7 @@ export function frequencySummary(workflow: Pick<HogFlow, 'trigger' | 'trigger_ma
     const registered = workflow.trigger
         ? getRegisteredTriggerTypes().find((t) => t.matchConfig?.(workflow.trigger))
         : undefined
-    const option = (registered?.frequencyOptions ?? FREQUENCY_OPTIONS).find((o) => o.value === hash)
+    const option = (registered?.frequencyOptions ?? PERSON_FREQUENCY_OPTIONS).find((o) => o.value === hash)
     if (!hash) {
         return 'Every time the trigger fires'
     }

@@ -7,6 +7,7 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType } from '~/types'
@@ -18,7 +19,7 @@ import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogs
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { traceUrl } from 'products/tracing/frontend/traceLinks'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -47,6 +48,7 @@ export const AttributeCell = memo(function AttributeCell({
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
     const { configuredDistinctIdKeys, configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
+    const openTraceDialog = useOpenTraceDialog()
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
         AccessControlLevel.Viewer
@@ -83,6 +85,13 @@ export const AttributeCell = memo(function AttributeCell({
                     ) : attributeKey === 'trace_id' && value && !tracingDisabledReason ? (
                         <Link
                             to={traceUrl({ traceId: value, ts: timestamp ?? null })}
+                            onClick={(event) =>
+                                openTraceDialog(
+                                    event,
+                                    { traceId: value, ts: timestamp ?? null },
+                                    { entryPoint: 'log_trace_id_cell' }
+                                )
+                            }
                             className="font-mono text-xs whitespace-nowrap pr-24"
                             title={value}
                         >
