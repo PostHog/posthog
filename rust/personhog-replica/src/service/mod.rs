@@ -1645,7 +1645,12 @@ impl PersonHogReplica for PersonHogReplicaService {
         };
         let persons = self
             .storage
-            .list_persons_for_team(req.team_id, req.after_person_id, limit)
+            .list_persons_for_team(
+                req.team_id,
+                req.after_person_id,
+                req.before_person_id,
+                limit,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "list_persons_for_team"))?;
 

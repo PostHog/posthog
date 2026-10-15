@@ -1005,7 +1005,9 @@ class FakePersonHogClient:
             (
                 p
                 for (team_id, person_id), p in self._persons_by_id.items()
-                if team_id == request.team_id and person_id > request.after_person_id
+                if team_id == request.team_id
+                and person_id > request.after_person_id
+                and (not request.HasField("before_person_id") or person_id < request.before_person_id)
             ),
             key=lambda p: p.id,
         )[:limit]
