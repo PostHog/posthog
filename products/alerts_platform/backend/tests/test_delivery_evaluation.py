@@ -236,6 +236,38 @@ class TestDeliverEvaluation(APIBaseTest):
         assert sorted(key for sent in sent_by_part for key in sent) == keys
         assert [len(sent) for sent in sent_by_part] == [3, 2, 2]
 
+    def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
+        # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination
+        # that asked only for resolves sends nothing from part 0.
+        announced = _announcement(
+            _transition(AlertEventKind.FIRING, "checkout"),
+            _transition(AlertEventKind.RESOLVED, "search"),
+        )
+        fires_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-fires"})
+        resolves_only = cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-resolves"})
+
+        notices: list[str] = []
+        for part in range(2):
+            RecordingTransport.sends = []
+            self._run(
+                announced,
+                {
+                    FIRING_EVENT: [_group(fires_only), _group(SLACK)],
+                    RESOLVED_EVENT: [_group(resolves_only), _group(SLACK)],
+                },
+                overflowed=3,
+                parts=2,
+                part=part,
+            )
+            notices += [
+                channel
+                for channel, m in RecordingTransport.sends
+                for detail in m.details
+                if detail.label == "Untracked groups"
+            ]
+
+        assert sorted(notices) == ["C-1", "C-fires", "C-resolves"]
+
     def test_a_delivery_that_exists_only_for_its_incident_sends_no_message(self) -> None:
         # Even a kind its destinations subscribe to reaches none of them when the source announced nothing.
         outcome = self._run(

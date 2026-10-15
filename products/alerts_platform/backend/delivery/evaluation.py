@@ -173,7 +173,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    notice_keys: dict[str, str] = {}
     if request.parts > 1:
+        if request.overflowed:
+            notice_keys = _overflow_notice_keys(request, announced)
         announced = replace(announced, transitions=_this_part(request, announced.transitions))
 
     thread_store = DatabaseThreadStore(request.team_id)
@@ -196,7 +199,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         for target in _destinations(request, event_id):
             overflowed = 0
             destination = json.dumps(target, sort_keys=True)
-            if request.overflowed and event_id in message_event_ids and destination not in noticed:
+            owns_notice = request.parts <= 1 or any(
+                transition.grouping_key == notice_keys.get(destination) for transition in transitions
+            )
+            if request.overflowed and event_id in message_event_ids and destination not in noticed and owns_notice:
                 overflowed = request.overflowed
                 noticed.add(destination)
             transport_class = _TRANSPORTS.get(target["type"])
@@ -263,6 +269,24 @@ def _this_part(
     """
     ordered = sorted(transitions, key=lambda transition: transition.grouping_key)
     return tuple(ordered[request.part :: request.parts])
+
+
+def _overflow_notice_keys(request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> dict[str, str]:
+    """For each destination, the grouping key whose part tells it about the overflow.
+
+    Read from the whole announcement, so every part agrees, and a destination whose messages all
+    land in a later part still hears the notice once.
+    """
+    message_event_ids = set(request.event_ids_by_kind.values())
+    keys: dict[str, str] = {}
+    for event_id, transitions in _by_subscription(request, announced).items():
+        if event_id not in message_event_ids:
+            continue
+        first = min(transition.grouping_key for transition in transitions)
+        for target in _destinations(request, event_id):
+            destination = json.dumps(target, sort_keys=True)
+            keys[destination] = min(keys.get(destination, first), first)
+    return keys
 
 
 def _by_subscription(

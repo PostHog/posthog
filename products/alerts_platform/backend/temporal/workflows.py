@@ -194,8 +194,8 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
     started does not stop the rest.
 
-    A request split into parts starts one workflow per part. Only the first carries the overflow,
-    so a destination hears it once.
+    A request split into parts starts one workflow per part. Each carries the overflow, and the
+    delivery picks the one part that tells each destination about it.
     """
     results = await asyncio.gather(
         *(
@@ -225,10 +225,7 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
 def _parts(delivery: AlertDeliveryRequest) -> list[AlertDeliveryRequest]:
     if delivery.parts <= 1:
         return [delivery]
-    return [
-        replace(delivery, part=part, overflowed=delivery.overflowed if part == 0 else 0)
-        for part in range(delivery.parts)
-    ]
+    return [replace(delivery, part=part) for part in range(delivery.parts)]
 
 
 def _delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:

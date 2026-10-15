@@ -181,7 +181,7 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_splits_larg
     key = "slot:2026-09-16T10:00:00+00:00"
     assert started == {
         f"alerts-deliver-preview-{ADMITTED[0]}:{key}:part-0": (0, 3),
-        f"alerts-deliver-preview-{ADMITTED[0]}:{key}:part-1": (1, 0),
+        f"alerts-deliver-preview-{ADMITTED[0]}:{key}:part-1": (1, 3),
         f"alerts-deliver-preview-{ADMITTED[1]}:{key}": (0, 0),
     }
 

@@ -12,6 +12,7 @@ import temporalio.converter
 
 from products.alerts_platform.backend.facade.contracts import PlatformAlertOutcome
 
+# Workflow code chunks by it, so a change alters how many activities a replay schedules and needs a patch.
 MAX_BATCH_PAYLOAD_BYTES: Final = 1024 * 1024
 
 
