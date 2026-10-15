@@ -874,31 +874,31 @@ function InfiniteListErrorState(): JSX.Element {
     const { group, remoteFetchForbidden } = useValues(infiniteListLogic)
     const { retryRemoteItems } = useActions(infiniteListLogic)
 
-    if (remoteFetchForbidden) {
-        return (
-            <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-                <IconLock className="text-5xl text-tertiary" />
-                <span className="text-center">
-                    You don't have access to {group?.searchPlaceholder || 'these results'} in this project.
-                </span>
-                <span className="text-center text-secondary">Ask a project admin for access.</span>
-            </div>
-        )
-    }
-
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-            <IconWarning className="text-5xl text-tertiary" />
-            <span className="text-center">Couldn't load results</span>
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                data-attr="taxonomic-retry-remote-items"
-                onClick={retryRemoteItems}
-            >
-                Try again
-            </LemonButton>
-            <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+            {remoteFetchForbidden ? (
+                <>
+                    <IconLock className="text-5xl text-tertiary" />
+                    <span className="text-center">
+                        You don't have access to {group?.searchPlaceholder || 'these results'} in this project.
+                    </span>
+                    <span className="text-center text-secondary">Ask a project admin for access.</span>
+                </>
+            ) : (
+                <>
+                    <IconWarning className="text-5xl text-tertiary" />
+                    <span className="text-center">Couldn't load results</span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        data-attr="taxonomic-retry-remote-items"
+                        onClick={retryRemoteItems}
+                    >
+                        Try again
+                    </LemonButton>
+                    <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+                </>
+            )}
         </div>
     )
 }
