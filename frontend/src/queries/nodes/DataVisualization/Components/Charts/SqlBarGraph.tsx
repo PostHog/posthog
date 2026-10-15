@@ -85,6 +85,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         onError={handleChartError}
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
+                        {props.children}
                         {hasValueLabels(props.chartSettings, props.yData) && (
                             <ValueLabels valueFormatter={valueLabelFormatter} />
                         )}

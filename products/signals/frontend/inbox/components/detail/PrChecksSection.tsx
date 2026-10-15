@@ -170,19 +170,17 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         },
         { failure: 0, cancelled: 0, pending: 0, stale: 0, success: 0, neutral: 0 }
     )
-    const hasChecksNeedingAttention =
-        counts.failure > 0 || counts.cancelled > 0 || counts.pending > 0 || counts.stale > 0
 
     return (
         <DetailSection
-            // `DetailSection` reads `defaultCollapsed` only on mount. This section mounts while
-            // `prChecks` is still null (skeleton), when the "all green → collapse" default computes to
-            // false, so remount once the checks resolve to let the settled default take effect.
-            key={prChecks === null ? 'checks-loading' : 'checks-loaded'}
             icon={<IconCheckCircle />}
             title="CI checks"
             collapsible
-            defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
+            // `DetailSection` reads `defaultCollapsed` only on mount, so remount when an error appears
+            // or clears. The header shows the per-status counts, so the list stays collapsed and does
+            // not push the sections under it out of view. An error stays open so it is not hidden.
+            key={prChecksError ? 'checks-error' : 'checks'}
+            defaultCollapsed={!prChecksError}
             meta={
                 sorted.length > 0 ? (open) => (open ? null : <CheckSummaryList counts={counts} compact />) : undefined
             }

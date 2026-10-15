@@ -3,11 +3,11 @@ import os
 from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
-# Integration service. Both unset (the default) means credential reads fall back to the
-# local environment; see posthog/integration_secrets/client.py for the contract.
-INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
+# Credentials service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/credentials_service/client.py for the contract.
+CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
-INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
 
 # Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
 INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")

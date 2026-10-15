@@ -84,18 +84,8 @@ class ClientRegistrationView(ProvisioningAPIView):
                     "can_create_accounts": app.provisioning.can_create_accounts,
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
-                # Spelled out because "why can't I call github/grants" is the question this
-                # endpoint exists to answer, and the rule (a confidential client PostHog granted
-                # the capability to) is not something a partner can infer from its own metadata
-                # document.
                 "capabilities": {
                     "account_requests": app.provisioning.active and app.provisioning.can_create_accounts,
-                    "github_grants": (
-                        app.requires_client_authentication
-                        and app.provisioning.can_use_github_grants
-                        and app.provisioning.can_create_accounts
-                    ),
-                    "wizard_runs": app.provisioning.active and app.provisioning.can_start_wizard_runs,
                 },
                 "checks": checks,
             }
@@ -160,7 +150,7 @@ class ClientRegistrationView(ProvisioningAPIView):
                 checks,
                 "jwks",
                 True,
-                "No jwks_uri, so this client authenticates with PKCE only and cannot use the GitHub grant endpoints",
+                "No jwks_uri, so this client authenticates with PKCE only",
             )
             return
 

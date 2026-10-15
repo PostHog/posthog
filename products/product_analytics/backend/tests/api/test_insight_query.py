@@ -462,6 +462,51 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         if expected_source_kind is not None:
             assert response.json()["query"]["source"]["kind"] == expected_source_kind
 
+    def test_mcp_bi_member_alias_null_round_trip(self) -> None:
+        aliases = [
+            {
+                "field": {
+                    "id": "event",
+                    "name": "event",
+                    "expression": "event",
+                    "type": "string",
+                    "source": {"table": "events"},
+                },
+                "aliases": [{"value": None, "label": "Missing"}, {"value": "", "label": "Empty"}],
+            }
+        ]
+        query = {
+            "kind": "BIVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "config": {
+                "source": {"table": "events"},
+                "rows": [],
+                "columns": [],
+                "values": [],
+                "filters": [],
+                "chartType": "ActionsTable",
+                "limit": 1000,
+                "memberAliases": aliases,
+                "colorBy": None,
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/?basic=true",
+            {"name": "Alias worksheet", "query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        insight_id = response.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true",
+            {"query": response.json()["query"]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true").json()["query"]
+        assert saved["config"]["memberAliases"] == aliases
+        assert saved["config"]["colorBy"] is None
+
     def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",

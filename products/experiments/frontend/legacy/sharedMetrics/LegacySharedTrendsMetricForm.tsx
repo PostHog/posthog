@@ -5,21 +5,25 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { DISPLAY_TYPES_TO_CATEGORIES, EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentTrendsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
+import { BaseMathType, ChartDisplayCategory, ChartDisplayType, InsightType } from '~/types'
 
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from 'products/experiments/frontend/constants'
+
+function displayCategory(query: TrendsQuery): ChartDisplayCategory {
+    return DISPLAY_TYPES_TO_CATEGORIES[query.trendsFilter?.display || ChartDisplayType.ActionsLineGraph]
+}
 
 export function LegacySharedTrendsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
@@ -45,21 +49,22 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                         label: 'Main metric',
                         content: (
                             <>
-                                <ActionFilter
+                                <SeriesActionFilter
                                     bordered
-                                    filters={queryNodeToFilter(sharedMetricQuery.count_query)}
-                                    setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                                        const series = actionsAndEventsToSeries(
-                                            { actions, events, data_warehouse } as any,
-                                            true,
-                                            MathAvailability.All
-                                        )
+                                    series={sharedMetricQuery.count_query.series}
+                                    insightType={InsightType.TRENDS}
+                                    hasBreakdown={hasBreakdownFilter(sharedMetricQuery.count_query.breakdownFilter)}
+                                    trendsDisplayCategory={displayCategory(sharedMetricQuery.count_query)}
+                                    onChange={(series) => {
                                         setSharedMetric({
                                             query: {
                                                 ...sharedMetricQuery,
                                                 count_query: {
                                                     ...sharedMetricQuery.count_query,
-                                                    series,
+                                                    series: cleanSeriesNodes(
+                                                        series,
+                                                        MathAvailability.All
+                                                    ) as TrendsQuery['series'],
                                                 },
                                             },
                                         })
@@ -197,27 +202,24 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                 </div>
                                 {sharedMetricQuery.exposure_query && (
                                     <>
-                                        <ActionFilter
+                                        <SeriesActionFilter
                                             bordered
-                                            filters={queryNodeToFilter(
-                                                sharedMetricQuery.exposure_query as InsightQueryNode
+                                            series={sharedMetricQuery.exposure_query.series}
+                                            insightType={InsightType.TRENDS}
+                                            hasBreakdown={hasBreakdownFilter(
+                                                sharedMetricQuery.exposure_query.breakdownFilter
                                             )}
-                                            setFilters={({
-                                                actions,
-                                                events,
-                                                data_warehouse,
-                                            }: Partial<FilterType>): void => {
-                                                const series = actionsAndEventsToSeries(
-                                                    { actions, events, data_warehouse } as any,
-                                                    true,
-                                                    MathAvailability.All
-                                                )
+                                            trendsDisplayCategory={displayCategory(sharedMetricQuery.exposure_query)}
+                                            onChange={(series) => {
                                                 setSharedMetric({
                                                     query: {
                                                         ...sharedMetricQuery,
                                                         exposure_query: {
                                                             ...sharedMetricQuery.exposure_query,
-                                                            series,
+                                                            series: cleanSeriesNodes(
+                                                                series,
+                                                                MathAvailability.All
+                                                            ) as TrendsQuery['series'],
                                                         },
                                                     },
                                                 })

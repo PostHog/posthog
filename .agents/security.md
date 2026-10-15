@@ -50,6 +50,14 @@ Default to the smallest permission, narrowest field set, and shortest scope that
 - **Unique value per environment — including prod US and prod EU.** Never share a key value across environments; provision each (dev, prod-US, prod-EU) independently so one region can rotate without breaking another and a leak in one doesn't compromise the rest. Enforced at provisioning, not in code — so never hardcode a shared prod default. Fail closed when a prod key is unset (mirror the `SECRET_KEY` startup guard in `posthog/settings/access.py` and `RECORDING_API_JWT_SECRET`'s empty-in-prod default).
 - **Don't extend `INTERNAL_API_SECRET` to new service-to-service calls.** It's a single fleet-wide shared secret already trusted by many services across Django, Node, and Rust — one leak reaches all of them — so it must not grow new callers or protected endpoints (it's being actively retired edge-by-edge; adding one moves it backwards). For a new internal call, in order of preference: (1) **mint a scoped JWT (strongly preferred)** — a dedicated per-audience signing key (never `INTERNAL_API_SECRET`/`SECRET_KEY`/`JWT_SIGNING_KEY`) with claims pinning the token to its team and operation, verified per-route; use the shared machinery instead of hand-rolling: `ScopedServiceJwtPurpose` + `ScopedServiceJWTAuthentication` in `posthog/scoped_service_jwt.py` (Django mint/verify) and `ScopedServiceJwt` in `nodejs/src/cdp/utils/scoped-service-jwt.ts` (Node mint/verify); worked examples: the conversations ticket route (`products/conversations/backend/api/internal.py`) and its minting worker (`nodejs/src/cdp/async-functions/internal-api-call.ts`). (2) If a JWT genuinely doesn't fit, **a dedicated static secret** scoped to that one caller→callee pair (`<PURPOSE>_API_SECRET`, its own env var, rotatable, empty-in-prod-fail-closed) — never reuse `INTERNAL_API_SECRET`. The goal is blast radius: no single "master" credential that authenticates to a dozen services — a scoped JWT limits a leak to one team + operation; a dedicated secret limits it to one hop.
 
+## Authentication classes
+
+In a test marked with `@covers_authentication(<class>)`, when the class returns a `User`, the same request runs again with that user deactivated and then blocked, and the test fails if either run lets the user in.
+
+- **Mark one test per DRF authentication class.** Decorate a test that authenticates a request through the class with `@covers_authentication(<class>)` from `posthog/test/authentication_checks.py`. `test_authentication_credential_types.py` fails when a class has no marked test.
+- **Refuse inactive and blocked users.** Filter on `is_active` and call `refuse_blocked_account()`.
+- **A new Django authentication backend** must return `None` from `get_user()` for an inactive user. `TestSessionBackendsRefuseInactiveUsers` checks every backend in `AUTHENTICATION_BACKENDS`.
+
 ## SQL Security
 
 - **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
@@ -126,7 +134,7 @@ queryset.filter(name__icontains=value)  # SAFE
 **Do not add new `pickle` usage.**
 Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
 This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
-CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the diff-aware `semgrep ci` jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the security semgrep jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
 Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
 
 **Use JSON instead.**
@@ -193,8 +201,8 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every signed-in user, and for every visitor on login, signup, password reset and email verification. A self-hosted install only reports it, because its violations reach nobody. Other signed-out pages follow the `csp-enforce-other-signed-out-pages` flag, drawn per page load because a signed-out visitor has no user to bucket. They stay report-only while the flag is off. Embeddable documents, such as shared dashboards, always stay report-only.
-- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
 ### What the app policy forbids
