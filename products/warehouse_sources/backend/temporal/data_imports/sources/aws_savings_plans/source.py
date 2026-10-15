@@ -124,7 +124,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
                 "Grant `ce:GetSavingsPlanPurchaseRecommendationDetails` for recommendation details. "
                 "Enable Cost Explorer for the metric tables. AWS charges for Cost Explorer requests. "
                 "Daily utilization details require at least one request per day. "
-                "Purchase recommendations need one request for each of 54 plan type, term, payment, and lookback combinations. "
+                "Purchase recommendations need one request for each of 57 plan type, term, payment, and lookback combinations. "
                 "Recommendation details also need one request for each recommendation. "
                 "This source uses the global endpoints in the standard AWS partition. "
                 "Metric imports cover up to 365 days and read the previous seven days again during incremental syncs."

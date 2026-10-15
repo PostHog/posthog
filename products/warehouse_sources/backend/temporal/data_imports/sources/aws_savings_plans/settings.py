@@ -103,12 +103,21 @@ ENDPOINTS: dict[str, SavingsPlansEndpoint] = {
 
 # Cost Explorer only returns recommendations for one combination per request.
 # The legacy *_UTILIZATION payment options apply to Reserved Instances, not Savings Plans.
-RECOMMENDATION_OPTIONS: dict[str, tuple[str, ...]] = {
-    "SavingsPlansType": ("COMPUTE_SP", "EC2_INSTANCE_SP", "SAGEMAKER_SP"),
-    "TermInYears": ("ONE_YEAR", "THREE_YEARS"),
-    "PaymentOption": ("NO_UPFRONT", "PARTIAL_UPFRONT", "ALL_UPFRONT"),
-    "LookbackPeriodInDays": ("SEVEN_DAYS", "THIRTY_DAYS", "SIXTY_DAYS"),
-}
+# AWS sells Database Savings Plans only with a 1-year term and no upfront payment.
+RECOMMENDATION_OPTIONS: tuple[dict[str, tuple[str, ...]], ...] = (
+    {
+        "SavingsPlansType": ("COMPUTE_SP", "EC2_INSTANCE_SP", "SAGEMAKER_SP"),
+        "TermInYears": ("ONE_YEAR", "THREE_YEARS"),
+        "PaymentOption": ("NO_UPFRONT", "PARTIAL_UPFRONT", "ALL_UPFRONT"),
+        "LookbackPeriodInDays": ("SEVEN_DAYS", "THIRTY_DAYS", "SIXTY_DAYS"),
+    },
+    {
+        "SavingsPlansType": ("DATABASE_SP",),
+        "TermInYears": ("ONE_YEAR",),
+        "PaymentOption": ("NO_UPFRONT",),
+        "LookbackPeriodInDays": ("SEVEN_DAYS", "THIRTY_DAYS", "SIXTY_DAYS"),
+    },
+)
 
 RECOMMENDATION_DECIMAL_FIELDS = (
     "upfront_cost",

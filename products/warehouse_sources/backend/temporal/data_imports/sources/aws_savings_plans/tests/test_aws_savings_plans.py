@@ -497,6 +497,7 @@ def test_error_parsing_and_no_duplicate_status_retry(
         ("AccessDeniedException", "coverage_daily", False, "ce:GetSavingsPlansCoverage"),
         ("UnauthorizedException", None, True, None),
         ("UnauthorizedException", "savings_plans", False, "savingsplans:DescribeSavingsPlans"),
+        ("AccessDeniedException", "savings_plan_rates", False, "savingsplans:DescribeSavingsPlans"),
         ("InvalidSignatureException", None, False, "signature"),
         ("UnrecognizedClientException", None, False, "credentials"),
         ("ExpiredTokenException", None, False, "expired"),

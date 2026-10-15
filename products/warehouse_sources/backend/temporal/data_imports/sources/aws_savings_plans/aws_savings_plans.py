@@ -205,7 +205,9 @@ def normalize_rows(endpoint: SavingsPlansEndpoint, body: dict[str, Any]) -> list
 
 def recommendation_options() -> list[tuple[str, dict[str, str]]]:
     combinations = [
-        dict(zip(RECOMMENDATION_OPTIONS, values)) for values in itertools.product(*RECOMMENDATION_OPTIONS.values())
+        dict(zip(options, values))
+        for options in RECOMMENDATION_OPTIONS
+        for values in itertools.product(*options.values())
     ]
     return sorted(("|".join(options.values()), options) for options in combinations)
 
@@ -297,7 +299,12 @@ def validate_credentials(
         if endpoint.token_key:
             payload[endpoint.page_size_key or "MaxResults"] = 1
         # A fan-out table can only check its own permission once a parent exists.
-        parent = first_parent(client, endpoint) if endpoint.fan_out else {}
+        parent: dict[str, Any] | None = {}
+        if endpoint.fan_out:
+            try:
+                parent = first_parent(client, endpoint)
+            except AwsSavingsPlansError as error:
+                return False, validation_error(error.code, ENDPOINTS.get(endpoint.fan_out, endpoint))
         if parent is not None:
             client.request(endpoint, {**payload, **parent})
     except AwsSavingsPlansError as error:
