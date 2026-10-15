@@ -18,6 +18,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -1337,6 +1338,7 @@ def latest_structured_output_for_source(
             "until": ast.Constant(value=max(starts) + _RUN_START_TOLERANCE),
             "limit": ast.Constant(value=_STRUCTURED_OUTPUT_READ_LIMIT),
         },
+        ch_user=ClickHouseUser.SIGNALS,
     )
     for output, timestamp, run_id in result.results:
         _, skill_name, run_start = runs[str(run_id)]

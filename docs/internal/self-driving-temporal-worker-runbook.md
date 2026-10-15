@@ -34,8 +34,9 @@ All other Signals workflows (ingestion, grouping, summaries, scouts) stay on the
 
 ## ClickHouse identity
 
-Signals pipeline reads use the `signals` user on the offline workload.
-The video-export, self-driving, and Django/Celery workers need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`.
+Deterministic Signals reads use the `signals` user, including report metadata, API filters, metric refreshes/checks, and Dagster ranking jobs.
+Pipeline reads use the offline workload; API and Dagster reads retain their existing workload routing and query limits. Scout and MCP query execution is unchanged.
+The video-export, self-driving, Django/Celery, web/toolbox Django, and Dagster workloads need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`.
 
 Deploy the ClickHouse user and ServiceAccount mappings first, then chart credentials, then the application.
 Missing credentials fail queries.

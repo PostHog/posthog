@@ -71,6 +71,7 @@ import pyarrow.compute as pc
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 from posthog.dataclasses import frozen
@@ -1049,6 +1050,7 @@ def _snapshot_report_embeddings(
                 },
                 settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )
@@ -1192,6 +1194,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
                 },
                 settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
                 workload=etl_workload(),
+                ch_user=ClickHouseUser.SIGNALS,
             )
             or [],
         )

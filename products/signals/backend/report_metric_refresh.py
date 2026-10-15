@@ -29,6 +29,7 @@ import structlog
 
 from posthog.schema import ChartDisplayType
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -135,6 +136,7 @@ def _run_metric_query(
         team=team,
         max_execution_time_seconds=timeout,
         cache_age_seconds=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()),
+        ch_user=ClickHouseUser.SIGNALS,
     )
     results = response.results
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):

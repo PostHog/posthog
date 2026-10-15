@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
@@ -115,8 +118,13 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        with self.assertNumQueries(FuzzyInt(0, 1)):
+        with (
+            self.assertNumQueries(FuzzyInt(0, 1)),
+            patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
+        ):
             result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+
+        assert query.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),

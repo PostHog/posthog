@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.schema import ChartDisplayType
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
@@ -342,6 +343,7 @@ class TestReportMetricQueryShapes(APIBaseTest):
             whole_window_value(_metric()["query"], self.team)
 
         assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
+        assert run_query.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
 
     def test_skips_the_strip_when_the_deadline_passes_after_the_headline(self) -> None:
         measured_at = timezone.now()
