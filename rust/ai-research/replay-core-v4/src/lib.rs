@@ -4,6 +4,7 @@ pub mod bytescan;
 pub mod compression;
 pub mod envelope;
 pub mod gate;
+pub mod inspect;
 #[cfg(feature = "store")]
 pub mod keys;
 pub mod payload;
