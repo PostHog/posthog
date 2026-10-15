@@ -1703,6 +1703,8 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) ->
             )
         )
 
+    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "browser"
+    telemetry.add_command_properties(devbox_open_target=target)
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
         open_vscode(name)

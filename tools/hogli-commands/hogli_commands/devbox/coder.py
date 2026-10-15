@@ -29,6 +29,7 @@ from typing import Any, NoReturn
 import click
 import requests
 from hogli import telemetry
+from hogli.cli import send_completion_before_exec
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -235,12 +236,18 @@ def _run(
     return subprocess.run(_resolve_coder(args), capture_output=capture_output, text=True, timeout=timeout)
 
 
+def _execvp(file: str, args: list[str]) -> NoReturn:
+    """Replace the current process, sending hogli's command telemetry first."""
+    send_completion_before_exec()
+    os.execvp(file, args)
+
+
 def _run_or_exit(args: list[str]) -> None:
     """Replace the current process with a Coder command or exit with its status."""
     resolved = _resolve_coder(args)
     coder_path = resolved[0] if resolved else shutil.which("coder")
     if coder_path:
-        os.execvp(coder_path, resolved)
+        _execvp(coder_path, resolved)
 
     sys.exit(_run(args).returncode)
 
@@ -1651,7 +1658,7 @@ def ssh_replace(name: str) -> None:
     The wildcard ``Host coder.*`` block written by ``coder config-ssh`` keeps
     the Coder tunnel via its ``ProxyCommand``.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
 def exec_replace(name: str, command: list[str]) -> None:
@@ -1671,7 +1678,7 @@ def exec_replace(name: str, command: list[str]) -> None:
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
     """
-    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
 
 
 def coder_ssh_alias_configured(name: str) -> bool:
@@ -1727,7 +1734,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    os.execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
+    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
 
 
 def open_web_ide(name: str) -> None:
