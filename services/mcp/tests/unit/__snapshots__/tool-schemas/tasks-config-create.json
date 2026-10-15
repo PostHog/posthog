@@ -42,15 +42,15 @@
         "runtime_adapter": {
             "anyOf": [
                 {
-                    "description": "* `claude` - claude\n* `codex` - codex",
-                    "enum": ["claude", "codex"],
+                    "description": "* `claude` - claude\n* `codex` - codex\n* `fx` - fx",
+                    "enum": ["claude", "codex", "fx"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n* `claude` - claude\n* `codex` - codex"
+            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n* `claude` - claude\n* `codex` - codex\n* `fx` - fx"
         }
     },
     "type": "object"
