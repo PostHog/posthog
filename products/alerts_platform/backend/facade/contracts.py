@@ -974,9 +974,11 @@ class CheckRef:
     """Addresses one platform check.
 
     `evaluation_key` is minted by the source and names the evaluation the check answered, so the
-    pair survives a retry that recomputes the same check.
+    key survives a retry that recomputes the same check. The configuration tells apart failed
+    checks of different configurations, which all carry the nil `alert_id`.
     """
 
+    configuration_id: UUID
     alert_id: UUID
     evaluation_key: str
 
@@ -1011,7 +1013,9 @@ class PlatformCheck:
 
     @property
     def ref(self) -> CheckRef:
-        return CheckRef(alert_id=self.alert_id, evaluation_key=self.evaluation_key)
+        return CheckRef(
+            configuration_id=self.configuration_id, alert_id=self.alert_id, evaluation_key=self.evaluation_key
+        )
 
 
 class SourceCoverage(StrEnum):
