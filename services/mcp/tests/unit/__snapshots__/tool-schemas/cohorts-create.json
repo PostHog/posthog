@@ -167,6 +167,7 @@
                                                     "min_periods": {
                                                         "anyOf": [
                                                             {
+                                                                "maximum": 10000,
                                                                 "type": "number"
                                                             },
                                                             {
@@ -191,6 +192,7 @@
                                                     "operator_value": {
                                                         "anyOf": [
                                                             {
+                                                                "maximum": 1000000,
                                                                 "type": "number"
                                                             },
                                                             {
@@ -234,6 +236,7 @@
                                                     "seq_time_value": {
                                                         "anyOf": [
                                                             {
+                                                                "maximum": 10000,
                                                                 "type": "number"
                                                             },
                                                             {
@@ -254,6 +257,7 @@
                                                     "time_value": {
                                                         "anyOf": [
                                                             {
+                                                                "maximum": 10000,
                                                                 "type": "number"
                                                             },
                                                             {
@@ -264,6 +268,7 @@
                                                     "total_periods": {
                                                         "anyOf": [
                                                             {
+                                                                "maximum": 10000,
                                                                 "type": "number"
                                                             },
                                                             {
