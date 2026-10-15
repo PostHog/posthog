@@ -31,6 +31,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
+import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -179,6 +180,7 @@ function AnalyticsSpacesContent(): JSX.Element {
                     </div>
                 )}
             </div>
+            <AnalyticsCreateModals />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

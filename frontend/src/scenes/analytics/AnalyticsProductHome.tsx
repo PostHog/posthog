@@ -7,6 +7,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
 
+import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 
 export const scene: SceneExport = {
@@ -28,6 +29,7 @@ export function AnalyticsProductHome(): JSX.Element {
                 resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
             />
             <HomeTab />
+            <AnalyticsCreateModals />
         </SceneContent>
     )
 }

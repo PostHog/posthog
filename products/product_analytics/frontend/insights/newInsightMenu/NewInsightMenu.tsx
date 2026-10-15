@@ -36,7 +36,7 @@ import {
     WorldMapSketch,
 } from './InsightTypeSketch'
 
-export interface NewInsightCardSpec {
+interface NewInsightCardSpec {
     key: string
     name: string
     description: string
@@ -253,13 +253,13 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     ai: 'Describe an insight and let AI build it.',
 }
 
-export interface QuestionSection {
+interface QuestionSection {
     title: string
     description: string
     cards: NewInsightCardSpec[]
 }
 
-export function useQuestionSections(): QuestionSection[] {
+function useQuestionSections(): QuestionSection[] {
     const { ai, metrics, byType } = useNewInsightCards()
     const sections: { title: string; description: string; cards: (NewInsightCardSpec | undefined)[] }[] = [
         {
