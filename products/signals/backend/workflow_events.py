@@ -7,6 +7,7 @@ needs to know a workflow exists.
 """
 
 import uuid
+from datetime import datetime, timedelta
 from typing import TypedDict
 
 from django.utils import timezone
@@ -30,6 +31,11 @@ _INBOX_REPORT_EVENT_NAMESPACE = uuid.UUID("0b5e7c1a-4f3d-4e8b-9a2c-6d1f8e3b7a90"
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 
+# Far above the delivery timeout, so the sweep never races a publish that is still in flight.
+_STALE_CLAIM_AGE = timedelta(minutes=15)
+# Each unconfirmed publish can hold the sweep for the whole delivery timeout.
+_RECONCILE_BATCH_SIZE = 20
+
 
 class InboxReportReadyProperties(TypedDict):
     report_id: str
@@ -45,11 +51,41 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
 
     Waits for the broker to accept the event, because the claim is what stops a second attempt.
     A rejected event gives the claim back and raises, so the caller can retry. An event still
-    unresolved after the flush keeps its claim: retrying it could start a second run, so a later
-    failure of that event loses the run instead.
+    unresolved after the flush keeps its claim unconfirmed, and `reconcile_stranded_ready_events`
+    sends it again once the claim goes stale.
     """
-    if not _claim_ready_event(team_id, report_id):
+    if not _claim_ready_event(team_id, report_id, source_products):
         return
+    try:
+        _publish_ready_event(team_id, report_id, source_products)
+    except Exception:
+        _release_ready_event_claim(team_id, report_id)
+        raise
+
+
+def reconcile_stranded_ready_events() -> None:
+    """Send the event again for each stale claim the broker never confirmed.
+
+    A delivery still pending after the flush, or a worker that died between the claim and the
+    publish, leaves such a claim. The retry reuses the event uuid, but a first event that did go
+    through late still starts a second run.
+    """
+    stale_before = timezone.now() - _STALE_CLAIM_AGE
+    stranded = (
+        SignalReport.objects.filter(ready_event_emitted_at__lt=stale_before, ready_event_delivered_at__isnull=True)
+        .order_by("ready_event_emitted_at")
+        .values_list("team_id", "id", "ready_event_emitted_at", "ready_event_source_products")[:_RECONCILE_BATCH_SIZE]
+    )
+    for team_id, report_id, claimed_at, source_products in stranded:
+        if not _renew_stale_claim(team_id, str(report_id), claimed_at):
+            continue
+        try:
+            _publish_ready_event(team_id, str(report_id), source_products or [])
+        except Exception:
+            logger.exception("inbox_report_ready_event_reconcile_failed", team_id=team_id, report_id=str(report_id))
+
+
+def _publish_ready_event(team_id: int, report_id: str, source_products: list[str]) -> None:
     try:
         delivery = produce_internal_event(
             team_id,
@@ -63,23 +99,35 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
         flush_internal_events_producer(_DELIVERY_TIMEOUT_SECONDS)
         delivery.get(timeout=0)
     except TimeoutError:
-        # The producer still holds the event and keeps retrying it, so a retry here would start a second run.
+        # The producer still holds the event and keeps retrying it, so only the sweep sends it again.
         logger.warning("inbox_report_ready_event_delivery_pending", team_id=team_id, report_id=report_id)
-    except Exception:
-        _release_ready_event_claim(team_id, report_id)
-        raise
+        return
+    SignalReport.objects.filter(id=report_id, team_id=team_id).update(ready_event_delivered_at=timezone.now())
 
 
-def _claim_ready_event(team_id: int, report_id: str) -> bool:
+def _claim_ready_event(team_id: int, report_id: str, source_products: list[str]) -> bool:
     return bool(
         SignalReport.objects.filter(
             id=report_id, team_id=team_id, status=SignalReport.Status.READY, ready_event_emitted_at__isnull=True
-        ).update(ready_event_emitted_at=timezone.now())
+        ).update(ready_event_emitted_at=timezone.now(), ready_event_source_products=source_products)
     )
 
 
+def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> bool:
+    """Take the claim over for a retry, or give it back when the report is no longer ready."""
+    claim = SignalReport.objects.filter(
+        id=report_id, team_id=team_id, ready_event_emitted_at=claimed_at, ready_event_delivered_at__isnull=True
+    )
+    if claim.filter(status=SignalReport.Status.READY).update(ready_event_emitted_at=timezone.now()):
+        return True
+    claim.update(ready_event_emitted_at=None, ready_event_source_products=None)
+    return False
+
+
 def _release_ready_event_claim(team_id: int, report_id: str) -> None:
-    SignalReport.objects.filter(id=report_id, team_id=team_id).update(ready_event_emitted_at=None)
+    SignalReport.objects.filter(id=report_id, team_id=team_id).update(
+        ready_event_emitted_at=None, ready_event_source_products=None
+    )
 
 
 def _event_properties(team_id: int, report_id: str, source_products: list[str]) -> InboxReportReadyProperties:

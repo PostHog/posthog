@@ -120,6 +120,7 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_inbox_report_ready_events,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
@@ -437,6 +438,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_implementation_dispatches.s(),
         name="recover pending signals implementation starts",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reconcile_inbox_report_ready_events.s(),
+        name="reconcile signals inbox report ready events",
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

@@ -1,16 +1,20 @@
 import json
+from datetime import timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from confluent_kafka import KafkaException
 from parameterized import parameterized
 
 from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.workflow_events import emit_inbox_report_ready_event
+from products.signals.backend.workflow_events import emit_inbox_report_ready_event, reconcile_stranded_ready_events
 
 
 class TestEmitInboxReportReadyEvent(BaseTest):
@@ -41,6 +45,16 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
     def _produced_events(self) -> list[Any]:
         return [call.args[1] for call in self.produce.call_args_list]
+
+    def _sweep_after(self, delay: timedelta) -> None:
+        with time_machine.travel(timezone.now() + delay, tick=False):
+            reconcile_stranded_ready_events()
+
+    @staticmethod
+    def _pending_delivery() -> MagicMock:
+        pending_delivery = MagicMock()
+        pending_delivery.get.side_effect = TimeoutError("Timeout waiting for produce result")
+        return pending_delivery
 
     def test_settled_report_starts_one_run_with_the_compact_report(self) -> None:
         self._emit()
@@ -78,9 +92,7 @@ class TestEmitInboxReportReadyEvent(BaseTest):
         assert self._produced_events() == []
 
     def test_a_delivery_still_pending_keeps_the_claim(self) -> None:
-        pending_delivery = MagicMock()
-        pending_delivery.get.side_effect = TimeoutError("Timeout waiting for produce result")
-        self.produce.return_value = pending_delivery
+        self.produce.return_value = self._pending_delivery()
 
         self._emit()
         self._emit()
@@ -105,3 +117,52 @@ class TestEmitInboxReportReadyEvent(BaseTest):
         self._emit()
 
         assert len(self._produced_events()) == 2
+
+    def test_a_stale_unconfirmed_claim_is_emitted_again_as_the_same_event(self) -> None:
+        self.produce.return_value = self._pending_delivery()
+        self._emit()
+        self.produce.return_value = MagicMock()
+
+        self._sweep_after(timedelta(minutes=16))
+        self._sweep_after(timedelta(hours=1))
+
+        first, retry = self._produced_events()
+        assert retry == first
+
+    @parameterized.expand(
+        [
+            ("still_fresh", True, timedelta(minutes=5)),
+            ("confirmed", False, timedelta(hours=1)),
+        ]
+    )
+    def test_the_sweep_leaves_a_claim_alone(self, _name: str, pending: bool, delay: timedelta) -> None:
+        if pending:
+            self.produce.return_value = self._pending_delivery()
+        self._emit()
+
+        self._sweep_after(delay)
+
+        assert len(self._produced_events()) == 1
+
+    def test_the_sweep_gives_back_the_claim_of_a_report_that_is_no_longer_ready(self) -> None:
+        self.produce.return_value = self._pending_delivery()
+        self._emit()
+        SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.IN_PROGRESS)
+
+        self._sweep_after(timedelta(minutes=16))
+        assert len(self._produced_events()) == 1
+
+        SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
+        self._emit()
+        assert len(self._produced_events()) == 2
+
+    def test_a_failed_retry_stays_claimed_for_the_next_sweep(self) -> None:
+        self.produce.return_value = self._pending_delivery()
+        self._emit()
+        self.produce.side_effect = [RuntimeError("broker down"), MagicMock()]
+
+        self._sweep_after(timedelta(minutes=16))
+        self._sweep_after(timedelta(minutes=32))
+        self._sweep_after(timedelta(hours=1))
+
+        assert len(self._produced_events()) == 3

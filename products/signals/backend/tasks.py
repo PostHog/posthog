@@ -72,6 +72,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
+from products.signals.backend.workflow_events import reconcile_stranded_ready_events
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -1111,6 +1112,18 @@ def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_D
         SignalScratchpad.objects.unscoped().filter(expires_at__isnull=False, expires_at__lt=cutoff).delete()
     )
     return deleted
+
+
+@shared_task(
+    name="products.signals.backend.tasks.reconcile_inbox_report_ready_events",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=270,
+    time_limit=300,
+)
+@skip_team_scope_audit
+def reconcile_inbox_report_ready_events() -> None:
+    reconcile_stranded_ready_events()
 
 
 @shared_task(
