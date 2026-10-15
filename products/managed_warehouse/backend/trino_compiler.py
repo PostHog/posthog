@@ -14,11 +14,17 @@ from products.managed_warehouse.backend.facade.cp_teams import get_org_team_memb
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from posthog.schema import HogQLQuery
 
+    from posthog.hogql import ast
+    from posthog.hogql.constants import LimitContext
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -206,10 +212,15 @@ def compile_hogql_to_trino_sql(
     *,
     team: Team | None = None,
     user: User | None = None,
+    user_access_control: UserAccessControl | None = None,
+    limit_top_select: bool = False,
+    limit_context: LimitContext | None = None,
     bypass_warehouse_access_control: bool = False,
     include_hogql: bool = False,
     expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
     catalog_manifest: TrinoCatalogManifest | None = None,
+    select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
+    | None = None,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -218,8 +229,12 @@ def compile_hogql_to_trino_sql(
     Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
     compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
     actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
+    ``select_transform`` rewrites the parsed query after placeholders are replaced, so it sees the
+    same AST the printer does. It needs ``TrinoExpansionMode.DJANGO``.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
+        if select_transform is not None:
+            raise ValueError("A select transform needs Django expansion")
         return prepare_hogql_to_trino_compiler(
             team_id,
             team=team,
@@ -271,6 +286,7 @@ def compile_hogql_to_trino_sql(
         team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         modifiers=query_modifiers,
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -288,6 +304,8 @@ def compile_hogql_to_trino_sql(
             for variable in query.variables.values():
                 variables[variable.code_name] = variable.value
         parsed = cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(parsed, replacements))
+    if select_transform is not None:
+        parsed = select_transform(parsed)
 
     trino_table_locators = build_trino_table_locators(
         database,
@@ -299,8 +317,10 @@ def compile_hogql_to_trino_sql(
         team_id=team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         enable_select_queries=True,
-        limit_top_select=False,
+        limit_top_select=limit_top_select,
+        limit_context=limit_context,
         modifiers=query_modifiers,
         # Match the access-controlled database above instead of widening it during resolution.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -316,8 +336,10 @@ def compile_hogql_to_trino_sql(
             team_id=team_id,
             team=team,
             user=user,
+            user_access_control=user_access_control,
             enable_select_queries=True,
-            limit_top_select=False,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,

@@ -251,6 +251,15 @@ def get_rows(
                 )
         return
 
+    if config.kind == "list":
+        body = call(config.method, dict(config.params))
+        # Current Matomo returns a list; older releases key the same rows by id in an object.
+        items = body.values() if isinstance(body, dict) else body if isinstance(body, list) else []
+        rows = [row for row in items if isinstance(row, dict)]
+        if rows:
+            yield rows
+        return
+
     # Per-day report walk, oldest-first. Recent days re-archive, so
     # incremental runs re-pull a trailing lookback window.
     today = datetime.now(tz=UTC).date()
@@ -268,7 +277,7 @@ def get_rows(
 
     day = start
     while day <= today:
-        body = call(config.method, {"period": "day", "date": day.isoformat(), "filter_limit": -1})
+        body = call(config.method, {"period": "day", "date": day.isoformat(), "filter_limit": -1, **config.params})
         rows = body if isinstance(body, list) else ([body] if isinstance(body, dict) and body else [])
         rows = [{**row, "_date": day.isoformat()} for row in rows if isinstance(row, dict)]
         if rows:

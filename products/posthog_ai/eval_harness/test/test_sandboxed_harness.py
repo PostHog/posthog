@@ -4,8 +4,10 @@ import os
 import sys
 import asyncio
 import subprocess
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal, cast
 from uuid import UUID
 
 import pytest
@@ -16,6 +18,8 @@ from parameterized import parameterized
 
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
+from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
+from products.posthog_ai.eval_harness.harness import lifecycle
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
@@ -27,7 +31,7 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
 )
-from products.tasks.backend.facade.agents import TurnPollResult
+from products.tasks.backend.facade.agents import MultiTurnSession, TurnPollResult, TurnPollTimeout
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
@@ -166,6 +170,68 @@ def test_eval_feature_enabled_leaves_dispatcher_flags_off(_name: str, flag: str,
     assert eval_feature_enabled(flag, distinct_id="distinct-1") is expected
 
 
+@pytest.mark.parametrize(
+    "outcome, fail_under, score, expected_exit_code",
+    [
+        pytest.param("case_error", None, 1.0, 1, id="case_error_without_gate"),
+        pytest.param("engine_error", None, 1.0, 1, id="engine_error_without_gate"),
+        pytest.param("both_errors", 0.5, 1.0, 1, id="errors_with_passing_gate"),
+        pytest.param("case_error", 1.0, 1.0, 1, id="case_error_with_perfect_score"),
+        pytest.param("crash", None, 1.0, 1, id="suite_crash"),
+        pytest.param("ok", None, 0.0, 0, id="low_score_without_gate"),
+        pytest.param("ok", 0.5, 0.5, 0, id="score_meets_gate"),
+        pytest.param("ok", 0.5, 0.0, 1, id="score_below_gate"),
+        pytest.param("ok", 0.5, None, 1, id="no_scores_with_gate"),
+        pytest.param("timeout", None, 0.0, 0, id="timeout_without_gate"),
+        pytest.param("timeout", 0.5, 0.0, 1, id="timeout_below_gate"),
+    ],
+)
+def test_eval_run_exit_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    outcome: Literal["ok", "case_error", "engine_error", "both_errors", "timeout", "crash"],
+    fail_under: float | None,
+    score: float | None,
+    expected_exit_code: int,
+) -> None:
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+
+    async def suite(ctx: EvalContext) -> None:
+        if outcome == "crash":
+            raise RuntimeError("Synthetic suite failure")
+        await ctx.reporter.case_done("experiment", "completed-case", duration_seconds=1.0)
+        if outcome in {"case_error", "both_errors", "timeout"}:
+            await ctx.reporter.case_done(
+                "experiment",
+                "failed-case",
+                duration_seconds=1.0,
+                status="timeout" if outcome == "timeout" else "error",
+            )
+        await ctx.reporter.record_summary(
+            "experiment",
+            EvalSummary(
+                engine_name="Braintrust",
+                experiment_name="experiment",
+                scores={"score": AggregateScore("score", score)} if score is not None else {},
+            ),
+            error_count=1 if outcome in {"engine_error", "both_errors"} else 0,
+        )
+
+    monkeypatch.setattr(
+        lifecycle,
+        "discover_suites",
+        lambda _selectors: [EvalSuite(domain="test", module_name="exit_status", fn_name="suite", fn=suite)],
+    )
+    monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
+    monkeypatch.setattr(lifecycle, "validate_eval_env", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", lambda *_args: None)
+    args = [] if fail_under is None else ["--fail-under", str(fail_under)]
+
+    assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
+    output = capsys.readouterr().out
+    assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("delivery", ["bundled", "exec"])
 @pytest.mark.parametrize("origin", ["eval", "slack", None])
@@ -201,27 +267,39 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
 
 
 @pytest.mark.asyncio
-async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+@pytest.mark.parametrize("budget", [None, 900, 20])
+async def test_success_waits_for_workflow_cleanup_before_returning(
+    monkeypatch: pytest.MonkeyPatch, budget: int | None, reporting_error: Exception | None
+) -> None:
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
-    _patch_runner_boundaries(
-        monkeypatch,
-        handle,
-        AsyncMock(
-            return_value=TurnPollResult(
-                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
-            )
-        ),
+    poll = AsyncMock(
+        return_value=TurnPollResult(
+            last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+        )
     )
+    _patch_runner_boundaries(monkeypatch, handle, poll)
+
+    cleanup_started = asyncio.Event()
+
+    async def on_cleanup() -> None:
+        cleanup_started.set()
+        if reporting_error is not None:
+            raise reporting_error
 
     case_task = asyncio.create_task(
         runner.run_eval_case(
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=on_cleanup,
+            timeout_seconds=budget,
         )
     )
     await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    assert cleanup_started.is_set()
 
     assert not case_task.done()
     handle.terminal.set()
@@ -231,9 +309,17 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
     assert handle.signals == [["completed", None]]
     assert provider.cleaned_task_ids == [str(_TASK_ID)]
 
+    expected = 1000 + budget - min(120, budget / 4) if budget is not None else None
+    assert poll.await_args is not None
+    assert poll.await_args.kwargs["poll_deadline"] == expected
+    assert poll.await_args.kwargs["workflow_handle"] is handle
+
 
 @pytest.mark.asyncio
-async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+async def test_poll_failure_is_preserved_after_workflow_cleanup(
+    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=True)
     provider = _Provider()
     _patch_runner_boundaries(monkeypatch, handle, AsyncMock(side_effect=RuntimeError("poll failed")))
@@ -243,6 +329,7 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=AsyncMock(side_effect=reporting_error),
         )
 
     assert handle.signals[0][0] == "failed"
@@ -250,7 +337,55 @@ async def test_poll_failure_is_preserved_after_workflow_cleanup(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("poll_failed", [False, True])
+async def test_cancellation_during_progress_waits_for_workflow_cleanup(
+    monkeypatch: pytest.MonkeyPatch, poll_failed: bool
+) -> None:
+    handle = _FakeWorkflowHandle(complete_on_signal=False)
+    provider = _Provider()
+    _patch_runner_boundaries(
+        monkeypatch,
+        handle,
+        AsyncMock(
+            side_effect=RuntimeError("poll failed") if poll_failed else None,
+            return_value=TurnPollResult(last_message="done", full_log="", total_lines=0, printed_lines=0),
+        ),
+    )
+    progress_started = asyncio.Event()
+    progress_release = asyncio.Event()
+
+    async def on_cleanup() -> None:
+        progress_started.set()
+        await progress_release.wait()
+
+    case_task = asyncio.create_task(
+        runner.run_eval_case(
+            SandboxedEvalCase(name="case", prompt="prompt"),
+            MagicMock(),
+            provider=provider,
+            on_cleanup=on_cleanup,
+        )
+    )
+    try:
+        await asyncio.wait_for(progress_started.wait(), timeout=1)
+        case_task.cancel()
+        await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+        assert not case_task.done()
+        handle.terminal.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(case_task, timeout=1)
+    finally:
+        progress_release.set()
+        handle.terminal.set()
+    assert handle.signals[0][0] == ("failed" if poll_failed else "completed")
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reporting_error", [None, BrokenPipeError("closed output")])
+async def test_cancellation_finishes_workflow_before_propagating(
+    monkeypatch: pytest.MonkeyPatch, reporting_error: Exception | None
+) -> None:
     poll_started = asyncio.Event()
     never_finishes = asyncio.Event()
 
@@ -266,6 +401,7 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
+            on_cleanup=AsyncMock(side_effect=reporting_error),
         )
     )
     await asyncio.wait_for(poll_started.wait(), timeout=1)
@@ -380,3 +516,57 @@ class TestSliceTurnLogs:
 
     def test_a_malformed_line_disables_slicing(self) -> None:
         assert runner._slice_turn_logs('{"line": 0}\nnot json\n{"line": 1}', [1, 3]) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_failure", [False, True])
+@pytest.mark.parametrize("cleanup_cancelled", [False, True])
+async def test_multi_turn_timeout_retains_cleanup_state(
+    monkeypatch: pytest.MonkeyPatch, initial_failure: bool, cleanup_cancelled: bool
+) -> None:
+    handle = _FakeWorkflowHandle(complete_on_signal=not cleanup_cancelled)
+    provider = _Provider()
+    error = TurnPollTimeout(
+        "Poll budget expired",
+        stage="no_turn_output",
+        elapsed=10,
+        stale_seconds=10,
+        total_lines=0,
+        turn_relevant_lines=0,
+    )
+    monkeypatch.setattr(runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
+    monkeypatch.setattr(
+        runner, "async_connect", AsyncMock(return_value=SimpleNamespace(get_workflow_handle=lambda _: handle))
+    )
+    task_run = MagicMock(task_id=_TASK_ID)
+    session = MagicMock(task=SimpleNamespace(id=_TASK_ID), workflow_handle=handle, log_lines_seen=0)
+    session.send_followup_raw = AsyncMock(side_effect=error)
+
+    async def start(**kwargs: object) -> tuple[MultiTurnSession, str]:
+        assert kwargs["poll_deadline"] == 1780.0
+        callback = cast(Callable[[object], Awaitable[None]], kwargs["on_task_run_created"])
+        await callback(task_run)
+        if initial_failure:
+            raise error
+        return session, "done"
+
+    monkeypatch.setattr(runner.MultiTurnSession, "start_raw", start)
+    diagnostics: dict[str, object] = {}
+    case_task = asyncio.create_task(
+        runner.run_eval_case(
+            SandboxedEvalCase(name="case", prompt="prompt", followups=["followup"]),
+            MagicMock(),
+            provider=provider,
+            timeout_seconds=900,
+            on_poll_timeout=lambda error: diagnostics.update(error.diagnostics()),
+        )
+    )
+    await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    assert diagnostics == error.diagnostics()
+    if cleanup_cancelled:
+        case_task.cancel()
+        handle.terminal.set()
+    with pytest.raises(asyncio.CancelledError if cleanup_cancelled else TurnPollTimeout):
+        await case_task
+    assert handle.signals[0][0] == "failed"
+    assert provider.cleaned_task_ids == [str(_TASK_ID)]

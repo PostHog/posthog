@@ -166,6 +166,65 @@ query PostHogGetWarehouses {
 }
 """
 
+EVENTS_QUERY = """
+query PostHogGetEvents($first: Int!, $after: String, $startTime: DateTime, $descOrder: Boolean) {
+  getEvents(first: $first, after: $after, startTime: $startTime, descOrder: $descOrder) {
+    edges {
+      node {
+        uuid
+        eventType
+        eventState
+        createdTime
+        eventGeneratedTime
+        description
+        data
+        importanceScore
+        isImportant
+        isChild
+        isMerged
+        monitorId
+        parentMonitorId
+        totalComments
+        notifiedUsers
+        customRuleEntities
+        customRuleProjects
+        customRuleDatasets
+        ackTimestamp
+        ackBy { email }
+        alert { id }
+        warehouse { uuid name }
+        table { mcon fullTableId }
+      }
+    }
+    pageInfo { endCursor hasNextPage }
+  }
+}
+"""
+
+DOMAINS_QUERY = """
+query PostHogGetDomains($first: Int!, $after: String) {
+  getDomainsV2(first: $first, after: $after) {
+    edges {
+      node {
+        id
+        uuid
+        name
+        description
+        domainTag
+        createdBy
+        createdByEmail
+        objAssignmentUpdateTime
+        assignments
+        excludedAssignments
+        tags { name value }
+        excludedTags { name value }
+      }
+    }
+    pageInfo { endCursor hasNextPage }
+  }
+}
+"""
+
 VALIDATE_CREDENTIALS_QUERY = """
 query PostHogValidateCredentials {
   getUser { email }
@@ -208,6 +267,29 @@ MONTE_CARLO_ENDPOINTS: dict[str, MonteCarloEndpointConfig] = {
                 "label": "updatedTime",
                 "type": IncrementalFieldType.DateTime,
                 "field": "updatedTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "domains": MonteCarloEndpointConfig(
+        name="domains",
+        query=DOMAINS_QUERY,
+        data_path="getDomainsV2",
+        pagination="relay",
+        primary_keys=["id"],
+    ),
+    "events": MonteCarloEndpointConfig(
+        name="events",
+        query=EVENTS_QUERY,
+        data_path="getEvents",
+        pagination="relay",
+        primary_keys=["uuid"],
+        partition_key="createdTime",
+        incremental_fields=[
+            {
+                "label": "createdTime",
+                "type": IncrementalFieldType.DateTime,
+                "field": "createdTime",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],

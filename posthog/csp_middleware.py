@@ -4,22 +4,14 @@ The policy lives apart from the other middleware so that team-security owns the 
 `.github/CODEOWNERS` and reviews every change to it.
 """
 
-import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
-from django.http import HttpRequest
-
-import structlog
-import posthoganalytics
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
-
-logger = structlog.get_logger(__name__)
-
 
 _POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
 
@@ -104,59 +96,14 @@ def app_frame_ancestor_sources() -> list[str]:
     return sources
 
 
-CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG = "csp-enforce-other-signed-out-pages"
-
-# The pages that take a password or a one-time code. Other signed-out pages follow the flag above.
-SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
-
-
-def is_signed_out_enforceable_path(path: str) -> bool:
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
-
-
-def other_signed_out_pages_csp_enforcement_enabled() -> bool:
-    try:
-        # A signed-out visitor has no person to bucket, so each document draws a random id. The
-        # flag's rollout percentage then applies per document.
-        #
-        # A condition on a person property cannot resolve for a random id, so it evaluates to None
-        # and enforces nothing. Flag events stay off, because each document would add a new
-        # distinct id to the project.
-        #
-        # Local evaluation only. A network call here would sit in the path of every HTML response,
-        # and an unevaluable flag returns None, which leaves the policy report-only.
-        return bool(
-            posthoganalytics.feature_enabled(
-                CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
-                str(uuid.uuid4()),
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("csp.signed_out_enforcement_flag_check_failed_defaulting_off", exc_info=True)
-        return False
-
-
-def csp_enforcement_enabled(request: HttpRequest) -> bool:
+def app_csp_header_name(path: str) -> str:
+    if is_embeddable_document(path):
+        return "Content-Security-Policy-Report-Only"
     if is_hobby():
         # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
         # ours, so an enforced policy there would break pages with no signal.
-        return False
-    user = getattr(request, "user", None)
-    if user is not None and user.is_authenticated:
-        return True
-    # The document keeps the policy it loads with. A visitor who signs in from a page the flag
-    # leaves report-only goes on to the app inside the same document, still report-only.
-    return is_signed_out_enforceable_path(request.path) or other_signed_out_pages_csp_enforcement_enabled()
-
-
-def app_csp_header_name(request: HttpRequest) -> str:
-    if is_embeddable_document(request.path):
         return "Content-Security-Policy-Report-Only"
-    if csp_enforcement_enabled(request):
-        return "Content-Security-Policy"
-    return "Content-Security-Policy-Report-Only"
+    return "Content-Security-Policy"
 
 
 _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
@@ -165,6 +112,8 @@ _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com
 NARROWED_APP_POLICY_REPORT_VERSION = "4"
 # Reports tagged v=5 come from a report-only policy that holds only img-src, without `https:`.
 IMG_SRC_SHADOW_REPORT_VERSION = "5"
+# Reports tagged v=6 come from a report-only policy that holds only style-src and font-src, with named PostHog hosts.
+STYLE_FONT_SHADOW_REPORT_VERSION = "6"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
@@ -178,7 +127,9 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
     for part in csp_parts:
         name, *sources = part.split()
         if name in replacements:
-            part = " ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]])
+            # A replacement source can repeat one the directive already names.
+            kept = dict.fromkeys([*(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]])
+            part = " ".join([name, *kept])
         narrowed.append(part)
     return narrowed
 
@@ -191,6 +142,19 @@ def img_src_shadow_policy(csp_parts: list[str]) -> list[str]:
     supply, before `https:` can go. The policy names no other directive, so it restricts nothing else.
     """
     return [" ".join(s for s in part.split() if s != "https:") for part in csp_parts if part.split()[0] == "img-src"]
+
+
+def style_font_shadow_policy(csp_parts: list[str], sources: list[str]) -> list[str]:
+    """The app policy's style-src and font-src with the PostHog wildcards swapped for `sources`, to send as a
+    report-only policy of its own.
+
+    Local runs and E2E keep the wildcards, so production is the first place a named list applies. Enforced,
+    a host the list misses leaves the page without its styles or fonts and shows the user no error. Reported,
+    the same miss arrives as a report while the page still loads. The policy names no other directive, so it
+    restricts nothing else.
+    """
+    narrowed = narrowed_app_policy(csp_parts, {"style-src": sources, "font-src": sources})
+    return [part for part in narrowed if part.split()[0] in ("style-src", "font-src")]
 
 
 class CSPMiddleware:
@@ -263,8 +227,8 @@ class CSPMiddleware:
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images
                 # the admin tools build client-side. Neither can execute, and this policy is
-                # enforced for every staff member rather than flag-gated, so the fallback was
-                # breaking admin pages outright.
+                # enforced for every staff member, so the fallback was breaking admin pages
+                # outright.
                 "img-src 'self' data: blob:",
                 "worker-src 'none'",
                 "child-src 'none'",
@@ -303,9 +267,9 @@ class CSPMiddleware:
             return response
         else:
             resource_url = "https://*.posthog.com"
-            # Enforced for every viewer, flag or not, because this directive is what admits these
-            # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
-            # names only our own origin.
+            # Enforced even where the rest of the policy is report-only, because this directive is
+            # what admits these origins: a frame-ancestors directive makes browsers ignore
+            # X-Frame-Options, which names only our own origin.
             # `'self'` lets the app show one of its own pages in a frame, such as a PostHog object
             # cited in a task's Artifacts tab. It stays out of app_frame_ancestor_sources(), because
             # the canvas sandbox document on the user-content origin shares that list.
@@ -320,6 +284,12 @@ class CSPMiddleware:
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
+            # The image exporter renders replay exports in the bare /exporter document, and a frame of
+            # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
+            # code in each script-src report, which identifies the code behind those reports. A sample
+            # can carry page code to the report endpoint, so no other document asks for one, and that
+            # includes the shared page at /exporter/<token>.
+            report_sample = " 'report-sample'" if request.path == "/exporter" else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
                 # so without the bundle host it refuses the preloads index.html emits for the boot
@@ -351,7 +321,7 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -424,6 +394,7 @@ class CSPMiddleware:
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
             # listed here therefore fails only in production.
             narrowed = is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING
+            shadows: dict[str, list[str]] = {}
             if narrowed:
                 bundle = [bundle_origin] if bundle_origin else []
                 agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
@@ -452,11 +423,23 @@ class CSPMiddleware:
                             f"https://webhooks.{urlsplit(settings.SITE_URL).hostname}",
                             # The onboarding adblock check probes the region's ingestion host.
                             f"{get_api_host()}/decide/",
+                            # The canvas bridge posts each ph.capture() event to the region's capture endpoint.
+                            f"{get_api_host()}/i/v0/e/",
                             # A task run's live stream, when the server hands out the region's agent-proxy.
                             *agent_proxy,
                         ],
                     },
                 )
+                shadows = {
+                    IMG_SRC_SHADOW_REPORT_VERSION: img_src_shadow_policy(csp_parts),
+                    # The app's stylesheets and fonts load from its bundle. posthog-js can load the toolbar on
+                    # an app page, and the toolbar loads its stylesheet and fonts from beside its script under
+                    # /static/. font-src already names both regions' bundle hosts, and it takes the bundle
+                    # here too so that fonts follow JS_URL as scripts and stylesheets do.
+                    STYLE_FONT_SHADOW_REPORT_VERSION: style_font_shadow_policy(
+                        csp_parts, [*bundle, f"{POSTHOG_JS_CLOUD_HOST}/static/"]
+                    ),
+                }
 
             user = getattr(request, "user", None)
             distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
@@ -479,17 +462,17 @@ class CSPMiddleware:
                 csp_parts.append(f"report-uri {report_endpoint}")
                 # Browsers only deliver crash reports to the endpoint named `default`.
                 response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
-            header_name = app_csp_header_name(request)
+            header_name = app_csp_header_name(request.path)
             response.headers[header_name] = "; ".join(csp_parts)
-            if narrowed:
-                shadow_params = {"v": IMG_SRC_SHADOW_REPORT_VERSION}
+            for version, shadow_parts in shadows.items():
+                shadow_params = {"v": version}
                 if distinct_id:
                     shadow_params["distinct_id"] = distinct_id
                 shadow_uri = csp_report_endpoint(**shadow_params)
                 if shadow_uri:
                     # One header can carry several policies separated by commas, and the browser checks
-                    # each on its own. On a report-only document the shadow joins the app policy there.
-                    shadow = "; ".join([*img_src_shadow_policy(csp_parts), f"report-uri {shadow_uri}"])
+                    # each on its own. On a report-only document each shadow joins the app policy there.
+                    shadow = "; ".join([*shadow_parts, f"report-uri {shadow_uri}"])
                     reported = response.headers.get("Content-Security-Policy-Report-Only")
                     response.headers["Content-Security-Policy-Report-Only"] = (
                         f"{reported}, {shadow}" if reported else shadow

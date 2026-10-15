@@ -18,11 +18,11 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemState
+from ..facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemReason, ItemState
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
 from .content import BriefingContent
-from .eligibility import briefing_day, resolve_timezone
+from .eligibility import briefing_day, day_start, resolve_timezone
 from .fact_sheet import FactSheet, FactSheetItem, stored_fact_sheet
 
 VIEW_STAMP_EVERY = timedelta(hours=1)
@@ -35,6 +35,7 @@ _REPORT_STATES = {
     "suppressed": ItemState.DISMISSED,
     _DELETED_REPORT_STATUS: ItemState.DISMISSED,
 }
+_PRIORITY_RANK = {f"P{number}": number for number in range(5)}
 
 
 def start_generation(briefing: DailyBriefing) -> None:
@@ -216,6 +217,32 @@ def _live_states(reports: dict[str, signals.BriefingReportDetails]) -> dict[str,
     return {key: _REPORT_STATES[detail.status] for key, detail in reports.items() if detail.status in _REPORT_STATES}
 
 
+_NAMES_PERSON_REASONS = frozenset({ItemReason.WAITING_FOR_YOU, ItemReason.SUGGESTED_REVIEWER})
+
+
+def _left_item_keys(team: Team, user: User, items: list[FactSheetItem], states: dict[str, ItemState]) -> set[str]:
+    """Items the briefing picked because the report named the person, which it no longer does.
+
+    The briefing is a saved list, so without this the report comes back on the next page load as
+    though nothing happened. A report that already resolved or was dismissed keeps that state, which
+    is the stronger thing to say about it.
+    """
+    candidates = {
+        item.key: item.key.split(":", 1)[1]
+        for item in items
+        if item.key.startswith("report:") and item.reason in _NAMES_PERSON_REASONS and item.key not in states
+    }
+    if not candidates:
+        return set()
+    try:
+        naming = signals.report_ids_naming_user(team_id=team.id, user=user, report_ids=list(candidates.values()))
+    except Exception as error:
+        # A failed lookup costs the label, not the briefing.
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return set()
+    return {key for key, report_id in candidates.items() if report_id not in naming}
+
+
 def _report_contract(detail: signals.BriefingReportDetails) -> contracts.BriefingItemReport | None:
     # A deleted report keeps its state on the item, but none of its content, as in the Inbox.
     if detail.status == _DELETED_REPORT_STATUS:
@@ -248,6 +275,10 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
     )
 
 
+def _priority_rank(report: contracts.BriefingItemReport | None) -> int:
+    return _PRIORITY_RANK.get((report and report.priority) or "", len(_PRIORITY_RANK))
+
+
 def to_contract(
     briefing: DailyBriefing,
     team: Team,
@@ -258,6 +289,8 @@ def to_contract(
 ) -> contracts.Briefing:
     """The briefing as the page shows it: only the items the text names, with live states and counts.
 
+    Items are in display order: by the live priority of their report, then by their rank when written.
+
     `status` overrides the row's own: while a newer briefing is being written, the
     page gets the last ready one as `writing`, so it keeps showing the text and keeps polling.
     `metric_access` is the viewer's access to report metrics, so the briefing hides what the Inbox hides.
@@ -267,7 +300,10 @@ def to_contract(
     content = BriefingContent.model_validate(briefing.content or {})
     reports = _report_details(team, shown, metric_access)
     states = _live_states(reports)
+    states |= dict.fromkeys(_left_item_keys(team, user, shown, states), ItemState.LEFT)
     counts = _inbox_counts(team, user, shown)
+    cards = {key: _report_contract(detail) for key, detail in reports.items()}
+    ordered = sorted(shown, key=lambda item: (_priority_rank(cards.get(item.key)), item.rank))
     return contracts.Briefing(
         id=str(briefing.id),
         status=status or BriefingStatus(briefing.status),
@@ -291,17 +327,18 @@ def to_contract(
                 label=content.labels.get(item.key) or item.title,
                 signal=content.signals.get(item.key, ""),
                 url=item.url,
-                rank=item.rank,
+                rank=rank,
                 state=states.get(item.key, ItemState.OPEN),
                 source_product=item.source_product,
-                report=_report_contract(reports[item.key]) if item.key in reports else None,
+                report=cards.get(item.key),
             )
-            for item in shown
+            for rank, item in enumerate(ordered, start=1)
         ],
         more_reports_count=counts.more_for_you,
         open_reports_count=counts.open_in_project,
         created_at=briefing.created_at,
         ready_at=briefing.ready_at,
+        refresh_at=day_start(briefing.local_day + timedelta(days=1), resolve_timezone(briefing.timezone, team)),
     )
 
 

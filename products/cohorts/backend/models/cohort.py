@@ -891,6 +891,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        save_state: bool = True,
         import_resolution: ImportResolution | None = None,
     ) -> int:
         """
@@ -904,6 +905,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 cohort state is left for the caller to finalize, instead of being swallowed
                 and recorded on the cohort here. Use when the caller records its own
                 success/failure outcome and must not treat a partial insert as success.
+            save_state: When False, this call neither recomputes ``count`` nor saves the cohort's
+                calculation state, and a batch insert failure is re-raised. The caller refreshes the
+                count and saves the state. Use when the caller inserts in several calls and the
+                cohort must stay calculating between them.
             import_resolution: Optional accumulator for deduplicated matched and unmatched UUIDs.
 
         Returns:
@@ -921,6 +926,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             insert_in_clickhouse=True,
             team_id=team_id,
             raise_on_error=raise_on_error,
+            save_state=save_state,
             insert_batch=insert_batch,
         )
 
@@ -1048,6 +1054,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        save_state: bool = True,
         insert_batch: Callable[[list[Any]], None] | None = None,
     ) -> int:
         """
@@ -1057,6 +1064,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             team_id: The ID of the team to which the cohort belongs.
+            raise_on_error, save_state: See ``insert_users_list_by_uuid``.
             insert_batch: Override for the per-batch write. Defaults to resolving each batch of
                 UUIDs via personhog and inserting (``_insert_batch_via_personhog``, which honors
                 ``insert_in_clickhouse``); callers whose batches are not plain UUID lists supply
@@ -1065,7 +1073,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from products.cohorts.backend.models.util import count_cohort_members
 
         def _resolve_and_insert_batch(batch: list[Any]) -> None:
             self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
@@ -1089,10 +1096,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             raise
         except Exception as err:
             processing_error = err
-            # When the caller owns terminal-state finalization (raise_on_error), surface
-            # the failure instead of swallowing it, so a partial insert can't be recorded
-            # as success. The finally block below skips its own error save in this mode.
-            if settings.DEBUG or raise_on_error:
+            # When the caller owns terminal-state finalization (raise_on_error or
+            # save_state=False), surface the failure instead of swallowing it, so a partial
+            # insert can't be recorded as success. The finally block below skips its own
+            # error save in these modes.
+            if settings.DEBUG or raise_on_error or not save_state:
                 raise
             capture_exception(
                 err,
@@ -1103,28 +1111,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 },
             )
         finally:
-            # Always update the count and cohort state, even if processing failed
-            try:
-                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
-                self.count = count
-            except Exception as count_err:
-                # If count calculation fails, log the error but don't override the processing error.
-                # Leave existing count unchanged - it's better than None.
-                logger.exception(
-                    "Failed to calculate static cohort size",
-                    cohort_id=self.id,
-                    team_id=team_id,
-                )
-                capture_exception(
-                    count_err,
-                    additional_properties={"cohort_id": self.id, "team_id": team_id},
-                )
-
-            # In raise_on_error mode the caller finalizes cohort state on failure, so skip
-            # the error save here to avoid double-counting errors_calculating. The success
-            # path (processing_error is None) still finalizes state as usual.
-            if not (raise_on_error and processing_error is not None):
-                self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+            if save_state:
+                self._refresh_count(team_id=team_id)
+                # In raise_on_error mode the caller finalizes cohort state on failure, so skip
+                # the error save here to avoid double-counting errors_calculating.
+                if processing_error is None or not raise_on_error:
+                    self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
 
@@ -1319,6 +1311,24 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
+    def _refresh_count(self, *, team_id: int) -> None:
+        """Recompute ``count`` on the instance from the stored members. A failure is logged, not raised."""
+        from products.cohorts.backend.models.util import count_cohort_members
+
+        try:
+            self.count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
+        except Exception as count_err:
+            # A failed count leaves the existing count unchanged. An old count is better than None.
+            logger.exception(
+                "Failed to calculate static cohort size",
+                cohort_id=self.id,
+                team_id=team_id,
+            )
+            capture_exception(
+                count_err,
+                additional_properties={"cohort_id": self.id, "team_id": team_id},
+            )
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """

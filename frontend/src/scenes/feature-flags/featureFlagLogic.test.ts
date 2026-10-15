@@ -16,11 +16,15 @@ import { toast } from 'react-toastify'
 import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
+import { flagTriggerLogic } from 'lib/components/IngestionControls/triggers/FlagTrigger/flagTriggerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +39,7 @@ import {
     FeatureFlagType,
     FeatureFlagWithV1Config,
     OrganizationFeatureFlag,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecurrenceInterval,
@@ -706,6 +711,175 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('load failure handling', () => {
+        const RELOAD_FAILED_MESSAGE = "We couldn't reload this feature flag. The page may not show its saved version."
+
+        async function remount(): Promise<void> {
+            logic.unmount()
+            logic = featureFlagLogic({ id: MOCK_FEATURE_FLAG.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        // A server error carries a status, so initKea would toast it. A dropped connection carries
+        // none, so initKea never toasts it.
+        const LOAD_FAILURES: [string, () => () => void][] = [
+            [
+                'a server error',
+                () => {
+                    useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+                    return () => {}
+                },
+            ],
+            [
+                'a dropped connection',
+                () => {
+                    const get = jest.spyOn(api, 'get').mockRejectedValue(new NetworkError('network'))
+                    return () => get.mockRestore()
+                },
+            ],
+        ]
+
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+            resumeKeaLoadersErrors()
+        })
+
+        it('reads a 404 as a missing flag', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [404, { detail: 'Not found.' }] } })
+            await remount()
+
+            expect(logic.values.featureFlagMissing).toBe(true)
+            expect(logic.values.featureFlagLoadFailed).toBe(false)
+        })
+
+        it.each(LOAD_FAILURES)(
+            'offers the retry banner, and no toast, when the first load hits %s',
+            async (_desc, fail) => {
+                const restore = fail()
+                try {
+                    await remount()
+
+                    expect(logic.values.featureFlagMissing).toBe(false)
+                    expect(logic.values.featureFlagLoadFailed).toBe(true)
+                    expect(toastSpy).not.toHaveBeenCalled()
+                } finally {
+                    restore()
+                }
+            }
+        )
+
+        it.each(LOAD_FAILURES)('keeps a loaded flag and toasts a retry when a reload hits %s', async (_desc, fail) => {
+            const restore = fail()
+            try {
+                await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                    'loadFeatureFlagFailure',
+                ])
+
+                expect(logic.values.featureFlagLoadFailed).toBe(false)
+                expect(logic.values.featureFlagMissing).toBe(false)
+                expect(logic.values.featureFlag.key).toBe(MOCK_FEATURE_FLAG.key)
+                // One call means initKea's generic toast stayed off and this is the only notice.
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                expect(toastSpy).toHaveBeenCalledWith(
+                    RELOAD_FAILED_MESSAGE,
+                    expect.objectContaining({ button: expect.objectContaining({ label: 'Try again' }) })
+                )
+            } finally {
+                restore()
+            }
+        })
+
+        it('offers the retry banner when the flag to duplicate fails to load', async () => {
+            useMocks({
+                get: { [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/42/`]: () => [500, SERVER_ERROR_BODY] },
+            })
+            router.actions.push(`${urls.featureFlag('new')}?sourceId=42`)
+            const duplicateLogic = featureFlagLogic({ id: 'new' })
+            try {
+                await expectLogic(duplicateLogic, () => {
+                    duplicateLogic.mount()
+                }).toDispatchActions(['loadFeatureFlagFailure'])
+
+                expect(duplicateLogic.values.featureFlagLoadFailed).toBe(true)
+            } finally {
+                duplicateLogic.unmount()
+            }
+        })
+
+        it('still toasts when a logic outside the flag scene fails to load a flag', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+            const triggerLogic = flagTriggerLogic({
+                logicKey: 'test',
+                flag: { id: MOCK_FEATURE_FLAG.id, key: MOCK_FEATURE_FLAG.key, variant: null },
+                onChange: () => {},
+            })
+            try {
+                await expectLogic(triggerLogic, () => {
+                    triggerLogic.mount()
+                }).toDispatchActions(['loadFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith(`Load feature flag failed: ${SERVER_ERROR_BODY.detail}`)
+            } finally {
+                triggerLogic.unmount()
+            }
+        })
+
+        it.each([
+            ['a server error', 500],
+            ['a missing flag', 404],
+        ])('clears %s when a retry loads the flag', async (_desc, status) => {
+            useMocks({ get: { [FLAG_URL]: () => [status, SERVER_ERROR_BODY] } })
+            await remount()
+            expect(logic.values.featureFlagMissing || logic.values.featureFlagLoadFailed).toBe(true)
+
+            useMocks({ get: { [FLAG_URL]: () => [200, MOCK_FEATURE_FLAG] } })
+            // Wait for the listeners, because the history already holds the success from the first mount.
+            await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toFinishAllListeners()
+
+            expect(logic.values.featureFlagLoadFailed).toBe(false)
+            expect(logic.values.featureFlagMissing).toBe(false)
+        })
+
+        it('separates a missing flag from a failed load in what it captures', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            try {
+                useMocks({ get: { [FLAG_URL]: () => [404, { detail: 'Not found.' }] } })
+                await remount()
+                expect(capture).toHaveBeenCalledWith('feature flag not found')
+
+                capture.mockClear()
+                useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+                await remount()
+                expect(capture).toHaveBeenCalledWith('feature flag load failed', { status: 500 })
+            } finally {
+                capture.mockRestore()
+            }
+        })
+
+        it('counts a failed load once per mount, however many retries fail', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            try {
+                useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+                await remount()
+                await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                    'loadFeatureFlagFailure',
+                ])
+
+                expect(capture.mock.calls.filter(([event]) => event === 'feature flag load failed')).toHaveLength(1)
+            } finally {
+                capture.mockRestore()
+            }
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({
@@ -747,6 +921,41 @@ describe('featureFlagLogic', () => {
                 expect(toastSpy).not.toHaveBeenCalledWith('Nope')
             } finally {
                 toastSpy.mockRestore()
+            }
+        })
+
+        it('offers a retry that saves the form as it is when clicked', async () => {
+            silenceKeaLoadersErrors()
+            const update = jest.spyOn(api, 'update').mockRejectedValue(new NetworkError('network'))
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => logic.actions.editFeatureFlag(true)).toFinishAllListeners()
+                logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'edited' })
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith(
+                    "We couldn't save this feature flag. Your changes are still here.",
+                    expect.objectContaining({ button: expect.objectContaining({ label: 'Try again' }) })
+                )
+                expect(logic.values.featureFlag.name).toBe('edited')
+
+                // An edit made after the failure must not be lost when the retry saves.
+                logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'edited again' })
+                update.mockResolvedValue({ ...MOCK_FEATURE_FLAG, name: 'edited again' })
+                await expectLogic(logic, () => {
+                    toastSpy.mock.calls[0][1]?.button?.action?.()
+                }).toDispatchActions(['saveFeatureFlagSuccess'])
+
+                expect(update).toHaveBeenLastCalledWith(
+                    expect.any(String),
+                    expect.objectContaining({ name: 'edited again' })
+                )
+            } finally {
+                update.mockRestore()
+                toastSpy.mockRestore()
+                resumeKeaLoadersErrors()
             }
         })
 
@@ -866,16 +1075,125 @@ describe('featureFlagLogic', () => {
             expect(router.values.location.pathname).toBe(embeddedPathname)
         })
 
+        const approvalRequired = (): ApiError =>
+            new ApiError(undefined, 409, undefined, {
+                code: 'approval_required',
+                status: 'approval_required',
+                detail: 'A change request has been created and is pending approval.',
+                change_request_id: 'cr-1',
+            })
+
+        const editOnFlagPage = async (name: string): Promise<void> => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { edit: true })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name })
+        }
+
         it('keeps the current route when an embedded editor save requires approval', async () => {
             const notebookUrl = urls.notebook('embedded-flag')
             router.actions.push(notebookUrl)
             const embeddedPathname = router.values.location.pathname
+            jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
 
             await expectLogic(logic, () => {
-                logic.actions.saveFeatureFlagFailure('Approval required', { status: 409 })
+                logic.actions.saveFeatureFlagFailure('Approval required', approvalRequired())
             }).toFinishAllListeners()
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+
+        it('shows the stored flag without a leave prompt when an edit needs approval', async () => {
+            await editOnFlagPage('Unapproved name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(approvalRequired())
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(confirmSpy).not.toHaveBeenCalled()
+            expect(approvalToast).toHaveBeenCalledTimes(1)
+            expect(router.values.searchParams.edit).toBeUndefined()
+            expect(logic.values).toMatchObject({
+                isEditingFlag: false,
+                hasUnsavedChanges: false,
+                featureFlag: partial({ name: MOCK_FEATURE_FLAG.name }),
+            })
+        })
+
+        it('opens the change request when creating a flag needs approval, and leaves the form clean', async () => {
+            router.actions.push(urls.featureFlag('new'))
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            try {
+                await expectLogic(newLogic).toFinishAllListeners()
+                // A template loads a starting point that differs from the form defaults.
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.loadFeatureFlagSuccess({
+                        ...newLogic.values.featureFlag,
+                        filters: {
+                            ...NEW_FLAG.filters,
+                            groups: [{ properties: [], rollout_percentage: 50, variant: null }],
+                        },
+                    })
+                }).toFinishAllListeners()
+                newLogic.actions.startNewFlagDisabled()
+                expect(newLogic.values).toMatchObject({ isFormDirty: false, featureFlag: partial({ active: false }) })
+                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'gated-flag' })
+                jest.spyOn(api, 'create').mockRejectedValueOnce(approvalRequired())
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.saveFeatureFlag(newLogic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(approvalToast).toHaveBeenCalledTimes(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.approval('cr-1'))
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.featureFlags())
+            } finally {
+                newLogic.unmount()
+            }
+        })
+
+        it.each([
+            [
+                'a version conflict',
+                new ApiError(undefined, 409, undefined, {
+                    code: 'conflict',
+                    detail: 'The feature flag was updated by another user since you started editing it.',
+                }),
+                'The feature flag was updated by another user since you started editing it.',
+            ],
+            [
+                'a policy conflict',
+                new ApiError(undefined, 400, undefined, {
+                    code: 'policy_conflict',
+                    error: 'This change matches multiple approval policies',
+                }),
+                "Couldn't save the flag. These changes need approval under more than one policy, so save them one at a time.",
+            ],
+        ])('keeps the edit open and explains %s', async (_, error, message) => {
+            await editOnFlagPage('Edited name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(message)
+            expect(logic.values).toMatchObject({ isEditingFlag: true, featureFlag: partial({ name: 'Edited name' }) })
         })
     })
 
@@ -4509,5 +4827,121 @@ describe('a flag in config version 2', () => {
         expect(newLogic.values.featureFlag.key).toBe('')
         expect(router.values.searchParams.sourceId).toBeUndefined()
         newLogic.unmount()
+    })
+
+    it('prefills one fully rolled out release condition from a properties link', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        const properties: PersonPropertyFilter[] = [
+            {
+                key: 'p_signed_up',
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.GreaterThanOrEqual,
+                value: 0.6,
+            },
+        ]
+        router.actions.push(urls.featureFlagNew({ properties }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.filters.groups).toEqual([
+            { properties, rollout_percentage: 100, variant: null },
+        ])
+        newLogic.unmount()
+    })
+})
+
+describe('the editor a flag opens in', () => {
+    const V1_FLAG = { ...NEW_FLAG, id: 8, key: 'v1-flag', version: 1 }
+    const V2_FLAG = {
+        ...NEW_FLAG,
+        id: 7,
+        key: 'rules-v2-flag',
+        version: 3,
+        filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    }
+
+    beforeEach(() => {
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, V2_FLAG],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/8/`]: () => [200, V1_FLAG],
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(resumeKeaLoadersErrors)
+
+    async function editorKind(id: 7 | 8 | 'new', editorEnabled: boolean, search = ''): Promise<string | null> {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]: editorEnabled,
+        })
+        router.actions.push(`${urls.featureFlag(id)}${search}`)
+        const logic = featureFlagLogic({ id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        if (id !== 'new') {
+            logic.actions.editFeatureFlag(true)
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
+        }
+        const kind = logic.values.editorKind
+        logic.unmount()
+        return kind
+    }
+
+    it.each([
+        ['a v1 flag', 'v1', 8, true, ''],
+        ['a v1 flag with the editor off', 'v1', 8, false, ''],
+        ['a v2 flag', 'rules_v2', 7, true, ''],
+        ['a v2 flag with the editor off', null, 7, false, ''],
+        ['a new flag', 'v1', 'new', true, ''],
+        ['a new rules v2 flag', 'rules_v2', 'new', true, '?format=rules_v2'],
+        ['a new rules v2 flag with the editor off', 'v1', 'new', false, '?format=rules_v2'],
+    ] as const)('%s opens the %s editor', async (_label, expected, id, editorEnabled, search) => {
+        expect(await editorKind(id, editorEnabled, search)).toBe(expected)
+    })
+
+    // The editor builds its draft from the stored rules and would throw on, or drop, what it cannot represent.
+    it.each([
+        ['a string return type', { return_type: 'string', default_value: 'control' }],
+        ['group assignment', { aggregation_group_type_index: 0 }],
+        [
+            'an experiment rule',
+            {
+                rules: [
+                    {
+                        id: 'rule-experiment',
+                        rule_type: 'experiment',
+                        targeting: { properties: [] },
+                        experiment_id: 12,
+                        paused: false,
+                        variants: [
+                            { key: 'control', weight: 50, value: false },
+                            { key: 'test', weight: 50, value: true },
+                        ],
+                        rollout_percentage: 100,
+                        on_rollout_miss: 'continue',
+                        assignment_algorithm: 'sha1_60_v1',
+                        assign_by: 'person',
+                        seed: 'stored-seed',
+                    },
+                ],
+            },
+        ],
+    ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [
+                    200,
+                    { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } },
+                ],
+            },
+        })
+        expect(await editorKind(7, true)).toBeNull()
     })
 })

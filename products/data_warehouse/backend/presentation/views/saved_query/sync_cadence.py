@@ -1,6 +1,5 @@
 """Sync cadence for a saved query: the choices, the lineage bounds, and the writable field."""
 
-from datetime import timedelta
 from typing import Any, cast
 
 from django.db import models
@@ -15,21 +14,25 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 
+from . import rendered_node_states
+
+
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
 # frontend `DataModelingSyncInterval` type. All values are accepted by
-# `sync_frequency_to_sync_frequency_interval`.
-SYNC_FREQUENCY_CHOICES = [
-    ("never", "never"),
-    ("15min", "15min"),
-    ("30min", "30min"),
-    ("1hour", "1hour"),
-    ("6hour", "6hour"),
-    ("12hour", "12hour"),
-    ("24hour", "24hour"),
-    ("7day", "7day"),
-    ("30day", "30day"),
-]
+# `sync_frequency_to_sync_frequency_interval`. The labels repeat the values because the published
+# OpenAPI enum lists these exact pairs.
+class SavedQuerySyncFrequency(models.TextChoices):
+    NEVER = "never", "never"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
 
 # Deprecated sub-15min cadences clamped up to the 15min floor for backwards compatibility
 # with any legacy caller still sending them.
@@ -41,7 +44,7 @@ DEFAULT_MATERIALIZE_SYNC_FREQUENCY = "24hour"
 
 # `never` is missing on purpose: materializing is what starts the refreshes, so asking for none
 # has no meaning here. Callers stop them afterwards by setting the cadence to `never`.
-MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SYNC_FREQUENCY_CHOICES if choice[0] != "never"]
+MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SavedQuerySyncFrequency.choices if choice[0] != "never"]
 
 
 class SyncFrequencyBlockerSerializer(serializers.Serializer):
@@ -244,32 +247,6 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
     }
 
 
-def _node_frequency_targets(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> dict[str, timedelta]:
-    """Declared node targets for every view the root serializer renders, fetched once.
-
-    Resolved from the root's instance rather than the viewset context, because the context is
-    built without knowing which page of views is being serialized. Memoized on the root so a
-    `list` response costs one query instead of one per view.
-    """
-    cached = getattr(root, "_node_frequency_targets_cache", None)
-    if cached is not None:
-        return cached
-
-    from products.data_modeling.backend.facade.api import declared_targets_by_saved_query
-
-    instance = root.instance
-    if isinstance(instance, DataWarehouseSavedQuery):
-        views = [instance]
-    elif instance is None:
-        views = [view]
-    else:
-        views = list(instance)
-
-    targets = declared_targets_by_saved_query(view.team_id, [rendered.pk for rendered in views])
-    root._node_frequency_targets_cache = targets  # type: ignore[attr-defined]
-    return targets
-
-
 def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> str | None:
     """Cadence string for a view, preferring its DAG node's declared freshness target.
 
@@ -278,9 +255,9 @@ def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouse
     column alone reports "never" for every scheduled view. The column still covers v1 and
     single-schedule v2 teams, which have no node target.
     """
-    target = _node_frequency_targets(root, view).get(str(view.pk))
-    if target is not None:
-        return sync_frequency_interval_to_sync_frequency(target)
+    state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
+    if state is not None and state.declared_target is not None:
+        return sync_frequency_interval_to_sync_frequency(state.declared_target)
     return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
 
 
@@ -294,7 +271,7 @@ class SyncFrequencyField(serializers.ChoiceField):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("choices", SYNC_FREQUENCY_CHOICES)
+        kwargs.setdefault("choices", SavedQuerySyncFrequency.choices)
         kwargs.setdefault("required", False)
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)

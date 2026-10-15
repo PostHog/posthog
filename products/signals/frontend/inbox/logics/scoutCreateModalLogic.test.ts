@@ -54,13 +54,20 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         mcp_gateway_server_ids: [],
         repositories: [],
         write_scopes: [],
+        allowed_mcp_tools: null,
+        tool_preset: null,
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
         status_changed_by: null,
         auto_pause_exempt: false,
+        lifecycle_locked: false,
         network_access: 'trusted',
         model: null,
+        precheck_query: null,
+        precheck_disabled: false,
+        effective_precheck_query: null,
+        precheck_query_source: 'off',
         source_product: null,
         source_id: null,
         created_at: '2026-07-24T00:00:00Z',
@@ -163,7 +170,7 @@ describe('scoutCreateModalLogic', () => {
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
                 repositories: [],
-                write_scopes: [],
+                write_scopes: ['notebook:write'],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -188,7 +195,7 @@ describe('scoutCreateModalLogic', () => {
                 run_cron_schedule: null,
                 mcp_gateway_server_ids: [],
                 repositories: [],
-                write_scopes: [],
+                write_scopes: ['notebook:write'],
                 output_destinations: {
                     slack: {
                         integration_id: 42,
@@ -233,7 +240,7 @@ describe('scoutCreateModalLogic', () => {
             mcp_gateway_server_ids: [],
             repositories: [],
             tags: [],
-            write_scopes: [],
+            write_scopes: ['notebook:write'],
         })
         expect(onEnabled).toHaveBeenCalledTimes(1)
         expect(onCreated).not.toHaveBeenCalled()
@@ -333,7 +340,7 @@ describe('scoutCreateModalLogic', () => {
                     tags: [],
                     mcp_gateway_server_ids: [],
                     repositories: [],
-                    write_scopes: [],
+                    write_scopes: ['notebook:write'],
                 },
             }),
         })
@@ -350,7 +357,7 @@ describe('scoutCreateModalLogic', () => {
                     tags: [],
                     mcp_gateway_server_ids: [],
                     repositories: [],
-                    write_scopes: [],
+                    write_scopes: ['notebook:write'],
                 },
             })
         )

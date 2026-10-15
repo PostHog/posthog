@@ -8,7 +8,7 @@ import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/active
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { UserType } from '~/types'
+import { OrganizationType, UserType } from '~/types'
 
 import { WelcomeDialog } from './WelcomeDialog'
 import { welcomeDialogLogic } from './welcomeDialogLogic'
@@ -120,8 +120,15 @@ const EMPTY_PAYLOAD = {
     is_organization_first_user: false,
 }
 
+// The dialog only opens in the first weeks of org membership, so join the day before `mockDate`.
+const RECENTLY_JOINED_ORGANIZATION: OrganizationType = {
+    ...MOCK_DEFAULT_USER.organization!,
+    membership_joined_at: '2026-04-16T00:00:00Z',
+}
+
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     first_name: 'Fern',
     is_organization_first_user: false,
 }
@@ -129,6 +136,7 @@ const INVITED_USER: UserType = {
 // A partner-provisioned account: no inviter (first org user), onboarding skipped as 'provisioned'.
 const PROVISIONED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    organization: RECENTLY_JOINED_ORGANIZATION,
     first_name: 'Robin',
     is_organization_first_user: true,
     onboarding_skipped_reason: 'provisioned',

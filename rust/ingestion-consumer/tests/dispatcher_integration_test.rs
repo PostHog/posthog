@@ -1,10 +1,11 @@
+mod common;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::Partition;
-use lifecycle::{ComponentOptions, Manager};
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -13,11 +14,10 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use ingestion_consumer::batcher::Batcher;
+use common::key_table_batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
 
@@ -98,7 +98,7 @@ fn fast_config() -> WorkerRegistryConfig {
 
 fn make_msg(key: &str) -> SerializedKafkaMessage {
     SerializedKafkaMessage {
-        topic: "test".to_string(),
+        topic: "test".into(),
         partition: 0,
         offset: 0,
         timestamp: 0,
@@ -286,23 +286,22 @@ async fn test_worker_recovery_detected_by_probe() {
 
 /// With 3 workers, one dying mid-flight:
 /// - Keys pinned to the dead worker are evicted and re-routed to the survivors.
-/// - Keys pinned to the two live workers are unaffected.
 /// - No new keys reach the dead worker.
 #[tokio::test]
 async fn test_three_workers_one_dies_and_load_rebalances() {
-    let w0 = FakeWorker::start().await;
-    let w1 = FakeWorker::start().await;
-    let w2 = FakeWorker::start().await;
+    let workers = [
+        FakeWorker::start().await,
+        FakeWorker::start().await,
+        FakeWorker::start().await,
+    ];
 
-    let urls = vec![w0.url.clone(), w1.url.clone(), w2.url.clone()];
+    let urls: Vec<String> = workers.iter().map(|w| w.url.clone()).collect();
     let registry = Arc::new(WorkerRegistry::new(&urls, fast_config()));
     let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
     let token = CancellationToken::new();
     Arc::clone(&registry).start_probing(token.clone());
 
-    // 3 distinct keys of equal size: bin-packing spreads exactly one key per
-    // worker (provisional load increases by 1 for each pick, breaking all ties).
     let first = dispatcher.assign(
         "b",
         vec![
@@ -311,30 +310,20 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
             make_msg("t:key-c"),
         ],
     );
-    assert_eq!(
-        first.len(),
-        3,
-        "3 keys across 3 workers must yield 3 sub-batches"
-    );
-    let workers_covered: std::collections::HashSet<String> =
-        first.iter().map(|b| b.worker.to_string()).collect();
-    assert_eq!(workers_covered.len(), 3, "all 3 workers must receive a pin");
 
-    // Remember which routing key was pinned to w1 — we'll re-assign it later
-    // to verify it migrates to a live worker.
-    let w1_key = first
+    // Kill the worker that holds the first sub-batch and wait for dead
+    // declaration (first batch stays open throughout).
+    let dead_sub = &first[0];
+    let dead = workers
         .iter()
-        .find(|b| b.worker.as_ref() == w1.url)
-        .unwrap()
-        .routing_keys[0]
-        .clone();
+        .find(|w| w.url == dead_sub.worker.as_ref())
+        .unwrap();
+    let dead_key = dead_sub.routing_keys[0].clone();
+    dead.set_healthy(false);
+    wait_for_state(&registry, &dead.url, WorkerState::Unhealthy).await;
+    wait_for_dead(&registry, &dead.url).await;
 
-    // Kill w1 and wait for dead declaration (first batch stays open throughout).
-    w1.set_healthy(false);
-    wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
-    wait_for_dead(&registry, &w1.url).await;
-
-    // Fresh keys must only land on w0 or w2.
+    // Fresh keys must only land on the survivors.
     let fresh = dispatcher.assign(
         "b",
         vec![
@@ -344,27 +333,27 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
         ],
     );
     assert!(
-        fresh.iter().all(|b| b.worker.as_ref() != w1.url),
-        "fresh keys must not route to dead w1; workers used: {:?}",
+        fresh.iter().all(|b| b.worker.as_ref() != dead.url),
+        "fresh keys must not route to the dead worker; workers used: {:?}",
         fresh
             .iter()
             .map(|b| b.worker.to_string())
             .collect::<Vec<_>>()
     );
 
-    // Resolve w1's in-flight sub-batch (max_in_flight=1: the prior batch
-    // completes before the next assigns), evicting its now zero-ref pin.
-    let w1_sub = first.iter().find(|b| b.worker.as_ref() == w1.url).unwrap();
+    // Resolve the dead worker's in-flight sub-batch (max_in_flight=1: the
+    // prior batch completes before the next assigns), evicting its now
+    // zero-ref pins.
     dispatcher.on_sub_batch_resolved(
-        &w1_sub.worker,
-        w1_sub.messages.len(),
-        &w1_sub.routing_keys,
+        &dead_sub.worker,
+        dead_sub.messages.len(),
+        &dead_sub.routing_keys,
         false,
         false,
     );
 
-    // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
-    let rerouted = dispatcher.assign("b", vec![make_msg(&w1_key)]);
+    // The key that was pinned to the dead worker must re-route to a survivor.
+    let rerouted = dispatcher.assign("b", vec![make_msg(&dead_key)]);
     assert_eq!(
         rerouted.len(),
         1,
@@ -372,8 +361,8 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     );
     assert_ne!(
         rerouted[0].worker.as_ref(),
-        w1.url,
-        "key previously pinned to w1 must reroute to a live worker, not w1"
+        dead.url,
+        "key previously pinned to the dead worker must reroute to a live worker"
     );
 
     token.cancel();
@@ -478,25 +467,15 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
 #[tokio::test(flavor = "current_thread")]
 async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("submission-purge-race-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        Arc::clone(&dispatcher),
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );
@@ -504,10 +483,9 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), make_msg("a").into());
     batcher.submit(accumulator);
-    // No await between submit and purge: run_scatter is queued but cannot run
-    // until this current-thread task yields. The submission was accepted and
-    // retained synchronously, then intentionally discarded by revocation.
-    dispatcher.purge_revoked(&[("test".to_string(), 0)]);
+    // No await between submit and purge: the batcher task receives both
+    // before it runs, and discards the submission when it applies the purge.
+    batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
         Err(_) => {}
@@ -519,25 +497,15 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
 #[tokio::test]
 async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
-        registry,
-        RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
-    ));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(registry, RoutingStrategy::P2c));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("batcher-drop-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_secs(10),
         Duration::from_millis(20),
     );

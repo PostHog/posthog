@@ -203,7 +203,8 @@ export const urls = {
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
-    credentialReview: (): string => '/account/credential-review',
+    credentialReview: (next?: string): string =>
+        `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     passwordReset: (): string => '/reset',
@@ -316,12 +317,11 @@ export const urls = {
     projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    tracing: (): string => '/tracing',
-    metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    organizationStartups: (referrer?: string): string => `/organization/startups${referrer ? `/${referrer}` : ''}`,
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,

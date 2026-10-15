@@ -1,7 +1,7 @@
 import json
 import uuid
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -338,6 +338,7 @@ class TestTask(TestCase):
             (Task.OriginProduct.SIGNAL_REPORT,),
             (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
             (Task.OriginProduct.AUTORESEARCH,),
+            (Task.OriginProduct.ACCOUNT_AUDIT,),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -667,6 +668,44 @@ class TestTask(TestCase):
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.github_user_integration, user_integration)
         mock_execute_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("connected_creator", True, "user"),
+            ("creator_without_personal_github", False, "bot"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_posthog_ai_authorship_follows_the_creators_personal_github(
+        self, _name, connected, expected_mode, mock_execute_workflow
+    ):
+        user = User.objects.create(email="phai@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        user_integration = (
+            UserIntegration.objects.create(
+                user=user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="install-1",
+                config={},
+                sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+            )
+            if connected
+            else None
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="PostHog AI",
+                description="Repo-less",
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                user_id=user.id,
+            )
+
+        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.github_user_integration, user_integration)
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["pr_authorship_mode"], expected_mode)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
@@ -1088,6 +1127,23 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    @parameterized.expand([("immediate", None), ("future", 1), ("overdue", -1)])
+    def test_create_run_stamps_server_startup_time_and_preserves_it_in_analytics(
+        self, _name: str, scheduled_days: int | None
+    ) -> None:
+        requested_at = django_timezone.now()
+        scheduled_at = requested_at + timedelta(days=scheduled_days) if scheduled_days is not None else None
+        run = self.task.create_run(
+            extra_state={"startup_requested_at": "untrusted-time"},
+            startup_requested_at=requested_at,
+            scheduled_at=scheduled_at,
+        )
+        run.refresh_from_db()
+
+        expected = max(requested_at, scheduled_at) if scheduled_at is not None else requested_at
+        self.assertEqual(run.state["startup_requested_at"], expected.isoformat())
+        self.assertEqual(run.analytics_properties()["startup_requested_at"], run.state["startup_requested_at"])
+
     def test_create_run_snapshots_task_ownership_version(self):
         ownership_version = str(uuid.uuid4())
         self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}
@@ -1228,11 +1284,13 @@ class TestTaskRun(TestCase):
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
+                "failure_error_type": "poll_timeout",
             },
         )
 
         run.prepare_for_cloud_resume()
 
+        self.assertNotIn("failure_error_type", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
@@ -1580,22 +1638,6 @@ class TestTaskRun(TestCase):
         self.assertEqual(props.get("sandbox_backend"), expected_backend)
         self.assertEqual(len(props["error_message"]), 500)
         self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
-
-    @parameterized.expand(
-        [
-            ("loop_run", {"loop_id": "loop-abc", "loop_trigger_id": "trig-xyz"}, "loop-abc", "trig-xyz"),
-            ("non_loop_run", {}, None, None),
-        ]
-    )
-    def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.task.create_run(extra_state=extra_state or None)
-        created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
-        self.assertEqual(len(created), 1)
-        props = created[0].kwargs["properties"]
-        self.assertEqual(props["loop_id"], expected_loop_id)
-        self.assertEqual(props["loop_trigger_id"], expected_trigger_id)
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(

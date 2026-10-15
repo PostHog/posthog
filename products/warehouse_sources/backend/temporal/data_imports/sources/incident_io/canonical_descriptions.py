@@ -55,6 +55,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "description": "Description of the follow-up action.",
             "status": "Current status of the follow-up (e.g. outstanding, completed, deleted).",
             "assignee": "The user the follow-up is assigned to.",
+            "category": "The category the follow-up is filed under. Only returned from API version v3.",
             "priority": "The priority assigned to the follow-up.",
             "external_issue_reference": "Reference to the linked external issue (e.g. Jira, GitHub).",
             "completed_at": "Time at which the follow-up was completed.",

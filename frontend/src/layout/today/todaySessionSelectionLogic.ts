@@ -5,13 +5,7 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TodayRecentSection } from './todayRecentOrder'
-import {
-    archiveSessions,
-    fileSessions,
-    pinSessions,
-    reportBulkResult,
-    restoreSessions,
-} from './todaySessionBulkRequests'
+import { archiveSessions, pinSessions, reportBulkResult, restoreSessions } from './todaySessionBulkRequests'
 import {
     EMPTY_SELECTION,
     TodaySessionSelection,
@@ -27,7 +21,7 @@ import { todayShellLogic } from './todayShellLogic'
 import { TodayWorkSectionId, todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkItem, activeCloudRunId } from './todayWorkItems'
 
-export type TodayBulkAction = 'pin' | 'file' | 'archive'
+export type TodayBulkAction = 'pin' | 'archive'
 
 /** Counted when the confirm opens, so the closing dialog doesn't retitle itself as the selection clears. */
 export interface TodayBulkArchiveConfirm {
@@ -91,9 +85,6 @@ export interface todaySessionSelectionLogicActions {
     }
     closeBulkArchiveConfirm: () => {
         value: true
-    }
-    fileSelectedTo: (spaceId: string) => {
-        spaceId: string
     }
     openBulkArchiveConfirm: (
         count: number,
@@ -168,7 +159,6 @@ export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
         selectSessionRange: (sessionId: string) => ({ sessionId }),
         clearSelection: true,
         pinSelected: true,
-        fileSelectedTo: (spaceId: string) => ({ spaceId }),
         requestBulkArchive: true,
         openBulkArchiveConfirm: (count: number, running: number) => ({ count, running }),
         closeBulkArchiveConfirm: true,
@@ -193,7 +183,6 @@ export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
             null as TodayBulkAction | null,
             {
                 pinSelected: () => 'pin',
-                fileSelectedTo: () => 'file',
                 archiveSelected: () => 'archive',
                 bulkActionFinished: () => null,
             },
@@ -283,12 +272,6 @@ export const todaySessionSelectionLogic = kea<todaySessionSelectionLogicType>([
                 const pinned = values.bulkPinDirection === 'pin'
                 const failed = await pinSessions(teamId(), ids, pinned)
                 reportBulkResult(pinned ? 'pin' : 'unpin', ids.length, failed.length)
-                finish(failed)
-            },
-            fileSelectedTo: async ({ spaceId }) => {
-                const ids = values.selectedSessionIds
-                const failed = await fileSessions(teamId(), ids, spaceId)
-                reportBulkResult('file', ids.length, failed.length)
                 finish(failed)
             },
             requestBulkArchive: () => {

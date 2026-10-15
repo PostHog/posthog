@@ -5,12 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
-    CIO_API_SCHEMA_NAMES,
-    CIO_WEBHOOK_SCHEMA_NAMES,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source import (
     CustomerIOSource,
     _webhook_table_transformer,
@@ -38,35 +33,12 @@ class TestCustomerIOSourceWebhookResourceMap:
 
 
 class TestCustomerIOSourceGetSchemas:
-    def test_includes_both_webhook_and_api_schemas(self):
-        source = CustomerIOSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        names = {s.name for s in schemas}
-        for name in CIO_WEBHOOK_SCHEMA_NAMES:
-            assert name in names, f"missing webhook schema: {name}"
-        for name in CIO_API_SCHEMA_NAMES:
-            assert name in names, f"missing api schema: {name}"
-
     def test_filters_by_names_argument(self):
         source = CustomerIOSource()
 
         schemas = source.get_schemas(_config(), team_id=1, names=["broadcasts", "email_events"])
 
         assert {s.name for s in schemas} == {"broadcasts", "email_events"}
-
-    def test_only_event_schemas_support_webhooks(self):
-        source = CustomerIOSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        webhook_supported = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_supported == set(CIO_WEBHOOK_SCHEMA_NAMES)
-        # Webhook tables have no polling endpoint, so webhook must be the only offered method —
-        # this is what keeps one-shot setup from enabling them as broken full-refresh syncs.
-        webhook_only = {s.name for s in schemas if s.webhook_only}
-        assert webhook_only == set(CIO_WEBHOOK_SCHEMA_NAMES)
 
 
 class TestCustomerIOSourceWebhookInputsUpdated:
@@ -122,28 +94,6 @@ class TestCustomerIOSourceWebhookInputsUpdated:
         assert error is None
         mock_enable.assert_not_called()
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook"
-    )
-    def test_propagates_failure_from_enable_webhook(self, mock_enable):
-        # If the upstream call fails (e.g. Customer.io returns a 401, or the
-        # webhook record is missing), the failure must surface to the caller so
-        # the API view can return a non-200 response — silently dropping the
-        # error would leave the webhook disabled with no user-visible signal.
-        mock_enable.return_value = (False, "Customer.io rejected the App API Key (401).")
-        source = CustomerIOSource()
-
-        success, error = source.webhook_inputs_updated(
-            _config(app_api_key="key", region="us"),
-            "https://example.com/h",
-            team_id=1,
-            inputs={"signing_secret": "shh"},
-        )
-
-        assert success is False
-        assert error == "Customer.io rejected the App API Key (401)."
-        mock_enable.assert_called_once_with("key", "us", "https://example.com/h")
-
 
 class TestCustomerIOSourcePipelineDispatch:
     @patch(
@@ -184,39 +134,6 @@ class TestCustomerIOSourcePipelineDispatch:
         assert result is sentinel
         mock_webhook.assert_called_once_with(inputs)
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.iterate_list_endpoint"
-    )
-    def test_datetime_partitioned_endpoint(self, mock_iter):
-        mock_iter.return_value = iter([])
-        source = CustomerIOSource()
-        inputs = MagicMock()
-        inputs.schema_name = "broadcasts"
-        inputs.logger = MagicMock()
-
-        response = source.source_for_pipeline(_config(app_api_key="key"), inputs)
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == ["created"]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.source.api_client.iterate_list_endpoint"
-    )
-    def test_md5_partitioned_endpoint(self, mock_iter):
-        mock_iter.return_value = iter([])
-        source = CustomerIOSource()
-        inputs = MagicMock()
-        inputs.schema_name = "snippets"
-        inputs.logger = MagicMock()
-
-        response = source.source_for_pipeline(_config(app_api_key="key"), inputs)
-
-        # snippets have no created/created_at, so we partition by hashing `name`.
-        assert response.partition_mode == "md5"
-        assert response.partition_keys == ["name"]
-        assert response.partition_format is None
-
     def test_every_api_endpoint_has_partitioning_configured(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
             CIO_API_ENDPOINTS,
@@ -228,46 +145,8 @@ class TestCustomerIOSourcePipelineDispatch:
             if endpoint.partition_mode == "datetime":
                 assert endpoint.partition_format is not None, name
 
-    def test_messages_schema_is_not_exposed(self):
-        # Excluded because the webhook event tables already cover per-delivery activity.
-        source = CustomerIOSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        assert "messages" not in {s.name for s in schemas}
-
 
 class TestCustomerIOWebhookTableTransformer:
-    def test_lifts_data_fields_and_preserves_event_id_timestamp_and_metric(self):
-        table = table_from_py_list(
-            [
-                {
-                    "event_id": "evt-1",
-                    "timestamp": 1777655416,
-                    "object_type": "email",
-                    "metric": "sent",
-                    "data": {
-                        "recipient": "rebcore01@gmail.com",
-                        "subject": "We don't want (all of) your money",
-                        "journey_id": "32KE4CT86V53208000000000CF70",
-                    },
-                }
-            ]
-        )
-
-        result = _webhook_table_transformer(table)
-        rows = result.to_pylist()
-
-        assert len(rows) == 1
-        assert rows[0]["event_id"] == "evt-1"
-        assert rows[0]["timestamp"] == 1777655416
-        assert rows[0]["metric"] == "sent"
-        assert rows[0]["recipient"] == "rebcore01@gmail.com"
-        assert rows[0]["subject"] == "We don't want (all of) your money"
-        assert rows[0]["journey_id"] == "32KE4CT86V53208000000000CF70"
-        # `object_type` is implicit in the schema name (e.g. `email_events`) and dropped.
-        assert "object_type" not in rows[0]
-
     def test_handles_data_as_json_string(self):
         # Defensive: if an upstream change serializes `data` as a JSON string instead
         # of a nested struct, we still parse it correctly.

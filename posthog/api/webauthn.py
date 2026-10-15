@@ -11,6 +11,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
@@ -18,7 +19,7 @@ from webauthn.helpers.decode_credential_public_key import decode_credential_publ
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.authentication import EmailVerificationPending, axes_locked_out, is_email_verified_for_login
-from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
+from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend, refuse_blocked_account
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
@@ -282,6 +283,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if policy_response := self._enforce_login_policy(request, verified_user):
                 return policy_response
 
+            refuse_blocked_account(request, verified_user, call_site="passkey_login", impersonated=False)
+
             # Login the user with the WebauthnBackend
             login(request, verified_user, backend="posthog.auth.WebauthnBackend")
 
@@ -300,6 +303,8 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         except EmailVerificationPending:
             # The DRF handler formats this as a 401 with the user uuid, the same
             # response as the password login path.
+            raise
+        except AuthenticationFailed:
             raise
         except Exception as e:
             logger.exception("webauthn_login_error", error=str(e))

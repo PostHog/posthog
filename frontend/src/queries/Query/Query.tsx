@@ -152,6 +152,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
                 inSharedMode={inSharedMode}
                 editMode={!!editMode}
+                filtersOverride={filtersOverride}
                 variablesOverride={props.variablesOverride}
             />
         )
@@ -190,6 +191,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
                 editMode={!!editMode && !readOnly}
                 setQuery={setQuery as unknown as (query: MetricsQuery) => void}
             />
@@ -201,6 +203,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                embedded={embedded}
             />
         )
     } else if (isEndpointsUsageOverviewQuery(query)) {

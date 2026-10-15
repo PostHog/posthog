@@ -289,6 +289,7 @@ def list_user_installations(user_access_token: str) -> list[dict[str, str]]:
             endpoint="/user/installations",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -347,6 +348,7 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": _PER_PAGE, "page": page},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         raise_if_github_rate_limited(response)
         if response.status_code != 200:
@@ -415,6 +417,7 @@ class StamphogGitHubClient:
             headers={"Authorization": f"Bearer {_build_app_jwt()}"},
             endpoint="/app/installations/{installation_id}/access_tokens",
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if response.status_code != 201:
             raise StamphogGitHubError(
@@ -1354,7 +1357,7 @@ class StamphogGitHubClient:
         """Add a label to a PR (``POST .../issues/{number}/labels``).
 
         A 404 (repo not found) or 422 (label does not exist on the repo) is swallowed, so a vendored
-        stamphog in another repo never raises over a label — e.g. ``reviewhog`` — that isn't set up
+        stamphog in another repo never raises over a label — e.g. ``posthog-review`` — that isn't set up
         there. Any other non-success raises ``StamphogGitHubError``; see ``post_verdict`` for how the
         ReviewHog handoff caller treats that as best-effort.
         """
@@ -1378,6 +1381,30 @@ class StamphogGitHubClient:
                 f"Failed to add label to {repo}#{number}: {response.text[:200]}",
                 status_code=response.status_code,
             )
+
+    def create_label(self, repo: str, name: str, *, color: str, description: str) -> bool:
+        """Create a repository label (``POST /repos/{repo}/labels``). Returns whether GitHub created it.
+
+        Best-effort and never raises over the response: a 422 means the label already exists, and a
+        403 or 404 means the installation may not write labels on this repository. Both leave the
+        repository as it is.
+        """
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name, "color": color, "description": description},
+            priority=Priority.BATCH,
+        )
+        if response.status_code == 201:
+            return True
+        logger.info(
+            "stamphog github: label not created",
+            repo=repo,
+            label=name,
+            status_code=response.status_code,
+        )
+        return False
 
     def dismiss_pr_review(self, repo: str, pr_number: int, review_id: int, message: str) -> None:
         """Dismiss a previously submitted review (``PUT .../reviews/{review_id}/dismissals``).
@@ -1493,28 +1520,23 @@ class StamphogGitHubClient:
             )
         return self._json(response, path)
 
-    def get_user_team_slugs(self, org: str, login: str) -> list[str]:
-        """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
-
-        Best-effort: this feeds digest audience routing, never a hard requirement, so every failure
-        mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the org's
-        "Members: read" permission — or a null organization) logs a warning and returns ``[]`` instead
-        of raising.
-        """
+    def _team_lookup_page(self, org: str, login: str, after: str | None) -> dict | None:
+        """One page of the teams that ``login`` belongs to in ``org``, or None after logging a failure."""
         query = (
-            "query($org: String!, $login: String!) { "
-            "organization(login: $org) { teams(first: 100, userLogins: [$login]) { nodes { slug } } } }"
+            "query($org: String!, $login: String!, $after: String) { "
+            "organization(login: $org) { teams(first: 100, after: $after, userLogins: [$login]) { "
+            "pageInfo { hasNextPage endCursor } nodes { slug } } } }"
         )
         try:
             response = self._request(
                 "POST",
                 "/graphql",
                 endpoint="/graphql",
-                json_body={"query": query, "variables": {"org": org, "login": login}},
+                json_body={"query": query, "variables": {"org": org, "login": login, "after": after}},
             )
         except Exception:
             logger.warning("stamphog_github_team_lookup_request_failed", org=org, login=login, exc_info=True)
-            return []
+            return None
 
         if response.status_code != 200:
             logger.warning(
@@ -1524,13 +1546,13 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
                 body=response.text[:200],
             )
-            return []
+            return None
 
         try:
             data = self._json(response, "/graphql")
         except StamphogGitHubError:
             logger.warning("stamphog_github_team_lookup_non_json_response", org=org, login=login)
-            return []
+            return None
 
         if not isinstance(data, dict) or data.get("errors"):
             logger.warning(
@@ -1539,15 +1561,39 @@ class StamphogGitHubClient:
                 login=login,
                 errors=(data or {}).get("errors") if isinstance(data, dict) else None,
             )
-            return []
+            return None
 
         organization = (data.get("data") or {}).get("organization")
         if not organization:
             logger.warning("stamphog_github_team_lookup_null_organization", org=org, login=login)
-            return []
+            return None
+        return organization.get("teams") or {}
 
-        nodes = (organization.get("teams") or {}).get("nodes") or []
-        return sorted({node["slug"] for node in nodes if isinstance(node, dict) and node.get("slug")})
+    def get_user_team_slugs(self, org: str, login: str) -> list[str]:
+        """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
+
+        Every failure mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the
+        org's "Members: read" permission — or a null organization) logs a warning and returns ``[]``
+        instead of raising. The engine reads ``[]`` as "on no team", which is the safe direction: the
+        reviewer treats the author as outside the owning team, and a deny category's
+        ``exempt_author_teams`` exempts nobody, so the owning team's PRs on those paths are refused.
+        The engine treats the list as complete, so every page is read.
+        """
+        slugs: set[str] = set()
+        after: str | None = None
+        for _ in range(_MAX_PAGES):
+            teams = self._team_lookup_page(org, login, after)
+            if teams is None:
+                return []
+            slugs.update(
+                node["slug"] for node in teams.get("nodes") or [] if isinstance(node, dict) and node.get("slug")
+            )
+            page_info = teams.get("pageInfo") or {}
+            if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+                return sorted(slugs)
+            after = page_info["endCursor"]
+        logger.warning("stamphog_github_team_lookup_page_cap", org=org, login=login, pages=_MAX_PAGES)
+        return sorted(slugs)
 
     def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
         """Return the id of the App's own sticky comment on the PR, or ``None`` if there isn't one.

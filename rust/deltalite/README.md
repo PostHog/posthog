@@ -124,6 +124,11 @@ budgets): `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB), `DELTALITE_MAX_SOURCE_BYTES`,
 `DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
 
+Kill switches for the request savings on the log and on small files (set to `0`
+to restore the earlier requests): `DELTALITE_PROBE_REFRESH`,
+`DELTALITE_OPTIMISTIC_COMMIT_VERSION`, `DELTALITE_COMMIT_JSON_CACHE`,
+`DELTALITE_SMALL_FILE_SINGLE_GET`. See `python/README.md`, "Log requests".
+
 `DeltaLiteTable.compact` takes the same budget knobs plus its own (see
 `python/README.md`, "Compaction"); it shares the process-global limits with
 every upsert in the process.

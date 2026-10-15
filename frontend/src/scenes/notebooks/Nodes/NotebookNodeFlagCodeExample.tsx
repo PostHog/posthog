@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
+import { FeatureFlagLoadError } from 'scenes/feature-flags/FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
@@ -13,7 +14,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
     const { id } = attributes
-    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagMissing, featureFlagLoadFailed } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
@@ -24,6 +25,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
 
     return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>

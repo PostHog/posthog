@@ -580,39 +580,14 @@ BETA_NOTICE = (
 )
 
 
-@extend_schema(extensions={"x-product": "billing"})
-class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Read billing state for an organization: subscription, products, features and usage.
-
-    The schema attributes every operation here to the billing product. Without that the route
-    puts them under organizations, and the MCP tool scaffold, which matches by product, drops
-    the billing tools that name them.
-    """
+class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """What the organization and project billing routes share. That is the flag, the throttles, the
+    grants in billing's token, the project scoping, and the series and export reads."""
 
     scope_object = "billing"
-    scope_object_read_actions = [
-        "subscription",
-        "features",
-        "products",
-        "product",
-        "summary",
-        "usage",
-        "usage_status",
-        "spend",
-        "forecast",
-        "usage_timeseries",
-        "spend_timeseries",
-        "usage_export",
-        "spend_export",
-        "invoices",
-        "invoice_content",
-        "limits",
-        "projects",
-    ]
     scope_object_write_actions: list[str] = []
     # Nothing here answers until the flag is on for the caller's organization.
     posthog_feature_flag = ORGANIZATION_BILLING_API_FLAG
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     # Opt into the generated schema. The MCP scaffolding and generated clients read it from there.
     force_include_in_api_docs = True
@@ -722,17 +697,24 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
         return teams_map
 
-    def _timeseries(self, request: Request, kind: str) -> Response:
+    def _timeseries(
+        self,
+        request: Request,
+        kind: str,
+        serializer_class: type[serializers.Serializer],
+        *,
+        pinned_team_ids: list[int] | None = None,
+    ) -> Response:
+        """The usage or spend series. A route that names a project passes its teams as
+        `pinned_team_ids`, and the scoping treats the read as a request for those teams."""
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
-        # Spend serves a project-only breakdown and usage does not, so each read checks its own.
-        serializer_class = (
-            OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
-        )
         serializer = serializer_class(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        if pinned_team_ids is not None:
+            params["team_ids"] = json.dumps(pinned_team_ids)
         # Billing pages with page_size and after. The API calls the same two limit and cursor.
         if "limit" in params:
             params["page_size"] = params.pop("limit")
@@ -755,6 +737,103 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 "results": results,
             }
         )
+
+    def _export(
+        self,
+        request: Request,
+        kind: str,
+        serializer_class: type[serializers.Serializer],
+        *,
+        pinned_team_ids: list[int] | None = None,
+    ) -> StreamingHttpResponse:
+        """The usage or spend rows as a CSV, streamed from billing's organization export route
+        under the same scoping as the series, with project names written in as it passes."""
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
+        serializer = serializer_class(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        if pinned_team_ids is not None:
+            params["team_ids"] = json.dumps(pinned_team_ids)
+        teams_map = self._scope_projects(request, grants, organization, params, for_export=True)
+        # The names go into the file here, not into the request.
+        params.pop("teams_map", None)
+        # Taken before billing is asked and given back when the download ends, as the root exports do.
+        slot = _take_export_stream_slot(request.user)
+        try:
+            try:
+                upstream = self._manager().get_organization_export(organization, grants, kind, params)
+            except requests.Timeout:
+                raise BillingExportTimeout()
+        except BaseException:
+            _release_export_stream_slot(slot)
+            raise
+        lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
+        accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
+        response = streaming_response(
+            _released_after(_stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines), slot),
+            content_type=upstream.headers.get("Content-Type", "text/csv"),
+        )
+        if accepts_gzip:
+            response["Content-Encoding"] = "gzip"
+        patch_vary_headers(response, ("Accept-Encoding",))
+        response["Content-Disposition"] = upstream.headers.get(
+            "Content-Disposition", f'attachment; filename="posthog_{kind}_export.csv"'
+        )
+        return response
+
+    def _cursor_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
+        """The same request with the cursor swapped, so limit and any filter carry across pages."""
+        if not cursor:
+            return None
+        params = request.query_params.copy()
+        params["cursor"] = cursor
+        return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
+
+    def _previous_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
+        """The page before this one. Billing names the first page with an empty cursor, and the
+        link to it is the same request without one."""
+        if cursor is None:
+            return None
+        if cursor == "":
+            params = request.query_params.copy()
+            params.pop("cursor", None)
+            return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
+        return self._cursor_url(request, cursor)
+
+
+@extend_schema(extensions={"x-product": "billing"})
+class OrganizationBillingViewSet(BillingReadViewSet):
+    """Read billing state for an organization: subscription, products, features and usage.
+
+    The schema attributes every operation here to the billing product. Without that the route
+    puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+    the billing tools that name them.
+    """
+
+    scope_object_read_actions = [
+        "subscription",
+        "features",
+        "products",
+        "product",
+        "summary",
+        "usage",
+        "usage_status",
+        "spend",
+        "forecast",
+        "usage_timeseries",
+        "spend_timeseries",
+        "usage_export",
+        "spend_export",
+        "invoices",
+        "invoice_content",
+        "limits",
+        "projects",
+    ]
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
+    # The project billing routes share these paths' suffixes, but they read one project, not the organization.
+    schema_org_paths_are_not_duplicates = True
 
     @extend_schema(
         operation_id="billing_subscription_retrieve",
@@ -913,7 +992,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     )
     @action(methods=["GET"], detail=False, url_path="usage/timeseries")
     def usage_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._timeseries(request, "usage")
+        return self._timeseries(request, "usage", OrganizationUsageTimeseriesRequestSerializer)
 
     @extend_schema(
         operation_id="billing_spend_timeseries_retrieve",
@@ -924,46 +1003,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     )
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
     def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._timeseries(request, "spend")
-
-    def _export(self, request: Request, kind: str) -> StreamingHttpResponse:
-        """The usage or spend rows as a CSV, streamed from billing's organization export route
-        under the same scoping as the series, with project names written in as it passes."""
-        organization = self.organization
-        grants = self._grants(request, organization)
-        self._require(grants, BillingEntitlement.USAGE_READ)
-        serializer_class = (
-            OrganizationUsageExportRequestSerializer if kind == "usage" else OrganizationExportRequestSerializer
-        )
-        serializer = serializer_class(data=request.GET)
-        serializer.is_valid(raise_exception=True)
-        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
-        teams_map = self._scope_projects(request, grants, organization, params, for_export=True)
-        # The names go into the file here, not into the request.
-        params.pop("teams_map", None)
-        # Taken before billing is asked and given back when the download ends, as the root exports do.
-        slot = _take_export_stream_slot(request.user)
-        try:
-            try:
-                upstream = self._manager().get_organization_export(organization, grants, kind, params)
-            except requests.Timeout:
-                raise BillingExportTimeout()
-        except BaseException:
-            _release_export_stream_slot(slot)
-            raise
-        lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
-        accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
-        response = streaming_response(
-            _released_after(_stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines), slot),
-            content_type=upstream.headers.get("Content-Type", "text/csv"),
-        )
-        if accepts_gzip:
-            response["Content-Encoding"] = "gzip"
-        patch_vary_headers(response, ("Accept-Encoding",))
-        response["Content-Disposition"] = upstream.headers.get(
-            "Content-Disposition", f'attachment; filename="posthog_{kind}_export.csv"'
-        )
-        return response
+        return self._timeseries(request, "spend", OrganizationTimeseriesRequestSerializer)
 
     @extend_schema(
         operation_id="billing_usage_export_download",
@@ -980,7 +1020,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
     )
     def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
-        return self._export(request, "usage")
+        return self._export(request, "usage", OrganizationUsageExportRequestSerializer)
 
     @extend_schema(
         operation_id="billing_spend_export_download",
@@ -997,26 +1037,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
     )
     def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
-        return self._export(request, "spend")
-
-    def _cursor_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
-        """The same request with the cursor swapped, so limit and any filter carry across pages."""
-        if not cursor:
-            return None
-        params = request.query_params.copy()
-        params["cursor"] = cursor
-        return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
-
-    def _previous_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
-        """The page before this one. Billing names the first page with an empty cursor, and the
-        link to it is the same request without one."""
-        if cursor is None:
-            return None
-        if cursor == "":
-            params = request.query_params.copy()
-            params.pop("cursor", None)
-            return request.build_absolute_uri(f"{request.path}?{params.urlencode()}")
-        return self._cursor_url(request, cursor)
+        return self._export(request, "spend", OrganizationExportRequestSerializer)
 
     @extend_schema(
         operation_id="billing_invoices_list",

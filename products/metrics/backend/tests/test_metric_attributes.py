@@ -171,3 +171,30 @@ class TestMetricAttributeDistinctValuesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "env", "value_count": 1},
             {"name": "service_name", "value_count": 1},
         ]
+
+    @parameterized.expand(
+        [
+            ("no_search", "", ["service.name", "env"]),
+            ("underscore_search", "service_name", ["service.name"]),
+            ("dotted_search", "service.name", ["service.name"]),
+        ]
+    )
+    def test_service_name_resource_attribute_is_listed_once(self, _name: str, search: str, expected: list[str]) -> None:
+        truncate_metrics_tables()
+        now = timezone.now().replace(second=0, microsecond=0)
+        for service in ("checkout", "billing"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="job.duration",
+                service_name=service,
+                points=[(now - dt.timedelta(minutes=2), 1.0)],
+                labels={"env": "prod"},
+                resource_labels={"service.name": service},
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/metrics/attributes/", {"metricName": "job.duration", "search": search}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == expected

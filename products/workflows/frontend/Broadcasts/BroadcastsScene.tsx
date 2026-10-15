@@ -14,8 +14,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
+import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import { MESSAGING_NAV_TAB_KEYS, MessagingNavTabKey, messagingNavTabs } from '../messagingTabs'
+import {
+    MESSAGING_NAV_TAB_KEYS,
+    MESSAGING_TAB_CONTENT,
+    MessagingNavTabKey,
+    isMessagingSetupTab,
+} from '../messagingTabs'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -33,6 +39,18 @@ export function BroadcastsScene(): JSX.Element {
     const currentTab: MessagingNavTabKey | 'broadcasts' = MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
         ? lastSegment
         : 'broadcasts'
+
+    const broadcastsTab = {
+        label: 'Broadcasts',
+        key: 'broadcasts' as const,
+        link: urls.broadcasts(),
+        content: (
+            <>
+                <BroadcastsFeaturePreview />
+                <BroadcastsTable />
+            </>
+        ),
+    }
 
     return (
         <SceneContent>
@@ -61,21 +79,27 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs
-                activeKey={currentTab}
+            <LemonTabs<'broadcasts' | 'library' | 'messaging-setup'>
+                activeKey={currentTab === 'broadcasts' || currentTab === 'library' ? currentTab : 'messaging-setup'}
                 tabs={[
+                    broadcastsTab,
                     {
-                        label: 'Broadcasts',
-                        key: 'broadcasts',
-                        link: urls.broadcasts(),
+                        label: 'Templates',
+                        key: 'library',
+                        link: urls.broadcasts('library'),
+                        content: MESSAGING_TAB_CONTENT.library,
+                    },
+                    {
+                        label: 'Messaging',
+                        key: 'messaging-setup',
+                        link: urls.broadcasts('channels'),
                         content: (
-                            <>
-                                <BroadcastsFeaturePreview />
-                                <BroadcastsTable />
-                            </>
+                            <MessagingSetup
+                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
+                                linkFor={(tab) => urls.broadcasts(tab)}
+                            />
                         ),
                     },
-                    ...messagingNavTabs((tab) => urls.broadcasts(tab)),
                 ]}
                 sceneInset
             />

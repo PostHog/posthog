@@ -3,9 +3,12 @@
 // table — which no unit test can: a topic-key typo, a row column ClickHouse can't
 // parse (silently eaten by kafka_skip_broken_messages), or a broken MV projection
 // all produce "row queued but never lands".
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { KAFKA_CLICKHOUSE_FLAG_EVALUATIONS } from '~/common/config/kafka-topics'
+import { KAFKA_CLICKHOUSE_FLAG_EVALUATIONS, KAFKA_REALTIME_ONLY_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createFlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { getDefaultIngestionConsumerConfig, getDefaultIngestionOutputsConfig } from '~/ingestion/config'
@@ -67,6 +70,7 @@ describe('Flag evaluations shadow-routing E2E', () => {
                 .withProperties({
                     $feature_flag: 'my-flag',
                     $feature_flag_response: true,
+                    $set: { email: 'flag-caller@example.com' },
                 })
                 .build()
 
@@ -100,23 +104,30 @@ describe('Flag evaluations shadow-routing E2E', () => {
             // event — the parity per-flag uniques depend on.
             expect(flagEvaluations[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
             expect(flagEvaluations[0].person_id).toBe(events[0].person_id)
-            // The producer omits inserted_at; the MV fallback must fill it.
+            const flagEvaluation = parseRawClickHouseEvent(flagEvaluations[0])
+            expect(flagEvaluation.person_properties).toEqual(events[0].person_properties)
+            expect(flagEvaluation.person_properties.email).toBe('flag-caller@example.com')
+            expect(flagEvaluation.person_created_at?.toISO()).toBe(events[0].person_created_at?.toISO())
+            expect(flagEvaluations[0].person_mode).toBe(events[0].person_mode)
+            // The MV stamps inserted_at with now64() when it processes the row.
             expect(flagEvaluations[0].inserted_at).not.toMatch(/^1970/)
         }
     )
 
     testWithTeamIngester(
-        'FLAG_EVALUATIONS_ONLY team: the call lands only in flag_evaluations, and its person update and $experiment_exposure copy still land',
+        'FLAG_EVALUATIONS_ONLY team: the call lands only in flag_evaluations and the realtime-only topic, and its person update and $experiment_exposure copy still land',
         {
             teamOverrides: { flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly },
             pluginServerConfig: {
                 INGESTION_FLAG_EVALUATIONS_MODE: 'dual_write',
                 INGESTION_FLAG_EVALUATIONS_TEAMS: '*',
                 INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
+                INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: KAFKA_REALTIME_ONLY_EVENTS_JSON,
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '*',
             },
         },
         async ({ infra, ingester, team, kafkaProducer, token }) => {
+            const producerObserver = new KafkaProducerObserver(kafkaProducer)
             // A variant response makes create-event append the $experiment_exposure copy.
             const event = new EventBuilder(team)
                 .withEvent('$feature_flag_called')
@@ -145,6 +156,18 @@ describe('Flag evaluations shadow-routing E2E', () => {
             // single-partition topic. A call written to events would already be visible here.
             expect(events.map((row) => row.event)).toEqual(['$experiment_exposure'])
             expect(events[0].person_id).toBe(persons[0].uuid)
+
+            const realtimeEvents = producerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_REALTIME_ONLY_EVENTS_JSON)
+                .map((message) => message.value)
+            expect(realtimeEvents).toEqual([
+                expect.objectContaining({
+                    uuid: event.uuid,
+                    event: '$feature_flag_called',
+                    person_id: persons[0].uuid,
+                }),
+            ])
+            expect(parseJSON(realtimeEvents[0].person_properties as string)).toMatchObject({ plan: 'pro' })
         }
     )
 

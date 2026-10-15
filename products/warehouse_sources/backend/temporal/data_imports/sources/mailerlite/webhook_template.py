@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # MailerLite signs every delivery with a `Signature` header holding the lowercase hex
 # HMAC-SHA256 of the raw request body, keyed by the `secret` MailerLite generates when the

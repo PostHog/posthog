@@ -132,20 +132,12 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
 def is_data_modeling_shadow_ready(
     *,
     organization_id: str | UUID,
-    team_id: int,
-    saved_query_id: str | UUID,
-    source_query: object,
 ) -> bool:
-    from products.managed_warehouse.backend.view_translation_status import (  # noqa: PLC0415 -- keeps ORM models off the facade import path
-        is_data_modeling_shadow_ready as check_shadow_readiness,
+    from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keeps optional compiler imports off startup paths
+        get_ready_trino_catalog_name,
     )
 
-    return check_shadow_readiness(
-        organization_id=organization_id,
-        team_id=team_id,
-        saved_query_id=saved_query_id,
-        source_query=source_query,
-    )
+    return get_ready_trino_catalog_name(str(organization_id)) is not None
 
 
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:

@@ -27,6 +27,14 @@ Opening an event picker that offers Actions loads the list; later opens reuse th
 When an insight series picker opens on Suggested series, the current selection is the first and selected item. All events follows it.
 The classic popover unmounts after its close transition and starts with a fresh search when reopened.
 
+## Element breakdowns
+
+Trends and funnels offer element text, tag name, and href in the Elements category and suggested filters.
+These breakdowns use values from the autocapture element chain.
+Text and tag name use the first matching value in the chain. Href uses the first href.
+CSS selectors remain available as property filters, but not as breakdowns.
+Other insight types exclude element breakdown suggestions.
+
 ## Typing and rendering
 
 The legacy picker debounces API searches for 500 ms after the last keystroke, including while the initial response is loading.

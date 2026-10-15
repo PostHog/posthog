@@ -7,7 +7,6 @@ import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip }
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
@@ -246,15 +245,13 @@ export const MetricHeader = ({
         if (!metricUuid) {
             return
         }
-        // Flips shared-metric links, prunes the ordering arrays and realigns existing
-        // results in one update.
+
         moveMetricsBetweenSections(isPrimaryMetric === false, sectionUuids, [], [metricUuid])
     }
 
-    const recalculationEnabled = useFeatureFlag('EXPERIMENTS_METRICS_RECALCULATION')
     const { isMetricRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
-    const showRecalculatingTag = recalculationEnabled && isMetricRecalculating(metric.uuid)
-    const metricRetry = recalculationEnabled && metric.uuid ? metricRetries[metric.uuid] : undefined
+    const showRecalculatingTag = isMetricRecalculating(metric.uuid)
+    const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
 
     return (
         // The handle and the order number are their own columns, so the title and the tags below it

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmazonAdsSource(ResumableSource[AmazonAdsSourceConfig, AmazonAdsResumeConfig]):
+    codebase_detection = detect(env=("^AMAZON_ADS_",), pypi=("python-amazon-ad-api",))
+    setup_requires_ui = True
+
     api_docs_url = "https://advertising.amazon.com/API/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -147,10 +151,9 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_amazon_ads_credentials(config.region, config.client_id, config.client_secret, config.refresh_token):
-            return True, None
-
-        return False, "Invalid Amazon Ads credentials"
+        return validate_amazon_ads_credentials(
+            config.region, config.client_id, config.client_secret, config.refresh_token
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AmazonAdsResumeConfig]:
         return ResumableSourceManager[AmazonAdsResumeConfig](inputs, AmazonAdsResumeConfig)

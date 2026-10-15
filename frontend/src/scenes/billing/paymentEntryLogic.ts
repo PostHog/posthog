@@ -1,5 +1,5 @@
 import type { Stripe, StripeElements } from '@stripe/stripe-js'
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -180,6 +180,9 @@ const navigateAfterPayment = (redirectPath: string | null, searchParams: Complet
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>([
     path(['scenes', 'billing', 'PaymentEntryLogic']),
+    connect({
+        logic: [billingLogic],
+    }),
     actions({
         setClientSecret: (clientSecret: string | null) => ({ clientSecret }),
         setLoading: (loading: boolean) => ({ loading }),

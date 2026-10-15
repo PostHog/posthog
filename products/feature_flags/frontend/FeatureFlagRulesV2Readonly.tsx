@@ -111,7 +111,7 @@ export function FeatureFlagRulesV2Readonly({ config }: { config: FeatureFlagRule
 
     return (
         <div className="flex flex-col gap-4" data-attr="feature-flag-rules-v2-readonly">
-            <FeatureFlagConfigReadonlyNotice filters={config} />
+            <FeatureFlagConfigReadonlyNotice filters={config} hasEditButton />
             <div className="flex flex-wrap gap-6 text-sm">
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Return type</span>
