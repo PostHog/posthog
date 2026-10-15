@@ -16,7 +16,7 @@ vi.mock('@/hono/tool-executor', () => ({
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { McpDispatcher } from '@/hono/dispatcher'
-import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
+import { interviewRecruitmentConfigSchema, MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolCatalog } from '@/hono/tool-catalog'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -74,6 +74,7 @@ function makeState(): ResolvedState {
         distinctId: 'test-person',
         context: { api: { getProjectBaseUrl: () => 'https://us.posthog.com' } },
         toolFeatureFlags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: true },
+        interviewRecruitmentConfig: interviewRecruitmentConfigSchema.parse({}),
         clientProfile: { capabilities: { supportsInstructions: false } },
     } as unknown as ResolvedState
 }
@@ -81,7 +82,7 @@ function makeState(): ResolvedState {
 const props = { userHash: 'token-hash', apiToken: 'phx_test' } as RequestProperties
 const toolResult = { content: [{ type: 'text', text: 'Original tool result' }] }
 
-function callParams(capabilities: Record<string, unknown> = { elicitation: { form: {} } }): Record<string, unknown> {
+function callParams(capabilities: Record<string, unknown> = { elicitation: { url: {} } }): Record<string, unknown> {
     return {
         name: 'exec',
         arguments: { command: 'call project-get {}' },
@@ -134,71 +135,78 @@ describe('MCP interview recruitment', () => {
 
     afterEach(() => vi.useRealTimers())
 
-    it.each([
-        { action: 'accept', content: { response: 'interested' } },
-        { action: 'accept', content: { response: 'do_not_ask_again' } },
-        { action: 'decline' },
-    ])('persists $action/$content and suppresses across reconnects and tokens until reset', async (answer) => {
-        const invitation = await call(dispatcher)
-        expect(invitation.result).toMatchObject({
-            resultType: 'input_required',
-            inputRequests: { 'mcp-interview': { method: 'elicitation/create', params: { mode: 'form' } } },
-        })
-        expect(executeTool).not.toHaveBeenCalled()
-
-        const resumed = await call(dispatcher, continuation(invitation.result?.requestState, answer))
-        expect(resumed.result).toMatchObject({ resultType: 'complete', ...toolResult })
-        expect(executeTool).toHaveBeenCalledTimes(1)
-        const [key, record] = [...storage.entries.entries()][0]!
-        expect(record.expires).toBeUndefined()
-        expect(JSON.parse(record.value)).toMatchObject({
-            distinct_id: 'test-person',
-            response: answer.action === 'decline' ? 'do_not_ask_again' : answer.content!.response,
-        })
-
-        vi.useFakeTimers()
-        vi.setSystemTime(Date.now() + 365 * 24 * 60 * 60 * 1000)
-        const reconnected = new McpDispatcher({} as ToolCatalog, storage.redis)
-        expect((await call(reconnected, callParams(), { ...props, userHash: 'new-token' })).result).toMatchObject(
-            toolResult
-        )
-        storage.entries.delete(key)
-        expect((await call(reconnected)).result?.resultType).toBe('input_required')
-    })
-
-    it.each([{ action: 'cancel' }, { action: 'accept', content: { response: 'not_now' } }])(
-        'lets $action/$content continue and asks again after the cooldown',
+    it.each([{ action: 'accept' }, { action: 'decline' }])(
+        'persists $action and suppresses across reconnects and tokens until reset',
         async (answer) => {
-            vi.useFakeTimers()
             const invitation = await call(dispatcher)
-            await call(dispatcher, continuation(invitation.result?.requestState, answer))
-            expect((await call(dispatcher)).result).toMatchObject(toolResult)
-            vi.setSystemTime(Date.now() + 7 * 24 * 60 * 60 * 1000)
-            expect((await call(dispatcher)).result?.resultType).toBe('input_required')
+            expect(invitation.result).toMatchObject({
+                resultType: 'input_required',
+                inputRequests: {
+                    'mcp-interview': {
+                        method: 'elicitation/create',
+                        params: {
+                            mode: 'url',
+                            url: state.interviewRecruitmentConfig!.booking_url,
+                            message: state.interviewRecruitmentConfig!.message,
+                        },
+                    },
+                },
+            })
+            expect(executeTool).not.toHaveBeenCalled()
+
+            const resumed = await call(dispatcher, continuation(invitation.result?.requestState, answer))
+            expect(resumed.result).toMatchObject({ resultType: 'complete', ...toolResult })
+            expect(executeTool).toHaveBeenCalledTimes(1)
+            const [key, record] = [...storage.entries.entries()][0]!
+            expect(record.expires).toBeUndefined()
+            expect(JSON.parse(record.value)).toMatchObject({
+                distinct_id: 'test-person',
+                response: answer.action === 'decline' ? 'do_not_ask_again' : 'booking_link_accepted',
+            })
+
+            vi.useFakeTimers()
+            vi.setSystemTime(Date.now() + 365 * 24 * 60 * 60 * 1000)
+            const reconnected = new McpDispatcher({} as ToolCatalog, storage.redis)
+            expect((await call(reconnected, callParams(), { ...props, userHash: 'new-token' })).result).toMatchObject(
+                toolResult
+            )
+            storage.entries.delete(key)
+            expect((await call(reconnected)).result?.resultType).toBe('input_required')
         }
     )
 
-    it.each([{}, { elicitation: { url: {} } }, { elicitation: false }])(
-        'skips clients without form support: %j',
+    it('lets cancellation continue and asks again after the cooldown', async () => {
+        vi.useFakeTimers()
+        const invitation = await call(dispatcher)
+        await call(dispatcher, continuation(invitation.result?.requestState, { action: 'cancel' }))
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        vi.setSystemTime(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        expect((await call(dispatcher)).result?.resultType).toBe('input_required')
+    })
+
+    it.each([{}, { elicitation: {} }, { elicitation: { form: {} } }, { elicitation: false }])(
+        'skips clients without URL support: %j',
         async (capabilities) => {
             expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
             expect(storage.entries.size).toBe(0)
         }
     )
 
-    it('accepts the backwards-compatible empty elicitation capability', async () => {
-        expect((await call(dispatcher, callParams({ elicitation: {} }))).result?.resultType).toBe('input_required')
-    })
-
-    it.each(['disabled', 'missing', 'impersonated', 'suppressed'])('skips recruitment when %s', async (condition) => {
-        if (condition === 'disabled' || condition === 'missing') {
-            state.toolFeatureFlags = condition === 'disabled' ? { [MCP_INTERVIEW_RECRUITMENT_FLAG]: false } : {}
+    it.each(['disabled', 'missing', 'impersonated', 'suppressed', 'invalid-payload'])(
+        'skips recruitment when %s',
+        async (condition) => {
+            if (condition === 'disabled' || condition === 'missing') {
+                state.toolFeatureFlags = condition === 'disabled' ? { [MCP_INTERVIEW_RECRUITMENT_FLAG]: false } : {}
+            }
+            if (condition === 'invalid-payload') {
+                state.interviewRecruitmentConfig = undefined
+            }
+            state.isImpersonated = condition === 'impersonated'
+            state.suppressAnalytics = condition === 'suppressed'
+            expect((await call(dispatcher)).result).toMatchObject(toolResult)
+            expect(storage.entries.size).toBe(0)
         }
-        state.isImpersonated = condition === 'impersonated'
-        state.suppressAnalytics = condition === 'suppressed'
-        expect((await call(dispatcher)).result).toMatchObject(toolResult)
-        expect(storage.entries.size).toBe(0)
-    })
+    )
 
     it('reserves only one invitation across simultaneous calls and server instances', async () => {
         const other = new McpDispatcher({} as ToolCatalog, storage.redis)
@@ -224,7 +232,6 @@ describe('MCP interview recruitment', () => {
             const invitation = await call(dispatcher)
             const resumed = continuation(invitation.result?.requestState, {
                 action: 'accept',
-                content: { response: 'do_not_ask_again' },
             })
             let continuationProps = props
             if (change === 'token') {
@@ -239,14 +246,14 @@ describe('MCP interview recruitment', () => {
                 await call(dispatcher, resumed)
                 executeTool.mockClear()
             } else {
-                resumed.inputResponses = { 'mcp-interview': { action: 'accept', content: {} } }
+                resumed.inputResponses = { 'mcp-interview': { action: 'unknown' } }
             }
             expect((await call(dispatcher, resumed, continuationProps)).error?.code).toBe(-32602)
             expect(executeTool).not.toHaveBeenCalled()
         }
     )
 
-    it('processes a displayed form after its flag has been disabled', async () => {
+    it('processes a displayed invitation after its flag has been disabled', async () => {
         const invitation = await call(dispatcher)
         state.toolFeatureFlags = {}
         expect(
@@ -267,13 +274,13 @@ describe('MCP interview recruitment', () => {
         expect((await call(dispatcher, resumed)).result).toMatchObject(toolResult)
     })
 
-    it('completes the form round trip with the official MCP client', async () => {
+    it('completes the URL round trip with the official MCP client', async () => {
         const client = new Client(
             { name: 'recruitment-test', version: '1.0.0' },
-            { capabilities: { elicitation: { form: {} } }, versionNegotiation: { mode: { pin: '2026-07-28' } } }
+            { capabilities: { elicitation: { url: {} } }, versionNegotiation: { mode: { pin: '2026-07-28' } } }
         )
-        const onForm = vi.fn(async () => ({ action: 'accept' as const, content: { response: 'interested' } }))
-        client.setRequestHandler('elicitation/create', onForm)
+        const onInvitation = vi.fn(async () => ({ action: 'accept' as const }))
+        client.setRequestHandler('elicitation/create', onInvitation)
         const transport = new StreamableHTTPClientTransport(new URL('https://mcp.test/mcp'), {
             fetch: async (input, init) => dispatcher.handleRequest(new Request(input, init), props),
         })
@@ -281,7 +288,7 @@ describe('MCP interview recruitment', () => {
             await client.connect(transport)
             const result = await client.callTool({ name: 'exec', arguments: { command: 'call project-get {}' } })
             expect(result).toMatchObject(toolResult)
-            expect(onForm).toHaveBeenCalledTimes(1)
+            expect(onInvitation).toHaveBeenCalledTimes(1)
             expect(executeTool).toHaveBeenCalledTimes(1)
         } finally {
             await client.close()

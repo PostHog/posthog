@@ -6,6 +6,7 @@ import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
+    type FlagEvaluation,
     type FlagGroups,
     type FlagPersonProperties,
     resolveFeatureFlagOverrides,
@@ -26,7 +27,11 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
-import { MCP_INTERVIEW_RECRUITMENT_FLAG } from './interview-recruitment'
+import {
+    type InterviewRecruitmentConfig,
+    interviewRecruitmentConfigSchema,
+    MCP_INTERVIEW_RECRUITMENT_FLAG,
+} from './interview-recruitment'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -44,6 +49,7 @@ export interface ResolvedState {
     context: Context
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
+    interviewRecruitmentConfig?: InterviewRecruitmentConfig
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
@@ -196,7 +202,15 @@ export class RequestStateResolver {
             mcp_task_origin: props.taskOriginProduct ?? '',
             mcp_has_task: Boolean(props.taskId || props.taskOriginProduct),
         }
-        const allFlags = await this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups, flagPersonProperties)
+        const { flags: allFlags, payloads } = await this.resolveAllFlags(
+            reqCtx,
+            allFlagKeys,
+            flagGroups,
+            flagPersonProperties
+        )
+        const interviewConfig = interviewRecruitmentConfigSchema.safeParse(
+            payloads[MCP_INTERVIEW_RECRUITMENT_FLAG] ?? {}
+        )
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
@@ -280,6 +294,7 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
+            interviewRecruitmentConfig: interviewConfig.success ? interviewConfig.data : undefined,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
@@ -416,20 +431,23 @@ export class RequestStateResolver {
         flagKeys: string[],
         groups?: FlagGroups,
         personProperties?: FlagPersonProperties
-    ): Promise<EvaluatedFlags> {
+    ): Promise<FlagEvaluation> {
         if (flagKeys.length === 0) {
-            return {}
+            return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
         // Recruitment still needs an explicit override so development tasks do not ask for interviews.
         if (isLocalApi()) {
-            return Object.fromEntries(flagKeys.map((key) => [key, key !== MCP_INTERVIEW_RECRUITMENT_FLAG]))
+            return {
+                flags: Object.fromEntries(flagKeys.map((key) => [key, key !== MCP_INTERVIEW_RECRUITMENT_FLAG])),
+                payloads: {},
+            }
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups, personProperties)
         } catch {
-            return {}
+            return { flags: {}, payloads: {} }
         }
     }
 }

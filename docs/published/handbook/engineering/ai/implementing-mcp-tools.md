@@ -90,12 +90,26 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
-## Interview recruitment with form elicitation
+## Interview recruitment with URL elicitation
 
 The `mcp-interview-recruitment` boolean flag enables an optional interview invitation before a tool call.
 Create the flag in the MCP server's analytics project and manage its audience and rollout there.
 A missing or disabled flag skips recruitment. Local development also keeps it disabled unless a
 development flag override explicitly enables it.
+
+Set the enabled boolean flag's JSON payload to customize the invitation without deploying:
+
+```json
+{
+  "message": "Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch.",
+  "booking_url": "https://cal.com/adam-posthog/posthog-chat"
+}
+```
+
+Omitted fields use the defaults above. A malformed payload, an empty message, a message over 1,000
+characters, or a non-HTTPS booking URL skips recruitment. Flag values and payloads come from the same
+evaluation, with the same audience properties. Payload edits apply to subsequent requests without
+restarting the server. A displayed invitation keeps the copy and URL it already received.
 
 Flag evaluation includes these properties from the current request, without updating the person's
 stored profile. Empty values explicitly replace any stored value for that property.
@@ -122,25 +136,28 @@ properties. Client names and consumer headers are self-reported; they do not pro
 A third-party unattended agent using the same identity and capabilities as an interactive client cannot
 be distinguished by this feature. Unknown clients should remain outside the flag's allowlist.
 
-The invitation uses native form elicitation on protocol revision `2026-07-28`, for clients advertising
-form support. Legacy protocol connections and clients without form support continue without an
-invitation. No MCP App, extra tool, or agent instruction is involved. The original tool runs after the
-client returns the form response, so the interaction does not rerun a completed write.
+The invitation uses native URL elicitation on protocol revision `2026-07-28`, for clients advertising
+URL support. Legacy protocol connections and clients with only form support continue without an
+invitation. No MCP App, extra tool, or agent instruction is involved. The client displays the booking
+URL and asks permission to open it, using its own controls and labels. No questionnaire is displayed.
+The original tool runs after the client returns the invitation response, without waiting for a booking.
+Claude Code can keep its dialog open after opening the URL until the user chooses “I'm done.”
+The server cannot remove that client-controlled step. The `2026-07-28` protocol has no URL-elicitation
+completion notification; see the [SDK protocol notes](https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation).
 
-The form asks permission to contact the user at their PostHog account email about a 20-minute interview:
-
-- **Yes, contact me** records `interested` and stops further invitations.
-- **Don't ask again**, or declining the form, records `do_not_ask_again` and stops further invitations.
-- **Not now**, dismissing the form, or abandoning it starts a seven-day cooldown.
+- Accepting the link records `booking_link_accepted` and stops further invitations. This records
+  permission to open the booking page, not a completed booking or permission to contact an account email.
+- Declining the invitation records `do_not_ask_again` and stops further invitations.
+- Canceling or abandoning the invitation starts a seven-day cooldown.
 
 Responses are JSON records in the MCP server's shared Redis, under
 `mcp:interview:{<identity hash>}:response`. The identity hash is the SHA-256 hex digest of
 `JSON.stringify([publicPostHogBaseUrl, distinctId])`; it scopes the preference to the authenticated
 user and PostHog instance, across tokens, sessions, and projects. Submitted records contain
 `distinct_id`, `response`, and `responded_at`. Use `SCAN MATCH 'mcp:interview:*:response'` and `GET`
-to inspect responses. This implementation records consent; it does not send an email.
+to inspect responses. This implementation records the invitation response; it does not send an email or track completed bookings.
 
-Interested and opted-out records have no TTL. They remain suppressed until reset, provided Redis
+Accepted-link and opted-out records have no TTL. They remain suppressed until reset, provided Redis
 retains the records; this is not a separate durable database. Do not put these keys behind an
 expiring cache or delete them during cache maintenance. Cooldown records expire after seven days.
 Redis failures skip new invitations. A response write must succeed before the original tool runs;

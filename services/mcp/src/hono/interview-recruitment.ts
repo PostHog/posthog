@@ -8,12 +8,27 @@ import type { ResolvedState } from './request-state-resolver'
 
 export const MCP_INTERVIEW_RECRUITMENT_FLAG = 'mcp-interview-recruitment'
 
+export const interviewRecruitmentConfigSchema = z.object({
+    message: z
+        .string()
+        .trim()
+        .min(1)
+        .max(1000)
+        .default("Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch."),
+    booking_url: z
+        .url()
+        .refine((value) => value.startsWith('https://'))
+        .default('https://cal.com/adam-posthog/posthog-chat'),
+})
+
+export type InterviewRecruitmentConfig = z.infer<typeof interviewRecruitmentConfigSchema>
+
 const INPUT_ID = 'mcp-interview'
 const STATE_PREFIX = 'mcp-interview:'
 const PENDING_SECONDS = 10 * 60
 const COOLDOWN_SECONDS = 7 * 24 * 60 * 60
 
-// Both keys share a Redis Cluster slot. Reserving before returning the form prevents parallel calls from asking twice.
+// Both keys share a Redis Cluster slot. Reserving before returning the invitation prevents parallel calls from asking twice.
 const RESERVE_INVITATION = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
@@ -32,13 +47,7 @@ redis.call('DEL', KEYS[2])
 return 1
 `
 
-const responseSchema = z.discriminatedUnion('action', [
-    z.object({
-        action: z.literal('accept'),
-        content: z.object({ response: z.enum(['interested', 'not_now', 'do_not_ask_again']) }),
-    }),
-    z.object({ action: z.enum(['decline', 'cancel']) }),
-])
+const responseSchema = z.object({ action: z.enum(['accept', 'decline', 'cancel']) })
 
 export class InterviewRequestError extends Error {}
 
@@ -64,14 +73,10 @@ export class InterviewRecruitment {
             .digest('hex')
     }
 
-    private supportsForm(params: Record<string, unknown>): boolean {
-        const capabilities = z
-            .object({ elicitation: z.object({ form: z.object({}).optional(), url: z.object({}).optional() }) })
-            .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES])
-        return (
-            capabilities.success &&
-            (capabilities.data.elicitation.form !== undefined || capabilities.data.elicitation.url === undefined)
-        )
+    private supportsUrl(params: Record<string, unknown>): boolean {
+        return z
+            .object({ elicitation: z.object({ url: z.object({}) }) })
+            .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
     }
 
     private async resume(params: Record<string, unknown>, state: ResolvedState, userHash: string): Promise<void> {
@@ -87,7 +92,7 @@ export class InterviewRecruitment {
         }
         const response =
             parsed.data.action === 'accept'
-                ? parsed.data.content.response
+                ? 'booking_link_accepted'
                 : parsed.data.action === 'decline'
                   ? 'do_not_ask_again'
                   : 'not_now'
@@ -114,7 +119,7 @@ export class InterviewRecruitment {
         userHash: string
     ): Promise<Record<string, unknown> | undefined> {
         if (typeof params.requestState === 'string' && params.requestState.startsWith(STATE_PREFIX)) {
-            // A flag change must not discard a response to a form that was already displayed.
+            // A flag change must not discard a response to an invitation that was already displayed.
             await this.resume(params, state, userHash)
             return undefined
         }
@@ -123,7 +128,8 @@ export class InterviewRecruitment {
             state.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG] !== true ||
             state.isImpersonated ||
             state.suppressAnalytics ||
-            !this.supportsForm(params)
+            !state.interviewRecruitmentConfig ||
+            !this.supportsUrl(params)
         ) {
             return undefined
         }
@@ -156,23 +162,9 @@ export class InterviewRecruitment {
                 [INPUT_ID]: {
                     method: 'elicitation/create',
                     params: {
-                        mode: 'form',
-                        message: '20-minute MCP interview? Yes lets us contact you at your PostHog email.',
-                        requestedSchema: {
-                            type: 'object',
-                            properties: {
-                                response: {
-                                    type: 'string',
-                                    title: 'Interview invitation',
-                                    oneOf: [
-                                        { const: 'interested', title: 'Yes, contact me' },
-                                        { const: 'not_now', title: 'Not now' },
-                                        { const: 'do_not_ask_again', title: "Don't ask again" },
-                                    ],
-                                },
-                            },
-                            required: ['response'],
-                        },
+                        mode: 'url',
+                        message: state.interviewRecruitmentConfig.message,
+                        url: state.interviewRecruitmentConfig.booking_url,
                     },
                 },
             },

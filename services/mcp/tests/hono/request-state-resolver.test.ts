@@ -32,7 +32,7 @@ const {
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
-    evaluateFeatureFlags: vi.fn(async () => ({})),
+    evaluateFeatureFlags: vi.fn(async () => ({ flags: {}, payloads: {} })),
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
@@ -269,7 +269,10 @@ describe('RequestStateResolver MCP client contexts', () => {
         if (sandbox) {
             mockApiKey.scopes.push('internal_run:read')
         }
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'tasks-mcp-agent-run-start': true, tasks: true })
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { 'tasks-mcp-agent-run-start': true, tasks: true },
+            payloads: {},
+        })
         const catalog = new ToolCatalog()
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
@@ -487,7 +490,7 @@ describe('RequestStateResolver MCP client contexts', () => {
     it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG])(
         'evaluates %s even though no generated tool declares it',
         async (flag) => {
-            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [flag]: true })
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
             const result = await makeResolver().resolve(makeProps())
 
@@ -550,6 +553,30 @@ describe('RequestStateResolver MCP client contexts', () => {
         vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
         const result = await makeResolver().resolve(makeProps(input))
         expect(result.toolFeatureFlags?.[MCP_INTERVIEW_RECRUITMENT_FLAG]).toBe(false)
+    })
+
+    it.each([
+        { payload: {}, expected: { booking_url: 'https://cal.com/adam-posthog/posthog-chat' } },
+        {
+            payload: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+            expected: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+        },
+        { payload: { message: '' }, expected: undefined },
+        { payload: { booking_url: 'javascript:alert(1)' }, expected: undefined },
+        { payload: { booking_url: 'http://example.com/book' }, expected: undefined },
+        { payload: { booking_url: 'not a URL' }, expected: undefined },
+        { payload: 'invalid', expected: undefined },
+    ])('validates recruitment configuration from the flag payload: $payload', async ({ payload, expected }) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: true },
+            payloads: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: payload },
+        })
+        const state = await makeResolver().resolve(makeProps())
+        if (expected) {
+            expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+        } else {
+            expect(state.interviewRecruitmentConfig).toBeUndefined()
+        }
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
