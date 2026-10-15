@@ -396,7 +396,7 @@ export interface MessageTemplateApi {
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
     /**
-     * The workflow that sends this template over the transactional email API. Null until the template is made transactional.
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
      */
     readonly transactional_hog_flow_id: string | null
@@ -438,7 +438,7 @@ export interface PatchedMessageTemplateApi {
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
     /**
-     * The workflow that sends this template over the transactional email API. Null until the template is made transactional.
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
      * @nullable
      */
     readonly transactional_hog_flow_id?: string | null
