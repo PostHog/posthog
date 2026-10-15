@@ -1400,6 +1400,7 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);

@@ -3,7 +3,7 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
-A person can resolve a report by recording a manual implementation, a PR that already merged, or a useful finding that needs no action. The state API saves the verdict on its feedback artefact so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
+A person can resolve a report by recording a manual implementation or a useful finding that needs no action. The state API saves the verdict on its feedback artefact so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
 
 Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
