@@ -26,13 +26,19 @@ from products.alerts.backend.platform_source_cycle import (
     evaluate_insight_check,
     plan_insight_batch,
 )
+from products.alerts.backend.temporal.platform_evaluate import (
+    InsightBatchPlanInputs,
+    plan_platform_insight_round_activity,
+)
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    AlertBatchKey,
     AlertEventKind,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
+    SourceEvaluationInputs,
     SourceKind,
 )
 
@@ -195,5 +201,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.check_alert_for_insight", return_value=AlertEvaluationResult(value=1.0, breaches=[])):
             evaluate_insight_check(self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test")
 
-        assert len(plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at + 60)) == 1
-        assert {str(first.id), str(second.id)} >= {admitted}
+        # Through the activity the workflow calls, so a dropped `exclude` there fails here too.
+        replanned = plan_platform_insight_round_activity(
+            InsightBatchPlanInputs(
+                evaluation=SourceEvaluationInputs(
+                    source=SourceKind.INSIGHT,
+                    cutoff=CUTOFF.isoformat(),
+                    batch_key=AlertBatchKey(team_id=self.team.id, slot=slot),
+                ),
+                expires_at=expires_at,
+                exclude=(admitted,),
+            )
+        )
+        assert replanned == list({str(first.id), str(second.id)} - {admitted})
