@@ -3,9 +3,15 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
+from posthog.models import Team
+from posthog.models.integration import Integration
+
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.workflows.backend.facade.contracts import TransactionalEmailContent
+from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+from products.workflows.backend.facade.contracts import TransactionalEmailContent, TransactionalEmailSenderUnavailable
 from products.workflows.backend.facade.transactional_emails import (
     create_transactional_email_workflow,
     update_transactional_email_workflow,
@@ -15,7 +21,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
 
 
-def _content(subject: str = "Reset your password", from_integration_id: int | None = 1) -> TransactionalEmailContent:
+def _content(subject: str = "Reset your password", from_integration_id: int | None = None) -> TransactionalEmailContent:
     return TransactionalEmailContent(
         message_template_id=uuid4(),
         name="Password reset",
@@ -37,6 +43,10 @@ class TestTransactionalEmailWorkflows(BaseTest):
             {"key": "email", "type": "native_email", "label": "Email", "required": True, "templating": "liquid"}
         ]
         sync_template_to_db(template)
+        self.sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, self.sender.id)
 
     def test_a_content_change_writes_a_new_version_and_keeps_the_email_live(self):
         flow_id = create_transactional_email_workflow(team_id=self.team.id, user_id=self.user.id, content=_content())
@@ -45,7 +55,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
             team_id=self.team.id,
             user_id=self.user.id,
             hog_flow_id=flow_id,
-            content=_content(subject="New subject", from_integration_id=None),
+            content=_content(subject="New subject"),
         )
 
         flow = HogFlow.objects.get(id=flow_id)
@@ -54,7 +64,7 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert flow.version == 2
         email = flow.actions[1]["config"]["inputs"]["email"]["value"]
         assert email["subject"] == "New subject"
-        assert email["from"] == {"integrationId": 1}
+        assert email["from"] == {"integrationId": self.sender.id}
         versions = (
             HogFlowRevision.objects.for_team(self.team.id)
             .filter(hog_flow=flow)
@@ -76,3 +86,21 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
         assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
+
+    @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
+    def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
+        self.sender.config = {"verified": verified}
+        self.sender.save()
+        requested_id = None
+        if requested == "other":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            requested_id = Integration.objects.create(
+                team=other_team, kind="email", integration_id="x@example.com", config={"verified": True}
+            ).id
+
+        with self.assertRaises(TransactionalEmailSenderUnavailable):
+            create_transactional_email_workflow(
+                team_id=self.team.id, user_id=self.user.id, content=_content(from_integration_id=requested_id)
+            )
+
+        assert not HogFlow.objects.filter(team_id=self.team.id).exists()

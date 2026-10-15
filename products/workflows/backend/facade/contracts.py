@@ -483,9 +483,13 @@ class TransactionalEmailContent:
     preheader: str
     html: str
     text: str
-    # None on an update keeps the sender the workflow already has.
+    # None uses the project's default sender on create, and keeps the workflow's sender on update.
     from_integration_id: int | None
     message_category_id: UUID | None
+
+
+class TransactionalEmailSenderUnavailable(Exception):
+    """No verified email sender: neither the requested one nor the project's default."""
 
 
 class WorkflowNotFound(Exception):

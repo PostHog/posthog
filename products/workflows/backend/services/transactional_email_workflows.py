@@ -5,11 +5,12 @@ of the workflow through the same write path as the workflows UI, with its revisi
 from typing import Optional
 from uuid import UUID
 
+from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 
-from products.workflows.backend.facade.contracts import TransactionalEmailContent
+from products.workflows.backend.facade.contracts import TransactionalEmailContent, TransactionalEmailSenderUnavailable
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.hog_flow_writes import create_workflow, update_workflow
 
 TRIGGER_ACTION_ID = "trigger_node"
@@ -88,6 +89,19 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
     }
 
 
+def _verified_sender(team_id: int, requested_id: int | None) -> int:
+    # A fresh read: Team.workflows_config is memoized for the whole process.
+    sender_id = requested_id or (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values_list("default_email_integration_id", flat=True)
+        .first()
+    )
+    sender = Integration.objects.filter(team_id=team_id, kind="email", id=sender_id).first() if sender_id else None
+    if sender is None or not sender.config.get("verified"):
+        raise TransactionalEmailSenderUnavailable()
+    return sender.id
+
+
 def _current_sender(flow: HogFlow) -> int:
     email = next(action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID)
     return email["config"]["inputs"]["email"]["value"]["from"]["integrationId"]
@@ -98,13 +112,12 @@ def _current_sender(flow: HogFlow) -> int:
 def create_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], content: TransactionalEmailContent
 ) -> UUID:
-    if content.from_integration_id is None:
-        raise ValueError("A new transactional email needs a sender")
+    from_integration_id = _verified_sender(team_id, content.from_integration_id)
     result = create_workflow(
         team_id=team_id,
         user_id=user_id,
         validated_data={
-            **_content_fields(content, content.from_integration_id),
+            **_content_fields(content, from_integration_id),
             "status": HogFlow.State.ACTIVE,
             "origin_product": HogFlowOriginProduct.TRANSACTIONAL_EMAILS,
             "exit_condition": "exit_only_at_end",
