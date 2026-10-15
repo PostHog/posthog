@@ -83,6 +83,10 @@ from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_fi
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
+from posthog.models.group_type_mapping import (
+    clear_dashboard_from_group_type_mapping,
+    get_group_type_mapping_dashboard_ids,
+)
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -2187,11 +2191,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             TeamHomeTabDashboardConfig.objects.for_team(instance.team_id).filter(dashboard_id=instance.id).update(
                 dashboard=None
             )
-            from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
-
-            clear_dashboard_from_group_type_mapping(
-                team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
-            )
+            group_dashboard_ids = self.context.get("group_type_mapping_dashboard_ids")
+            if group_dashboard_ids is None or instance.id in group_dashboard_ids:
+                clear_dashboard_from_group_type_mapping(
+                    team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
+                )
 
         request_filters = initial_data.get("filters")
         if request_filters is not None:
@@ -2995,6 +2999,8 @@ class DashboardsViewSet(
         dashboards = {dashboard.id: dashboard for dashboard in self.get_queryset().filter(id__in=ids)}
         deleted: list[int] = []
         skipped: list[dict[str, int | str]] = []
+        serializer_context = self.get_serializer_context()
+        serializer_context["group_type_mapping_dashboard_ids"] = get_group_type_mapping_dashboard_ids(self.team.id)
         for dashboard_id in ids:
             dashboard = dashboards.get(dashboard_id)
             if dashboard is None:
@@ -3010,6 +3016,7 @@ class DashboardsViewSet(
                     dashboard,
                     data={"deleted": True, "delete_insights": request.validated_data["delete_insights"]},
                     partial=True,
+                    context=serializer_context,
                 )
                 serializer.is_valid(raise_exception=True)
                 self.perform_update(serializer)
