@@ -21,7 +21,10 @@ Pass `ch_user` to connect as a dedicated user, the way `get_migrations_cluster` 
 A caller that connects as a different user through `connection_overrides` owns its own credential, and its discovery still runs as the pod default user.
 The backups and part_breaker Dagster resources do this: each sets `credential_provider` itself when its user is file-backed, the way `get_pool` does.
 
-Token-awareness is lost when you pass your own `sync_client` to `sync_execute`, or build your own pool or client.
+`default_client()` without `user` and `password` reads the token for the pod's `CLICKHOUSE_USER` when it builds the client.
+It is a one-shot client: close it after one short task, because a retained client that reconnects after the token expires is rejected.
+
+Token-awareness is lost when you pass any other client as `sync_client` to `sync_execute`, or build your own pool or client.
 
 ## A custom pool or client must stay token-aware
 

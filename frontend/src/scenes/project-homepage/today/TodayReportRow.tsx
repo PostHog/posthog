@@ -6,10 +6,10 @@ import { urls } from 'scenes/urls'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
-import { itemStateLabel } from './todayBriefingItems'
 import { todayLogic, type TodayReportOpenSource } from './todayLogic'
 import { priorityTone } from './todayPriority'
 import { TodayReportRowDetail } from './TodayReportRowDetail'
+import { reportStateLabel } from './todayReportState'
 import { TodayRow } from './TodayRow'
 import { pullRequestFact, rowFacts } from './todayRowFacts'
 import { reportIcon } from './todayRowIcons'
@@ -45,7 +45,7 @@ export function TodayReportRow({
             label={report.priority ?? undefined}
             facts={rowFacts(
                 state
-                    ? [itemStateLabel({ state })]
+                    ? [reportStateLabel(state)]
                     : [
                           pullRequestFact(
                               report.implementation_pr_merged
