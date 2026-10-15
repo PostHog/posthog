@@ -1,5 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from posthog.hogql.timings import HogQLTimings
 
@@ -12,7 +13,7 @@ def fake_perf_counter():
     return counter_values[0]
 
 
-class TestHogQLTimings(BaseTest):
+class TestHogQLTimings(SimpleTestCase):
     def setUp(self):
         counter_values[0] = 0
 

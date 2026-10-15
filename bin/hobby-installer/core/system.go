@@ -93,23 +93,31 @@ func ReadEnvValue(key string) string {
 		return ""
 	}
 	lines := strings.Split(string(data), "\n")
+	value := ""
 	for _, line := range lines {
 		if strings.HasPrefix(line, key+"=") {
-			value := strings.TrimPrefix(line, key+"=")
-			value = strings.Trim(value, "\"'")
-			return value
+			value = strings.Trim(strings.TrimPrefix(line, key+"="), "\"'")
 		}
 	}
-	return ""
+	return value
 }
 
 func AppendToEnv(key, value string) error {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(".env", os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
 
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return err
+		}
+	}
 	_, err = fmt.Fprintf(f, "%s=%s\n", key, value)
 	return err
 }

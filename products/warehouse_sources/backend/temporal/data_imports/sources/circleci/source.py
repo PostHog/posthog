@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
+    codebase_detection = detect(env=("^CIRCLECI_", "^CIRCLE_TOKEN$"), npm=("@circleci/circleci-config-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (CIRCLECI_V2, CIRCLECI_V3)

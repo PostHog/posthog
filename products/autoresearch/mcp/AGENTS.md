@@ -24,7 +24,7 @@ Tools are opt-in: `pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates 
 
 `autoresearch-score-create` scores today's prediction date on demand, so an MCP caller does not have to wait for the daily run after a champion is promoted. The training sandbox never sees it, because `TRAINING_MCP_SCOPES` has no `person:write`.
 
-Pipeline lifecycle (`archive`, `pause`, `resume`) stays disabled. The inference-run list is enabled so callers can check the status of background scoring.
+Pipeline lifecycle (`archive`, `pause`, `resume`) stays disabled. `autoresearch-partial-update` is enabled, needs `person:write`, and is marked destructive, because turning `write_person_property` off removes the property from the people the pipeline scored. The endpoint asks for `person:write` only when the request changes that field. The inference-run list is enabled so callers can check the status of background scoring.
 
 The split matters when you change a description. An agent-facing description is a **contract**: `autoresearch-training-runs-iterations-create` has to tell the agent what a valid `feature_sql` looks like, because the server will reject anything that is not a read-only `SELECT` keyed on `person_id` and the agent has no other way to learn that.
 

@@ -95,19 +95,22 @@ class SweepScannerWorkflow(PostHogWorkflow):
             )
             return
 
-        # Retries target fast ClickHouse admission rejections (code 202); schedule_to_close deliberately
-        # cuts slow timeout-bound attempts off after two rounds so the tick fails with ~10 minutes of the
-        # 15-minute workflow budget left, instead of burning it on a query that keeps timing out.
+        # Retries target fast ClickHouse admission rejections (code 202). The waits are long enough for a
+        # burst to drain, so retries do not take the slots that free up first from API queries. The next
+        # tick starts in 5 minutes and the watermark stays put, so a failed tick loses nothing.
+        # schedule_to_close deliberately cuts slow timeout-bound attempts off after two rounds so the tick
+        # fails with ~10 minutes of the 15-minute workflow budget left, instead of burning it on a query
+        # that keeps timing out.
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=FIND_SCANNER_CANDIDATES_TIMEOUT,
             schedule_to_close_timeout=dt.timedelta(seconds=450),
             retry_policy=common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
+                initial_interval=dt.timedelta(seconds=30),
                 backoff_coefficient=2.0,
-                maximum_interval=dt.timedelta(seconds=30),
-                maximum_attempts=4,
+                maximum_interval=dt.timedelta(seconds=120),
+                maximum_attempts=3,
             ),
         )
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
