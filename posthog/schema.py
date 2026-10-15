@@ -6308,8 +6308,9 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=(
             "Padding, in minutes, on each side of the event time range when it filters"
-            " the sessions table by session start. Defaults to 3 days. Lower it only"
-            " for a query that keeps just the sessions that start inside its own time"
+            " the sessions table by session start. Defaults to 3 days. It can only"
+            " narrow the range: values above the default are ignored. Lower it only for"
+            " a query that keeps just the sessions that start inside its own time"
             " range."
         ),
     )

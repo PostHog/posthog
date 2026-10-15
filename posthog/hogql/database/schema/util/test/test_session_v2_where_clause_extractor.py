@@ -132,6 +132,8 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
         [
             ("default_buffer", None, "toIntervalDay(3)"),
             ("modifier_buffer", 60, "toIntervalMinute(60)"),
+            ("modifier_cannot_widen", 10_000_000, "toIntervalDay(3)"),
+            ("negative_modifier_clamped", -60, "toIntervalMinute(0)"),
         ]
     )
     def test_handles_select_with_eq(self, _name, buffer_minutes, interval):
