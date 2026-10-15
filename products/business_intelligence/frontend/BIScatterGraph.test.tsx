@@ -131,13 +131,23 @@ it.each([
     expect(memberReads).toBeLessThan(1000)
 })
 
-it('handles a large selection without truncating the selected count', () => {
-    const rows = Array.from({ length: 5000 }, (_, index) => [`Category ${index}`, index, index])
+it('counts large selections without allocating records beyond the filter limit', () => {
+    let extraReads = 0
+    const onKeepOnly = jest.fn()
+    const rows = Array.from({ length: 5000 }, (_, index) =>
+        Object.defineProperty([`Category ${index}`, index, index], 3, {
+            get: () => {
+                extraReads++
+                return 'Example extra value'
+            },
+        })
+    )
     render(
         <BIScatterGraph
             {...props}
             query={{ ...query, config: { ...config, colorBy: null } }}
             rows={rows}
+            columns={['category', 'x', 'y', 'extra']}
             xData={axis(
                 'x',
                 rows.map((_, i) => String(i))
@@ -148,10 +158,18 @@ it('handles a large selection without truncating the selected count', () => {
                     rows.map((_, i) => i)
                 ),
             ]}
-            onKeepOnly={() => {}}
+            onKeepOnly={onKeepOnly}
         />
     )
+    const readsBeforeSelection = extraReads
     act(() => mockChartProps.onAreaSelect!({ x: [0, 5000], y: [0, 5000] }))
     expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('5000 selected')
+    expect(extraReads).toBe(readsBeforeSelection)
+    expect(screen.getByText('Keep only').closest('button')).toHaveAttribute('aria-disabled', 'true')
     expect(mockChartProps.series![0].points.every((point) => mockChartProps.isPointHighlighted!(point))).toBe(true)
+    act(() => mockChartProps.onAreaSelect!({ x: [0, 2], y: [0, 2] }))
+    expect(screen.getByTestId('bi-scatter-selection-count')).toHaveTextContent('3 selected')
+    fireEvent.click(screen.getByText('Keep only'))
+    expect(onKeepOnly.mock.calls[0][0]).toHaveLength(3)
+    expect(onKeepOnly.mock.calls[0][0][0]).toMatchObject({ extra: 'Example extra value' })
 })

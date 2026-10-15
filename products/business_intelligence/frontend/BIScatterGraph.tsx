@@ -56,17 +56,31 @@ export function BIScatterGraph({
             ),
         [visibleSeries]
     )
-    const selectedRecords = useMemo(() => {
+    const { selectedRecords, selectedCount } = useMemo(() => {
         if (overBudget || selectedKeys.size === 0) {
-            return []
+            return { selectedRecords: [], selectedCount: 0 }
         }
         const rowKey = createBIScatterRowKey(query.config, columns)
-        return rows
-            .filter((row) => {
-                const key = rowKey(row)
-                return selectedKeys.has(key) && visibleKeys.has(key)
-            })
-            .map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index]])))
+        const selectedRows: unknown[][] = []
+        let selectedCount = 0
+        for (const row of rows) {
+            const key = rowKey(row)
+            if (selectedKeys.has(key) && visibleKeys.has(key)) {
+                selectedCount++
+                if (selectedCount <= 200) {
+                    selectedRows.push(row)
+                }
+            }
+        }
+        return {
+            selectedCount,
+            selectedRecords:
+                selectedCount <= 200
+                    ? selectedRows.map((row) =>
+                          Object.fromEntries(columns.map((column, index) => [column, row[index]]))
+                      )
+                    : [],
+        }
     }, [query.config, columns, rows, selectedKeys, visibleKeys, overBudget])
     const selectionConfig = keepBIScatterRows(query.config, selectedRecords)
     const isPointHighlighted = useCallback<NonNullable<SqlScatterGraphProps['isPointHighlighted']>>(
@@ -102,7 +116,7 @@ export function BIScatterGraph({
                         ]}
                     />
                     <span data-attr="bi-scatter-selection-count">
-                        <span translate="no">{selectedRecords.length}</span> selected
+                        <span translate="no">{selectedCount}</span> selected
                     </span>
                     <LemonButton
                         size="xsmall"
@@ -111,9 +125,9 @@ export function BIScatterGraph({
                             clear()
                         }}
                         disabledReason={
-                            !selectedRecords.length
+                            !selectedCount
                                 ? 'Select points first'
-                                : selectedRecords.length > 200
+                                : selectedCount > 200
                                   ? 'Select at most 200 points'
                                   : !query.config.rows.length && !query.config.columns.length
                                     ? 'Add a detail dimension first'
