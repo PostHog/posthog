@@ -5696,6 +5696,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
+        self.assertTrue(metadata["client_id_metadata_document_supported"])
 
     def test_metadata_advertises_every_method_cimd_registers_under(self):
         # Guards the drift that broke CIMD installs: a client registers under a method the
