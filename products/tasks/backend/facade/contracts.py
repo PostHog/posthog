@@ -897,6 +897,9 @@ class WorkflowTaskSlackContext:
 class InboxReportClaimSkipReason(StrEnum):
     NOT_INBOX_TRIGGER = "not_inbox_trigger"
     NO_REPORT_ACCESS = "no_report_access"
+    NO_REPOSITORY = "no_repository"
+    HELD = "held"
+    NOT_CLAIMABLE = "not_claimable"
 
 
 @dataclass(frozen=True, kw_only=True)

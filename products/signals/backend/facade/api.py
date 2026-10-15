@@ -44,7 +44,12 @@ from products.signals.backend.briefing_reports import (
     report_ids_naming_user as report_ids_naming_user,
     reports_for_briefing as reports_for_briefing,
 )
-from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.contracts import (
+    DIRECT_STEERABLE_SOURCES,
+    SIGNAL_VARIANT_LOOKUP,
+    ReportClaimOutcome as ReportClaimOutcome,
+    SignalRemediation,
+)
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_access import may_read_reports as may_read_reports
@@ -283,8 +288,8 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
     )
 
 
-def claim_report_for_workflow_task(*, team_id: int, report_id: str, task_id: str) -> bool:
-    """Claim the report for a workflow task. False when another actor holds it or the report is gone.
+def claim_report_for_workflow_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaimOutcome:
+    """Claim the report for a workflow task, unless another actor holds it or the report is no longer open.
 
     A claim is not an implementation: it writes no implementation bridge, so it never raises the
     fixed Signals charge, and the task's pull requests attach to the report as plain PR links.

@@ -19,6 +19,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
+from products.signals.backend.contracts import ReportClaimOutcome
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -180,16 +181,16 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
-def try_claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> bool:
+def try_claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaimOutcome:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None or report.effective_status not in CLAIMABLE_REPORT_STATUSES:
-            return False
+            return ReportClaimOutcome.NOT_CLAIMABLE
         try:
             claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
         except ReportClaimConflict:
-            return False
-    return True
+            return ReportClaimOutcome.HELD
+    return ReportClaimOutcome.CLAIMED
 
 
 def release_report_claim_of_task(*, team_id: int, report_id: str, task_id: str) -> None:

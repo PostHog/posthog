@@ -32,6 +32,7 @@ class TestResumeWorkflowStepForRun(BaseTest):
         final_message: str | None = "Collected 3 PRs",
         json_schema: dict | None = None,
         structured_output: dict | None = None,
+        state: dict | None = None,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -51,6 +52,7 @@ class TestResumeWorkflowStepForRun(BaseTest):
             status=status,
             output=output,
             error_message="boom" if status == TaskRun.Status.FAILED else None,
+            state=state or {},
         )
 
     @parameterized.expand(
@@ -78,8 +80,35 @@ class TestResumeWorkflowStepForRun(BaseTest):
                 "final_message": "Collected 3 PRs",
                 "pr_urls": ["https://example.com/pr/1"],
                 "error_message": "boom" if run_status == TaskRun.Status.FAILED else None,
+                "inbox_report": None,
             },
         )
+
+    @parameterized.expand(
+        [
+            (
+                "claimed",
+                {"report_id": "r1", "claimed": True},
+                {"report_id": "r1", "claimed": True, "reason": None},
+            ),
+            (
+                "skipped",
+                {"report_id": "r1", "claimed": False, "reason": "no_repository"},
+                {"report_id": "r1", "claimed": False, "reason": "no_repository"},
+            ),
+            ("malformed", {"claimed": True}, None),
+            ("not_a_mapping", "r1", None),
+        ]
+    )
+    def test_reports_the_inbox_report_claim_outcome(
+        self, _name: str, claim_state: object, expected: dict | None
+    ) -> None:
+        run = self._run(state={"inbox_report_claim": claim_state})
+
+        with patch(_RESUME) as resume:
+            resume_workflow_step_for_run(run)
+
+        assert resume.call_args.kwargs["result"]["inbox_report"] == expected
 
     _SCHEMA = {
         "type": "object",

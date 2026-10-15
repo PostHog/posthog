@@ -27,7 +27,12 @@ from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
-from products.signals.backend.facade.api import ReportTaskLink, claim_report_for_workflow_task, report_task_link
+from products.signals.backend.facade.api import (
+    ReportClaimOutcome,
+    ReportTaskLink,
+    claim_report_for_workflow_task,
+    report_task_link,
+)
 from products.signals.backend.models import SignalReport
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -627,13 +632,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("an inbox report run with a repository", True, True, True),
-            ("a run with no repository", True, False, False),
-            ("a run not started by an inbox report", False, True, False),
+            ("an inbox report run with a repository", True, True, True, None),
+            ("a run with no repository", True, False, False, "no_repository"),
+            ("a run not started by an inbox report", False, True, False, None),
         ]
     )
     def test_claims_the_triggering_inbox_report_for_the_task(
-        self, _name: str, send_report_id: bool, with_repository: bool, claimed: bool
+        self, _name: str, send_report_id: bool, with_repository: bool, claimed: bool, skip_reason: str | None
     ) -> None:
         self._start_from_inbox_reports()
         report = SignalReport.objects.create(
@@ -651,6 +656,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
         assert claiming_task_id == (response.json()["id"] if claimed else None)
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("inbox_report_claim", {}).get("reason") == skip_reason
 
     @parameterized.expand(
         [
@@ -704,7 +711,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id is None
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["inbox_report_claim"]["claimed"] is False
+        assert run.state["inbox_report_claim"] == {
+            "report_id": str(report.id),
+            "claimed": False,
+            "reason": "not_claimable",
+        }
 
     def test_runs_without_a_claim_when_signals_already_holds_the_report(self) -> None:
         self._start_from_inbox_reports()
@@ -714,9 +725,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
         signals_task = Task.objects.create(
             team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        assert claim_report_for_workflow_task(
+        outcome = claim_report_for_workflow_task(
             team_id=self.team.id, report_id=str(report.id), task_id=str(signals_task.id)
         )
+        assert outcome == ReportClaimOutcome.CLAIMED
         Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
 
         response = self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
@@ -725,7 +737,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
         assert claiming_task_id == str(signals_task.id)
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False}
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": "held"}
 
     def _claimed_inbox_report_run(self) -> tuple[SignalReport, TaskRun]:
         self._start_from_inbox_reports()

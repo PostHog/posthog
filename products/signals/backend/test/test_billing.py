@@ -20,7 +20,7 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
-from products.signals.backend.facade.api import claim_report_for_workflow_task
+from products.signals.backend.facade.api import ReportClaimOutcome, claim_report_for_workflow_task
 from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
@@ -304,7 +304,8 @@ class TestSignalsBilling(BaseTest):
         task = Task.objects.create(
             team=self.team, title="fix", description="d", origin_product=Task.OriginProduct.WORKFLOW
         )
-        assert claim_report_for_workflow_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        outcome = claim_report_for_workflow_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        assert outcome == ReportClaimOutcome.CLAIMED
         TaskRun.objects.create(
             team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(19)
         )

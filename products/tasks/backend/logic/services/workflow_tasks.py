@@ -402,8 +402,8 @@ def create_workflow_task(
                 _bind_slack_thread(team=team, task=task, binding=slack_binding)
                 _acknowledge_trigger_message(slack_binding)
 
-            if inbox_report is not None and repository:
-                claim_inbox_report(task, inbox_report)
+            if inbox_report is not None:
+                claim_inbox_report(task, inbox_report, repository=repository)
     except IntegrityError:
         if origin_key is None:
             raise

@@ -9,6 +9,7 @@ from products.cdp.backend.workflow_step_resume import (
     cap_value,
     emit_workflow_step_resume,
 )
+from products.tasks.backend.logic.services.workflow_inbox_report_claim import inbox_report_claim_outcome
 from products.tasks.backend.logic.services.workflow_task_output import RUN_OUTPUT_RESERVED_KEYS
 from products.tasks.backend.models import Task, TaskRun
 
@@ -75,6 +76,7 @@ def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
         "final_message": output.get("final_message"),
         "pr_urls": output.get("pr_urls") or ([output["pr_url"]] if output.get("pr_url") else None),
         "error_message": task_run.error_message,
+        "inbox_report": inbox_report_claim_outcome(task_run),
     }
 
 
