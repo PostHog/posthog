@@ -25,6 +25,10 @@ import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/fronten
 
 import type { Node } from '../queries/schema/schema-general'
 
+export function getRemovedDashboardIds({ deleted, skipped }: DashboardBulkDeleteResponseApi): number[] {
+    return [...deleted, ...skipped.filter(({ reason }) => reason === 'Dashboard not found').map(({ id }) => id)]
+}
+
 function reportDashboardPinToggled(dashboardId: number, pinned: boolean, source: DashboardEventSource): void {
     posthog.capture(`dashboard pin toggled`, {
         dashboard_id: dashboardId,
@@ -831,7 +835,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return
             }
             const { deleted, skipped } = bulkDeleteResponse
-            actions.removeDashboardsFromCache(deleted)
+            actions.removeDashboardsFromCache(getRemovedDashboardIds(bulkDeleteResponse))
             if (deleted.length > 0) {
                 const noun = deleted.length === 1 ? 'dashboard' : 'dashboards'
                 lemonToast.success(`Deleted ${deleted.length} ${noun}.`)

@@ -16,7 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { dashboardsModel, getRemovedDashboardIds } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
 
@@ -462,8 +462,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     reducers({
         searchedDashboards: {
             bulkDeleteDashboardsSuccess: (state, { bulkDeleteResponse }) => {
-                const deletedIds = new Set(bulkDeleteResponse.deleted)
-                return state?.filter(({ id }) => !deletedIds.has(id)) ?? null
+                const removedIds = new Set(getRemovedDashboardIds(bulkDeleteResponse))
+                return state?.filter(({ id }) => !removedIds.has(id)) ?? null
             },
             reloadDashboardsSuccess: (state, { pagedDashboards }) => {
                 if (!pagedDashboards) {
@@ -730,7 +730,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         bulkDeleteDashboardsSuccess: ({ bulkDeleteResponse, payload }) => {
-            payload?.onStillSelected(bulkDeleteResponse.skipped.map(({ id }) => id))
+            const removedIds = new Set(getRemovedDashboardIds(bulkDeleteResponse))
+            payload?.onStillSelected(
+                bulkDeleteResponse.skipped.filter(({ id }) => !removedIds.has(id)).map(({ id }) => id)
+            )
             actions.loadSearchedDashboards({
                 search: values.filters.search,
                 tags: values.filters.tags ?? [],
