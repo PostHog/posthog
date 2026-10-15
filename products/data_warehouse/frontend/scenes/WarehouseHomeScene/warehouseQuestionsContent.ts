@@ -40,7 +40,7 @@ export interface WarehouseQuestion {
     guideUrl: string
 }
 
-const GUIDES = 'https://posthog.com/pocket-guides/context-warehouse'
+const GUIDES = 'https://posthog.com/pocket-guides/data-stack'
 
 export const WAREHOUSE_QUESTIONS: WarehouseQuestion[] = [
     {
