@@ -246,6 +246,7 @@ class TestAsaasSource:
         assert all("_PaymentDunnings_id" not in row for row in result.rows)
         assert result.response is not None
         assert result.response.primary_keys == ["paymentDunning", "eventDate", "status", "description"]
+        assert result.response.supports_resume is False
 
     def test_source_for_pipeline_omits_cursor_when_not_incremental(self) -> None:
         inputs = mock.MagicMock()

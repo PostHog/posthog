@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     ENDPOINTS,
+    FANOUT_PARENTS,
     INCREMENTAL_FIELDS,
     PARTITION_KEYS,
     PRIMARY_KEYS,
@@ -114,6 +115,8 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             partition_mode="datetime" if partition_key else None,
             partition_format="month" if partition_key else None,
             partition_keys=[partition_key] if partition_key else None,
+            # The fan-out saves no checkpoint, so a shutdown hand-off would only restart the sweep.
+            supports_resume=inputs.schema_name not in FANOUT_PARENTS,
         )
 
     @property
