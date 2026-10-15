@@ -30080,6 +30080,153 @@ export namespace Schemas {
       issues_summary: string[];
     }
 
+    /**
+     * * `signup` - Signup
+     * * `onboarding` - Onboarding
+     * * `trial` - Trial
+     * * `purchase` - Purchase
+     * * `churn_risk` - Churn Risk
+     * * `failure` - Failure
+     * * `support` - Support
+     * * `other` - Other
+     */
+    export type DataSuggestionStageEnum = typeof DataSuggestionStageEnum[keyof typeof DataSuggestionStageEnum];
+
+
+    export const DataSuggestionStageEnum = {
+      Signup: 'signup',
+      Onboarding: 'onboarding',
+      Trial: 'trial',
+      Purchase: 'purchase',
+      ChurnRisk: 'churn_risk',
+      Failure: 'failure',
+      Support: 'support',
+      Other: 'other',
+    } as const;
+
+    /**
+     * * `email` - Email
+     * * `sms` - Sms
+     * * `push` - Push
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `delay` - Delay
+     * * `wait_until` - Wait Until
+     * * `branch` - Branch
+     * * `split` - Split
+     * * `action` - Action
+     */
+    export type DataSuggestionStepKindEnum = typeof DataSuggestionStepKindEnum[keyof typeof DataSuggestionStepKindEnum];
+
+
+    export const DataSuggestionStepKindEnum = {
+      Email: 'email',
+      Sms: 'sms',
+      Push: 'push',
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Delay: 'delay',
+      WaitUntil: 'wait_until',
+      Branch: 'branch',
+      Split: 'split',
+      Action: 'action',
+    } as const;
+
+    export interface DataSuggestion {
+      /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+      id: string;
+      /** Suggested workflow name, written by AI from the project's events. */
+      name: string;
+      /** One sentence on what the workflow does. */
+      description: string;
+      /** One sentence on why the workflow fits this project. */
+      reason: string;
+      /** The project event that starts the workflow. */
+      trigger_event: string;
+      /** How often the trigger event fired in the last 7 days. */
+      weekly_count: number;
+      /** The customer lifecycle stage the trigger event marks. Suggestions are ranked by stage first, so welcome and onboarding flows come before busier events.
+       *
+       * * `signup` - Signup
+       * * `onboarding` - Onboarding
+       * * `trial` - Trial
+       * * `purchase` - Purchase
+       * * `churn_risk` - Churn Risk
+       * * `failure` - Failure
+       * * `support` - Support
+       * * `other` - Other */
+      stage: DataSuggestionStageEnum;
+      /** The main planned step kinds after the trigger, in order. */
+      step_outline: DataSuggestionStepKindEnum[];
+    }
+
+    export interface DataSuggestionBuildRequest {
+      /** The id of a suggestion from the list endpoint. */
+      suggestion_id: string;
+      /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
+      retry?: boolean;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed
+     */
+    export type DataSuggestionBuildStatusEnum = typeof DataSuggestionBuildStatusEnum[keyof typeof DataSuggestionBuildStatusEnum];
+
+
+    export const DataSuggestionBuildStatusEnum = {
+      Ready: 'ready',
+      Building: 'building',
+      Failed: 'failed',
+    } as const;
+
+    export interface DataSuggestionBuildResponse {
+      /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result is reported once, so the next call starts a new build.
+       *
+       * * `ready` - Ready
+       * * `building` - Building
+       * * `failed` - Failed */
+      status: DataSuggestionBuildStatusEnum;
+      /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Nothing is saved by this call. Null otherwise. */
+      workflow: unknown;
+      /** Whether an email step reuses a saved email template. */
+      uses_saved_template: boolean;
+    }
+
+    export interface DataSuggestionGenerateRequest {
+      /** Make new suggestions even when the cached ones are still valid. */
+      refresh?: boolean;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable
+     */
+    export type DataSuggestionsStatusEnum = typeof DataSuggestionsStatusEnum[keyof typeof DataSuggestionsStatusEnum];
+
+
+    export const DataSuggestionsStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      AiNotApproved: 'ai_not_approved',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface DataSuggestionsResponse {
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `ai_not_approved` - Ai Not Approved
+       * * `unavailable` - Unavailable */
+      status: DataSuggestionsStatusEnum;
+      /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
+      suggestions: DataSuggestion[];
+    }
+
     export interface DataWarehouseExpression {
       readonly id: string;
       /**
@@ -97700,6 +97847,12 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+      folded: number;
+      /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
+      folded_preview: string[];
+      /** With view 'differs', or 'all' without a search: what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out. */
+      folded_result: AutomaticReviewDecision | null;
       /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
       my_choices_unlike_default: number;
     }
@@ -128665,12 +128818,13 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
      *
      * * `all` - All repositories
      * * `in_project` - In this project
      * * `exceptions` - With exceptions
      * * `mine` - My choices
+     * * `differs` - Different from the project
      * @minLength 1
      */
     view?: ReviewHogRepositoryOverviewRetrieveView;
@@ -128684,6 +128838,7 @@ export namespace Schemas {
       InProject: 'in_project',
       Exceptions: 'exceptions',
       Mine: 'mine',
+      Differs: 'differs',
     } as const;
 
     export type ReviewHogReviewsListParams = {

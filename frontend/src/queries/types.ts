@@ -15,6 +15,7 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -108,6 +109,9 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Hide or resize the visualization selector when the host provides its own chart picker. */
     chartTypeSelectorClassName?: string
     onEditBIAxis?: (axis: 'x' | 'left' | 'right') => void
+    onDrillBIHierarchy?: (worksheet: BIVisualizationNode) => void
+    biHierarchyDrillDisabledReason?: string
+    onKeepBISelection?: (records: Record<string, unknown>[]) => void
     /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
     visualizationSettingsPanel?: {
         isOpen: boolean
