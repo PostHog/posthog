@@ -5,6 +5,7 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 import numpy as np
@@ -460,20 +461,22 @@ class TestComputeActivityCapacityBackoff:
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
         )
+        now = datetime(2026, 1, 1, tzinfo=UTC)
         env = ActivityEnvironment()
         env.info = dataclasses.replace(
             env.info,
             attempt=attempt,
             retry_policy=COMPUTE_ACTIVITY_RETRY_POLICY,
             schedule_to_close_timeout=COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT,
-            scheduled_time=datetime.now(UTC)
-            - COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT
-            + timedelta(seconds=seconds_to_deadline),
+            scheduled_time=now - COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT + timedelta(seconds=seconds_to_deadline),
         )
 
-        with patch(
-            "posthog.temporal.ai_observability.trace_clustering.activities._perform_clustering_compute",
-            side_effect=capacity_error(),
+        with (
+            time_machine.travel(now, tick=False),
+            patch(
+                "posthog.temporal.ai_observability.trace_clustering.activities._perform_clustering_compute",
+                side_effect=capacity_error(),
+            ),
         ):
             with pytest.raises(ApplicationError) as exc_info:
                 await env.run(perform_clustering_compute_activity, inputs)
