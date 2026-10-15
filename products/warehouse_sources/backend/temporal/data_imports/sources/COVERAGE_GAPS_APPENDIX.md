@@ -5505,10 +5505,10 @@ Today (14): `alert_groups`, `escalation_chains`, `escalation_policies`, `inciden
 
 Diffed against: <https://grafana.com/docs/grafana-cloud/observe-and-act/respond-to-incidents/reference/incident-api/reference/>
 
-- [ ] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
-- [ ] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
-- [ ] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
-- [ ] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
+- [x] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
+- [x] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
+- [x] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
+- [x] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
 - [ ] `Final schedule shifts (GET /api/v1/schedules/{schedule_id}/final_shifts)` — measure actual scheduled hours per responder after rotations and overrides are applied (medium)
 - [ ] `Key updates (POST /api/plugins/grafana-irm-app/resources/api/v1/KeyUpdatesService.QueryKeyUpdates)` — analyze incident communications, update frequency, and status changes across incident timelines (medium)
 
