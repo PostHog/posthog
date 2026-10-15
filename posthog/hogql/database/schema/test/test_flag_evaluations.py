@@ -142,6 +142,34 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
         ]
 
+    def test_shards_compute_the_property_group_maps_on_insert(self):
+        row_uuid = uuid.uuid4()
+        sync_execute(
+            """
+            INSERT INTO writable_flag_evaluations
+                (uuid, event, properties, person_properties, timestamp, team_id, distinct_id)
+            VALUES
+            """,
+            [
+                (
+                    str(row_uuid),
+                    "$feature_flag_called",
+                    json.dumps({"quote": 'a"b', "nulled": None, "$lib": "web", "token": "t", "keep": "yes"}),
+                    json.dumps({"email": "a@example.com", "$creator_event_uuid": "x"}),
+                    self.occurred_at,
+                    self.team.pk,
+                    "probe-distinct-id",
+                )
+            ],
+        )
+
+        rows = sync_execute(
+            "SELECT properties_group_custom, person_properties_map_custom FROM flag_evaluations WHERE uuid = %(uuid)s",
+            {"uuid": str(row_uuid)},
+        )
+
+        assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+
     def test_person_id_follows_a_later_merge(self):
         # Ingestion never rewrites the person on the row, so only the read can correct it. Drop the
         # override join and `uniq(person_id)` counts the pre-merge and the post-merge person as two

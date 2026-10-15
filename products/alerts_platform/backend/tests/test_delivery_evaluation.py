@@ -156,7 +156,7 @@ class TestDeliverEvaluation(APIBaseTest):
 
         with (
             patch(
-                f"{_MODULE}.posthoganalytics.feature_enabled",
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 **({"side_effect": live} if isinstance(live, Exception) else {"return_value": live}),
             ),
             patch(f"{_MODULE}.announcement", return_value=announced),
@@ -302,7 +302,10 @@ class TestDeliverEvaluation(APIBaseTest):
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
         with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -330,7 +333,10 @@ class TestDeliverEvaluation(APIBaseTest):
         # Without the project group the condition never matches, and the platform stays silent
         # with nothing to say why.
         with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=False) as flag,
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                return_value=False,
+            ) as flag,
             patch(f"{_MODULE}.announcement", return_value=None),
         ):
             deliver_evaluation(_request(self.team.id))
@@ -378,7 +384,10 @@ class TestDeliverEvaluation(APIBaseTest):
             return {"version": "legacy", "alert_id": kwargs["alert_id"]}
 
         with (
-            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=flag),
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                side_effect=flag,
+            ),
             patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(WEBHOOK), _group(SECOND_WEBHOOK)]),
             patch(f"{_MODULE}.DatabaseThreadStore"),
