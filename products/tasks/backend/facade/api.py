@@ -169,7 +169,9 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
     merge_pr_output,
+    normalize_verified_pull_request_urls,
     read_head_branches,
     read_pr_urls as read_pr_urls,
 )
@@ -302,7 +304,8 @@ __all__ = [
     "filter_uncovered_workflow_dispatch_run_ids",
     "maintain_workflow_dispatch_outbox",
     "get_task_detail",
-    "filter_accessible_task_ids",
+    "task_access_scope",
+    "normalize_verified_pull_request_urls_batch",
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_session",
@@ -1100,14 +1103,36 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
-def filter_accessible_task_ids(*, team_id: int, user: User, task_ids: Iterable[str | UUID]) -> set[UUID]:
-    ids = list(task_ids)
-    if not ids:
-        return set()
+def task_access_scope(*, team_id: int, user: User) -> contracts.TaskAccessScope:
     team = Team.objects.get(id=team_id)
-    tasks = Task.objects.filter(team_id=team_id, id__in=ids)
-    accessible = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(tasks, resource="task")
-    return set(accessible.values_list("id", flat=True))
+    access = UserAccessControl(user=user, team=team)
+    return contracts.TaskAccessScope(
+        user_id=user.id,
+        has_resource_access=access.has_resource_access("task"),
+        allowed_ids=access.allowlisted_resource_ids_by_scope.get("task", frozenset()),
+        blocked_ids=access.blocked_resource_ids_by_scope.get("task", frozenset()),
+    )
+
+
+def normalize_verified_pull_request_urls_batch(
+    *, team_id: int, after: UUID | None = None, limit: int = 1000
+) -> UUID | None:
+    rows = TaskRun.objects.filter(team_id=team_id, state__has_key="verified_pr_urls").order_by("id")
+    if after is not None:
+        rows = rows.filter(id__gt=after)
+    batch = list(rows.values_list("id", "state")[:limit])
+    for run_id, state in batch:
+        verified = state.get("verified_pr_urls") if isinstance(state, dict) else None
+        if normalize_verified_pull_request_urls(verified) == verified:
+            continue
+
+        def normalize(latest_state: dict[str, Any]) -> None:
+            latest_state["verified_pr_urls"] = normalize_verified_pull_request_urls(
+                latest_state.get("verified_pr_urls")
+            )
+
+        TaskRun.mutate_state_atomic(run_id, normalize)
+    return batch[-1][0] if len(batch) == limit else None
 
 
 def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -> bool:
@@ -1116,7 +1141,11 @@ def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -
     A run's `output.pr_url` is writable through the API. `verified_pr_urls` is server-owned, so a
     caller that edits the pull request checks this before it trusts the URL.
     """
-    return TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__verified_pr_urls__contains=[pr_url]).exists()
+    verified_url = canonical_github_pull_request_url(pr_url)
+    verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+    if verified_url is not None:
+        verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+    return TaskRun.objects.filter(verified_filter, task_id=task_id, team_id=team_id).exists()
 
 
 def task_exists(task_id: str | UUID, team_id: int) -> bool:

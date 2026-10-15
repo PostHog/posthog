@@ -877,11 +877,19 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
-    def installation_can_access_repository(self, repository: str) -> bool:
+    def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
-        )
+        url = f"https://api.github.com/repos/{repository}"
+        if raise_on_transient:
+            response = self.api_request(
+                "GET", url.removeprefix("https://api.github.com"), endpoint="/repos/{owner}/{repo}"
+            )
+            if response.status_code >= 500:
+                raise GitHubIntegrationError(
+                    "GitHub repository access probe failed transiently", status_code=response.status_code
+                )
+        else:
+            response = self._installation_authenticated_get(url, endpoint="/repos/{owner}/{repo}")
         if response is None:
             return False
         return response.status_code == 200

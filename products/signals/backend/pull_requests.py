@@ -36,14 +36,27 @@ def schedule_participant_refresh(pr: SignalReportPullRequest) -> None:
 
         def enqueue() -> None:
             key = f"signals:participant-refresh:{pr.id}"
-            if not cache.add(key, True, timeout=PARTICIPANT_REFRESH_DEDUPE_SECONDS):
-                return
+            claimed = False
+            try:
+                claimed = cache.add(key, True, timeout=PARTICIPANT_REFRESH_DEDUPE_SECONDS)
+                if not claimed:
+                    return
+            except Exception:
+                logger.exception("signals_participant_refresh_dedupe_failed", team_id=pr.team_id, pr_id=str(pr.id))
             try:
                 refresh_pull_request_participants.delay(
                     team_id=pr.team_id, repository=pr.repository, pr_number=pr.number
                 )
             except Exception:
-                cache.delete(key)
+                if claimed:
+                    try:
+                        cache.delete(key)
+                    except Exception:
+                        logger.exception(
+                            "signals_participant_refresh_dedupe_cleanup_failed",
+                            team_id=pr.team_id,
+                            pr_id=str(pr.id),
+                        )
                 logger.exception("signals_participant_refresh_enqueue_failed", team_id=pr.team_id, pr_id=str(pr.id))
 
         transaction.on_commit(enqueue)

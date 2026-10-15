@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from products.signals.backend.inbox_summary import INBOX_SUMMARY_PERIOD, generated_pull_requests
 from products.signals.backend.tasks import refresh_pull_request_participants
+from products.tasks.backend.facade import api as tasks_facade
 
 
 class Command(BaseCommand):
@@ -16,11 +17,21 @@ class Command(BaseCommand):
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
         parser.add_argument("--after", type=UUID, help="Resume after this pull request UUID.")
+        parser.add_argument(
+            "--run-after", type=UUID, help="Resume verified URL normalization after this task run UUID."
+        )
         parser.add_argument("--limit", type=int, default=100)
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args: object, **options: object) -> None:
         team_id = cast(int, options["team_id"])
+        if not options["dry_run"]:
+            next_run = tasks_facade.normalize_verified_pull_request_urls_batch(
+                team_id=team_id, after=options["run_after"]
+            )
+            if next_run is not None:
+                self.stdout.write(f"Normalized verified pull request URLs. Resume with --run-after {next_run}")
+                return
         rows = (
             generated_pull_requests(team_id)
             .filter(
