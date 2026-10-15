@@ -281,7 +281,7 @@ export interface analyticsListLogicMeta {
         ) => FolderRow[]
         folderBreadcrumbs: (filters: AnalyticsListFilters) => FolderRow[]
         loading: (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContentsLoading: boolean) => boolean
-        loadedCount: (feed: AnalyticsFeed) => number
+        loadedCount: (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContents: FolderContents | null) => number
         hasMore: (
             mode: AnalyticsListMode,
             feed: AnalyticsFeed,

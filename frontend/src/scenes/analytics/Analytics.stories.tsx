@@ -275,36 +275,43 @@ export const ListSpace: Story = {
     parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
 }
 
+// Dialogs and menus render in portals outside the story canvas, so the helpers read the whole document.
+async function clickWhenRendered(attr: string): Promise<void> {
+    const element = await waitFor(
+        () => {
+            const found = document.querySelector<HTMLElement>(`[data-attr=${attr}]`)
+            if (!found) {
+                throw new Error(`${attr} is not rendered yet`)
+            }
+            return found
+        },
+        { timeout: 15000 }
+    )
+    await userEvent.click(element)
+}
+
 export const ListShareDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-list-row-share]')).toBeTruthy())
-        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-list-row-share]')!)
-        await canvas.findAllByText('Finance')
+    play: async () => {
+        await clickWhenRendered('analytics-list-row-share')
+        await within(document.body).findAllByText('Finance', {}, { timeout: 15000 })
     },
 }
 
 export const ListSpaceDeleteDialog: Story = {
     parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-space-manage]')).toBeTruthy())
-        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-space-manage]')!)
-        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-space-delete]')).toBeTruthy())
-        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-space-delete]')!)
-        await canvas.findByText('Delete "Growth"')
+    play: async () => {
+        await clickWhenRendered('analytics-space-manage')
+        await clickWhenRendered('analytics-space-delete')
+        await within(document.body).findByText('Delete "Growth"', {}, { timeout: 15000 })
     },
 }
 
 export const ListNewInsightDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-list-new]')).toBeTruthy())
-        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-list-new]')!)
-        await waitFor(() => expect(canvasElement.querySelector('[data-attr=analytics-new-insight]')).toBeTruthy())
-        await userEvent.click(canvasElement.querySelector('[data-attr=analytics-new-insight]')!)
-        await canvas.findByText('How does it change over time?')
+    play: async () => {
+        await clickWhenRendered('analytics-list-new')
+        await clickWhenRendered('analytics-new-insight')
+        await within(document.body).findByText('How does it change over time?', {}, { timeout: 15000 })
     },
 }
