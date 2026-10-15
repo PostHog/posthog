@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import redis
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import admit_evaluation_slots
 
@@ -465,6 +466,32 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.check_status == expected_status
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    @parameterized.expand(
+        [
+            ("cohort_with_its_full_time", False, BATCH_QUERY_BUDGET_SECONDS, 5),
+            ("cohort_left_short_by_the_batch", False, 5, 4),
+            ("grouped_with_its_full_time", True, BATCH_QUERY_BUDGET_SECONDS, 5),
+            ("grouped_left_short_by_the_batch", True, 5, 4),
+        ]
+    )
+    def test_a_query_out_of_time_counts_against_the_alert_only_when_it_had_its_full_time(
+        self, _name: str, grouped: bool, budget_seconds: int, expected_failures: int
+    ) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",)) if grouped else Grouping()
+        self._configuration(consecutive_failures=4, grouping=grouping.to_stored())
+
+        with (
+            patch(f"{_MODULE}.BATCH_QUERY_BUDGET_SECONDS", budget_seconds),
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as cohort_query,
+            patch(f"{_MODULE}.GroupedAlertCheckQuery") as grouped_query,
+        ):
+            for query in (cohort_query, grouped_query):
+                query.return_value.execute_rolling_checks.side_effect = ClickHouseQueryTimeOut()
+            evaluation = evaluate_logs_batch(self.team.id, self._slot(), self.cutoff)
+
+        assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
 
     def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
         configuration = self._configuration(consecutive_failures=4)

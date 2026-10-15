@@ -29,6 +29,7 @@ import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 from posthog.utils import absolute_uri
@@ -125,6 +126,9 @@ MIN_QUERY_SECONDS = 2
 # With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
 # query never runs after its slot frees for another batch.
 CHECKPOINT_QUERY_SECONDS = 10
+# The errors ClickHouse raises when a query exceeds, or is estimated to exceed, its time limit.
+_OUT_OF_TIME_ERRORS: Final = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
+_BATCH_BUSY_MESSAGE: Final = "PostHog is temporarily busy. The alert check will retry automatically."
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
 # Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
@@ -506,20 +510,35 @@ def _evaluate_one(
     )
 
 
-def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, muted: bool) -> AlertCheckOutcome:
+def _failed(
+    check: PlatformAlertCheckInput,
+    error: Exception,
+    *,
+    now: datetime,
+    muted: bool,
+    query_seconds: int = MAX_QUERY_SECONDS,
+) -> AlertCheckOutcome:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
     The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
     every check stops being evaluated instead of failing forever. A transient error is classified
     as one so the policy can hold the counter.
+
+    A query that ran out of time counts against the alert only when it had the full per-query
+    time. With less, the queries before it in the batch spent the time, so a healthy alert that
+    shares a slot with slow ones would otherwise escalate to BROKEN.
     """
-    classified = classify_alert_error(error)
+    if query_seconds < MAX_QUERY_SECONDS and isinstance(error, _OUT_OF_TIME_ERRORS):
+        error_message, is_transient = _BATCH_BUSY_MESSAGE, True
+    else:
+        classified = classify_alert_error(error)
+        error_message, is_transient = classified.user_message, classified.is_transient
     return _verdict(
         check,
         CheckInput(
             threshold_breached=False,
-            error_message=classified.user_message,
-            is_transient_error=classified.is_transient,
+            error_message=error_message,
+            is_transient_error=is_transient,
             muted=muted,
         ),
         (),
@@ -591,7 +610,7 @@ def _evaluate_cohort(
         return [
             _delivery(
                 check,
-                _failed(check, error, now=now, muted=check.id in muted_ids),
+                _failed(check, error, now=now, muted=check.id in muted_ids, query_seconds=query_seconds),
                 window_end=date_to,
                 now=now,
                 failed=True,
@@ -776,7 +795,13 @@ def _evaluate_grouped(
         )
     except Exception as error:
         logger.exception("Grouped logs alert query failed", check_id=str(check.id), error=str(error))
-        return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
+        return _delivery(
+            check,
+            _failed(check, error, now=now, muted=muted, query_seconds=query_seconds),
+            window_end=date_to,
+            now=now,
+            failed=True,
+        )
 
     counts = {grouping_key_of(group.labels): group for group in result.groups}
     # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
