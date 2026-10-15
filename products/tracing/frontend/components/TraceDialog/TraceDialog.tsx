@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { type CSSProperties, useCallback, useRef, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { pluralize } from 'lib/utils/strings'
@@ -17,7 +19,20 @@ import { TraceDialogOpenedFromLog } from './TraceDialogOpenedFromLog'
 import { TraceDialogShortcuts } from './TraceDialogShortcuts'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
+// Below this the attribute tables stop being readable, so a drag can't crush the inspector.
+const MIN_INSPECTOR_WIDTH = 320
+
 export function TraceDialog(): JSX.Element | null {
+    // Persisted under its own key: the dialog is wider than the drawer, so a split the person
+    // picked in one would be wrong in the other.
+    const inspectorRef = useRef<HTMLDivElement>(null)
+    const inspectorResizerProps: ResizerLogicProps = {
+        logicKey: 'trace-dialog-span-inspector',
+        placement: 'left',
+        containerRef: inspectorRef,
+        persistent: true,
+    }
+    const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
     const {
         isOpen,
         trace,
@@ -116,29 +131,50 @@ export function TraceDialog(): JSX.Element | null {
                                 </div>
                                 {(missingParentSpanId || selectedSpan) && (
                                     <div
-                                        className="flex-1 min-h-0 overflow-y-auto border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-2/5 @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0 @min-[56rem]/trace-dialog:pl-4"
+                                        ref={inspectorRef}
+                                        // Half the body at most side by side, so the span tree keeps room for its timeline bars.
+                                        className="relative flex-1 min-h-0 border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-(--trace-dialog-inspector-width) @min-[56rem]/trace-dialog:max-w-1/2 @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0"
+                                        // The dragged width applies only side by side; stacked, the inspector is full width.
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            {
+                                                '--trace-dialog-inspector-width':
+                                                    inspectorWidth != null
+                                                        ? `${Math.max(MIN_INSPECTOR_WIDTH, inspectorWidth)}px`
+                                                        : '40%',
+                                            } as CSSProperties
+                                        }
                                         data-attr="trace-dialog-inspector"
                                     >
-                                        {missingParentSpanId ? (
-                                            <MissingParentSpanNotice
-                                                traceId={trace.traceId}
-                                                parentSpanId={missingParentSpanId}
-                                            />
-                                        ) : selectedSpan ? (
-                                            <SpanInspector
-                                                span={selectedSpan}
-                                                serviceColorMap={serviceColorMap}
-                                                traceTimestamp={summary.rootSpan?.timestamp ?? selectedSpan.timestamp}
-                                                sessionId={null}
-                                                showErrorsTab={sessionErrorBadgesEnabled}
-                                                errorsScope="span"
-                                                resolving={false}
-                                                tab={activeInspectorTab}
-                                                onSelectTab={setInspectorTab}
-                                                // The dialog has no span list for an attribute filter to narrow.
-                                                showFilterActions={false}
-                                            />
-                                        ) : null}
+                                        <Resizer
+                                            {...inspectorResizerProps}
+                                            className="hidden @min-[56rem]/trace-dialog:block"
+                                        />
+                                        {/* Scrolls inside the sized box, so the drag handle stays put. */}
+                                        <div className="h-full overflow-y-auto @min-[56rem]/trace-dialog:pl-4">
+                                            {missingParentSpanId ? (
+                                                <MissingParentSpanNotice
+                                                    traceId={trace.traceId}
+                                                    parentSpanId={missingParentSpanId}
+                                                />
+                                            ) : selectedSpan ? (
+                                                <SpanInspector
+                                                    span={selectedSpan}
+                                                    serviceColorMap={serviceColorMap}
+                                                    traceTimestamp={
+                                                        summary.rootSpan?.timestamp ?? selectedSpan.timestamp
+                                                    }
+                                                    sessionId={null}
+                                                    showErrorsTab={sessionErrorBadgesEnabled}
+                                                    errorsScope="span"
+                                                    resolving={false}
+                                                    tab={activeInspectorTab}
+                                                    onSelectTab={setInspectorTab}
+                                                    // The dialog has no span list for an attribute filter to narrow.
+                                                    showFilterActions={false}
+                                                />
+                                            ) : null}
+                                        </div>
                                     </div>
                                 )}
                             </div>
