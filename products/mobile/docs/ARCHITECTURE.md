@@ -58,13 +58,16 @@ products/mobile/
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
-      settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo
-    lib/                  analytics, posthogClient, dates, errors, haptics, richText, useAsyncAction, useNow
+      settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
+                          EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow
+    lib/                  analytics, posthogClient, dates, errors, haptics, richText, useAsyncAction, useNow,
+                          environment (build variant, host kind, update id), appVariants (+ .json), legalLinks
     ui/                   tokens.ts, primitives, icons/
   plugins/                Expo config plugins (withIosSceneLifecycle: UIScene life cycle for Xcode 27)
   .argent/flows/          Argent flows that drive the app on a simulator (see TESTING.md)
-  assets/                 app icon (shared with PostHog Desktop), adaptive icon, splash, favicon
-  scripts/                eas-build.sh
+  assets/                 app icon (shared with PostHog Desktop), adaptive icon, splash, favicon, badged dev and
+                          preview icons
+  scripts/                eas-build.sh, make_variant_icons.py
 ```
 
 ## Data flow

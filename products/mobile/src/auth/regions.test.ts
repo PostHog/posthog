@@ -19,4 +19,12 @@ describe('validateHost', () => {
     ])('rejects %s', (_name, input) => {
         expect(validateHost(input)).toMatchObject({ ok: false })
     })
+
+    test.each([
+        ['http://localhost:8010', false],
+        ['http://127.0.0.1:8000', false],
+        ['https://localhost:8010', true],
+    ])('a store build given %s accepts it: %s', (input, ok) => {
+        expect(validateHost(input, false)).toMatchObject({ ok })
+    })
 })

@@ -2,7 +2,8 @@ import ExpoModulesCore
 import WidgetKit
 
 // The suite, keys and widget kind must match targets/HedgehogWidget and modules/hedgehog-widget/README.md.
-private let suiteName = "group.com.posthog.code.mobile"
+// app.config.ts names the App Group "group." plus the bundle id, so each app variant (dev, preview, store) has its own.
+private let suiteName = "group.\(Bundle.main.bundleIdentifier ?? "com.posthog.code.mobile")"
 private let choreographyKey = "choreography"
 private let widgetKind = "HedgehogWidget"
 

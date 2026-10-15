@@ -8,7 +8,7 @@ Code: `src/auth/` (flow, store, tokens), `src/api/users.ts` (bootstrap), `src/ap
 ```text
 Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host}/oauth/authorize
                                                   │ user signs in (first-party apps skip consent)
-            posthog://callback?code&state ◄───────┘
+            {scheme}://callback?code&state ◄──────┘
    ──► state check (expo-auth-session) ──► POST {host}/oauth/token (JSON, code + code_verifier)
    ──► GET /api/users/@me/ ──► GET /api/organizations/{id}/ for each other organization
    ──► tokens to the secure store, account to AsyncStorage ──► status signed_in ──► /inbox
@@ -34,12 +34,29 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
 | --- | --- | --- |
 | US | `https://us.posthog.com` | `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm` |
 | EU | `https://eu.posthog.com` | `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU` |
-| Self-hosted (`custom` in the store) | typed by the user | defaults to `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app), editable |
+| Self-hosted (`custom` in the store) | typed by the user | internal builds prefill `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app); store builds start empty. Editable. |
 
-Redirect URI: `posthog://callback` (`makeRedirectUri({ scheme: 'posthog', path: 'callback' })`).
+### Redirect URIs
+
+The redirect URI is `{scheme}://callback` (`makeRedirectUri({ scheme: appScheme, path: 'callback' })`).
+The scheme follows the variant the native build was made as (see [RELEASING.md](RELEASING.md#build-variants)):
+
+| Build | Redirect URI |
+| --- | --- |
+| Store build, and any local build without `APP_VARIANT` | `posthog://callback` |
+| `APP_VARIANT=preview` | `posthog-preview://callback` |
+| `APP_VARIANT=development` | `posthog-dev://callback` |
+
+The scheme comes from the bundle id, not from Metro, so a Metro session in a store-identity build still uses `posthog://callback`.
+Every redirect URI a build uses must be registered on the OAuth application it signs in to, or the authorize page rejects the request:
+
+- The US and EU mobile applications need all three URIs for dev and preview builds to sign in to PostHog Cloud. Add the two internal ones in Django admin.
+- The local dev app from `setup_tasks_oauth` registers all three callbacks, so an EAS development or preview build signs in to a local stack without a manual edit. A stack set up before that change needs `python manage.py setup_tasks_oauth` run again, which appends the missing URIs.
+
 Expo Go produces an `exp://` redirect that no app registers, so sign in needs a development build.
 
-Self-hosted hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects.
+Self-hosted hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects, and only in internal builds (dev, preview, or any Metro session).
+A store build rejects `http://localhost`.
 
 ## Scopes
 
@@ -139,12 +156,19 @@ The app never asks for an email or password itself.
 
 The app does not create accounts. The footer link "Create an account" opens `{host}/signup` in the browser for the selected cloud region.
 Store review may not allow a link out of the app for sign-up, so a build can hide the link with `EXPO_PUBLIC_SIGNUP_LINK=0`.
+The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link.
+Under the card, "Privacy policy" and "Terms" open posthog.com in the browser.
+
+Internal builds show the environment ribbon above the logo, for example "Dev build · US cloud".
+It names the selected region, or the self-hosted address once it is valid.
+A store build shows it only for a self-hosted address, in red.
 The link is also hidden while "Use a self-hosted instance" is selected.
 
 ## Development sign in
 
 - **Local stack.** Run `python manage.py setup_tasks_oauth` in the main checkout.
   It creates the dev app `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` with `posthog://callback` among its redirect URIs.
+  That covers `pnpm ios` and other local builds without `APP_VARIANT`. For an EAS development or preview build, add its URI as described in [Redirect URIs](#redirect-uris).
   In the app tap "Use a self-hosted instance", enter `http://localhost:8010`, keep the default client id.
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
@@ -162,7 +186,7 @@ For a self-hosted instance or a new environment, create the app in Django admin 
 | Name | PostHog mobile |
 | Client type | Public |
 | Authorization grant type | Authorization code |
-| Redirect URIs | `posthog://callback` |
+| Redirect URIs | `posthog://callback`, plus `posthog-dev://callback` and `posthog-preview://callback` for internal builds |
 | Algorithm | RS256 |
 | Is first party | On only for apps PostHog ships. It skips the consent screen and gives 7 day access tokens. |
 | Scopes | Leave empty or `@default`, or list every scope above as the ceiling |

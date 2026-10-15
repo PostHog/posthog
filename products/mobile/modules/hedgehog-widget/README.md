@@ -133,7 +133,7 @@ Shared storage:
 
 | Platform | Store | Keys |
 | --- | --- | --- |
-| iOS | `UserDefaults(suiteName: "group.com.posthog.code.mobile")` | `choreography` (JSON string); per family: `selectedHog.<family>` and `timeline.v2.<family>` (encoded scheduled entries) |
+| iOS | `UserDefaults(suiteName: "group.<app bundle id>")`, for example `group.com.posthog.code.mobile` | `choreography` (JSON string); per family: `selectedHog.<family>` and `timeline.v2.<family>` (encoded scheduled entries) |
 | Android | `SharedPreferences` file `hedgehog_widget` | `choreography` (JSON string); per widget ID: `selectedHog.<id>` and `loop.v2.<id>` (saved movement loop; the version in the key replaces loops pinned by older renderers once) |
 
 ## Garden background
@@ -195,7 +195,11 @@ Android also bundles mirrored `_l` copies. The widget never downloads artwork at
 
 | | iOS | Android |
 | --- | --- | --- |
-| Widget | kind `HedgehogWidget`, target `HedgehogWidget`, bundle id `com.posthog.code.mobile.HedgehogWidget` | receiver `HedgehogWidgetProvider` |
-| App Group | `group.com.posthog.code.mobile` | n/a |
+| Widget | kind `HedgehogWidget`, target `HedgehogWidget`, bundle id `<app bundle id>.HedgehogWidget` | receiver `HedgehogWidgetProvider` |
+| App Group | `group.<app bundle id>` | n/a |
 | Tap on the hedgehog | `PokeHedgehogIntent` (AppIntent) | broadcast `com.posthog.code.mobile.HEDGEHOG_POKE` |
 | Tap anywhere else | opens the app (default widget tap) | launch intent on `hedgehog_root` |
+
+The app bundle id depends on the build variant: `com.posthog.code.mobile` for store builds, with `.dev` or `.preview` appended for internal builds (see `src/lib/appVariants.json`).
+Both Swift readers derive the App Group from their own bundle id, so the variants keep separate widget stores.
+On Android the broadcasts name the provider class, so the same action strings stay inside each installed variant.

@@ -5,9 +5,9 @@ Known gaps and behavior that stays on the device.
 ## Product
 
 - **Dark mode.** Light theme only (`userInterfaceStyle: 'light'`). Tokens are not split by scheme yet.
-- **Dismiss and resolve.** The app cannot dismiss or resolve a report. Done reports come from the server.
+- **Dismiss and resolve from the inbox list.** Resolve and dismiss live on the report screen's action pill and the row's context menu; there is no bulk action.
 - **Approve PR.** The PR card only opens the PR. Approving happens on GitHub.
-- **Own-agent hand-off.** Only the PostHog agent. No Codex, Claude Code or Cursor rows.
+- **External hand-off is a prepared prompt.** Claude Code and Codex get a deep link with the prompt, and copy is the fallback. There is no Cursor row, and the app never checks that the agent has the PostHog MCP connected.
 - **Time-based snooze is local.** "In an hour", "Tomorrow", "Next week", "In a month" and
   "Custom…" hide the report on this device only. Other devices and the web app still show it.
   "Until more signals arrive" is the only server-side snooze.
@@ -35,9 +35,7 @@ Known gaps and behavior that stays on the device.
 
 ## Chat
 
-- **No AI consent notice.** The web client checks `organization.is_ai_data_processing_approved`
-  before chat; the server does not. The auth store does not keep that flag from `/api/users/@me/`,
-  so the app shows no notice. Add the flag to the auth store, then a one-line notice in the sheet.
+- **The suggested prompts stay visible behind the organization AI notice.** When the organization has not allowed AI processing, the empty state's prompt chips still render above the notice, and a tap on one has no composer to fill.
 - **Legacy conversations are not listed.** The Chats list shows task sessions only.
   LangGraph chats made before the move stay in the web app's legacy view and `/ai?chat=<id>` links.
 - **No message queueing while the agent works.** Stop replaces Send until the turn ends.
@@ -137,9 +135,9 @@ The following need shared server policy or additional product work:
 ## Delivery
 
 - **Store and Expo accounts.** Builds, submissions, credentials, EAS environment variables and device registration need a person with access to the `posthog` Expo organization, App Store Connect and the Play Console. See [RELEASING.md](RELEASING.md#one-time-setup).
-- **Version 1.0.0 may be taken.** The old app shipped `1.0.0`. If App Store Connect has released it, raise `version` before the first production build.
 - **No EAS build has run yet.** The `.easignore` archive could not be inspected without an Expo login (`eas build:inspect` needs one).
-- **Settings does not show the update id.** It shows the version and channel only, so you cannot tell which over-the-air update a device runs. `Updates.updateId` and `Updates.createdAt` from `expo-updates` would answer it.
+- **Internal variants need portal setup before their first build.** The dev and preview bundle ids, widget ids, App Groups, push credentials and OAuth redirect URIs do not exist until someone registers them. See [RELEASING.md](RELEASING.md#one-time-setup).
+- **Per-variant widget stores were not run on a device.** Both Swift readers derive the App Group from their bundle id. Only the generated entitlements and a Swift typecheck were checked.
 - **OTA publishing is manual.** No workflow runs `eas update`.
 - **Chat composer under the keyboard (iOS).** On iPhone 17 with iOS 27, the composer's bottom row (Add a report, Send) sits about 30pt behind the keyboard, so Send cannot be tapped while typing. The return key still sends. See the `KeyboardAvoidingView` in `src/features/chat/ChatSheet.tsx`.
 - **Sheets do not hide the screen under them from VoiceOver.** The report's controls stay in the accessibility tree under the hand-off, snooze and chat sheets.

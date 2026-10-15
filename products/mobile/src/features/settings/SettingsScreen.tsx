@@ -6,10 +6,14 @@ import Animated, { useAnimatedScrollHandler, useReducedMotion, useSharedValue } 
 import { useAuthStore } from '@/auth/authStore'
 import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
+import { isInternalBuild } from '@/lib/environment'
+import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { readAppInfo } from './appInfo'
+import { readAppVersion } from './appInfo'
+import { EnvironmentGroup } from './EnvironmentGroup'
+import { LegalGroup } from './LegalGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { PushStatusGroup } from './PushStatusGroup'
 import { SETTINGS_CHROME_ROW_HEIGHT, SETTINGS_CHROME_TOP, SETTINGS_TITLE_GAP, SettingsChrome } from './SettingsChrome'
@@ -29,7 +33,8 @@ export function SettingsScreen(): ReactElement {
     const email = useAuthStore((state) => state.user?.email)
     const demo = useDemoMode((state) => state.enabled)
     const setDemo = useDemoMode((state) => state.setEnabled)
-    const info = useMemo(readAppInfo, [])
+    const version = useMemo(readAppVersion, [])
+    const sessionHost = signedIn ? host : null
     const reduceMotion = useReducedMotion()
     const scrollY = useSharedValue(0)
     const onScroll = useAnimatedScrollHandler((event) => {
@@ -68,6 +73,7 @@ export function SettingsScreen(): ReactElement {
                 <Text style={[styles.title, reduceMotion ? null : styles.titleHidden]} accessibilityRole="header">
                     Settings
                 </Text>
+                <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
                 <SettingsGroup title="Account" testID="settings-account">
                     <SettingsRow label="Host" value={signedIn ? (host ?? 'Unknown') : 'Demo'} />
                     {signedIn && email ? <SettingsRow label="Signed in as" value={email} /> : null}
@@ -99,9 +105,10 @@ export function SettingsScreen(): ReactElement {
                     />
                 </SettingsGroup>
                 <SettingsGroup title="App">
-                    <SettingsRow label="Version" value={info.version} />
-                    <SettingsRow label="Update channel" value={info.channel} />
+                    <SettingsRow label="Version" value={version} />
                 </SettingsGroup>
+                {isInternalBuild ? <EnvironmentGroup host={sessionHost} /> : null}
+                <LegalGroup accountHost={signedIn && !demo ? host : null} />
                 <SignOutSection />
             </Animated.ScrollView>
             <SettingsChrome title="Settings" scrollY={scrollY} onBack={goBack} />
@@ -127,5 +134,9 @@ const styles = StyleSheet.create({
     },
     titleHidden: {
         color: 'transparent',
+    },
+    ribbon: {
+        alignSelf: 'flex-start',
+        marginTop: 12,
     },
 })

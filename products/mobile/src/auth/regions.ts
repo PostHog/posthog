@@ -1,3 +1,5 @@
+import { isInternalBuild, isLoopbackHost } from '@/lib/environment'
+
 export type RegionId = 'us' | 'eu' | 'custom'
 
 export interface Region {
@@ -53,14 +55,12 @@ export function regionForHost(host: string): RegionId {
 
 export type HostValidation = { ok: true; host: string } | { ok: false; error: string }
 
-function isLoopback(hostname: string): boolean {
-    const bare = hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    return bare === 'localhost' || bare === '::1' || /^127(\.\d{1,3}){3}$/.test(bare)
-}
+// The dev app exists only on a developer's machine, so store builds start the Client ID field empty.
+export const DEFAULT_CUSTOM_CLIENT_ID = isInternalBuild ? DEV_CLIENT_ID : ''
 
 // Tokens travel to this host, so plain http is only accepted for loopback addresses, which is also the only place the
-// server allows http redirects.
-export function validateHost(input: string): HostValidation {
+// server allows http redirects. Only internal builds accept it, because a local stack is a developer's setup.
+export function validateHost(input: string, allowLoopbackHttp: boolean = isInternalBuild): HostValidation {
     const trimmed = input.trim().replace(/\/+$/, '')
     if (!trimmed) {
         return { ok: false, error: 'Enter the address of your PostHog instance.' }
@@ -75,8 +75,13 @@ export function validateHost(input: string): HostValidation {
     if (!url.hostname) {
         return { ok: false, error: "That doesn't look like a web address. Try something like posthog.example.com." }
     }
-    if (url.protocol === 'http:' && !isLoopback(url.hostname)) {
-        return { ok: false, error: 'Use an https address. Plain http only works for localhost.' }
+    if (url.protocol === 'http:' && !(allowLoopbackHttp && isLoopbackHost(url.hostname))) {
+        return {
+            ok: false,
+            error: allowLoopbackHttp
+                ? 'Use an https address. Plain http only works for localhost.'
+                : 'Use an https address, for example https://posthog.example.com.',
+        }
     }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') {
         return { ok: false, error: 'Use an https address, for example https://posthog.example.com.' }

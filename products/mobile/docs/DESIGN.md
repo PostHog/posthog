@@ -86,6 +86,7 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
 | `FadeEdge` | `ui/FadeEdge.tsx` | SVG gradient behind floating chrome (no gradient dependency) |
 | `BlurEdge` | `ui/BlurEdge.tsx` | Masked blur of the content under floating top chrome |
 | `BackChip` | `ui/BackChip.tsx` | Report and Settings back button |
+| `EnvironmentRibbon` | `ui/EnvironmentRibbon.tsx` | 28pt band above the sign-in logo and under the Settings title: amber for dev builds, purple for preview builds, red for a store build on a host that is not PostHog Cloud. Hidden in a store build on Cloud. Colors in `environmentRibbonColors`, text from `environmentBadge()` |
 | `StateView`, `LoadingView` | `ui/StateView.tsx` | Empty and error screens with a next action; loading spinner |
 | `PostHogLogomark`, `PostHogLogo` | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height` |
 | Icons | `ui/icons/*.tsx` | One component per glyph, ported from the prototype's SVG paths |

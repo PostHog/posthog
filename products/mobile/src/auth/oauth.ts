@@ -1,6 +1,8 @@
 import { AuthRequest, type AuthSessionResult, makeRedirectUri } from 'expo-auth-session'
 import { Platform } from 'react-native'
 
+import { appScheme } from '@/lib/environment'
+
 import type { SessionTokens } from './tokens'
 
 // The grant is not narrowed to one project (no `required_access_level`), so the project switcher can list every
@@ -27,9 +29,12 @@ export const OAUTH_SCOPES = [
 const REQUEST_TIMEOUT_MS = 20_000
 const REVOKE_TIMEOUT_MS = 5_000
 
-/** `posthog://callback` in builds with the app scheme. Expo Go gets its own `exp://` URL. */
+/**
+ * `posthog://callback` in store builds, `posthog-dev://callback` and `posthog-preview://callback` in internal builds.
+ * Each one must be a redirect URI of the OAuth application. Expo Go gets its own `exp://` URL.
+ */
 export function redirectUri(): string {
-    return makeRedirectUri({ scheme: 'posthog', path: 'callback' })
+    return makeRedirectUri({ scheme: appScheme, path: 'callback' })
 }
 
 export type OAuthErrorKind =

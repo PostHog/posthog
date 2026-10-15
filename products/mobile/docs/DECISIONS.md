@@ -120,8 +120,9 @@ Choices the build contract left open, with the reason for each.
 - **Chat** keeps the "New chat" title after the first message. The demo answers with a canned
   reply after 600ms.
 - **Mark read** runs when a report opens and again on Prev/Next. Read state is not styled.
-- **Settings** shows the version from `expo-constants` and the channel from `expo-updates`
-  ("Development" in dev builds, "None" when a release build has no channel).
+- **Settings** shows the version to everyone. Internal builds (dev, preview, or any Metro session) add an
+  Environment group: build variant, update channel, update id and time from `expo-updates`, and the API host kind.
+  Store builds show nothing about environments unless the session's host is not PostHog Cloud.
 
 ## Verification
 

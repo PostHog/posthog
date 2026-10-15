@@ -5,7 +5,9 @@ import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from '
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
+import { openLegalLink, PRIVACY_POLICY_URL, TERMS_URL } from '@/lib/legalLinks'
 import { useAsyncAction } from '@/lib/useAsyncAction'
+import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { PostHogLogo } from '@/ui/icons/PostHogLogo'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
@@ -14,7 +16,15 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
-import { CLOUD_REGIONS, DEV_CLIENT_ID, REGIONS, type RegionId, SHOW_SIGNUP_LINK, signupUrl } from './regions'
+import {
+    CLOUD_REGIONS,
+    DEFAULT_CUSTOM_CLIENT_ID,
+    REGIONS,
+    type RegionId,
+    SHOW_SIGNUP_LINK,
+    signupUrl,
+    validateHost,
+} from './regions'
 import { SignInField } from './SignInField'
 
 type SignInMode = 'oauth' | 'personal_api_key'
@@ -34,7 +44,7 @@ export function SignInScreen(): ReactElement {
     })
     const [clientId, setClientId] = useState(() => {
         const { region: lastRegion, clientId: lastClientId } = useAuthStore.getState()
-        return lastRegion === 'custom' && lastClientId ? lastClientId : DEV_CLIENT_ID
+        return lastRegion === 'custom' && lastClientId ? lastClientId : DEFAULT_CUSTOM_CLIENT_ID
     })
     const [mode, setMode] = useState<SignInMode>('oauth')
     const [apiKey, setApiKey] = useState('')
@@ -43,6 +53,8 @@ export function SignInScreen(): ReactElement {
     const selected = REGIONS.find((option) => option.id === region)
     const selfHosted = region === 'custom'
     const usingKey = __DEV__ && mode === 'personal_api_key'
+    const customHostCheck = selfHosted ? validateHost(customHost) : null
+    const formHost = customHostCheck ? (customHostCheck.ok ? customHostCheck.host : null) : (selected?.host ?? null)
 
     const submit = useAsyncAction(async () => {
         setError(null)
@@ -86,6 +98,7 @@ export function SignInScreen(): ReactElement {
             automaticallyAdjustKeyboardInsets
             testID="sign-in-screen"
         >
+            <EnvironmentRibbon host={formHost} style={styles.ribbon} />
             <View style={styles.brand}>
                 <PostHogLogo height={28} />
             </View>
@@ -255,6 +268,29 @@ export function SignInScreen(): ReactElement {
                     </Text>
                 </Pressable44>
             ) : null}
+            <View style={styles.legal}>
+                <Pressable44
+                    onPress={() => openLegalLink('privacy', PRIVACY_POLICY_URL, 'sign_in')}
+                    accessibilityRole="link"
+                    pressedBackground={colors.pressed}
+                    style={styles.legalLink}
+                    testID="sign-in-privacy"
+                >
+                    <Text style={styles.legalText}>Privacy policy</Text>
+                </Pressable44>
+                <Text style={styles.legalText} importantForAccessibility="no" accessibilityElementsHidden>
+                    ·
+                </Text>
+                <Pressable44
+                    onPress={() => openLegalLink('terms', TERMS_URL, 'sign_in')}
+                    accessibilityRole="link"
+                    pressedBackground={colors.pressed}
+                    style={styles.legalLink}
+                    testID="sign-in-terms"
+                >
+                    <Text style={styles.legalText}>Terms</Text>
+                </Pressable44>
+            </View>
         </ScrollView>
     )
 }
@@ -267,6 +303,10 @@ const styles = StyleSheet.create({
     content: {
         flexGrow: 1,
         paddingHorizontal: layout.detailGutter,
+    },
+    ribbon: {
+        alignSelf: 'center',
+        marginBottom: 24,
     },
     brand: {
         alignItems: 'center',
@@ -426,5 +466,23 @@ const styles = StyleSheet.create({
         ...type.bodySmallStrong,
         fontSize: 14,
         color: colors.ink,
+    },
+    legal: {
+        marginTop: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+    },
+    legalLink: {
+        minHeight: 44,
+        paddingHorizontal: 8,
+        borderRadius: radii.card,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    legalText: {
+        ...type.meta,
+        color: colors.secondary,
     },
 })

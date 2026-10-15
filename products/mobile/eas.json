@@ -13,19 +13,29 @@
             "developmentClient": true,
             "distribution": "internal",
             "channel": "development",
-            "environment": "development"
+            "environment": "development",
+            "env": {
+                "APP_VARIANT": "development"
+            }
         },
         "preview": {
             "extends": "base",
             "distribution": "internal",
             "channel": "preview",
-            "environment": "preview"
+            "environment": "preview",
+            "env": {
+                "APP_VARIANT": "preview"
+            }
         },
         "production": {
             "extends": "base",
             "autoIncrement": true,
             "channel": "production",
             "environment": "production",
+            "env": {
+                "APP_VARIANT": "production",
+                "EXPO_PUBLIC_SIGNUP_LINK": "0"
+            },
             "android": {
                 "buildType": "app-bundle"
             }

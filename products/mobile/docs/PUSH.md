@@ -19,6 +19,42 @@ The server keeps at most 20 tokens per user and evicts the oldest. Both endpoint
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
 Settings shows which one applies.
 
+## Credentials
+
+The app sends no push itself. The server posts to the Expo push service, which delivers through APNs on iOS and FCM on Android.
+EAS keeps the delivery credentials, and the Android build also needs the Firebase app config.
+Someone with access to the Apple Developer team, the Firebase project and the `posthog` Expo organization does each step once.
+
+| Variant | iOS bundle id | Android package |
+| --- | --- | --- |
+| Store (`production`) | `com.posthog.code.mobile` | `com.posthog.code.mobile` |
+| `preview` | `com.posthog.code.mobile.preview` | `com.posthog.code.mobile.preview` |
+| `development` | `com.posthog.code.mobile.dev` | `com.posthog.code.mobile.dev` |
+
+**iOS: APNs key.**
+
+1. In the Apple Developer account, create an APNs authentication key (`.p8`), or reuse the team's existing one. One key serves every bundle id in the team.
+2. Run `eas credentials`, choose iOS and each build profile, then Push Notifications, and add or select that key.
+   EAS stores the key per bundle id, so repeat it for the preview and development bundle ids.
+
+**Android: Firebase.**
+
+1. In a Firebase project, add an Android app for each package in the table that should get pushes.
+   Download `google-services.json`. One file lists every Android app in the project.
+2. Upload that file to each EAS environment as a file variable. The Android build reads its path from `GOOGLE_SERVICES_JSON` (see `app.config.ts`):
+
+   ```sh
+   eas env:create --environment production --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --visibility sensitive
+   eas env:create --environment preview --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --visibility sensitive
+   eas env:create --environment development --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --visibility sensitive
+   ```
+
+3. In the Firebase console, open Project settings, Service accounts, and generate a private key (a JSON file).
+   Run `eas credentials`, choose Android and each package, then Google Service Account, and upload the key for push notifications (FCM V1).
+4. For a local Android build, copy the file to `products/mobile/google-services.json`. git and `.easignore` both ignore it.
+
+Without `google-services.json` the Android build still succeeds, but the app gets no push token and Settings shows "Couldn't turn on".
+
 ## Payloads
 
 Server pushes are sent by `posthog/tasks/push_notifications.send_user_push` through the Expo push API.

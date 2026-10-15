@@ -13,6 +13,9 @@ expo-env.d.ts
 .env
 .env.local
 
+# Firebase config for Android push. EAS builds get it from the GOOGLE_SERVICES_JSON file variable, see docs/PUSH.md.
+google-services.json
+
 # Argent flows are committed; recordings and local state are not.
 .argent/*
 !.argent/flows/

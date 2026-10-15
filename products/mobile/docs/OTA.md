@@ -24,6 +24,11 @@ Each channel points at the EAS branch with the same name.
 Both update scripts pass `--environment`, so the bundle gets the same `EXPO_PUBLIC_*` values as the builds on that channel.
 Expo SDK 55 and later require it.
 
+The `env` block of a build profile in `eas.json` applies to builds only, not to `eas update`.
+So the update scripts set the same values themselves: `APP_VARIANT` on both, and `EXPO_PUBLIC_SIGNUP_LINK=0` on production.
+If you run `eas update` by hand, set them the same way.
+The app reads its variant from its bundle id first, so an update with the wrong `APP_VARIANT` cannot make a store build look internal, but the sign-up link follows the update.
+
 Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependencies.
 
 ## Runtime version
@@ -79,6 +84,8 @@ A rollback reaches each device on its next two launches, the same as an update.
 
 ## See what a device runs
 
-Settings shows the app version and the update channel.
-It does not show the update id yet; see [GAPS.md](GAPS.md#delivery).
+Settings shows the app version in every build.
+Development and preview builds also show an Environment group: the build variant, the update channel, the update (the first 8 characters of `Updates.updateId` and the time of `Updates.createdAt`, or "Built in" when the app runs the JavaScript inside the build), and the API host kind.
+Store builds do not show the channel or update.
+The app's own analytics events carry `app_variant`, `update_channel` and `api_host_kind` as super properties.
 On the EAS project page, the Updates tab lists each update group with its runtime version, platforms and commit message.

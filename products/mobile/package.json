@@ -22,8 +22,8 @@
         "build:production:android": "sh scripts/eas-build.sh --profile production --platform android",
         "submit:ios": "eas submit --profile production --platform ios",
         "submit:android": "eas submit --profile production --platform android",
-        "update:preview": "eas update --channel preview --environment preview --auto",
-        "update:production": "eas update --channel production --environment production --auto"
+        "update:preview": "APP_VARIANT=preview eas update --channel preview --environment preview --auto",
+        "update:production": "APP_VARIANT=production EXPO_PUBLIC_SIGNUP_LINK=0 eas update --channel production --environment production --auto"
     },
     "expo": {
         "autolinking": {

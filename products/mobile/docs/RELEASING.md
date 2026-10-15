@@ -6,7 +6,8 @@ Over-the-air JavaScript updates are in [OTA.md](OTA.md). The CI workflows are in
 ## Store records this app uses
 
 This app replaces the existing "PostHog" mobile app on both stores.
-It keeps that app's identity, so a store update replaces the old app on people's phones.
+The store build keeps that app's identity, so a store update replaces the old app on people's phones.
+Development and preview builds use their own identities, see [Build variants](#build-variants).
 
 | Field | Value |
 | --- | --- |
@@ -21,9 +22,7 @@ The old app's source is `products/desktop/apps/mobile`, and its workflows are "D
 Both apps share the same records and the same remote build-number counter.
 Stop building the old app before the first build of this one goes to a store.
 
-The old app shipped as version `1.0.0`, and this app also starts at `1.0.0`.
-If App Store Connect already has a released `1.0.0`, Apple does not take new builds for that version.
-In that case, raise `version` in `app.config.ts` (for example to `1.1.0`) before the first production build.
+The old app shipped as version `1.0.0`. This app starts at `1.1.0`, so its builds do not collide with a released `1.0.0` in App Store Connect.
 The version also sets the runtime version for updates, see [OTA.md](OTA.md#runtime-version).
 
 Version `1.1.0` adds a native module, Skia, for the report charts.
@@ -47,6 +46,28 @@ Check the current values with `eas build:version:get`.
 The `pnpm build:*` scripts run `scripts/eas-build.sh`.
 It uploads only `products/mobile`, filtered by `.easignore`.
 Without it, EAS uploads the whole repository and installs the root pnpm workspace, which excludes this app.
+
+## Build variants
+
+Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.config.ts` gives each variant its own identity.
+The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
+The names, id suffixes and schemes are in `src/lib/appVariants.json`.
+
+| Variant | Profile | App name | iOS bundle id and Android package | URL scheme | iOS App Group | Icon |
+| --- | --- | --- | --- | --- | --- | --- |
+| `development` | `development` | PostHog Dev | `com.posthog.code.mobile.dev` | `posthog-dev` | `group.com.posthog.code.mobile.dev` | `icon-dev.png`, amber DEV band |
+| `preview` | `preview` | PostHog Preview | `com.posthog.code.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band |
+| `production` | `production` | PostHog | `com.posthog.code.mobile` | `posthog` | `group.com.posthog.code.mobile` | `app.icon` on iOS 26, `icon.png` elsewhere |
+
+- The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
+- The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
+- A local build without `APP_VARIANT` (`pnpm ios`, `pnpm android`, and the local phone installs below) gets the production identity.
+  `APP_VARIANT=development pnpm ios` builds the dev identity locally; its Xcode workspace is `ios/PostHogDev.xcworkspace`, because prebuild names the project after the app.
+- In the app, `src/lib/environment.ts` reads the variant from the bundle id, so an update cannot change it.
+  A Metro bundle always counts as development.
+- Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.
+  They accept `http://localhost` hosts and prefill the local dev OAuth client id. Store builds do none of this.
+  A store build shows a red ribbon only when the session's host is not PostHog Cloud.
 
 ## One-time setup
 
@@ -75,11 +96,19 @@ Someone with these accounts does each step once. An agent cannot do them.
 4. Check the signing credentials with `eas credentials`.
    The old app already built with this bundle id, so EAS should hold the iOS distribution certificate, the provisioning profiles and the Android upload keystore.
    Reuse them. Do not generate a new Android keystore: Google Play rejects bundles signed with a different upload key.
-5. Add the store submission keys in `eas credentials`:
+5. Register the internal identities from [Build variants](#build-variants) in the Apple Developer account, under Certificates, Identifiers & Profiles:
+   - App IDs `com.posthog.code.mobile.dev`, `com.posthog.code.mobile.dev.HedgehogWidget`, `com.posthog.code.mobile.preview` and `com.posthog.code.mobile.preview.HedgehogWidget`.
+   - App Groups `group.com.posthog.code.mobile.dev` and `group.com.posthog.code.mobile.preview`.
+   - Turn on the App Groups capability for all four App IDs and select the group of the same variant. Turn on Push Notifications for the two app ids.
+
+   The first `pnpm build:dev` or `pnpm build:preview` with Apple login lets EAS create missing App IDs, sync capabilities and make the ad hoc provisioning profiles.
+   Check afterwards that each App ID has its App Group linked. A missing group leaves the widget without the app's data.
+   Android needs no registration for these packages, because development and preview builds are APKs outside Google Play.
+6. Add the store submission keys in `eas credentials`:
    - iOS: an App Store Connect API key, under the production profile.
    - Android: a Google Play service account key with release access.
-6. Add the push credentials that [PUSH.md](PUSH.md) lists: an APNs key for iOS and an FCM V1 service account for Android.
-7. Add the build-time variables to each EAS environment (`development`, `preview`, `production`).
+7. Set up push for each variant as [PUSH.md](PUSH.md#credentials) describes: the APNs key for each iOS bundle id, a Firebase Android app for each package, the FCM V1 service account key in `eas credentials`, and the `GOOGLE_SERVICES_JSON` file variable in each EAS environment.
+8. Add the build-time variables to each EAS environment (`development`, `preview`, `production`).
    They are public in the app bundle, so plain text visibility is correct:
 
    ```sh
@@ -87,7 +116,9 @@ Someone with these accounts does each step once. An agent cannot do them.
    eas env:set production --name EXPO_PUBLIC_POSTHOG_HOST --value https://us.i.posthog.com --visibility plaintext
    ```
 
-8. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
+   Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the update scripts set them.
+9. Add `posthog-dev://callback` and `posthog-preview://callback` to the redirect URIs of the US and EU mobile OAuth applications in Django admin, so internal builds can sign in to PostHog Cloud. See [AUTH.md](AUTH.md#redirect-uris).
+10. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
    The "Mobile Build" workflow reads the same secret.
 
 ## Install the current checkout on a connected iPhone
@@ -203,7 +234,8 @@ xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
 xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing com.posthog.code.mobile
 ```
 
-For an Android phone or an iPhone that is not connected to the build Mac, use the
+For a connected Android phone, use the [local Android process below](#install-the-current-checkout-on-a-connected-android-phone).
+For devices that are not connected to the build machine, use the
 [preview-build distribution process](#share-a-preview-build). Android takes the APK directly;
 iOS ad hoc builds must include each recipient's device in the provisioning profile.
 TestFlight uses production builds and does not require registering each tester's device.
@@ -256,6 +288,8 @@ It loads JavaScript from Metro on your Mac, so you rebuild it only when native c
 
 For Android, run `pnpm build:dev:android` and install the APK from the build page.
 No device registration is needed.
+
+The development build installs as "PostHog Dev" next to the store app, and shows an amber "Dev build" ribbon on the sign-in screen and in Settings.
 
 Rebuild the development build after a change to native code:
 a new native module, a config plugin, or a native field in `app.config.ts`.

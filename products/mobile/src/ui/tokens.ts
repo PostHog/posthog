@@ -49,6 +49,12 @@ export const swipeColors = {
     onAction: colors.white,
 } as const
 
+// The app icons for internal builds use the same band colors (scripts/make_variant_icons.py).
+export const environmentRibbonColors = {
+    development: { background: colors.yellow, text: colors.ink },
+    preview: { background: '#7A4DD6', text: colors.white },
+} as const
+
 export const avatarPalette = ['#1D4AFF', '#F54E00', '#2F8F5B', '#7A4DD6', '#C2410C', '#0E7490', '#1F1F1C'] as const
 
 export const accentColor: Record<Accent, string> = {
