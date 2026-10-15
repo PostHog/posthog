@@ -2825,7 +2825,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({ signal, data: { ...query } })
         },
         async sparkline(

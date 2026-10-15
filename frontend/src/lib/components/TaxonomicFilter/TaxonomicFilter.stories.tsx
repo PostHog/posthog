@@ -1021,13 +1021,13 @@ export const SearchIntentSuggestsAnotherTabNarrow: Story = {
     },
 }
 
-/** Every arm: the predicted group moves to the top of the "All" list before the results show. */
+/** Promote arm: the predicted group moves to the top of the "All" list before the results show. */
 export const SearchIntentPromotesGroup: Story = {
     render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.SuggestedFilters} />,
     args: { taxonomicFilterLogicKey: 'search-intent-promotes-group', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
     decorators: [searchIntentPersonPropertiesMock],
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'control' },
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'promote' },
         testOptions: { waitForSelector: SEARCH_INTENT_ALL_TAB_FIRST_ROW },
     },
 }
