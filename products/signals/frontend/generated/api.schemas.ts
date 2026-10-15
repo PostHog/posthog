@@ -3229,9 +3229,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
+    /** One page of the open, actionable reports that matter most to the current user. The ranking model picks which reports make the page; the page is then in display order: by priority, P0 first and reports without a priority last, then best first within a priority. They are reports waiting for their input, reports they claimed, reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
+    /** How many open, actionable reports are for the current user, on every page together, without the `exclude` ids. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -7946,6 +7946,11 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 
 export type SignalsReportsForYouRetrieveParams = {
     /**
+     * Report ids to leave out of `results` and `count`, for example the reports a briefing already shows, as repeated parameters or comma-separated. The other reports keep their order.
+     * @maxItems 20
+     */
+    exclude?: string[]
+    /**
      * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
      */
     include_unowned?: boolean
@@ -7955,6 +7960,11 @@ export type SignalsReportsForYouRetrieveParams = {
      * @maximum 20
      */
     limit?: number
+    /**
+     * How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same query are slices of one ranked list. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

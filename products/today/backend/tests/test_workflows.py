@@ -12,8 +12,17 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.today.backend.logic.generate import ATTEMPTS
-from products.today.backend.temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, MarkFailedInputs
-from products.today.backend.temporal.workflows import GenerateTodayBriefingWorkflow
+from products.today.backend.temporal.inputs import (
+    GENERATE_WORKFLOW_NAME,
+    HIGHLIGHTS_WORKFLOW_NAME,
+    ComputeHighlightsInputs,
+    FinalizeHighlightsInputs,
+    GenerateBriefingInputs,
+    HighlightSourceInputs,
+    HighlightSourceResult,
+    MarkFailedInputs,
+)
+from products.today.backend.temporal.workflows import ComputeTodayHighlightsWorkflow, GenerateTodayBriefingWorkflow
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -55,3 +64,48 @@ async def test_a_failing_attempt_is_retried_then_marks_the_briefing_failed_once(
 
     assert attempts == ATTEMPTS
     assert [failed.error for failed in marked_failed] == ["The LLM reply was not a briefing."]
+
+
+@pytest.mark.asyncio
+async def test_a_source_that_keeps_failing_is_finalized_as_failed_with_the_others(
+    environment: WorkflowEnvironment,
+) -> None:
+    finalized: list[FinalizeHighlightsInputs] = []
+
+    @activity.defn(name="run_highlight_source_activity")
+    async def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
+        if inputs.source_name == "broken":
+            raise ApplicationError("The source query failed.")
+        return HighlightSourceResult(source_name=inputs.source_name, found="{}", failed=False)
+
+    @activity.defn(name="finalize_highlights_activity")
+    async def finalize(inputs: FinalizeHighlightsInputs) -> None:
+        finalized.append(inputs)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        workflows=[ComputeTodayHighlightsWorkflow],
+        activities=[run_source, finalize],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await environment.client.execute_workflow(
+            HIGHLIGHTS_WORKFLOW_NAME,
+            ComputeHighlightsInputs(
+                team_id=1,
+                user_id=2,
+                highlights_id="h-1",
+                local_day="2026-10-13",
+                scopes=None,
+                source_names=["alerts", "broken"],
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        )
+
+    assert [inputs.results for inputs in finalized] == [
+        [
+            HighlightSourceResult(source_name="alerts", found="{}", failed=False),
+            HighlightSourceResult(source_name="broken", found=None, failed=True),
+        ]
+    ]
