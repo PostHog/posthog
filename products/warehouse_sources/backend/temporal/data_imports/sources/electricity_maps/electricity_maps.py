@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.settings import (
     BASE_URL,
     DEFAULT_HISTORY_DAYS,
+    ENDPOINT_COLUMNS,
     ENDPOINT_PATHS,
     REQUEST_TIMEOUT_SECONDS,
     WINDOW_DAYS,
@@ -112,6 +113,18 @@ class ElectricityMapsRangePaginator(BasePaginator):
         self._set_params(request)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # electricity-mix (power_breakdown's v4 wire) carries "zone" only at the response root, not
+        # on each row, unlike every other response this source reads. The paginator already knows
+        # which zone the just-sent request was scoped to, so stamp it onto each row here, before the
+        # pipeline's primary key ("zone", "datetime") and column hints see it. `data` is the same
+        # list object the rest_client yields and the resource's transforms run on next, so this
+        # mutation reaches them. A no-op for wires that already carry a matching per-row zone.
+        if data:
+            current_zone = self._zones[self._zone_index]
+            for item in data:
+                if isinstance(item, dict):
+                    item["zone"] = current_zone
+
         self._zone_index += 1
         if self._zone_index < len(self._zones):
             return
@@ -141,7 +154,7 @@ class ElectricityMapsRangePaginator(BasePaginator):
             self._zone_index = index if 0 <= index < len(self._zones) else 0
 
 
-def _get_resource(endpoint: str, should_use_incremental_field: bool) -> EndpointResource:
+def _get_resource(endpoint: str, should_use_incremental_field: bool, api_version: str) -> EndpointResource:
     return {
         "name": endpoint,
         "table_name": endpoint,
@@ -149,17 +162,13 @@ def _get_resource(endpoint: str, should_use_incremental_field: bool) -> Endpoint
         if should_use_incremental_field
         else "replace",
         "endpoint": {
-            "path": ENDPOINT_PATHS[endpoint],
+            "path": ENDPOINT_PATHS[endpoint][api_version],
             "data_selector": "data",
             "data_selector_required": True,
             "params": {},
         },
         "table_format": "delta",
-        "columns": {
-            "datetime": {"data_type": "timestamp"},
-            "updatedAt": {"data_type": "timestamp"},
-            "createdAt": {"data_type": "timestamp"},
-        },
+        "columns": ENDPOINT_COLUMNS[endpoint][api_version],
     }
 
 
@@ -167,6 +176,7 @@ def electricity_maps_source(
     api_token: str,
     zones: list[str],
     endpoint: str,
+    api_version: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ElectricityMapsResumeConfig],
@@ -207,7 +217,7 @@ def electricity_maps_source(
             "paginator": paginator,
         },
         "resource_defaults": {},
-        "resources": [_get_resource(endpoint, should_use_incremental_field)],
+        "resources": [_get_resource(endpoint, should_use_incremental_field, api_version)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

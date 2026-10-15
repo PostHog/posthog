@@ -26,24 +26,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "power_breakdown": {
-        "description": "Hourly origin of electricity in a zone: production, consumption, import and "
-        "export flows broken down by source, in megawatts (MW).",
+        # get_canonical_descriptions() isn't threaded with the resolved api_version pin, so these
+        # hints apply to every pin. The v3 wire's breakdown fields (powerConsumptionBreakdown,
+        # powerProductionTotal, fossilFreePercentage, createdAt, and similar) have no equivalent in
+        # the v4 electricity-mix wire's "mix"/"flows" shape, so listing them here would mislabel a
+        # v4-pinned sync's columns. Only the fields verified identical on both wires are curated;
+        # the rest fall back to LLM enrichment.
+        "description": "Hourly origin of electricity in a zone: generation by source, cross-border "
+        "flows, and storage charge/discharge.",
         "docs_url": "https://app.electricitymaps.com/docs/api",
         "columns": {
             "zone": "Identifier of the electricity grid zone, e.g. `DE` or `DK-DK1`.",
             "datetime": "UTC start of the hour this measurement covers.",
             "updatedAt": "When Electricity Maps last updated this data point.",
-            "createdAt": "When Electricity Maps first created this data point.",
-            "powerConsumptionBreakdown": "Electricity consumed in the zone by production type (nuclear, wind, solar, ...), in MW, after imports and exports.",
-            "powerProductionBreakdown": "Electricity produced in the zone by production type, in MW.",
-            "powerImportBreakdown": "Physical electricity imports at the zone border, by neighbouring zone, in MW.",
-            "powerExportBreakdown": "Physical electricity exports at the zone border, by neighbouring zone, in MW.",
-            "fossilFreePercentage": "Share of consumed power from fossil-free sources (renewables and nuclear), in percent.",
-            "renewablePercentage": "Share of consumed power from renewable sources, in percent.",
-            "powerConsumptionTotal": "Total power consumed in the zone, in MW.",
-            "powerProductionTotal": "Total power produced in the zone, in MW.",
-            "powerImportTotal": "Total power imported into the zone, in MW.",
-            "powerExportTotal": "Total power exported from the zone, in MW.",
             "isEstimated": "Whether this value is an estimate rather than measured data.",
             "estimationMethod": "Model used to produce the estimate, or null for measured data.",
         },

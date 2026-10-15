@@ -47,3 +47,12 @@ class TestElectricityMapsCredentialValidation:
         assert (is_valid, message) == (True, None)
         assert [request.param("zone") for request in network.requests_log] == ["DE", "DK-DK1"]
         assert [request.headers["auth-token"] for request in network.requests_log] == ["token", "token"]
+
+
+class TestElectricityMapsVersionDispatch:
+    def test_default_version_is_v4(self) -> None:
+        # New sources are created on the newest wire; a NULL pin resolves to it too.
+        source = ElectricityMapsSource()
+        assert source.default_version == "v4"
+        assert source.supported_versions == ("v3", "v4")
+        assert source.resolve_api_version(None) == "v4"
