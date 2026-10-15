@@ -14,7 +14,7 @@ from redis import Redis
 
 from posthog.schema import QueryStatus
 
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.execute_async import QueryStatusManager, cancel_query
 from posthog.clickhouse.query_router.admission import get_query_router
@@ -29,7 +29,7 @@ from posthog.clickhouse.query_router.config import (
     waiting_seen_key,
 )
 from posthog.clickhouse.query_router.test.fakes import FakeClock, router_settings
-from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
@@ -122,6 +122,51 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
 
         self.client_from_pool.assert_not_called()
         assert REGISTRY.get_sample_value(*drops) == drops_before + 1
+
+    @parameterized.expand(
+        [
+            ("request", "request", "api/query", Product.BILLING, None),
+            ("async_request", "celery", "posthog.tasks.tasks.process_query_task", Product.BILLING, None),
+            ("saved_background_query", "celery", "posthog.tasks.calculate_cohort", Product.BILLING, None),
+            ("scene_fallback", "request", "api/query", None, "RealTimeUsage"),
+        ]
+    )
+    def test_client_billing_tags_cannot_bypass_a_full_pool(
+        self, _name: str, kind: str, task_id: str, product: Product | None, scene: str | None
+    ) -> None:
+        self._enforce_with_a_full_pool()
+        with (
+            tags_context(
+                kind=kind,
+                id=task_id,
+                access_method=AccessMethod.PERSONAL_API_KEY,
+                product=product,
+                scene=scene,
+                feature=Feature.QUERY,
+            ),
+            self.assertRaises(ClickHouseAtCapacity),
+        ):
+            sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
+
+        self.client_from_pool.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("billing_etl", Feature.BILLING_ETL, ClickHouseUser.DEFAULT),
+            ("usage_report", Feature.USAGE_REPORT, ClickHouseUser.DEFAULT),
+            ("quota_limiting", Feature.QUOTA_LIMITING, ClickHouseUser.DEFAULT),
+            ("explicit_billing_user", Feature.QUERY, ClickHouseUser.BILLING),
+        ]
+    )
+    def test_server_billing_operations_remain_exempt(
+        self, _name: str, feature: Feature, ch_user: ClickHouseUser
+    ) -> None:
+        self._enforce_with_a_full_pool()
+        with tags_context(kind="celery", id="posthog.tasks.usage_report", product=Product.BILLING, feature=feature):
+            sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, ch_user=ch_user)
+
+        assert self.client_from_pool.call_args.args[3] == ClickHouseUser.BILLING
+        assert "query_router_class" not in self.ch_client.log_comment()
 
     def test_query_admitted_after_a_wait_logs_the_wait(self) -> None:
         # A finished query of half a second shows the pool freeing its slot soon enough for the next query to
