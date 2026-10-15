@@ -167,12 +167,15 @@ fn make_event(rng: &mut Rng, small: &[String], large: &[String], ts: f64) -> Val
         3 => json!({ "type": 2, "timestamp": ts, "data": { "node": { "type": 0, "id": 1,
             "childNodes": adds.iter().map(|a| a["node"].clone()).collect::<Vec<_>>() },
             "initialOffset": { "top": 0, "left": 0 } } }),
-        // Canvas blob: the other `scrub_image` caller, with the Blank fallback.
+        // Canvas snapshot frame: the other `scrub_image` caller, with the Blank fallback.
         _ => json!({ "type": 3, "timestamp": ts, "data": { "source": 9, "id": 5, "type": 0,
-            "commands": [{ "property": "drawImage", "args": [{
-                "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png",
-                "data": [{ "rr_type": "ArrayBuffer", "base64":
-                    image_uri(rng, small, large).split(',').nth(1).unwrap_or("").to_string() }] }] }] }] } }),
+            "commands": [
+                { "property": "clearRect", "args": [0, 0, 8, 8] },
+                { "property": "drawImage", "args": [{
+                    "rr_type": "ImageBitmap", "args": [{ "rr_type": "Blob", "type": "image/png",
+                    "data": [{ "rr_type": "ArrayBuffer", "base64":
+                        image_uri(rng, small, large).split(',').nth(1).unwrap_or("").to_string() }] }] },
+                    0, 0, 8, 8] }] } }),
     }
 }
 

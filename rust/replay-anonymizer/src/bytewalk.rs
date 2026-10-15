@@ -20,7 +20,7 @@ use crate::assets::{
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::{Ctx, ImageSource};
+use crate::context::{CountCheckpoint, Ctx, ImageSource};
 use crate::css;
 use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
@@ -603,7 +603,9 @@ impl<'c, 'a> Walker<'c, 'a> {
         let base = self.seen.len();
         let node_mark = out.len();
         let changed_before = self.changed;
-        let result = self.walk_node_inner(base, start, parent, node_mark, changed_before, out);
+        let counts = self.ctx.count_checkpoint();
+        let result =
+            self.walk_node_inner(base, start, parent, node_mark, changed_before, counts, out);
         self.seen.truncate(base);
         self.depth -= 1;
         result
@@ -617,6 +619,7 @@ impl<'c, 'a> Walker<'c, 'a> {
         parent: ParentKind,
         node_mark: usize,
         changed_before: bool,
+        counts: CountCheckpoint,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         let bytes = self.bytes;
@@ -630,6 +633,8 @@ impl<'c, 'a> Walker<'c, 'a> {
         let mut attrs_m: Option<(Span, Span)> = None;
         // childNodes: emitted range in `out` + source span, for the rare late splice.
         let mut children: Option<((usize, usize), Span, Span)> = None;
+        // Counts before the optimistic children walk, restored when that walk is redone.
+        let mut children_counts = counts;
 
         let mut pos = start + 1;
         let mut first = true;
@@ -690,6 +695,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     out.extend_from_slice(&bytes[key.0 - 1..key_end]);
                     out.push(b':');
                     let seg_start = out.len();
+                    children_counts = self.ctx.count_checkpoint();
                     let vend = self.walk_array(vstart, out, &mut |w, p, o| {
                         w.walk_node(p, ParentKind::Other, o)
                     })?;
@@ -726,12 +732,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_ELEMENT) => {
                 if let (TagKind::Script, Some((seg, _, src))) = (kind, children) {
                     // Script content is code — the tree leaves the children untouched.
+                    self.ctx.discard_walk(children_counts);
                     let verbatim = &bytes[src.0..src.1];
                     out.splice(seg.0..seg.1, verbatim.iter().copied());
                 }
                 if let (TagKind::Style, Some((seg, _, src))) = (kind, children) {
                     // Style children are CSS text: rebuild that segment with the style parent.
                     let mut tmp = Vec::with_capacity(src.1 - src.0);
+                    self.ctx.restore_counts(children_counts);
                     self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
                         w.walk_node(p, ParentKind::Style, o)
                     })?;
@@ -740,6 +748,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 if tag.eq_ignore_ascii_case("picture") {
                     if let Some((seg, _, src)) = children {
                         let mut tmp = Vec::with_capacity(src.1 - src.0);
+                        self.ctx.restore_counts(children_counts);
                         self.walk_array(src.0, &mut tmp, &mut |w, p, o| {
                             w.walk_node(p, ParentKind::Picture, o)
                         })?;
@@ -754,7 +763,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                             .ok()?
                             .is_some()
                     {
-                        return self.redo_node(start, end, parent, node_mark, out);
+                        return self.redo_node(start, end, parent, node_mark, counts, out);
                     }
                     emit_deferred_key(bytes, key, &mut emitted, out);
                     let hidden_pixel = tag.eq_ignore_ascii_case("img")
@@ -777,6 +786,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_TEXT) if parent == ParentKind::Script => {
                 // The tree never touches script text nodes: undo and re-emit verbatim.
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);
@@ -784,7 +794,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             Some(NODE_TEXT) | Some(NODE_COMMENT) | Some(NODE_CDATA) => {
                 if children.map(|(seg, ..)| seg.0 != seg.1).unwrap_or(false) && node_changed {
                     // A text-ish node with scrubbed childNodes has no tree equivalent: redo.
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 let styled = ty == Some(NODE_TEXT)
                     && (parent == ParentKind::Style
@@ -792,7 +802,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                             .map(|(_, v)| bytes.get(v.0..v.1) == Some(b"true"))
                             .unwrap_or(false));
                 if styled && text_m.is_some() {
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 if let Some((key, v)) = text_m {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -807,7 +817,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 if attrs_m.is_some() {
                     // The tree ignores document attributes but still scrubs the children — no
                     // optimistic emission matches that; let the tree do this node.
-                    return self.redo_node(start, end, parent, node_mark, out);
+                    return self.redo_node(start, end, parent, node_mark, counts, out);
                 }
                 // Children stay as walked (documents parent as Other); scalars verbatim.
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
@@ -820,6 +830,7 @@ impl<'c, 'a> Walker<'c, 'a> {
             // re-emit verbatim either way.
             _ => {
                 out.truncate(node_mark);
+                self.ctx.discard_walk(counts);
                 out.extend_from_slice(&bytes[start..end]);
                 self.changed = changed_before;
                 return Some(end);
@@ -837,10 +848,12 @@ impl<'c, 'a> Walker<'c, 'a> {
         end: usize,
         parent: ParentKind,
         node_mark: usize,
+        counts: CountCheckpoint,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
         use simd_json::prelude::Writable;
         out.truncate(node_mark);
+        self.ctx.restore_counts(counts);
         let span = &self.bytes[start..end];
         crate::json::reject_if_too_deep(span, "node").ok()?;
         let mut scratch = span.to_vec();

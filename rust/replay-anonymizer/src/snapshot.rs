@@ -193,6 +193,15 @@ pub struct SnapshotMeta {
     /// with nothing to say why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_declines: Vec<UrlDecline>,
+    /// Content the scrub removed outright rather than replaced, by reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scrub_drops: Vec<ScrubDrop>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ScrubDrop {
+    pub reason: &'static str,
+    pub count: u32,
 }
 
 /// One reason the collector refused a URL, and how many times it did.
@@ -542,11 +551,15 @@ fn anonymize_snapshot_data_inner(
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
     let mut ctx = Ctx::with_options(allow, timings, opts.image_policy, image_collection)
         .collecting_urls(url_collection);
+    let counts = ctx.count_checkpoint();
     let mut msg = match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => msg,
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
         // consumed before the signal, so the tree path re-reads the intact buffer.
-        None => anonymize_via_tree_mut(&ctx, distinct_id, inner)?,
+        None => {
+            ctx.restore_counts(counts);
+            anonymize_via_tree_mut(&ctx, distinct_id, inner)?
+        }
     };
     msg.meta.url_declines = ctx
         .take_url_declines()
@@ -1006,6 +1019,11 @@ fn finish(
             urls: Vec::new(),
             image_sources: Vec::new(),
             url_declines: Vec::new(),
+            scrub_drops: ctx
+                .take_scrub_drops()
+                .into_iter()
+                .map(|(reason, count)| ScrubDrop { reason, count })
+                .collect(),
         },
         image_bytes: Vec::new(),
     })
@@ -1240,6 +1258,7 @@ fn process_event_at(
         let mark = sink.lines.len();
         sink.lines.extend_from_slice(&inner[span.0..data.0]);
         let data_mark = sink.lines.len();
+        let counts = ctx.count_checkpoint();
         match crate::bytewalk::scrub_data_bytes(
             ctx,
             ty,
@@ -1271,7 +1290,10 @@ fn process_event_at(
                 });
                 return Ok(end);
             }
-            None => sink.lines.truncate(mark),
+            None => {
+                sink.lines.truncate(mark);
+                ctx.restore_counts(counts);
+            }
         }
     }
 

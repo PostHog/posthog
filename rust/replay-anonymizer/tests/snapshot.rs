@@ -853,15 +853,88 @@ fn collect_payload() -> String {
                 "initialOffset": {"top": 0, "left": 0}
             }
         },
-        // Canvas blob carrying the same bytes under a bare base64 payload.
+        // A posthog-js canvas snapshot frame carrying the same bytes under a bare base64 payload.
         {
             "type": 3,
             "timestamp": TS0 + 1.0,
-            "data": {"source": 9, "id": 1, "type": 0, "commands": [{"property": "drawImage", "args": [
-                {"rr_type": "Blob", "type": "image/png", "data": [{"rr_type": "ArrayBuffer", "base64": COLLECT_PNG_B64}]}
-            ]}]}
+            "data": {"source": 9, "id": 1, "type": 0, "commands": [
+                {"property": "clearRect", "args": [0, 0, 8, 8]},
+                {"property": "drawImage", "args": [
+                    {"rr_type": "ImageBitmap", "args": [
+                        {"rr_type": "Blob", "type": "image/png", "data": [{"rr_type": "ArrayBuffer", "base64": COLLECT_PNG_B64}]}
+                    ]},
+                    0, 0, 8, 8
+                ]}
+            ]}
         },
     ])))
+}
+
+#[test]
+fn both_engines_count_and_collect_an_image_once_or_not_at_all() {
+    // The byte walk walks children before it knows their parent, then re-walks or discards them.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let uri = format!("data:image/png;base64,{COLLECT_PNG_B64}");
+    let img = json!({"type": 2, "tagName": "img", "attributes": {"src": uri}, "childNodes": []});
+    let cases = [
+        (
+            "picture",
+            json!({"type": 2, "tagName": "picture", "attributes": {}, "childNodes": [img.clone()]}),
+            vec![("src", 1)],
+            1,
+        ),
+        (
+            "document type",
+            json!({"type": 1, "name": "html", "childNodes": [img.clone()]}),
+            vec![],
+            0,
+        ),
+        (
+            "unknown node",
+            json!({"type": 99, "childNodes": [img]}),
+            vec![],
+            0,
+        ),
+    ];
+    for (label, node, expected_counts, expected_images) in cases {
+        let inner = snapshot_message(json!([{
+            "type": 2,
+            "timestamp": TS0,
+            "data": {
+                "node": {"type": 0, "childNodes": [node]},
+                "initialOffset": {"top": 0, "left": 0}
+            }
+        }]));
+        for byte_walk in [true, false] {
+            let mut bytes = payload_of(&inner).into_bytes();
+            let out = anonymize_kafka_payload_opts(
+                &allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    byte_walk,
+                    ..Default::default()
+                },
+                Some(ImageCollection::new(
+                    "42".to_string(),
+                    "fedcba9876543210fedcba9876543210".to_string(),
+                )),
+            )
+            .expect("anonymizes");
+            let counts: Vec<_> = out
+                .meta
+                .image_sources
+                .iter()
+                .map(|c| (c.property, c.count))
+                .collect();
+            assert_eq!(counts, expected_counts, "{label}, walk={byte_walk}");
+            assert_eq!(
+                out.meta.images.len(),
+                expected_images,
+                "{label}, walk={byte_walk}"
+            );
+            assert!(out.meta.scrub_drops.is_empty(), "{label}, walk={byte_walk}");
+        }
+    }
 }
 
 #[test]

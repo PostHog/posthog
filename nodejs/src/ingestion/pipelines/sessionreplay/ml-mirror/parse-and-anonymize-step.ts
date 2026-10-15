@@ -273,6 +273,9 @@ export function createParseAndAnonymizeMessageStep<
         }
 
         recordImageSources(meta)
+        for (const drop of meta.scrubDrops ?? []) {
+            MlMirrorMetrics.incrementMlScrubDrops(drop.reason, drop.count)
+        }
         MlMirrorMetrics.incrementMlJsonLdEvents(meta.jsonLdEventCount)
 
         const parsedMessage: ParsedMessageData = {

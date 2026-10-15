@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::allow_lists::AllowLists;
 use crate::assets::PLACEHOLDER_SRC;
-use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
+use crate::blur::{blank_image_data_uri, blur_image_data_uri};
 use crate::collect::{
     collectable_data_uri_bytes, is_image_ref, CollectedImage, ImageCollection, ImageCollector,
     MAX_IMAGE_BYTES,
@@ -33,6 +33,13 @@ pub(crate) enum ImageSource {
     HtmlAttribute(&'static str),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CountCheckpoint {
+    image_sources: usize,
+    scrub_drops: usize,
+    images: usize,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ImageSourceCount {
     pub source: &'static str,
@@ -46,7 +53,7 @@ pub struct ImageSourceCount {
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
     pub cv_budget: Cell<usize>,
-    // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
+    // key: the original data URI.
     // value: the replacement — a content ref (collection lane), a blurred data URI — or `None`
     // when neither could be produced (caller falls back to a blank pixel).
     blur_cache: RefCell<HashMap<String, Option<String>>>,
@@ -57,7 +64,9 @@ pub struct Ctx<'a> {
     collector: Option<RefCell<ImageCollector>>,
     // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
-    image_source_counts: RefCell<BTreeMap<(ImageSource, &'static str), u32>>,
+    // Logs, not tallies, so a walk whose output is thrown away can take its entries back with it.
+    image_source_log: RefCell<Vec<(ImageSource, &'static str)>>,
+    scrub_drop_log: RefCell<Vec<&'static str>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
     preserve_image_refs: bool,
@@ -96,7 +105,8 @@ impl<'a> Ctx<'a> {
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
             url_collector: None,
-            image_source_counts: RefCell::new(BTreeMap::new()),
+            image_source_log: RefCell::new(Vec::new()),
+            scrub_drop_log: RefCell::new(Vec::new()),
             preserve_image_refs: false,
         }
     }
@@ -218,13 +228,65 @@ impl<'a> Ctx<'a> {
     }
 
     fn record_image_source(&self, source: ImageSource, kind: &'static str) {
-        let mut counts = self.image_source_counts.borrow_mut();
-        let count = counts.entry((source, kind)).or_default();
-        *count = count.saturating_add(1);
+        self.image_source_log.borrow_mut().push((source, kind));
+    }
+
+    pub(crate) fn record_scrub_drop(&self, reason: &'static str) {
+        self.scrub_drop_log.borrow_mut().push(reason);
+    }
+
+    /// A point to roll the counts back to when a walk's output is discarded and the same content is
+    /// walked again, so each occurrence is counted once.
+    pub(crate) fn count_checkpoint(&self) -> CountCheckpoint {
+        CountCheckpoint {
+            image_sources: self.image_source_log.borrow().len(),
+            scrub_drops: self.scrub_drop_log.borrow().len(),
+            images: self
+                .collector
+                .as_ref()
+                .map_or(0, |collector| collector.borrow().len()),
+        }
+    }
+
+    pub(crate) fn restore_counts(&self, checkpoint: CountCheckpoint) {
+        self.image_source_log
+            .borrow_mut()
+            .truncate(checkpoint.image_sources);
+        self.scrub_drop_log
+            .borrow_mut()
+            .truncate(checkpoint.scrub_drops);
+    }
+
+    /// Unlike a re-walk, which collects the same bytes again under the same ref, a discarded walk
+    /// leaves no ref in the output, so its images go too.
+    pub(crate) fn discard_walk(&self, checkpoint: CountCheckpoint) {
+        self.restore_counts(checkpoint);
+        let Some(collector) = self.collector.as_ref() else {
+            return;
+        };
+        let removed = collector.borrow_mut().truncate(checkpoint.images);
+        if !removed.is_empty() {
+            self.blur_cache
+                .borrow_mut()
+                .retain(|_, hit| !hit.as_ref().is_some_and(|r| removed.contains(r)));
+        }
+    }
+
+    pub fn take_scrub_drops(&self) -> Vec<(&'static str, u32)> {
+        let mut counts: BTreeMap<&'static str, u32> = BTreeMap::new();
+        for reason in std::mem::take(&mut *self.scrub_drop_log.borrow_mut()) {
+            let count = counts.entry(reason).or_default();
+            *count = count.saturating_add(1);
+        }
+        counts.into_iter().collect()
     }
 
     pub fn take_image_source_counts(&self) -> Vec<ImageSourceCount> {
-        let counts = std::mem::take(&mut *self.image_source_counts.borrow_mut());
+        let mut counts: BTreeMap<(ImageSource, &'static str), u32> = BTreeMap::new();
+        for entry in std::mem::take(&mut *self.image_source_log.borrow_mut()) {
+            let count = counts.entry(entry).or_default();
+            *count = count.saturating_add(1);
+        }
         counts
             .into_iter()
             .map(|((source, kind), count)| {
@@ -328,17 +390,6 @@ impl<'a> Ctx<'a> {
             .map_or(MAX_IMAGE_BYTES, |collector| {
                 collector.borrow().max_image_bytes()
             })
-    }
-
-    /// Pixelate raw RGBA pixels, memoized on dimensions + bytes.
-    pub fn pixelate_raw(&self, rgba_base64: &str, width: u32, height: u32) -> Option<String> {
-        let key = format!("raw:{width}x{height}:{rgba_base64}");
-        if let Some(hit) = self.blur_cache.borrow().get(&key) {
-            return hit.clone();
-        }
-        let result = self.timed("blur", || pixelate_raw_rgba(rgba_base64, width, height));
-        self.blur_cache.borrow_mut().insert(key, result.clone());
-        result
     }
 }
 

@@ -76,6 +76,7 @@ export interface AnonymizeMeta {
     imageSources?: AnonymizeImageSourceCount[]
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
     urlDeclines?: { reason: string; count: number }[]
+    scrubDrops?: { reason: string; count: number }[]
 }
 
 /**

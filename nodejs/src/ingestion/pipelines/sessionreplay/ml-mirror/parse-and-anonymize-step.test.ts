@@ -29,6 +29,15 @@ async function metricValue(name: string): Promise<number> {
     return values[0]?.value ?? 0
 }
 
+async function scrubDropMetricValue(reason: string): Promise<number> {
+    const metric = register.getSingleMetric('recording_blob_ingestion_v2_ml_scrub_drops_total')
+    if (!metric) {
+        return 0
+    }
+    const { values } = await metric.get()
+    return values.find((value) => value.labels.reason === reason)?.value ?? 0
+}
+
 async function imageSourceMetricValue(source: string, property: string, kind: string): Promise<number> {
     const metric = register.getSingleMetric(IMAGE_SOURCE_METRIC)
     if (!metric) {
@@ -122,7 +131,8 @@ describe('createParseAndAnonymizeMessageStep', () => {
 
     it('assembles a pre-serialized ParsedMessageData from the addon output', async () => {
         const jsonLdEventsBefore = await metricValue(JSON_LD_EVENT_METRIC)
-        addonSuccess({ jsonLdEventCount: 2 })
+        const canvasDropsBefore = await scrubDropMetricValue('canvas_mutation_not_snapshot_frame')
+        addonSuccess({ jsonLdEventCount: 2, scrubDrops: [{ reason: 'canvas_mutation_not_snapshot_frame', count: 3 }] })
         const result = await step({ message: kafkaMessage(), headers, team })
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -141,6 +151,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         expect(parsed.snapshot_library).toBe('posthog-js')
         expect(parsed.metadata).toEqual({ partition: 3, topic: 'snapshots', rawSize: 2, offset: 42, timestamp: now })
         await expect(metricValue(JSON_LD_EVENT_METRIC)).resolves.toBe(jsonLdEventsBefore + 2)
+        await expect(scrubDropMetricValue('canvas_mutation_not_snapshot_frame')).resolves.toBe(canvasDropsBefore + 3)
     })
 
     it('normalizes a UUID session id before comparing against the header', async () => {
