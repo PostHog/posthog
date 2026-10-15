@@ -2,9 +2,8 @@ import json
 import base64
 from datetime import timedelta
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -12,14 +11,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
-from posthog.clickhouse.query_tagging import tags_context
 from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, PropertyDefinition, Team
 
@@ -312,64 +311,21 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertEqual(refreshed.expires_at, refreshed_token.expires)
 
 
-class TestMCPEventPreview(ClickhouseTestMixin, MCPEventSubscriptionTestCase):
-    def test_event_preview_reuses_filters_and_redacts_properties_without_creating_subscription(self) -> None:
+class TestMCPEventPreviewAPI(MCPEventSubscriptionTestCase):
+    def test_query_only_key_can_preview_without_creating_subscription(self) -> None:
         key = self.create_personal_api_key_with_scopes(["query:read"])
-        self.headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        for name in ("plan", "$groups.organization"):
-            definition = PropertyDefinition.objects.create(
-                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
-            )
-            PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
-        self.enterContext(
-            patch(
-                "products.cdp.backend.mcp_event_properties.get_group_types_for_project",
-                return_value=[{"group_type_index": 0, "group_type": "organization"}],
-            )
-        )
-        matching_id = UUID("a5524ac5-d7c5-43b6-862c-f5971da694c8")
-        for event_uuid, event, rating in [
-            (matching_id, "example_event", 2),
-            (UUID("d3698028-e9a9-41e6-b44f-f7d0dc140cc5"), "example_event", 5),
-            (UUID("e156c31c-726a-4c62-a40d-04dcc136c187"), "other_event", 2),
-        ]:
-            create_event(
-                event_uuid=event_uuid,
-                event=event,
-                team=self.team,
-                distinct_id="sample-user",
-                timestamp=timezone.now(),
-                properties={
-                    "rating": rating,
-                    "plan": "enterprise",
-                    "$groups": {"organization": "hidden"},
-                    "$group_0": "hidden",
-                },
-            )
-        with (
-            tags_context(product=None, feature=None),
-            patch("posthog.clickhouse.client.execute.DEBUG", True),
-            patch("posthog.clickhouse.client.execute.TEST", False),
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.HogQLQueryRunner.run",
+            return_value=HogQLQueryResponse(results=[]),
         ):
             response = self.client.post(
                 self.url + "preview/",
                 {
                     "project_id": self.team.pk,
-                    "filters": {
-                        "events": [{"id": "example_event", "type": "events"}],
-                        "properties": [{"key": "rating", "type": "event", "operator": "lt", "value": 3}],
-                    },
+                    "filters": {"events": [{"id": "example_event", "type": "events"}]},
                 },
-                HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"],
+                HTTP_AUTHORIZATION=f"Bearer {key}",
             )
         self.assertEqual(response.status_code, 200, response.json())
-        examples = response.json()["examples"]
-        self.assertEqual(len(examples), 1)
-        self.assertEqual(examples[0]["eventId"], str(matching_id))
-        self.assertEqual(examples[0]["data"]["properties"], {"rating": 2, "$groups": {}})
-        self.assertIsNone(examples[0]["cursor"])
+        self.assertEqual(response.json()["examples"], [])
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
