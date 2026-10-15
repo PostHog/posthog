@@ -17,6 +17,35 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const DashboardsBulkDeleteSchema = () => {
+    const DashboardsBulkDeleteCreateBody = orvalSchemas.DashboardsBulkDeleteCreateBody()
+    return DashboardsBulkDeleteCreateBody
+}
+
+const dashboardsBulkDelete = (): ToolBase<
+    ReturnType<typeof DashboardsBulkDeleteSchema>,
+    Schemas.DashboardBulkDeleteResponse
+> => ({
+    name: 'dashboards-bulk-delete',
+    schema: DashboardsBulkDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsBulkDeleteSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.delete_insights !== undefined) {
+            body['delete_insights'] = params.delete_insights
+        }
+        const result = await context.api.request<Schemas.DashboardBulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const DashboardCreateSchema = () => {
     const DashboardsCreateBody = orvalSchemas.DashboardsCreateBody()
     const DashboardsCreateQueryParams = orvalSchemas.DashboardsCreateQueryParams()
@@ -913,6 +942,7 @@ const dashboardsGetAll = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'dashboards-bulk-delete': dashboardsBulkDelete,
     'dashboard-create': dashboardCreate,
     'dashboard-create-tile': dashboardCreateTile,
     'dashboard-delete': dashboardDelete,

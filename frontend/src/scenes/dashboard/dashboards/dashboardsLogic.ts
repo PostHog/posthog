@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { v4 as uuid } from 'uuid'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -16,9 +18,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
+
+import { dashboardsBulkDeleteCreate } from 'products/dashboards/frontend/generated/api'
+import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { UserType } from '../../../types'
@@ -85,6 +91,8 @@ export interface dashboardsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
     breadcrumbs: Breadcrumb[]
+    bulkDeleteResponse: DashboardBulkDeleteResponseApi | null
+    bulkDeleteResponseLoading: boolean
     currentTab: DashboardsTab
     dashboards: DashboardBasicType[]
     dashboardsById: Record<string, DashboardBasicType>
@@ -124,6 +132,40 @@ export interface dashboardsLogicActions {
         newPath: string
         oldPath: string
     } // projectTreeDataLogic
+    bulkDeleteDashboards: ({
+        ids,
+        deleteInsights,
+    }: {
+        deleteInsights?: boolean
+        ids: number[]
+        onStillSelected: (ids: number[]) => void
+    }) => {
+        ids: number[]
+        deleteInsights?: boolean
+        onStillSelected: (ids: number[]) => void
+    }
+    bulkDeleteDashboardsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    bulkDeleteDashboardsSuccess: (
+        bulkDeleteResponse: DashboardBulkDeleteResponseApi,
+        payload?: {
+            ids: number[]
+            deleteInsights?: boolean
+            onStillSelected: (ids: number[]) => void
+        }
+    ) => {
+        bulkDeleteResponse: DashboardBulkDeleteResponseApi
+        payload?: {
+            ids: number[]
+            deleteInsights?: boolean
+            onStillSelected: (ids: number[]) => void
+        }
+    }
     loadMoreTagResults: () => {
         value: true
     }
@@ -324,6 +366,29 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     loaders({
+        bulkDeleteResponse: [
+            null as DashboardBulkDeleteResponseApi | null,
+            {
+                bulkDeleteDashboards: async ({
+                    ids,
+                    deleteInsights,
+                }: {
+                    ids: number[]
+                    deleteInsights?: boolean
+                    onStillSelected: (ids: number[]) => void
+                }) => {
+                    const toastId = lemonToast.loading('Deleting dashboards…', { toastId: uuid() })
+                    try {
+                        return await dashboardsBulkDeleteCreate(String(teamLogic.values.currentTeamId), {
+                            ids,
+                            delete_insights: deleteInsights ?? false,
+                        })
+                    } finally {
+                        lemonToast.dismiss(toastId)
+                    }
+                },
+            },
+        ],
         searchedDashboards: [
             null as DashboardBasicType[] | null,
             {
@@ -652,6 +717,39 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
+        bulkDeleteDashboardsSuccess: ({ bulkDeleteResponse, payload }) => {
+            if (!bulkDeleteResponse) {
+                return
+            }
+            const { deleted, skipped } = bulkDeleteResponse
+            payload?.onStillSelected(skipped.map(({ id }) => id))
+            for (const id of deleted) {
+                dashboardsModel.actions.delayedDeleteDashboard(id)
+                deleteFromTree('dashboard', String(id))
+            }
+            const currentTeam = teamLogic.values.currentTeam
+            if (currentTeam?.primary_dashboard && deleted.includes(currentTeam.primary_dashboard)) {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, primary_dashboard: null })
+            }
+            actions.loadSearchedDashboards({
+                search: values.filters.search,
+                tags: values.filters.tags ?? [],
+                folder: values.filters.folder ?? null,
+            })
+            if (deleted.length > 0) {
+                const noun = deleted.length === 1 ? 'dashboard' : 'dashboards'
+                lemonToast.success(`Deleted ${deleted.length} ${noun}.`)
+            }
+            if (skipped.length > 0) {
+                lemonToast.warning(
+                    `${skipped.length} dashboards were skipped. They no longer exist or you cannot edit them.`
+                )
+            }
+        },
+        bulkDeleteDashboardsFailure: () => {
+            lemonToast.error('Could not delete dashboards. Refresh the list and try again.')
+            dashboardsModel.actions.loadDashboards()
+        },
         movedItem: ({ item, oldPath, newPath }) => {
             if (item.type === 'folder') {
                 dashboardsModel.actions.reparentDashboardFolders(oldPath, newPath)

@@ -39,6 +39,25 @@ const scenes: any = { [Scene.Dashboards]: blankScene }
 describe('dashboardsLogic', () => {
     let logic: ReturnType<typeof dashboardsLogic.build>
 
+    it('removes deleted dashboards from the list and keeps skipped dashboards selected', async () => {
+        const [first, second] = allDashboards
+        useMocks({
+            post: {
+                '/api/projects/:team_id/dashboards/bulk_delete/': {
+                    deleted: [first.id],
+                    skipped: [{ id: second.id, reason: 'No permission' }],
+                },
+            },
+        })
+        const onStillSelected = jest.fn()
+        await expectLogic(logic, () =>
+            logic.actions.bulkDeleteDashboards({ ids: [first.id, second.id], onStillSelected })
+        ).toDispatchActions(['bulkDeleteDashboardsSuccess'])
+        expect(onStillSelected).toHaveBeenCalledWith([second.id])
+        expect(logic.values.dashboards.map(({ id }) => id)).not.toContain(first.id)
+        expect(logic.values.dashboards.map(({ id }) => id)).toContain(second.id)
+    })
+
     const CURRENT_USER = { id: 178, uuid: 'USER_UUID' } as UserBasicType
     const OTHER_USER = { id: 2, uuid: 'user2' } as UserBasicType
 

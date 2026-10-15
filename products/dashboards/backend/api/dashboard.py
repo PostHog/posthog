@@ -50,6 +50,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.schema import InsightVizNode
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
@@ -905,6 +906,32 @@ class UpdateDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer
             f"see dashboard-widget-catalog-list for per-type config_schema (1–{MAX_WIDGETS_BATCH_SIZE} per request)."
         ),
     )
+
+
+class DashboardBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=100,
+        help_text="Dashboard IDs to soft-delete. At most 100 IDs per request.",
+    )
+
+    delete_insights = serializers.BooleanField(
+        default=False,
+        help_text="Also delete insights that have no remaining dashboard after deletion. Defaults to false.",
+    )
+
+
+class DashboardBulkDeleteSkippedSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the dashboard that was skipped.")
+    reason = serializers.CharField(help_text="Reason the dashboard was skipped.")
+
+
+class DashboardBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.ListField(
+        child=serializers.IntegerField(), help_text="IDs of dashboards that were soft-deleted."
+    )
+    skipped = DashboardBulkDeleteSkippedSerializer(many=True, help_text="Dashboards that were not deleted.")
 
 
 class CanEditDashboard(BasePermission):
@@ -2960,6 +2987,50 @@ class DashboardsViewSet(
         "mcp-analytics": get_mcp_analytics_default_template,
     }
 
+    @validated_request(
+        request_serializer=DashboardBulkDeleteRequestSerializer,
+        responses={200: DashboardBulkDeleteResponseSerializer},
+        description="Soft-delete up to 100 dashboards. Optionally delete insights with no remaining dashboard. Report missing or inaccessible dashboards as skipped.",
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["dashboard:write"], renderer_classes=[SafeJSONRenderer])
+    def bulk_delete(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        ids: list[int] = list(dict.fromkeys(request.validated_data["ids"]))
+        dashboards = {dashboard.id: dashboard for dashboard in self.get_queryset().filter(id__in=ids)}
+        deleted: list[int] = []
+        skipped: list[dict[str, int | str]] = []
+        for dashboard_id in ids:
+            dashboard = dashboards.get(dashboard_id)
+            if dashboard is None:
+                skipped.append({"id": dashboard_id, "reason": "Dashboard not found"})
+                continue
+            try:
+                self.check_object_permissions(request, dashboard)
+            except exceptions.PermissionDenied:
+                skipped.append({"id": dashboard_id, "reason": "You do not have permission to edit this dashboard"})
+                continue
+            with transaction.atomic():
+                serializer = self.get_serializer(
+                    dashboard,
+                    data={"deleted": True, "delete_insights": request.validated_data["delete_insights"]},
+                    partial=True,
+                )
+                serializer.is_valid(raise_exception=True)
+                self.perform_update(serializer)
+            deleted.append(dashboard_id)
+        report_user_action(
+            request.user,
+            "dashboards bulk deleted",
+            {
+                "requested_count": len(ids),
+                "deleted_count": len(deleted),
+                "skipped_count": len(skipped),
+                "delete_insights": request.validated_data["delete_insights"],
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(DashboardBulkDeleteResponseSerializer(instance={"deleted": deleted, "skipped": skipped}).data)
+
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -3061,7 +3132,7 @@ class DashboardsViewSet(
         # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
         # Team scoping is preserved by the filter above; the CanEditDashboard object permission
         # still gates the write.
-        if self.action == "subscribe_nudge":
+        if self.action in {"subscribe_nudge", "bulk_delete"}:
             return queryset.exclude(deleted=True)
 
         if self.request.user.is_authenticated:
