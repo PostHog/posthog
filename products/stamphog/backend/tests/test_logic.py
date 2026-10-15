@@ -603,6 +603,32 @@ class GetUserTeamSlugsTests(SimpleTestCase):
         assert slugs == expected
 
 
+class GetPrReactionsTests(SimpleTestCase):
+    _REACTIONS_PAGE = fakes.FakeResponse(
+        200, json_data=[{"user": {"login": "bot[bot]"}, "content": "eyes", "created_at": "2026-01-01T00:00:00Z"}]
+    )
+
+    def test_retries_a_transient_server_error(self) -> None:
+        with patch(f"{_GH}._SERVER_ERROR_RETRY_DELAYS_SECONDS", (0, 0)):
+            reactions = _with_scripted_graphql(
+                lambda client: client.get_pr_reactions("acme/widgets", 5),
+                fakes.FakeResponse(502, text="Server Error"),
+                self._REACTIONS_PAGE,
+            )
+        assert reactions == [{"user": "bot[bot]", "content": "eyes", "created_at": "2026-01-01T00:00:00Z"}]
+
+    def test_persistent_server_error_fails_closed_with_a_stable_message(self) -> None:
+        with (
+            patch(f"{_GH}._SERVER_ERROR_RETRY_DELAYS_SECONDS", (0, 0)),
+            pytest.raises(StamphogGitHubError) as raised,
+        ):
+            _with_scripted_graphql(
+                lambda client: client.get_pr_reactions("acme/widgets", 5), fakes.FakeResponse(503, text="")
+            )
+        assert str(raised.value) == "Failed to fetch PR reactions"
+        assert raised.value.status_code == 503
+
+
 class GetPrReviewThreadsTests(SimpleTestCase):
     def _fetch(self, *graphql_responses: fakes.FakeResponse) -> list[dict]:
         return _with_scripted_graphql(
