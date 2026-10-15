@@ -282,6 +282,9 @@ export function WorkColumn() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const filters = useSidebarStore((state) => state.channelItemFilters);
+  const pickedSources = useSidebarStore(
+    (state) => state.pickedChannelItemSources,
+  );
   const { items, isLoading } = useRecentWorkItems({
     sources: filters.sources,
   });
@@ -319,7 +322,8 @@ export function WorkColumn() {
   const meUuid = currentUser?.uuid ?? null;
   const me = useMemo(() => ({ uuid: meUuid }), [meUuid]);
   // The server returns only the selected sources, so the menu also offers the sources of the
-  // user's other tasks. Otherwise a hidden source could never be turned back on.
+  // user's other tasks and every source they picked before. Otherwise a hidden source could
+  // never be turned back on.
   const sources = useMemo(
     () =>
       Array.from(
@@ -327,9 +331,10 @@ export function WorkColumn() {
           ...channelItemSources(items.map((entry) => entry.item)),
           ...taskSources,
           ...filters.sources,
+          ...pickedSources,
         ]),
       ).sort(),
-    [items, taskSources, filters.sources],
+    [items, taskSources, filters.sources, pickedSources],
   );
   const dayStart = useLocalDayStart();
   const pinnedItems = useMemo(

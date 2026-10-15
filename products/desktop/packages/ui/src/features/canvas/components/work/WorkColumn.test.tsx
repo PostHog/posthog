@@ -126,6 +126,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
 
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { WorkColumn } from "./WorkColumn";
 
@@ -184,6 +185,7 @@ beforeEach(() => {
   for (const spy of Object.values(mocks.navigate)) spy.mockClear();
   mocks.items = [1, 2, 3, 4, 5].map(entry);
   mocks.taskSources = [];
+  useSidebarStore.setState({ pickedChannelItemSources: [] });
   useTaskSelectionStore.setState({ selectedTaskIds: [], lastClickedId: null });
 });
 
@@ -192,6 +194,7 @@ afterEach(cleanup);
 describe("WorkColumn", () => {
   it("asks for the selected sources and still offers the ones it hides", () => {
     mocks.taskSources = ["signals_scout", "slack"];
+    useSidebarStore.setState({ pickedChannelItemSources: ["hogdesk"] });
 
     renderColumn();
 
@@ -200,7 +203,7 @@ describe("WorkColumn", () => {
     });
     expect(
       screen.getByTestId("filter-sources").textContent?.split(","),
-    ).toEqual(expect.arrayContaining(["signals_scout", "slack"]));
+    ).toEqual(expect.arrayContaining(["hogdesk", "signals_scout", "slack"]));
   });
 
   it("opens a session on a plain click", () => {
