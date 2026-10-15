@@ -55,3 +55,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 LOOKBACK: dict[str, int] = {"campaign_statistics_daily": LOOKBACK_SECONDS}
+
+# Daily statistics re-read a trailing week each run. Appending would write those rows again.
+MERGE_ONLY = ("campaign_statistics_daily",)

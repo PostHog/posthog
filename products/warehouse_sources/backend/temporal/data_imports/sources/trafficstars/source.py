@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trafficsta
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LOOKBACK,
+    MERGE_ONLY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trafficstars.trafficstars import (
     TrafficStarsResumeConfig,
@@ -79,7 +80,7 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, default_incremental_lookback_seconds=LOOKBACK
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY, default_incremental_lookback_seconds=LOOKBACK
         )
 
     def validate_credentials(
