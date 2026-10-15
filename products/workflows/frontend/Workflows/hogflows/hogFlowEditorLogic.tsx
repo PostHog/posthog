@@ -246,6 +246,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    autoSaveWorkflow: () => {
+        value: true
+    } // workflowLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -1977,12 +1980,9 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
-    autoSaveWorkflow: () => {
-        value: true
-    } // workflowLogic
     saveWorkflowSuccess: (
         originalWorkflow: HogFlow,
-        payload?: HogFlow
+        payload?: HogFlow | undefined
     ) => {
         originalWorkflow: HogFlow
         payload?: HogFlow
