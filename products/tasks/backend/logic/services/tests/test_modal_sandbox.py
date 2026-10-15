@@ -617,6 +617,7 @@ class TestModalSandboxAgentServer:
         assert f"--taskId {shlex.quote('task-123')}" in command
         assert f"--runId {shlex.quote('run-456')}" in command
         assert f"POSTHOG_SANDBOX_ID={shlex.quote(mock_sandbox.id)}" in command
+        assert "POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state" in command
         assert "--sandboxId" not in command
         assert f"--mode {shlex.quote('background')}" in command
         assert "--createPr true" in command

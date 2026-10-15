@@ -4,8 +4,10 @@ from typing import Any
 from uuid import UUID
 
 from django.db import models, transaction
+from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
 
+from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
 
@@ -13,6 +15,22 @@ def get_email_content(team_id: int, template_id: UUID) -> dict | None:
     template = MessageTemplate.objects.filter(team_id=team_id, id=template_id, deleted=False).first()
     email_content = (template.content or {}).get("email") if template else None
     return email_content if isinstance(email_content, dict) else None
+
+
+def list_email_summaries(team_id: int, *, limit: int) -> list[EmailTemplateSummary]:
+    """The team's newest email templates that have a subject and a body. Only the subject leaves the database, so a
+    large saved design is never loaded for a listing."""
+    rows = (
+        MessageTemplate.objects.filter(team_id=team_id, deleted=False, type="email")
+        .annotate(subject=KT("content__email__subject"), html=KT("content__email__html"))
+        .exclude(subject__isnull=True)
+        .exclude(subject="")
+        .exclude(html__isnull=True)
+        .exclude(html="")
+        .order_by("-created_at")
+        .values_list("id", "name", "subject")[:limit]
+    )
+    return [EmailTemplateSummary(id=id, name=name or "", subject=subject) for id, name, subject in rows]
 
 
 def _templates(team_ids: list[int] | None) -> models.QuerySet[MessageTemplate]:

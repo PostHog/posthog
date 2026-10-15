@@ -18,8 +18,14 @@ import { SourceCatalog } from './SourceCatalog'
 import { SourceSetupPanel } from './SourceSetupPanel'
 
 export function DetectedSources({ compact = false }: { compact?: boolean }): JSX.Element | null {
-    const { visibleSuggestions, dismissedSuggestions, setupPlan, setupPlanLoading, sourceScanDisabledReason } =
-        useValues(setupPlanLogic)
+    const {
+        visibleSuggestions,
+        dismissedSuggestions,
+        setupPlan,
+        setupPlanLoading,
+        setupPlanFailed,
+        sourceScanDisabledReason,
+    } = useValues(setupPlanLogic)
     const { rescanSources, restoreAllDismissed } = useActions(setupPlanLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -56,27 +62,30 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
             />
         )
     }
-    if (hasSyncedMarketingSources && !sources.length) {
+    const pendingConnections = hasSyncedMarketingSources
+        ? connections.filter((connection) => connection.status === 'Needs attention')
+        : connections
+    if (hasSyncedMarketingSources && !sources.length && !pendingConnections.length) {
         return null
     }
     return (
         <SourceSetupPanel
-            compact={compact}
+            compact={compact || hasSyncedMarketingSources}
             state={
-                connections.length
+                pendingConnections.length
                     ? 'waiting'
-                    : setupPlanLoading && !setupPlan
-                      ? 'scanning'
-                      : !setupPlan
-                        ? 'error'
-                        : sources.length
-                          ? 'suggestions'
-                          : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
-                            ? 'dismissed'
-                            : 'empty'
+                    : !setupPlan
+                      ? setupPlanFailed
+                          ? 'error'
+                          : 'scanning'
+                      : sources.length
+                        ? 'suggestions'
+                        : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
+                          ? 'dismissed'
+                          : 'empty'
             }
             suggestions={sources}
-            connections={connections}
+            connections={pendingConnections}
             onRetry={rescanSources}
             rescanLoading={setupPlanLoading}
             rescanDisabledReason={sourceScanDisabledReason}

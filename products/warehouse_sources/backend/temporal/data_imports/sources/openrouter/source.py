@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,12 @@ _NO_ORGANIZATION = (
 
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
+    codebase_detection = detect(
+        env=("^OPENROUTER_", "^OPENROUTER_API_KEY$"),
+        npm=("@openrouter/ai-sdk-provider", "@openrouter/sdk"),
+        pypi=("openrouter",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://openrouter.ai/docs/api-reference"

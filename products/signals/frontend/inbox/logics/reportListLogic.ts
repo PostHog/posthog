@@ -21,7 +21,7 @@ import {
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { createdAfterForWindow } from '../filterOptions'
-import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
+import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
     INBOX_PRIMARY_REPORT_SECTION_KEY,
@@ -39,7 +39,7 @@ import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
-import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
+import { buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
@@ -64,6 +64,8 @@ export interface ReportListRequestContext {
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
+    /** The ranker the server used for `sort=recommended`. Null for every other sort. */
+    ranker?: string | null
     requestParams?: Record<string, unknown>
     requestContext?: ReportListRequestContext
 }
@@ -196,6 +198,7 @@ export interface reportListLogicValues {
     livePrReportIds: string[]
     loadedContext: ReportListRequestContext | null
     loadedQueryKey: string | null
+    loadedRanker: string | null
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
     reportSourceMeta: Record<string, ReportSourceMeta>
@@ -218,6 +221,9 @@ export interface reportListLogicActions {
         scope: InboxScope
     } // inboxFiltersLogic
     clearFilters: () => {
+        value: true
+    } // inboxFiltersLogic
+    resetUnavailableSort: () => {
         value: true
     } // inboxFiltersLogic
     setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => {
@@ -397,6 +403,7 @@ export interface reportListLogicMeta {
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
+        loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
     }
 }
 
@@ -450,6 +457,7 @@ export const reportListLogic = kea<reportListLogicType>([
             [
                 'setSearchQuery',
                 'setSort',
+                'resetUnavailableSort',
                 'toggleSourceProduct',
                 'toggleScout',
                 'togglePriority',
@@ -667,7 +675,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 return {
                     ...listParams,
                     search: searchQuery.trim() || undefined,
-                    ordering: buildSignalReportListOrdering(sortField, sortDirection),
+                    ...buildSignalReportListSortParams(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
@@ -746,6 +754,11 @@ export const reportListLogic = kea<reportListLogicType>([
             (reportsResponse: ReportListResponse | null): ReportListRequestContext | null =>
                 reportsResponse?.requestContext ?? null,
         ],
+        // The ranker the server used for a Recommended list: `priority` or a model head. Null for other sorts.
+        loadedRanker: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): string | null => reportsResponse?.ranker ?? null,
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -753,6 +766,7 @@ export const reportListLogic = kea<reportListLogicType>([
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
         loadReportsSuccess: () => {
+            setInboxServedRanker(values.loadedRanker)
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
             // A first page or a refresh asks again for every row, because a report gains sources as
@@ -856,6 +870,7 @@ export const reportListLogic = kea<reportListLogicType>([
             actions.refresh()
         },
         setSort: () => actions.refresh(),
+        resetUnavailableSort: () => actions.refresh(),
         setCreatedWindow: () => actions.refresh(),
         applyDefaultCreatedWindow: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),

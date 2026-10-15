@@ -134,7 +134,7 @@ queryset.filter(name__icontains=value)  # SAFE
 **Do not add new `pickle` usage.**
 Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
 This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
-CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the diff-aware `semgrep ci` jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the security semgrep jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
 Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
 
 **Use JSON instead.**
@@ -202,7 +202,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 Three policies exist, and a change lands in whichever one covers the page:
 
 - **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every visitor, signed-in or not. A self-hosted install only reports it, because its violations reach nobody. Embeddable documents, such as shared dashboards, always stay report-only.
-- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 
 ### What the app policy forbids

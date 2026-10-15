@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.settings import (
     CODECOV_ENDPOINTS,
     CodecovEndpointConfig,
+    CodecovParentConfig,
     CodecovResponseShape,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -48,8 +49,9 @@ def _owner_base_url(service: str, owner_username: str) -> str:
     return f"{CODECOV_BASE_URL}/{quote(service, safe='')}/{quote(owner_username, safe='')}"
 
 
-def _endpoint_url(owner_base_url: str, config: CodecovEndpointConfig, repo: str | None, params: dict[str, Any]) -> str:
-    path = config.path.format(repo=quote(repo, safe="")) if repo is not None else config.path
+def _endpoint_url(owner_base_url: str, path: str, params: dict[str, Any], **segments: str) -> str:
+    if segments:
+        path = path.format(**{name: quote(value, safe="") for name, value in segments.items()})
     url = f"{owner_base_url}{path}"
     return f"{url}?{urlencode(params)}" if params else url
 
@@ -131,6 +133,21 @@ def _tree_rows(nodes: Any, repo: str) -> Iterator[dict[str, Any]]:
         yield from _tree_rows(node.get("children"), repo)
 
 
+def _impacted_file_rows(data: Any, repo: str) -> list[dict[str, Any]]:
+    """One row per impacted file, with the commits the comparison ran between.
+
+    `files` stays empty while Codecov is still computing the comparison (`state: "pending"`).
+    """
+    if not data:
+        return []
+    comparison = {
+        "base_commit": data.get("base_commit"),
+        "head_commit": data.get("head_commit"),
+        "state": data.get("state"),
+    }
+    return [{**file, **comparison, "repo": repo} for file in data.get("files") or []]
+
+
 def _unpaginated_rows(shape: CodecovResponseShape, data: Any, repo: str) -> list[dict[str, Any]]:
     match shape:
         case CodecovResponseShape.BARE_LIST:
@@ -141,6 +158,8 @@ def _unpaginated_rows(shape: CodecovResponseShape, data: Any, repo: str) -> list
             return _report_file_rows(data, repo)
         case CodecovResponseShape.TREE:
             return list(_tree_rows(data, repo))
+        case CodecovResponseShape.IMPACTED_FILES:
+            return _impacted_file_rows(data, repo)
         case _:
             raise ValueError(f"Endpoint response shape {shape} is paginated")
 
@@ -220,7 +239,7 @@ def _get_top_level_rows(
         url = _ensure_codecov_url(resume.next_url)
         logger.debug(f"Codecov: resuming {config.name} from URL: {url}")
     else:
-        url = _endpoint_url(owner_base_url, config, None, {"page_size": PAGE_SIZE, **config.extra_params})
+        url = _endpoint_url(owner_base_url, config.path, {"page_size": PAGE_SIZE, **config.extra_params})
 
     allowed = set(repositories)
     for results, next_url in _iter_pages(session, url, headers, logger):
@@ -234,6 +253,26 @@ def _get_top_level_rows(
             # merge dedupes on the primary key.
             if next_url:
                 resumable_source_manager.save_state(CodecovResumeConfig(next_url=next_url))
+
+
+def _remaining_repos(
+    repo_names: list[str],
+    config: CodecovEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CodecovResumeConfig],
+) -> tuple[list[str], str | None]:
+    """Resolve the saved repo bookmark to the slice of repos still to process, and the URL the
+    first of them resumes from.
+
+    If the bookmarked repo no longer exists (deleted between runs), start over from the first —
+    merge dedupes the re-pulled rows on the primary key.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is None or resume.repo is None or resume.repo not in repo_names:
+        return repo_names, None
+    resume_url = _ensure_codecov_url(resume.next_url) if resume.next_url else None
+    logger.debug(f"Codecov: resuming {config.name} from repo={resume.repo}, url={resume_url}")
+    return repo_names[repo_names.index(resume.repo) :], resume_url
 
 
 def _get_fan_out_rows(
@@ -263,20 +302,10 @@ def _get_fan_out_rows(
         else:
             stop_field = incremental_field or config.default_incremental_field
 
-    # Resolve the saved repo bookmark to the slice of repos still to process. If the
-    # bookmarked repo no longer exists (deleted between runs), start over from the first —
-    # merge dedupes the re-pulled rows on the primary key. `resume_url` is consumed by the
-    # first repo only.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = repo_names
-    resume_url: str | None = None
-    if resume is not None and resume.repo is not None and resume.repo in repo_names:
-        remaining = repo_names[repo_names.index(resume.repo) :]
-        resume_url = _ensure_codecov_url(resume.next_url) if resume.next_url else None
-        logger.debug(f"Codecov: resuming {config.name} from repo={resume.repo}, url={resume_url}")
+    remaining, resume_url = _remaining_repos(repo_names, config, logger, resumable_source_manager)
 
     for index, repo in enumerate(remaining):
-        url = resume_url or _endpoint_url(owner_base_url, config, repo, params)
+        url = resume_url or _endpoint_url(owner_base_url, config.path, params, repo=repo)
         resume_url = None  # only the resumed-into repo uses the saved URL; the rest start fresh
 
         try:
@@ -310,6 +339,127 @@ def _get_fan_out_rows(
             resumable_source_manager.save_state(CodecovResumeConfig(next_url=None, repo=remaining[index + 1]))
 
 
+def _iter_child_rows(
+    session: requests.Session,
+    owner_base_url: str,
+    headers: dict[str, str],
+    config: CodecovEndpointConfig,
+    parent: CodecovParentConfig,
+    parent_row: dict[str, Any],
+    repo: str,
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fetch the child endpoint for one parent row, yielding each page with the parent columns."""
+    key = parent_row.get(parent.key_field)
+    if key is None:
+        return
+    parent_columns = {column: parent_row.get(name) for name, column in parent.include_fields.items()}
+    if parent.key_query_param:
+        url = _endpoint_url(owner_base_url, config.path, {parent.key_query_param: key, **params}, repo=repo)
+    else:
+        url = _endpoint_url(owner_base_url, config.path, params, repo=repo, key=str(key))
+
+    try:
+        if config.response_shape is CodecovResponseShape.PAGINATED_LIST:
+            for results, _next_url in _iter_pages(session, url, headers, logger):
+                yield [{**item, **parent_columns, "repo": repo} for item in results]
+        else:
+            data = _fetch_page(session, url, headers, logger)
+            yield [{**row, **parent_columns} for row in _unpaginated_rows(config.response_shape, data, repo)]
+    except requests.HTTPError as exc:
+        # A pull missing its base or head commit has no comparison, and a flag or commit can go
+        # away between listing it and this fetch. Skip that row rather than fail the sync.
+        if exc.response is not None and exc.response.status_code == 404:
+            logger.warning(f"Codecov: {config.name} not found for repo={repo}, {parent.key_field}={key}, skipping")
+        else:
+            raise
+
+
+def _iter_parent_fan_out_batches(
+    session: requests.Session,
+    owner_base_url: str,
+    headers: dict[str, str],
+    config: CodecovEndpointConfig,
+    parent: CodecovParentConfig,
+    repositories: list[str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CodecovResumeConfig],
+    cutoff: datetime | None,
+) -> Iterator[tuple[list[dict[str, Any]], CodecovResumeConfig | None]]:
+    """Yield (rows, state) per child response. `state` is set, with no rows, once every row of a
+    parent page has been yielded: it is the position to resume from after that page."""
+    repo_names = repositories or list(_iter_repo_names(session, owner_base_url, headers, logger))
+
+    parent_params: dict[str, Any] = {"page_size": PAGE_SIZE}
+    child_params: dict[str, Any] = {**config.extra_params}
+    if config.response_shape is CodecovResponseShape.PAGINATED_LIST:
+        child_params = {"page_size": PAGE_SIZE, **config.extra_params}
+    stop_field: str | None = None
+    if cutoff is not None:
+        if config.incremental_server_param:
+            child_params[config.incremental_server_param] = _format_start_date(cutoff)
+        if parent.incremental_server_param:
+            parent_params[parent.incremental_server_param] = _format_start_date(cutoff)
+        stop_field = parent.incremental_stop_field
+
+    remaining, resume_url = _remaining_repos(repo_names, config, logger, resumable_source_manager)
+
+    for index, repo in enumerate(remaining):
+        next_repo = (
+            CodecovResumeConfig(next_url=None, repo=remaining[index + 1]) if index + 1 < len(remaining) else None
+        )
+        url = resume_url or _endpoint_url(owner_base_url, parent.path, parent_params, repo=repo)
+        resume_url = None
+
+        try:
+            for parents, next_url in _iter_pages(session, url, headers, logger):
+                for parent_row in parents:
+                    for rows in _iter_child_rows(
+                        session, owner_base_url, headers, config, parent, parent_row, repo, child_params, logger
+                    ):
+                        yield rows, None
+                if not next_url or _should_stop_desc(parents, stop_field, cutoff):
+                    break
+                yield [], CodecovResumeConfig(next_url=next_url, repo=repo)
+        except requests.HTTPError as exc:
+            # The parent list of a repo deleted (or deactivated) since enumeration 404s.
+            if exc.response is not None and exc.response.status_code == 404:
+                logger.warning(f"Codecov: repo {repo} not found while fetching {config.name}, skipping")
+            else:
+                raise
+
+        yield [], next_repo
+
+
+def _get_parent_fan_out_rows(
+    session: requests.Session,
+    owner_base_url: str,
+    headers: dict[str, str],
+    config: CodecovEndpointConfig,
+    parent: CodecovParentConfig,
+    repositories: list[str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CodecovResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over a list inside each repository (flags, commits or pulls), then fetch the
+    child endpoint once per row of that list."""
+    cutoff = _normalize_cutoff(db_incremental_field_last_value) if should_use_incremental_field else None
+    for rows, state in _iter_parent_fan_out_batches(
+        session, owner_base_url, headers, config, parent, repositories, logger, resumable_source_manager, cutoff
+    ):
+        if state is not None:
+            resumable_source_manager.save_state(state)
+        if rows:
+            yield rows
+        else:
+            # Many parent rows have no child rows (a commit without uploads, a pull without a
+            # comparison). Nothing is buffered here, so a shutdown can hand the run over.
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     api_token: str,
     service: str,
@@ -329,7 +479,20 @@ def get_rows(
     # One session reused across every page (and repo) so urllib3 keeps the connection alive.
     session = make_tracked_session()
 
-    if config.fan_out_over_repos:
+    if config.parent is not None:
+        yield from _get_parent_fan_out_rows(
+            session,
+            owner_base_url,
+            headers,
+            config,
+            config.parent,
+            repo_filter,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif config.fan_out_over_repos:
         yield from _get_fan_out_rows(
             session,
             owner_base_url,

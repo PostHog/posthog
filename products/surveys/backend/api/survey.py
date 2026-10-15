@@ -82,7 +82,13 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
+from products.surveys.backend.models import (
+    MAX_ITERATION_COUNT,
+    MAX_ITERATION_FREQUENCY_DAYS,
+    Survey,
+    SurveyResponseArchive,
+    ensure_question_ids,
+)
 from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
@@ -126,6 +132,7 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenHeader",
     "introScreenDescription",
     "introScreenButtonText",
+    "backButtonText",
 )
 SURVEY_QUESTION_HTML_FIELDS = (
     "question",
@@ -305,6 +312,7 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     introScreenButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
+    backButtonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated back button text.")
 
 
 class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
@@ -2291,7 +2299,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         required=False,
         allow_null=True,
         min_value=1,
-        max_value=365,
+        max_value=MAX_ITERATION_FREQUENCY_DAYS,
         help_text="For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
     )
     enable_partial_responses = serializers.BooleanField(

@@ -12,12 +12,10 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayPhoneHeader } from './TodayPhoneHeader'
-import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { todayRecentsLogic } from './todayRecentsLogic'
@@ -33,6 +31,9 @@ const TodayViewsSidebar = lazyWithRetry(() =>
 )
 const TodayProductsSidebar = lazyWithRetry(() =>
     import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
+)
+const TodaySettingsSidebar = lazyWithRetry(() =>
+    import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
 const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
@@ -91,14 +92,12 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? (
-                <TodayPreviewCardProvider>
-                    <TodayHomeSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'spaces' ? (
+            {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'views' ? (
                 <TodayViewsSidebar />
+            ) : activePane === 'settings' ? (
+                <TodaySettingsSidebar />
             ) : (
                 <TodayProductsSidebar />
             )}

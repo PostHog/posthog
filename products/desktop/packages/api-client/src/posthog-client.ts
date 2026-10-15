@@ -339,6 +339,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -3303,7 +3308,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3349,6 +3354,10 @@ export class PostHogAPIClient {
 
     if (options?.pinned) {
       params.pinned = true;
+    }
+
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
     }
 
     if (options?.commentedBy) {
@@ -7763,6 +7772,39 @@ export class PostHogAPIClient {
                 results: insight.result,
                 columns: insight.columns ?? [],
               },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
       };
     } catch (error) {
       if (requestErrorStatus(error) === 404) return null;
