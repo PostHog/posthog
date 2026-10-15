@@ -4,6 +4,28 @@ Use this reference when you change TaxonomicFilter search, loading, pagination, 
 For the full profiling workflow, use
 [`profiling-slow-api-endpoints`](../../profiling-slow-api-endpoints/SKILL.md).
 
+## Where users wait
+
+Measured with `taxonomic filter search latency` (`time_to_see_data_ms`).
+Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.md).
+
+- The median search is fast (~200ms) in every large group.
+- The slow tail is concentrated. Persons search has a p90 of ~4s and a p99 over 10s.
+  Pageview URLs have a slow p99.
+- Customers rarely report slowness. Failures that look like loading hurt more (see below).
+  Rank latency work against [failure-modes](failure-modes.md), not on its own.
+
+## A failed request must end the loading state
+
+`taxonomic filter fetch failed` fires on ~2% of searches, and some groups (cohorts, flags,
+session properties) fail far more often than average.
+A failure that leaves a spinner looks like slowness to the user.
+A 403 must not look like a slow request.
+
+- End the loading state on error in both `infiniteListLogic.ts` and `hooks/useGroupList.ts`.
+- Show what failed and offer a retry.
+- Keep `taxonomic filter fetch failed` firing with `groupType`, `searchQuery` and `surface`.
+
 ## Backend search plan
 
 The definition search can use two Postgres predicate forms.
@@ -39,7 +61,8 @@ Check both `infiniteListLogic.ts` and `hooks/useGroupList.ts` because the legacy
 - Compare both Postgres predicate forms with safe production `EXPLAIN` queries.
 - State whether each measured query used a warm or cold cache.
 - Run the definition API tests against Postgres.
-- Test the legacy and rebuild loading paths.
+- Test the legacy and rebuild loading paths, including a failed request.
+- After shipping, compare p90 and p99 by group and the fetch failure rate.
 
 Result tests alone do not protect the plan choice because both plans return the same rows.
 When plan selection changes, test the boundary, cache failure, and SQL shape.

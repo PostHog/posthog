@@ -1,0 +1,88 @@
+# Telemetry contract
+
+Dashboards, experiments and replay scanners read these events. Treat
+property shapes as a public API.
+
+- **Adding** a property: fine.
+- **Removing** a dead one: fine, once nothing reads it.
+- **Renaming or repurposing silently** is the worst case. Dashboards keep
+  working and start lying.
+
+Every `taxonomic filter *` event carries `surface` (`legacy-pill` or
+`rebuild-menu`). The legacy stamp comes from `legacyTaxonomicSurface()` in
+`taxonomicFilterSurface.ts`. The rebuild stamps `rebuild-menu` from
+`menu/TaxonomicFilterMenu.tsx`.
+
+## `groupType` vs `sourceGroupType`
+
+On `taxonomic filter item selected`:
+
+- `groupType` is the tab that was active when the user picked.
+- `sourceGroupType` is the group the item belongs to.
+
+A pick from Suggested has `groupType = suggested_filters` and a real
+`sourceGroupType`. To judge whether a group's items are used, count
+`sourceGroupType`. To judge whether a tab is used, count `groupType`.
+Mixing them up makes reachable groups look unused.
+
+## Shared events (both surfaces)
+
+Keep these comparable across arms. Add a property to both emitters or
+neither.
+
+- `taxonomic filter closed`: `surface`, `dwellMs`, `hadSelection`,
+  `categoryRailDocked`. Legacy also sends `groupType`; the rebuild omits
+  it because there is no single active tab at close.
+- `taxonomic filter item selected`: `surface`, `groupType`,
+  `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`,
+  `wasQuickFilter`, `hadSearchInput`, `position`, `query`, `wasStale`.
+
+## Search and results
+
+- `taxonomic_filter_search_query`: `searchQuery`, `groupType`,
+  `inputMode`, `pastedFraction`. Legacy only.
+- `taxonomic filter empty result`: `groupType`, `searchQuery`, `surface`.
+- `taxonomic filter search latency`: `groupType`, `searchQuery`,
+  `resultCount`, `time_to_see_data_ms`, `surface`.
+- `taxonomic filter fetch failed`: `groupType`, `searchQuery`, `surface`.
+  It has also fired on first-load failures since 2026-09-13. Rates from
+  before then are not comparable.
+
+## Navigation and preferences
+
+- `taxonomic filter add filter clicked`: marks the start of an open.
+  Useful for splitting sessions into opens.
+- `taxonomic filter category selected`: `groupType`.
+- `taxonomic filter category dropdown opened`: legacy pill only.
+- `taxonomic filter category rail toggled`: `docked`.
+- `taxonomic filter pin toggled`: `groupType`, `pinned`.
+- `taxonomic filter include stale toggled`.
+- `taxonomic filter default pins seeded`.
+
+## Assistive features
+
+- `taxonomic filter search intent predicted`: `query`, `activeTab`,
+  `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`,
+  `wouldPromote`, `promptVersion`, `source`, `surface`.
+- `taxonomic filter search intent switched`: `fromGroupType`,
+  `toGroupType`, `surface`.
+- `taxonomic filter event match answered`: emitted server side.
+- `taxonomic filter event match suggested`: `suggestedEvents`, `surface`.
+- `taxonomic filter event match selected`: `eventName`, `position`,
+  `surface`.
+
+Read these as funnels: answered, then suggested, then selected.
+
+## Rebuild-only menu events
+
+`taxonomic filter menu opened` / `drilled` / `closed` / `option clicked` /
+`item selected` / `category changed` / `preference changed` /
+`pin toggled`.
+
+## Before changing telemetry
+
+1. Search dashboards and insights for the event and property
+   (`system.insights` via the PostHog MCP).
+2. Check the replay scanners' prompts if they mention the behaviour.
+3. Update [refreshing-product-reality](refreshing-product-reality.md) if a
+   query uses it.

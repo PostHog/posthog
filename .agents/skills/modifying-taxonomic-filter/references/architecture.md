@@ -2,7 +2,8 @@
 
 There are two architectures living side by side: the **legacy** kea-driven
 tree (below) and the **rebuild** (`menu/` + `headless/`, hooks-driven). See
-the "Mirroring changes" table in `SKILL.md` for which concern lives where.
+the mirroring table in [surfaces-and-mirroring](surfaces-and-mirroring.md) for
+which concern lives where.
 This file documents both.
 
 ## Legacy component tree
