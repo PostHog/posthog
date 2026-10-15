@@ -13,7 +13,8 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectCreateRequestSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
-from posthog.api.team import TeamCustomerAnalyticsConfigSerializer, TeamSerializer
+from posthog.api.team.team_config import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -51,6 +52,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for field_name in ("id", "organization", "created_at", "api_token", "home_tab_dashboard"):
             self.assertNotIn(field_name, serializer.fields)
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
+
+    def test_conversations_settings_ai_reply_modes_requires_an_object(self):
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -1000,7 +1009,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         with (
             capture_db_queries() as queries,
-            patch("posthog.api.team.report_user_action") as mock_report,
+            patch("posthog.api.team.conversations_settings.report_user_action") as mock_report,
         ):
             with (
                 patch.object(Team.objects, "select_for_update", simulate_integration_update),

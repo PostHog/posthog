@@ -124,7 +124,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, experimentContext } = useValues(scannerLogic)
+    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, linkedExperimentContext } =
+        useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -222,7 +223,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         scanner from scratch.
                                     </p>
                                 </div>
-                                <ExperimentScopeNote experimentName={experimentContext?.experiment.name} />
+                                <ExperimentScopeNote experimentName={linkedExperimentContext?.experiment.name} />
                                 <ScannerTemplatePicker />
                                 {/* The goal flow supersedes this box, so someone who has already
                                     turned it down to build by hand should not be offered it again.

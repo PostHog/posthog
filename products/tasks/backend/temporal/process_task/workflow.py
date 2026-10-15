@@ -149,6 +149,7 @@ from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
+    complete_signal_spend,
     update_task_run_status,
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
@@ -160,6 +161,7 @@ _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
+_PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -619,6 +621,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._boot_path: str | None = None
         self._image_source: str | None = None
         self._agent_ready_at: datetime | None = None
+        self._startup_worker_started_at: datetime | None = None
+        self._startup_context_loaded_at: datetime | None = None
         # Milestones the agent hits before readiness is stamped, sampled once it is.
         self._boot_milestones_before_ready: list[tuple[str, datetime]] = []
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
@@ -1299,6 +1303,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
+        if (
+            input.resumed_sandbox is None
+            and workflow.in_workflow()
+            and workflow.patched(_PATCH_ID_SHARED_STARTUP_TIMING)
+        ):
+            self._startup_worker_started_at = workflow.now()
         sandbox_id = None
         sandbox_cleaned = False
         run_stream_completed = False
@@ -1318,6 +1328,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._startup_worker_started_at is not None:
+                self._startup_context_loaded_at = workflow.now()
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
             # A local-environment run is driven by the user's desktop agent — QUEUED does not
             # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
@@ -1854,6 +1866,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                 if sandbox_cleaned and self._slack_thread_context and self._context:
                     await self._post_slack_update(sandbox_cleaned=True)
+
+                if (
+                    self._context
+                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and workflow.patched("signals-publish-spend-on-completion")
+                ):
+                    try:
+                        await workflow.execute_activity(
+                            complete_signal_spend,
+                            run_id,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
@@ -2780,6 +2807,38 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "transport": "sequenced_ingest" if self.context.sandbox_event_ingest_enabled else "sse",
             "prewarmed": self._prewarmed,
         }
+        if self._startup_worker_started_at is not None:
+            properties.update(
+                {
+                    "observed_at": now.isoformat(),
+                    "workflow_accepted_at": workflow.info().start_time.isoformat(),
+                    "worker_started_at": self._startup_worker_started_at.isoformat(),
+                    "context_loaded_at": self._startup_context_loaded_at.isoformat()
+                    if self._startup_context_loaded_at
+                    else None,
+                    "startup_requested_at": (self.context.state or {}).get("startup_requested_at"),
+                    "run_environment": self.context.environment,
+                    "agent_ready_at": self._agent_ready_at.isoformat() if self._agent_ready_at else None,
+                }
+            )
+            requested_at = properties["startup_requested_at"]
+            if isinstance(requested_at, str) and not is_same_run_resume_state(self.context.state or {}):
+                try:
+                    requested = datetime.fromisoformat(requested_at)
+                    if requested.tzinfo is not None and requested <= now:
+                        properties["since_startup_requested_ms"] = int((now - requested).total_seconds() * 1000)
+                        properties["handoff_ms"] = max(
+                            0, int((workflow.info().start_time - requested).total_seconds() * 1000)
+                        )
+                except ValueError:
+                    pass
+            properties["worker_wait_ms"] = max(
+                0, int((self._startup_worker_started_at - workflow.info().start_time).total_seconds() * 1000)
+            )
+            if self._startup_context_loaded_at is not None:
+                properties["task_setup_ms"] = max(
+                    0, int((self._startup_context_loaded_at - self._startup_worker_started_at).total_seconds() * 1000)
+                )
         if since_agent_ready_ms is not None:
             self._record_boot_milestone_sample(event_name, since_agent_ready_ms)
         else:

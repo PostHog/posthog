@@ -12,6 +12,7 @@ import { activityAt, RowSkeletons, TaskRow } from "@/components/TaskRow";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
 import { useTasks } from "@/lib/queries";
+import { useReportScope } from "@/lib/reportScope";
 import { useReportReadStates, useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -21,7 +22,8 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const tasks = useTasks();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
-  const reports = useReports().data;
+  const scope = useReportScope((s) => s.scope);
+  const reports = useReports("", "attention", { scope }).data;
   const reportIds = useMemo(
     () => (reports ?? []).map((report) => report.id),
     [reports],

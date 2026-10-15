@@ -1,6 +1,7 @@
 import json
 from dataclasses import replace
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -26,13 +27,21 @@ from posthog.models.personal_api_key import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport
-from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
-from products.today.backend.logic import briefings
+from products.today.backend.logic import highlights
+from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
-from products.today.backend.models import DailyBriefing
+from products.today.backend.temporal.inputs import (
+    ComputeHighlightsInputs,
+    FinalizeHighlightsInputs,
+    HighlightSourceInputs,
+)
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
+from products.today.backend.tests.test_highlights import candidate, metric
 from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 FIGURE_LEAD = "🚨 The export failed for 212 users."
@@ -40,7 +49,6 @@ FIGURE_SOURCE = "On Monday 🚨 the export failed for 212 users."
 WRITTEN_AT = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 
 
-@patch("products.today.backend.logic.briefings.sync_connect")
 class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -54,132 +62,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             "products.today.backend.feature_flags.feature_enabled_or_false",
             side_effect=lambda flag, *args, **kwargs: flag in enabled,
         )
-
-    @parameterized.expand(
-        [
-            ("flag off", False, True, False),
-            ("ai data processing not approved", True, False, False),
-            ("out of ai credits", True, True, True),
-        ]
-    )
-    # The class-level patch passes its mock before the parameterized arguments.
-    def test_no_briefing_and_no_row_for_people_who_may_not_get_one(
-        self, _sync_connect: MagicMock, _name: str, flag: bool, approved: bool, limited: bool
-    ) -> None:
-        self.organization.is_ai_data_processing_approved = approved
-        self.organization.save()
-        with (
-            self._flag(flag),
-            patch("products.today.backend.feature_flags.is_team_limited", return_value=limited),
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert not DailyBriefing.objects.for_team(self.team.id).exists()
-
-    def test_first_open_creates_one_briefing_and_starts_generation_once(self, sync_connect: MagicMock) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        # At noon UTC it is past eight in Prague and in the project's UTC, so both calls read the same briefing day.
-        with self._flag(True), time_machine.travel(datetime(2026, 9, 30, 12, 0, tzinfo=UTC), tick=False):
-            first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague")
-            # An MCP call sends no timezone; it must not move the person's mornings to the project's.
-            second = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
-
-        assert first.status_code == status.HTTP_200_OK, first.json()
-        assert first.json()["status"] == BriefingStatus.COLLECTING
-        assert second.json()["id"] == first.json()["id"]
-        rows = DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id)
-        assert [(row.trigger, row.timezone) for row in rows] == [(BriefingTrigger.FIRST_OPEN, "Europe/Prague")]
-        assert sync_connect.return_value.start_workflow.call_count == 1
-
-    def test_first_opens_racing_each_other_start_one_run(self, sync_connect: MagicMock) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        url = f"/api/projects/{self.team.id}/today/briefing/"
-        real_current = briefings._current
-        reads = {"count": 0}
-
-        # Both requests read the day's rows before either wrote; only the retry sees the winner's row.
-        def stale_for_both_requests(*args, **kwargs):
-            reads["count"] += 1
-            return None if reads["count"] <= 2 else real_current(*args, **kwargs)
-
-        with self._flag(True), patch.object(briefings, "_current", side_effect=stale_for_both_requests):
-            first = self.client.get(url)
-            second = self.client.get(url)
-
-        assert second.json()["id"] == first.json()["id"]
-        assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
-        assert sync_connect.return_value.start_workflow.call_count == 1
-
-    def test_the_briefing_day_starts_at_eight(self, sync_connect: MagicMock) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        url = f"/api/projects/{self.team.id}/today/briefing/?timezone=Europe/Prague"
-        with self._flag(True):
-            # Prague is UTC+2: 07:00 local time still belongs to yesterday's briefing, 09:00 to today's.
-            with time_machine.travel(datetime(2026, 9, 30, 5, 0, tzinfo=UTC), tick=False):
-                early = self.client.get(url).json()
-            with time_machine.travel(datetime(2026, 9, 30, 7, 0, tzinfo=UTC), tick=False):
-                today = self.client.get(url).json()
-                # A call without a timezone uses the project's UTC, where it is still before eight.
-                without_timezone = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
-
-        assert early["local_day"] == "2026-09-29"
-        assert today["local_day"] == "2026-09-30"
-        assert early["id"] != today["id"]
-        assert without_timezone["id"] == early["id"]
-        assert sync_connect.return_value.start_workflow.call_count == 2
-
-    def test_a_refresh_while_one_is_being_written_starts_nothing_new(self, sync_connect: MagicMock) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        with self._flag(True):
-            responses = [self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/") for _ in range(3)]
-            DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id).update(
-                status=BriefingStatus.READY
-            )
-            after_ready = self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/")
-
-        assert [response.status_code for response in [*responses, after_ready]] == [200, 200, 200, 200]
-        # The first refresh starts a run; the next two find it still writing; the last starts a second one.
-        assert sync_connect.return_value.start_workflow.call_count == 2
-
-    def test_a_refresh_keeps_the_ready_briefing_on_screen_until_the_new_one_is_written(
-        self, sync_connect: MagicMock
-    ) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        with self._flag(True):
-            first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
-            DailyBriefing.objects.for_team(self.team.id).filter(id=first["id"]).update(
-                status=BriefingStatus.READY,
-                content={"headline": "Morning text", "paragraphs": [], "labels": {}, "signals": {}},
-            )
-            refreshed = self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/").json()
-            while_writing = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
-            new_id = (
-                DailyBriefing.objects.for_team(self.team.id)
-                .filter(user_id=self.user.id, trigger=BriefingTrigger.REFRESH)
-                .values_list("id", flat=True)
-                .get()
-            )
-            DailyBriefing.objects.for_team(self.team.id).filter(id=new_id).update(
-                status=BriefingStatus.READY,
-                content={"headline": "Fresh text", "paragraphs": [], "labels": {}, "signals": {}},
-            )
-            done = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
-
-        assert (refreshed["id"], refreshed["status"], refreshed["headline"]) == (first["id"], "writing", "Morning text")
-        assert (while_writing["status"], while_writing["headline"]) == ("writing", "Morning text")
-        assert (done["id"], done["status"], done["headline"]) == (str(new_id), "ready", "Fresh text")
-
-    def test_briefings_of_other_people_stay_private(self, _sync_connect: MagicMock) -> None:
-        other = self._create_user("other@example.com")
-        with self._flag(True):
-            self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
-            self.client.force_login(other)
-            response = self.client.get(f"/api/projects/{self.team.id}/today/briefing/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
-        assert DailyBriefing.objects.for_team(self.team.id).count() == 2
 
     @parameterized.expand(
         [
@@ -203,9 +85,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_key_clauses_answer_only_people_who_may_use_jev_even_without_ai_credits(
+    def test_key_clauses_answer_only_people_who_may_use_jev(
         self,
-        _sync_connect: MagicMock,
         _name: str,
         flag: bool | frozenset[str],
         report_id: str,
@@ -219,7 +100,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         )
         with (
             self._flag(flag),
-            patch("products.today.backend.feature_flags.is_team_limited", return_value=True),
             patch("products.today.backend.facade.api.signals.report_page_source", return_value=page),
             patch("products.today.backend.facade.api.GatewayJev", return_value=jev, side_effect=gateway_error),
         ):
@@ -244,7 +124,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
     )
     def test_figure_marks_name_the_sentence_that_states_each_number(
         self,
-        _sync_connect: MagicMock,
         _name: str,
         flag: bool,
         source_kind: str,
@@ -317,7 +196,6 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
     )
     def test_excerpt_choice_asks_the_gateway_once_for_the_finding(
         self,
-        _sync_connect: MagicMock,
         _name: str,
         outcome: ChoiceAnswer | Exception,
         expected: int,
@@ -358,7 +236,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ]
     )
     def test_report_page_answers_people_with_the_new_navigation(
-        self, _sync_connect: MagicMock, _name: str, flag: bool, report_id: str, expected: int, lead: str | None
+        self, _name: str, flag: bool, report_id: str, expected: int, lead: str | None
     ) -> None:
         with (
             self._flag(flag),
@@ -372,14 +250,33 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the page with only today", "get", "page", ["today:read"], status.HTTP_403_FORBIDDEN),
-            ("the page with today and signals", "get", "page", ["today:read", "task:read"], status.HTTP_200_OK),
-            ("key clauses with only today", "get", "key_clauses", ["today:read"], status.HTTP_403_FORBIDDEN),
-            ("figure marks with only today", "get", "figure_marks", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "the page with today and signals",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "task:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "key clauses with only today",
+                "get",
+                f"reports/{REPORT_ID}/key_clauses",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "figure marks with only today",
+                "get",
+                f"reports/{REPORT_ID}/figure_marks",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("highlights with only today", "get", "highlights", ["today:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_a_scoped_key_reads_report_data_only_with_the_signals_scope(
-        self, _sync_connect: MagicMock, _name: str, method: str, endpoint: str, scopes: list[str], expected: int
+    def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
+        self, _name: str, method: str, path: str, scopes: list[str], expected: int
     ) -> None:
         raw_key = "today_report_page_key"
         PersonalAPIKey.objects.create(
@@ -391,7 +288,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
         ):
             response = getattr(self.client, method)(
-                f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/{endpoint}/",
+                f"/api/projects/{self.team.id}/today/{path}/",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
 
@@ -406,7 +303,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ]
     )
     def test_a_member_reads_report_data_only_with_access_to_inbox_reports(
-        self, _sync_connect: MagicMock, _name: str, endpoint: str, task_access: str | None, expected: int
+        self, _name: str, endpoint: str, task_access: str | None, expected: int
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -425,9 +322,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == expected
 
     @parameterized.expand([("a deleted report", True, False), ("another team's report", False, True)])
-    def test_report_page_answers_404_for(
-        self, _sync_connect: MagicMock, _name: str, deleted: bool, other: bool
-    ) -> None:
+    def test_report_page_answers_404_for(self, _name: str, deleted: bool, other: bool) -> None:
         team = Team.objects.create(organization=self.organization) if other else self.team
         report = SignalReport.objects.create(
             team=team,
@@ -444,3 +339,77 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report.id}/page/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def _temporal() -> MagicMock:
+    connect = MagicMock()
+    connect.return_value.start_workflow = AsyncMock()
+    return connect
+
+
+class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
+    def _get(self, connect: MagicMock, flag: bool = True) -> "_MonkeyPatchedResponse":
+        source = Source(
+            name="alerts", find=lambda _c: Found(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),))
+        )
+        with (
+            patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
+            patch.object(highlights, "load_sources", return_value=(source,)),
+            patch.object(highlights, "sync_connect", connect),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/highlights/")
+            if response.status_code == status.HTTP_200_OK and connect.return_value.start_workflow.called:
+                inputs: ComputeHighlightsInputs = connect.return_value.start_workflow.call_args.args[1]
+                results = [
+                    highlights.run_source(
+                        HighlightSourceInputs(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            local_day=inputs.local_day,
+                            scopes=inputs.scopes,
+                            source_name=name,
+                        )
+                    )
+                    for name in inputs.source_names
+                ]
+                highlights.finalize(
+                    FinalizeHighlightsInputs(
+                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results
+                    )
+                )
+        return response
+
+    @parameterized.expand([("flag on", True, status.HTTP_200_OK), ("flag off", False, status.HTTP_404_NOT_FOUND)])
+    def test_highlights_need_the_flag_but_not_ai(self, _name: str, flag: bool, expected: int) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        cache.clear()
+
+        response = self._get(_temporal(), flag)
+
+        self.assertEqual(response.status_code, expected)
+
+    @time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False)
+    def test_the_first_call_starts_the_computation_and_a_later_call_serves_its_result(self) -> None:
+        cache.clear()
+        connect = _temporal()
+
+        first = self._get(_temporal()).json()
+        second = self._get(connect).json()
+
+        self.assertEqual(
+            (
+                (first["status"], first["generated_at"], first["pulse"], first["items"]),
+                second["status"],
+                [(m["key"], m["interval"], m["value_format"], len(m["period_starts"])) for m in second["pulse"]],
+                [(i["key"], i["source"], i["label"], i["priority"], i["series"]) for i in second["items"]],
+                connect.return_value.start_workflow.called,
+            ),
+            (
+                ("computing", None, [], []),
+                "ready",
+                [("k1", "day", None, 1)],
+                [("alert:1", "alerts", "risk", "P1", None)],
+                False,
+            ),
+        )

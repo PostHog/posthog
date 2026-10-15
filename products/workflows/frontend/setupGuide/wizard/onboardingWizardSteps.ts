@@ -20,6 +20,8 @@ export type WizardStepKey =
 export const ONBOARDING_WIZARD_TAB = 'onboarding'
 /** The `template` value for starting from an empty workflow instead of a template. */
 export const BLANK_START_ID = 'blank'
+/** The `template_id` the finished event reports when a data suggestion created the workflow. */
+export const DATA_SUGGESTION_START_ID = 'data_suggestion'
 
 export function onboardingWizardUrl(
     path: WorkflowsOnboardingPath,

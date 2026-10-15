@@ -10,18 +10,24 @@ re-validates everything on save.
 """
 
 import re
+import time
 import uuid
+import functools
 import itertools
-from collections.abc import Collection, Sequence
+import threading
+from collections.abc import Callable, Collection, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, replace
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
 from django.conf import settings
+from django.db import connections
 from django.db.models import Q
 
 import structlog
 import posthoganalytics
-from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse
+from google.genai.types import FinishReason, GenerateContentConfig, GenerateContentResponse, ThinkingConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
@@ -32,6 +38,8 @@ from posthog.api.search import (
     EntityConfig,
     search_entities,
 )
+from posthog.clickhouse.query_tagging import get_query_tags, query_tags
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import EventDefinition
 from posthog.models.team import Team
@@ -69,6 +77,16 @@ logger = structlog.get_logger(__name__)
 # Interactive request path, but drafting a whole scanner well needs more model than the tag helper.
 _DRAFT_MODEL = "gemini-3.8-flash"
 _MODEL_CALL_TIMEOUT_MS = 90_000
+# A slower failure already cost most of a draft's wait, so a retry would double it.
+_MAX_RETRYABLE_FAILURE_S = 10
+# Reasoning is most of the draft's wait, so the budget caps it.
+_DRAFT_THINKING_BUDGET = 2_048
+# Runs estimates a draft may not wait for, so they never hold a request's own threads.
+_BACKGROUND_WORKERS = 8
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS, thread_name_prefix="vision-draft-background")
+# Work starts only on a free worker, so a draft never waits behind other drafts' discarded estimates.
+_BACKGROUND_SLOTS = threading.BoundedSemaphore(_BACKGROUND_WORKERS)
+_T = TypeVar("_T")
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
@@ -616,6 +634,7 @@ def _generate(
     system_prompt: str = _SYSTEM_PROMPT,
     response_model: type[_LlmDraft] = _LlmDraft,
     feature: str = "draft_scanner_from_goal",
+    thinking_budget: int | None = None,
 ) -> _LlmDraft:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
@@ -636,6 +655,7 @@ def _generate(
         response_mime_type="application/json",
         response_json_schema=response_model.model_json_schema(),
         max_output_tokens=_MAX_OUTPUT_TOKENS,
+        thinking_config=ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
     )
 
     def call_model() -> GenerateContentResponse:
@@ -651,13 +671,18 @@ def _generate(
                 # legacy AI box's in LLM analytics — the rollout compares exactly those two.
                 "feature": feature,
                 "team_id": team_id,
+                "thinking_budget": thinking_budget,
             },
             posthog_groups={"project": str(team_id)},
         )
 
+    started = time.monotonic()
     try:
         response = call_model()
-    except Exception:
+    except Exception as e:
+        if time.monotonic() - started > _MAX_RETRYABLE_FAILURE_S:
+            logger.exception("replay_vision.scanner_draft.generate_failed", team_id=team_id, retried=False)
+            raise DraftError("model_call_failed") from e
         # One immediate second attempt: the user is sitting on this request, and a transient
         # provider blip shouldn't cost them the draft.
         try:
@@ -1842,6 +1867,50 @@ def _finalize_v2(
     )
 
 
+def _closing(item: Callable[[], _T]) -> Callable[[], _T]:
+    def run() -> _T:
+        try:
+            return item()
+        finally:
+            # A worker thread's connections are its own, and nothing else would close them.
+            connections.close_all()
+
+    return run
+
+
+def _run_concurrently(work: Sequence[Callable[[], None]], *, thread_name_prefix: str) -> None:
+    """Run independent reads at once, so the draft waits for the slowest rather than for their sum."""
+    # Django does not make the test transaction visible to another thread, so tests run them in turn.
+    if len(work) <= 1 or settings.TEST:
+        for item in work:
+            item()
+        return
+    run_in_parallel_threads(
+        [_closing(item) for item in work], max_workers=len(work), thread_name_prefix=thread_name_prefix
+    )
+
+
+def _start_in_background(work: Callable[[], _T]) -> Callable[[], _T]:
+    """Start `work` now and return a getter that waits for its result. A caller that never asks never waits.
+
+    With no free worker, the getter runs `work` itself on first call instead.
+    """
+    if settings.TEST or not _BACKGROUND_SLOTS.acquire(blocking=False):
+        return functools.cache(work)
+
+    def run() -> _T:
+        try:
+            # A private copy, so the worker cannot change the caller's query tags in place.
+            query_tags.set(get_query_tags().model_copy())
+            return _closing(work)()
+        finally:
+            _BACKGROUND_SLOTS.release()
+
+    context = copy_context()
+    future: Future[_T] = _BACKGROUND_EXECUTOR.submit(lambda: context.run(run))
+    return lambda: future.result()
+
+
 def draft_scanner_from_goal_v2(
     *,
     team: Team,
@@ -1858,24 +1927,46 @@ def draft_scanner_from_goal_v2(
     Raises DraftError on model failure. A costing failure does not fail the draft: the sampling
     fields come back None and the wizard keeps its defaults.
     """
-    try:
-        pages = fetch_visited_paths(team=team)
-    except Exception:
-        # A draft grounded only in events still beats no draft; the filter just cannot name pages.
-        logger.warning("replay_vision.scanner_draft.visited_paths_failed", team_id=team.id, exc_info=True)
-        pages = ()
-    events = _events_for_goal(team, goal)
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context
         else ""
     )
-    matches = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
-    # Measured here rather than inside the match, so the access-control helper stays free of a
-    # ClickHouse query its other callers do not need.
-    matches = replace(matches, actions=_live_actions(team, matches.actions))
-    survey_events: set[str] = set()
-    if matches.surveys:
+
+    # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
+    # count tells the model which of the matching names is worth filtering on. Event volume is an
+    # analytics read behind query:read, so a scoped token without it gets the names unmeasured —
+    # counts the briefing would show could otherwise reach the model's prompt and rationale.
+    def measure(names: Sequence[str]) -> list[_CandidateEvent]:
+        if _scopes_allow_read(allowed_scopes, "query"):
+            return _measured_events(team, names)
+        return [_CandidateEvent(name=name) for name in names]
+
+    pages: Sequence[VisitedPath] = ()
+    goal_events: list[_CandidateEvent] = []
+    matches = _GoalEntityMatches(surveys=[], actions=[], cohorts=[], experiments=[])
+    survey_events: list[_CandidateEvent] = []
+
+    def read_pages() -> None:
+        nonlocal pages
+        try:
+            pages = fetch_visited_paths(team=team)
+        except Exception:
+            # A draft grounded only in events still beats no draft; the filter just cannot name pages.
+            logger.warning("replay_vision.scanner_draft.visited_paths_failed", team_id=team.id, exc_info=True)
+
+    def read_goal_events() -> None:
+        nonlocal goal_events
+        goal_events = measure(_events_for_goal(team, goal))
+
+    def read_entities() -> None:
+        nonlocal matches, survey_events
+        matched = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
+        # Measured here rather than inside the match, so the access-control helper stays free of a
+        # ClickHouse query its other callers do not need.
+        matches = replace(matched, actions=_live_actions(team, matched.actions))
+        if not matches.surveys:
+            return
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without
         # the event it rides on, so offer those events whenever a survey matched.
@@ -1884,26 +1975,19 @@ def draft_scanner_from_goal_v2(
         # the goal search returns that spelling. Both would otherwise reach the briefing as separate
         # candidates for the one event.
         canonical = _event_names_by_lower(team.id, _SURVEY_EVENTS)
-        # A list, not the set, so the briefing keeps a stable order: string hashing is randomized
+        # A list, not a set, so the briefing keeps a stable order: string hashing is randomized
         # per process, and an order that moves between runs makes drafts irreproducible.
         injected = [canonical.get(name, name) for name in _SURVEY_EVENTS]
-        survey_events = set(injected)
-        events = list(dict.fromkeys([*injected, *events]))
-    # Measured here, not in `_events_for_goal`: that lookup is a name search, and only a session
-    # count tells the model which of the matching names is worth filtering on. Event volume is an
-    # analytics read behind query:read, so a scoped token without it gets the names unmeasured —
-    # counts the briefing would show could otherwise reach the model's prompt and rationale.
-    measured = (
-        _measured_events(team, events)
-        if _scopes_allow_read(allowed_scopes, "query")
-        else [_CandidateEvent(name=name) for name in events]
-    )
-    # The survey events are injected to carry a `$survey_id` filter, not because volume picked
-    # them. A survey quiet for the window measures zero on all of them, and the filter can only
-    # ride on an event the query carries, so dropping them would widen a one-survey scan to every
-    # session. Offered without a count instead, the way an unmeasured event reads.
-    if survey_events:
-        measured = [replace(c, sessions=None) if c.sessions == 0 and c.name in survey_events else c for c in measured]
+        # The survey events are injected to carry a `$survey_id` filter, not because volume picked
+        # them. A survey quiet for the window measures zero on all of them, and the filter can only
+        # ride on an event the query carries, so dropping them would widen a one-survey scan to every
+        # session. Offered without a count instead, the way an unmeasured event reads.
+        survey_events = [replace(c, sessions=None) if c.sessions == 0 else c for c in measure(injected)]
+
+    _run_concurrently([read_pages, read_goal_events, read_entities], thread_name_prefix="vision-draft-grounding")
+    # A survey event wins a name both lists hold, so it keeps its exemption from the dead-event drop.
+    survey_names = {c.name for c in survey_events}
+    measured = [*survey_events, *(c for c in goal_events if c.name not in survey_names)]
     # A measured-zero event fired in no session in the window, so a filter on it (events AND with the
     # rest) would take the whole scan to zero. Drop it from the briefing like a dead action, and carry
     # its name so grounding's definition-lookup fallback cannot re-admit it. sessions=None is an
@@ -1929,6 +2013,7 @@ def draft_scanner_from_goal_v2(
         system_prompt=_SYSTEM_PROMPT_V2,
         response_model=_LlmDraftV2,  # type: ignore[arg-type]
         feature="draft_scanner_from_goal_v2",
+        thinking_budget=_DRAFT_THINKING_BUDGET,
     )
     draft = _finalize_v2(
         cast(_LlmDraftV2, parsed),
@@ -1945,28 +2030,44 @@ def draft_scanner_from_goal_v2(
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
     draft = replace(draft, name=_free_scanner_name(team.id, draft.name), credit_limit=monthly_credit_budget)
 
-    try:
-        solution = _solve_budget(
+    def solve(query: dict[str, Any] | None) -> _BudgetSolution:
+        return _solve_budget(
             team=team,
             user=user,
-            query=draft.query,
+            query=query,
+            # Targeting survives the page fallback: the goal named the experiment, so a population
+            # that ignores it answers a different question, and unlike an event filter it cannot be
+            # the dead part — the exposure read is resolved from the experiment itself.
             experiment_targeting=draft.experiment_targeting,
             monthly_credit_budget=monthly_credit_budget,
             credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
+
+    # Started next to the draft's own estimate, so a filter that matches nothing costs no second wait.
+    fallback = _pages_only(draft.query)
+    if fallback == draft.query:
+        fallback = None
+
+    def solve_fallback() -> _BudgetSolution | None:
+        try:
+            return solve(fallback)
+        except Exception:
+            logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
+            return None
+
+    relaxed = _start_in_background(solve_fallback) if fallback is not None else None
+    try:
+        solution = solve(draft.query)
     except Exception:
         # A slow count must not throw away a good draft; the wizard falls back to its defaults.
         logger.warning("replay_vision.scanner_draft.budget_solve_failed", team_id=team.id, exc_info=True)
         return replace(draft, sampling_mode=None, sampling_rate=None, estimated_monthly_observations=None)
-    if solution.estimated_monthly_observations == 0:
-        draft, solution = _fall_back_to_pages(
-            team=team,
-            user=user,
-            draft=draft,
-            solution=solution,
-            monthly_credit_budget=monthly_credit_budget,
-        )
+    if solution.estimated_monthly_observations == 0 and fallback is not None and relaxed is not None:
+        if (relaxed_solution := relaxed()) is not None:
+            draft, solution = _fall_back_to_pages(
+                team=team, draft=draft, solution=solution, fallback=fallback, relaxed=relaxed_solution
+            )
     return replace(
         draft,
         sampling_mode=solution.sampling_mode,
@@ -2004,10 +2105,10 @@ def _pages_only(query: dict[str, Any] | None) -> dict[str, Any] | None:
 def _fall_back_to_pages(
     *,
     team: Team,
-    user: User,
     draft: ScannerDraft,
     solution: _BudgetSolution,
-    monthly_credit_budget: int,
+    fallback: dict[str, Any],
+    relaxed: _BudgetSolution,
 ) -> tuple[ScannerDraft, _BudgetSolution]:
     """Replace a filter that matches no sessions with the draft's page filter.
 
@@ -2015,29 +2116,9 @@ def _fall_back_to_pages(
     whole filter to zero and the scanner never runs. The pages come from measured traffic, which
     makes them the one part of the filter that cannot be dead.
 
-    Returns the draft and solution unchanged when the draft has no page filter, when the estimate
-    fails, or when the pages match nothing either, because widening to every session would scan a
-    product the goal never asked about.
+    Returns the draft and solution unchanged when the pages match nothing either, because widening
+    to every session would scan a product the goal never asked about.
     """
-    fallback = _pages_only(draft.query)
-    if fallback is None:
-        return draft, solution
-    try:
-        relaxed = _solve_budget(
-            team=team,
-            user=user,
-            query=fallback,
-            # Targeting survives the fallback: the goal named the experiment, so a population that
-            # ignores it answers a different question, and unlike an event filter it cannot be the
-            # dead part — the exposure read is resolved from the experiment itself.
-            experiment_targeting=draft.experiment_targeting,
-            monthly_credit_budget=monthly_credit_budget,
-            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
-            model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
-        )
-    except Exception:
-        logger.warning("replay_vision.scanner_draft.fallback_solve_failed", team_id=team.id, exc_info=True)
-        return draft, solution
     if relaxed.estimated_monthly_observations == 0:
         return draft, solution
 

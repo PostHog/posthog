@@ -69,6 +69,7 @@ def test_process_query_task_workload_routing(
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
+        (Workload.NEW_EVENTS_CLUSTER, Workload.NEW_EVENTS_CLUSTER),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):

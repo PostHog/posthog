@@ -16,6 +16,8 @@ findings (and so left no `Signal` row to query against) — plus the
 
 from __future__ import annotations
 
+import json
+import hashlib
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
@@ -43,6 +45,28 @@ if TYPE_CHECKING:
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
 
+# The columns `_to_summary` reads, so the run reads skip the large TaskRun JSON columns (`output`,
+# `artifacts`, `state`). Add a field here when `_to_summary` reads it, or each row costs one more query.
+RUN_SUMMARY_FIELDS = (
+    "id",
+    "skill_name",
+    "skill_version",
+    "created_at",
+    "summary",
+    "emitted_count",
+    "emitted_finding_ids",
+    "emitted_report_ids",
+    "edited_report_ids",
+    "metadata",
+    "total_spend",
+    "task_run__id",
+    "task_run__task_id",
+    "task_run__status",
+    "task_run__created_at",
+    "task_run__completed_at",
+    "task_run__error_message",
+)
+
 # The per-scout run window backing the inbox scout surfaces. 25 runs covers a day for an hourly
 # scout and a month for a daily one — the point being that both get enough history to judge, which
 # a single fleet-wide time window can't do.
@@ -60,6 +84,10 @@ STALENESS_INTERVAL_MULTIPLE = 3
 # A cron schedule has no interval to read, so sample its next few gaps and take the widest — a
 # monthly cron reads as ~31 days, a weekday-only one as the weekend gap.
 CRON_GAP_SAMPLES = 4
+
+# Part of every `runs_version`. Bump it when `_to_summary` changes its output, so a client that
+# holds a body in the old shape fetches the new one.
+RUNS_VERSION_SCHEMA = 2
 
 # Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
 # on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
@@ -132,6 +160,7 @@ class RunSummary:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -176,6 +205,7 @@ class RunDetail:
     # harness-computed run flags written at finalize. Empty for default-model runs that never
     # finalized, and for rows predating the column.
     metadata: dict[str, Any] = field(default_factory=dict)
+    total_spend: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -214,6 +244,7 @@ def search_recent_runs(
         SignalScoutRun.objects.filter(team_id=team_id)
         .exclude(metadata__has_key="scout_trial")
         .select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
         .order_by("-created_at")
     )
     if date_from is not None:
@@ -328,6 +359,26 @@ def recent_runs_per_scout(
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
+    See `recent_run_ids_per_scout` for which runs those are.
+    """
+    run_ids = recent_run_ids_per_scout(
+        team_id=team_id,
+        per_scout_limit=per_scout_limit,
+        max_age_days=max_age_days,
+        exclude_skill_name=exclude_skill_name,
+    )
+    return runs_by_id(team_id=team_id, run_ids=run_ids)
+
+
+def recent_run_ids_per_scout(
+    *,
+    team_id: int,
+    per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
+    max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    exclude_skill_name: str | None = None,
+) -> list[Any]:
+    """Return the ids of each configured scout's most recent runs.
+
     A cadence-invariant alternative to `search_recent_runs`' fixed time window. A fleet-wide
     lookback has to serve an hourly scout and a weekly one from one budget: widen it and the busy
     scouts fill the result cap, leaving the sparse ones with a history that gets shorter the
@@ -380,15 +431,50 @@ def recent_runs_per_scout(
                 floor_days=floor_days,
             )
         )
+    return run_ids
+
+
+def runs_by_id(*, team_id: int, run_ids: list[Any]) -> list[RunSummary]:
+    """Hydrate these runs into summaries, newest first."""
     if not run_ids:
         return []
-
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids)
         .select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
         .order_by("-created_at")
     )
     return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in rows], team_id=team_id)
+
+
+def runs_version(*, team_id: int, run_ids: list[Any]) -> str:
+    """A validator for what `runs_by_id` returns, read without hydrating the runs.
+
+    The inbox roster polls the runs every minute, and most polls find nothing changed. Hydration
+    reads wide rows, so a poll that only checks this version skips the expensive read. The read
+    here takes only narrow columns. It covers every input of `_to_summary`: each write to the run
+    row stamps `updated_at` (see `SignalScoutRun.save`), and the task run fields it reads move with
+    the task run's status, completion stamp, or `updated_at`. A report deletion does not touch the
+    run row, so the deleted ids go into the version too.
+    """
+    versions: list[tuple[str, ...]] = []
+    touched: set[str] = set()
+    for run_id, updated_at, status, task_updated_at, completed_at, emitted, edited in SignalScoutRun.objects.filter(
+        team_id=team_id, id__in=run_ids
+    ).values_list(
+        "id",
+        "updated_at",
+        "task_run__status",
+        "task_run__updated_at",
+        "task_run__completed_at",
+        "emitted_report_ids",
+        "edited_report_ids",
+    ):
+        versions.append(tuple(str(part) for part in (run_id, updated_at, status, task_updated_at, completed_at)))
+        touched.update(_touched_report_ids(emitted, edited))
+    deleted = sorted(_deleted_report_ids(touched, team_id=team_id))
+    seed = json.dumps([RUNS_VERSION_SCHEMA, sorted(versions), deleted])
+    return hashlib.sha256(seed.encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -513,7 +599,12 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     Team scoping is non-negotiable: a run row from another team must not be
     readable, even if the caller knows the UUID.
     """
-    row = SignalScoutRun.objects.select_related("task_run").filter(team_id=team_id, id=run_id).first()
+    row = (
+        SignalScoutRun.objects.select_related("task_run")
+        .only(*RUN_SUMMARY_FIELDS)
+        .filter(team_id=team_id, id=run_id)
+        .first()
+    )
     if row is None:
         return None
     return _to_detail(row, team_id=team_id)
@@ -569,6 +660,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         error=error,
         failure_reason=failure_reason,
         metadata=metadata,
+        total_spend=float(row.total_spend) if row.total_spend is not None else None,
     )
 
 
