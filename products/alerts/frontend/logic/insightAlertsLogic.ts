@@ -123,7 +123,7 @@ export const alertsUnsupportedReason = (
 export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
     return alerts.flatMap((alert) => {
         if (
-            alert.threshold?.configuration.type !== InsightThresholdType.ABSOLUTE ||
+            alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
             alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
             !alert.threshold.configuration.bounds
         ) {

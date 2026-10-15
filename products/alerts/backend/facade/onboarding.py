@@ -22,49 +22,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-INGESTION_QUERY = """
-SELECT
-    day,
-    event_count,
-    previous_count,
-    event_count - previous_count AS count_change,
-    100.0 * (event_count - previous_count) / nullIf(previous_count, 0) AS change_percent,
-    CASE
-        WHEN previous_count = 0 OR abs(event_count - previous_count) < 100 THEN 0
-        ELSE 100.0 * (event_count - previous_count) / previous_count
-    END AS significant_change_percent
-FROM (
-    SELECT
-        day,
-        event_count,
-        lagInFrame(event_count, 1, 0) OVER (
-            ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-        ) AS previous_count
-    FROM (
-        SELECT calendar.day AS day, toFloat(ifNull(counts.event_count, 0)) AS event_count
-        FROM (
-            SELECT addDays(toStartOfDay(now()), toInt(arrayJoin(range(32))) - 32) AS day
-        ) AS calendar
-        LEFT JOIN (
-            SELECT toStartOfDay(timestamp) AS day, count() AS event_count
-            FROM events
-            WHERE timestamp >= addDays(toStartOfDay(now()), -32)
-                AND timestamp < toStartOfDay(now())
-            GROUP BY day
-        ) AS counts ON calendar.day = counts.day
-    )
-)
-ORDER BY day
-"""
-
-INGESTION_DETECTOR_CONFIG = {
-    "type": "ensemble",
-    "operator": "and",
-    "detectors": [
-        {"type": "zscore", "window": 14, "threshold": 0.95},
-        {"type": "threshold", "lower_bound": -50, "upper_bound": 50},
-    ],
-}
+INGESTION_DETECTOR_CONFIG = {"type": "zscore", "window": 14, "threshold": 0.95}
 
 
 @transaction.atomic
@@ -77,14 +35,21 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
         created_by=user,
         name="Event volume changes",
         description=(
-            "Compare each complete day with the previous day by event date. "
-            "Alert on unusual changes above 50% and at least 100 events. "
-            "Use 14 previous daily changes as history. Start after 16 complete days. "
+            "Alert when a complete day has unusually high or low event volume. "
+            "Compare daily counts with 14 previous days. Start after 16 complete days. "
             "Weekend checks are off. Late events count on their event date. "
             "Edit the insight or alert to change these settings."
         ),
         filters={"default_ingestion_alert": True},
-        query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": INGESTION_QUERY}},
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": None, "name": "All events", "math": "total"}],
+                "interval": "day",
+                "dateRange": {"date_from": "-32d"},
+            },
+        },
     )
     first_check_date = team.created_at.astimezone(ZoneInfo(team.timezone)).date() + timedelta(days=17)
     first_check_at = datetime.combine(first_check_date, time(1), tzinfo=ZoneInfo(team.timezone)).astimezone(UTC)
@@ -102,10 +67,9 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
             "condition": {"type": "absolute_value"},
             "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
             "config": {
-                "type": "HogQLAlertConfig",
-                "evaluation": "last_row",
-                "column": "significant_change_percent",
-                "label_column": "day",
+                "type": "TrendsAlertConfig",
+                "series_index": 0,
+                "check_ongoing_interval": False,
             },
             "detector_config": INGESTION_DETECTOR_CONFIG,
             "enabled": is_email_available(),
