@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from parameterized import parameterized
 from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 
@@ -105,3 +106,49 @@ class TestBoundedRetry:
         assert sum(call.args[0] for call in sleep.call_args_list) == expected_sleep
         # The adapter cannot know where the source is, so it never reaches a safe point by itself.
         safe_point.assert_not_called()
+
+
+class TestOOBDomainDetection:
+    def _record(self, mocker):
+        events: list[tuple[str, dict]] = []
+        mocker.patch.object(transport, "is_cloud", return_value=True)
+        mocker.patch.object(
+            transport.logger, "info", side_effect=lambda event, **fields: events.append((event, fields))
+        )
+        mocker.patch("requests.adapters.HTTPAdapter.send", return_value=MagicMock())
+        return events
+
+    def test_logs_a_listed_host(self, mocker):
+        events = self._record(mocker)
+        adapter = transport.make_tracked_adapter()
+
+        adapter.send(requests.Request("GET", "https://abc.oast.live/x").prepare())
+
+        assert [event for event, _ in events] == ["security.oob_domain_seen"]
+        assert events[0][1]["domain"] == "oast.live"
+        assert events[0][1]["guard"] == "warehouse_http"
+
+    def test_logs_a_redirect_hop_to_a_listed_host(self, mocker):
+        events = self._record(mocker)
+        adapter = transport.make_tracked_adapter()
+
+        adapter.send(requests.Request("GET", "https://example.com/start").prepare())
+        adapter.send(requests.Request("GET", "https://abc.oast.live/hop").prepare())
+
+        assert [event for event, _ in events] == ["security.oob_domain_seen"]
+
+    def test_does_not_log_an_unlisted_host(self, mocker):
+        events = self._record(mocker)
+        adapter = transport.make_tracked_adapter()
+
+        adapter.send(requests.Request("GET", "https://notoast.me/x").prepare())
+
+        assert events == []
+
+    def test_a_request_with_no_hostname_does_not_raise(self, mocker):
+        self._record(mocker)
+        adapter = transport.make_tracked_adapter()
+        request = requests.Request("GET", "https://example.com/x").prepare()
+        request.url = "/relative/path"
+
+        adapter.send(request)

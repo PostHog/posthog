@@ -20,20 +20,26 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import requests
+import structlog
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import InvalidHeader, MaxRetryError, ResponseError
 from urllib3.util.retry import Retry
+
+from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
+
+logger = structlog.get_logger(__name__)
 
 RequestTimeout = float | tuple[float, float] | tuple[float, None]
 
@@ -182,6 +188,24 @@ DEFAULT_RETRY = BoundedRetry(
 )
 
 
+def _note_oob_domain(request: PreparedRequest) -> None:
+    """Record a request to an out-of-band interaction domain, without refusing it.
+
+    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is recorded
+    as well as the first request.
+    """
+    if not is_cloud():
+        return
+
+    from posthog.security.oob_domains import (
+        matched_oob_domain,  # noqa: PLC0415 — keeps the Django security module off the worker import path
+    )
+
+    host = urlparse(request.url or "").hostname
+    if host and (oob_domain := matched_oob_domain(host)) is not None:
+        logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
+
+
 class TrackedHTTPAdapter(HTTPAdapter):
     """`HTTPAdapter` that records every dispatched request via the observer.
 
@@ -224,6 +248,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
+        _note_oob_domain(request)
         started = time.monotonic()
         response: Response | None = None
         exception: BaseException | None = None
