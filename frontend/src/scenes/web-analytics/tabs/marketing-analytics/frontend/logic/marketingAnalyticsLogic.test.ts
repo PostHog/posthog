@@ -558,9 +558,14 @@ describe('marketingAnalyticsLogic', () => {
                 expect(chartAfter.series).toHaveLength(1)
                 expect(chartAfter.series[0]).toMatchObject({
                     kind: NodeKind.DataWarehouseNode,
-                    table_name: 'campaign_overview_stats',
-                    math_hogql: expect.stringContaining('metrics_conversions'),
+                    table_name: precomputed ? 'marketing_costs_precomputed' : 'campaign_overview_stats',
+                    math_hogql: expect.stringContaining(precomputed ? 'reported_conversions' : 'metrics_conversions'),
                 })
+                expect(chartAfter.marketingAnalyticsCostFallback).toEqual(
+                    precomputed
+                        ? { series: logic.values.createMarketingDataWarehouseNodes, sourceIds: ['google-source'] }
+                        : undefined
+                )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }
             logic.actions.setAdPerformanceConversionGoals(false)

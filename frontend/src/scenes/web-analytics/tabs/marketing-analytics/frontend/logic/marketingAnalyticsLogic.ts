@@ -411,6 +411,11 @@ export interface marketingAnalyticsLogicValues {
     integrationFilter: IntegrationFilter
     isAdPerformance: boolean
     loading: boolean
+    marketingChartSourceIds: string[]
+    marketingDataWarehouseSeries: {
+        node: DataWarehouseNode
+        sourceId: string
+    }[]
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     optionsOpen: boolean
@@ -774,13 +779,28 @@ export interface marketingAnalyticsLogicMeta {
             statusMessage: string
             url_pattern: string
         }[]
-        createMarketingDataWarehouseNodes: (
+        marketingDataWarehouseSeries: (
             validExternalTables: ExternalTable[],
             baseCurrency: CurrencyCode,
             validNativeSources: NativeSource[],
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
+        ) => {
+            node: DataWarehouseNode
+            sourceId: string
+        }[]
+        createMarketingDataWarehouseNodes: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
         ) => DataWarehouseNode[]
+        marketingChartSourceIds: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
+        ) => string[]
         shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
@@ -1507,7 +1527,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return result
             },
         ],
-        createMarketingDataWarehouseNodes: [
+        marketingDataWarehouseSeries: [
             (s) => [
                 s.validExternalTables,
                 s.baseCurrency,
@@ -1521,7 +1541,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validNativeSources: NativeSource[],
                 tileColumnSelection: validColumnsForTiles,
                 integrationFilter: IntegrationFilter
-            ): DataWarehouseNode[] => {
+            ): { sourceId: string; node: DataWarehouseNode }[] => {
                 const selectedIds = integrationFilter.integrationSourceIds || []
                 const hasFilter = selectedIds.length > 0
 
@@ -1533,16 +1553,26 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     ? validNativeSources.filter((source) => selectedIds.includes(source.source.id))
                     : validNativeSources
 
-                const nonNativeNodeList: DataWarehouseNode[] = filteredExternalTables
-                    .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
-                    .filter(Boolean) as DataWarehouseNode[]
-
-                const nativeNodeList: DataWarehouseNode[] = filteredNativeSources
-                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection, baseCurrency))
-                    .filter(Boolean) as DataWarehouseNode[]
-
+                const nonNativeNodeList = filteredExternalTables.flatMap((table) => {
+                    const node = externalAdsCostTile(table, baseCurrency, tileColumnSelection)
+                    return node ? [{ sourceId: table.source_map_id, node }] : []
+                })
+                const nativeNodeList = filteredNativeSources.flatMap((source) => {
+                    const node = MarketingDashboardMapper(source, tileColumnSelection, baseCurrency)
+                    return node ? [{ sourceId: source.source.id, node }] : []
+                })
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
+        ],
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): DataWarehouseNode[] =>
+                series.map(({ node }) => node),
+        ],
+        marketingChartSourceIds: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): string[] =>
+                series.map(({ sourceId }) => sourceId),
         ],
         shouldFilterTestAccounts: [
             (s) => [s.filter_test_accounts],

@@ -137,11 +137,13 @@ Top N selects categories before result filters run. Comparison periods apply the
 
 ## Marketing analytics cost charts
 
-The cost trend chart reads the selected integrations through their live warehouse adapters.
-The costs-precomputation flag does not switch this chart to the precomputed table.
-A flag or a configured conversion goal does not prove that every source and requested date has been materialized.
-The chart must verify complete coverage, including comparison dates, before using precomputed costs again.
-Summary cards and breakdown tables retain their own precompute eligibility and fallback checks.
+The `marketing-analytics-costs-precomputation` flag controls whether the cost trend can use precomputed costs.
+The backend checks materialization jobs for every displayed source over the requested date range and comparison period.
+It uses precomputed costs only when all windows are ready and unexpired.
+Completed windows with zero rows count as covered.
+Missing, expired, inaccessible, or unmaterializable sources use the original live warehouse series for the whole chart.
+Coverage check errors also fall back to the live query.
+This read-only check does not start or wait for materialization jobs.
 
 ## Apple Ads in Marketing analytics
 
