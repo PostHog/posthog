@@ -75,16 +75,6 @@ export function BrowseEntryRow({ entry, position, enabled, onPress }: BrowseEntr
     )
 }
 
-/** The note under Browse that explains the external-link mark. */
-export function WebNote({ text }: { text: string }): ReactElement {
-    return (
-        <View style={styles.note}>
-            <ExternalLinkIcon size={13} color={colors.tertiary} />
-            <Text style={styles.noteText}>{text}</Text>
-        </View>
-    )
-}
-
 const styles = StyleSheet.create({
     row: {
         height: 52,
@@ -111,17 +101,6 @@ const styles = StyleSheet.create({
         color: colors.ink,
     },
     disabled: {
-        color: colors.tertiary,
-    },
-    note: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginTop: 8,
-        marginHorizontal: 4,
-    },
-    noteText: {
-        ...type.meta,
         color: colors.tertiary,
     },
 })

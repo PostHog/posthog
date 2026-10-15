@@ -111,7 +111,7 @@ Pin and unpin of one view run one after another from every screen (`pinView`, `u
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics and Recordings. Recordings opens the project's replay list on the web.
+Browse has Dashboards, Insights, Web analytics and Recordings. Recordings opens the project's replay list on the web and shows an external-link icon on its row.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
 
 ### Routes

@@ -30,7 +30,7 @@ import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
 import { recordingsWebUrl, viewWebUrl } from '../webLinks'
-import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, WebNote } from './BrowseEntryRow'
+import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel } from './BrowseEntryRow'
 import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
@@ -52,7 +52,6 @@ type ListItem =
     | { type: 'note'; key: string; text: string }
     | { type: 'view'; key: string; view: ListView; meta: string | null; position: GroupPosition; entry: ViewEntry }
     | { type: 'browse'; key: string; entry: BrowseEntry; position: GroupPosition }
-    | { type: 'web-note'; key: string }
 
 interface ListSection {
     key: string
@@ -367,17 +366,14 @@ function ViewsBody(): ReactElement {
             title: 'Browse',
             first: false,
             editable: false,
-            data: [
-                ...BROWSE_ENTRIES.map(
-                    (entry, position): ListItem => ({
-                        type: 'browse',
-                        key: `browse:${entry}`,
-                        entry,
-                        position: groupPosition(position, BROWSE_ENTRIES.length),
-                    })
-                ),
-                { type: 'web-note', key: 'web-note' },
-            ],
+            data: BROWSE_ENTRIES.map(
+                (entry, position): ListItem => ({
+                    type: 'browse',
+                    key: `browse:${entry}`,
+                    entry,
+                    position: groupPosition(position, BROWSE_ENTRIES.length),
+                })
+            ),
         })
         return result
     }, [search, pins, recent, list.pinsTruncated, now])
@@ -444,8 +440,6 @@ function ViewsBody(): ReactElement {
                             onPress={openBrowse}
                         />
                     )
-                case 'web-note':
-                    return <WebNote text={demo ? 'Opens on the web. Not available in the demo.' : 'Opens on the web'} />
             }
         },
         [
