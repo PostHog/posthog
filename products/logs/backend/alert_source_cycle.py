@@ -37,6 +37,7 @@ from products.alerts_platform.backend.facade.api import due_checks, refresh_sett
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupOutcome,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -343,15 +344,22 @@ def _recorded(
     return PlatformAlertOutcome(
         configuration_id=check.id,
         evaluation_key=evaluation_key,
-        kind=kind,
-        new_state=outcome.new_state.value,
-        notified=notified,
         consecutive_failures=outcome.consecutive_failures,
-        firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
-        value=value,
+        groups=(
+            GroupOutcome(
+                grouping_key="",
+                kind=kind,
+                new_state=outcome.new_state.value,
+                notified=notified,
+                firing_episode=decide_firing_episode(
+                    _snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY
+                ),
+                value=value,
+                muted_notification=muted_notification,
+            ),
+        ),
         error_message=error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=muted_notification,
         disable=disable,
         # A broken alert is never discovered again, so its slot does not matter.
         schedule_group=None if outcome.new_state == AlertState.BROKEN else _schedule_group(check),

@@ -91,13 +91,15 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
     return [
         PlatformAlertSignal(
             alert_id=announced[str(outcome.configuration_id)],
-            action=_SIGNAL_ACTIONS[outcome.kind],
-            result_count=int(outcome.value) if outcome.value is not None else None,
+            action=_SIGNAL_ACTIONS[group.kind],
+            result_count=int(group.value) if group.value is not None else None,
             consecutive_failures=outcome.consecutive_failures,
             evaluation_key=outcome.evaluation_key,
         )
         for outcome in evaluation.outcomes
-        if outcome.kind in _SIGNAL_ACTIONS and str(outcome.configuration_id) in announced
+        if str(outcome.configuration_id) in announced
+        for group in outcome.groups
+        if group.kind in _SIGNAL_ACTIONS
     ]
 
 

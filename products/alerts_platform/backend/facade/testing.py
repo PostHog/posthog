@@ -76,8 +76,12 @@ def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
 
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
-    row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
-    return None if row is None else instance_view(row)
+    row = (
+        PlatformAlert.objects.select_related("configuration")
+        .filter(configuration_id=configuration_id, grouping_key=grouping_key)
+        .first()
+    )
+    return None if row is None else instance_view(row, row.configuration.check_status)
 
 
 def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> frozenset[str]:

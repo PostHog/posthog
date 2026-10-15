@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.api import due_checks, list_configu
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupOutcome,
     IncidentAction,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
@@ -161,7 +162,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
         assert [(d.sends_messages, d.incident_actions, d.owned_by_platform) for d in evaluation.deliveries] == [
             (True, {"": IncidentAction.TRIGGER} if paged else {}, owner == "platform")
         ]
@@ -212,7 +213,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(copied)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
@@ -307,7 +308,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
-        assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
+        assert [g.kind for o in unmuted.outcomes for g in o.groups] == [AlertEventKind.FIRING]
 
     def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
         configuration = self._configuration(cooldown_minutes=60)
@@ -320,7 +321,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         later = datetime(2026, 9, 16, 10, 10, tzinfo=UTC)
         cleared, _ = self._run(configuration, now=later, count=0)
 
-        assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in cleared.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
             (False, {"": IncidentAction.RESOLVE})
         ]
@@ -406,7 +407,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
-        assert [o.kind for o in evaluation.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert query.called is still_runs
         with team_scope(self.team.id):
             (copy,) = list_configurations(
@@ -449,7 +450,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(unreadable, healthy)
 
-        states = {o.configuration_id: o.new_state for o in evaluation.outcomes}
+        states = {o.configuration_id: g.new_state for o in evaluation.outcomes for g in o.groups}
         assert states == {unreadable.id: "broken", healthy.id: "firing"}
 
     def test_a_check_whose_copy_cannot_be_updated_evaluates_the_stored_copy(self) -> None:
@@ -460,7 +461,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.refresh_settings", side_effect=RuntimeError("database blip")):
             evaluation, _ = self._run(configuration)
 
-        assert [o.new_state for o in evaluation.outcomes] == ["firing"]
+        assert [g.new_state for o in evaluation.outcomes for g in o.groups] == ["firing"]
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
@@ -528,11 +529,16 @@ def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOut
     return PlatformAlertOutcome(
         configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
         evaluation_key="slot:x|window:y",
-        kind=kind,
-        new_state="firing",
-        notified=notified,
         consecutive_failures=5 if kind == AlertEventKind.BROKEN else 0,
-        value=500.0 if kind == AlertEventKind.FIRING else None,
+        groups=(
+            GroupOutcome(
+                grouping_key="",
+                kind=kind,
+                new_state="firing",
+                notified=notified,
+                value=500.0 if kind == AlertEventKind.FIRING else None,
+            ),
+        ),
     )
 
 

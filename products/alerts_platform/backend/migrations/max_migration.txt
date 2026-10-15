@@ -1,1 +1,1 @@
-0009_platformalertconfiguration_switched_off_at
+0011_move_check_status_onto_configuration
