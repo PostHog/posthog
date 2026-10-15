@@ -15,10 +15,17 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.event_usage import EventSource
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 import products.replay_vision.backend.max_tools as max_tools_module
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.experiment_variants import (
+    ExperimentVariantsReadout,
+    VariantReadout,
+    VariantsAnalysisState,
+    VariantsWindow,
+)
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,
     CompareReplayVisionVariantsTool,
@@ -44,6 +51,7 @@ from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, snapshot_for
+from products.replay_vision.backend.variant_analysis import VariantAnalysisDifference, VariantAnalysisLine
 
 from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
@@ -591,17 +599,20 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
 
 
 class TestCompareReplayVisionVariantsTool(BaseTest):
-    def _tool(self) -> CompareReplayVisionVariantsTool:
-        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        return CompareReplayVisionVariantsTool(team=self.team, user=self.user, config=config)
+    def _tool(self, context: dict | None = None, team: Team | None = None) -> CompareReplayVisionVariantsTool:
+        team = team or self.team
+        configurable: dict = {"team": team, "user": self.user}
+        if context is not None:
+            configurable["contextual_tools"] = {"compare_replay_vision_variants": context}
+        config: RunnableConfig = {"configurable": configurable}
+        return CompareReplayVisionVariantsTool(team=team, user=self.user, config=config)
 
-    def _experiment_scanner(self) -> ReplayScanner:
-        experiment = create_experiment(
-            self.team, "compare-flag", self.user, launched=True, variants=["control", "test"]
-        )
+    def _experiment_scanner(self, team: Team | None = None, flag_key: str = "compare-flag") -> ReplayScanner:
+        team = team or self.team
+        experiment = create_experiment(team, flag_key, self.user, launched=True, variants=["control", "test"])
         scanner = ReplayScanner.objects.create(
-            team=self.team,
-            name="checkout-test",
+            team=team,
+            name=f"checkout-test-{flag_key}",
             scanner_type=ScannerType.EXPERIMENT,
             scanner_config={"prompt": "p", "experiment_id": experiment.id},
             model=ScannerModel.GEMINI_3_8_FLASH,
@@ -610,8 +621,8 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
         for index, variant in enumerate(["control", "control", "test"]):
             ReplayObservation.objects.create(
                 scanner=scanner,
-                team=self.team,
-                session_id=f"sess-{index}",
+                team=team,
+                session_id=f"sess-{flag_key}-{index}",
                 distinct_id=f"person-{index}",
                 status=ObservationStatus.SUCCEEDED,
                 completed_at=timezone.now(),
@@ -648,6 +659,77 @@ class TestCompareReplayVisionVariantsTool(BaseTest):
         _, artifact = await self._tool()._arun_impl(scanner_id=str(scanner.id))
 
         assert artifact == {"error": "wrong_scanner_type"}
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_explicit_scanner_id_argument_overrides_scene_context(self):
+        page_scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=self.team,
+            name="page monitor",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        target = await sync_to_async(self._experiment_scanner)()
+
+        _, artifact = await self._tool(context={"scanner_id": str(page_scanner.id)})._arun_impl(
+            scanner_id=str(target.id)
+        )
+
+        assert artifact["scanner_id"] == str(target.id)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_child_environment_needs_access_to_the_parent_project(self):
+        # The readout reads scout records from the parent project, as the variants endpoint does.
+        other_org = await sync_to_async(Organization.objects.create)(name="other org")
+        parent = await sync_to_async(Team.objects.create)(organization=other_org, name="parent")
+        child = await sync_to_async(Team.objects.create)(organization=self.organization, parent_team=parent, name="env")
+        scanner = await sync_to_async(self._experiment_scanner)(team=child, flag_key="child-flag")
+
+        _, artifact = await self._tool(team=child)._arun_impl(scanner_id=str(scanner.id))
+
+        assert artifact == {"error": "forbidden"}
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_reports_theme_denominators_and_small_sampling_rates(self):
+        scanner = await sync_to_async(self._experiment_scanner)()
+        late_theme = VariantAnalysisLine(
+            theme="retries payment", statement="retries", count=20, read=50, example_observation_ids=()
+        )
+        readout = ExperimentVariantsReadout(
+            experiment=None,
+            window=VariantsWindow(total_observations=1000, first_observation_at=None, last_observation_at=None),
+            variants=(
+                VariantReadout(
+                    key="test",
+                    observations=1000,
+                    distinct_people=900,
+                    median_session_duration_s=None,
+                    sampling_rate=0.004,
+                    analysis_observations=1000,
+                    digest=(late_theme,),
+                    latest_observations=(),
+                ),
+            ),
+            differences=(
+                VariantAnalysisDifference(
+                    theme="retries payment", statement="more retries", counts={"test": 20}, read={"test": 50}
+                ),
+            ),
+            unattributed_count=0,
+            analysis=VariantsAnalysisState(
+                scout_config_id="s", scout_enabled=True, recorded_at=None, scanner_version=1, current=True
+            ),
+        )
+
+        with patch.object(max_tools_module, "experiment_variants_readout", return_value=readout):
+            content, _ = await self._tool()._arun_impl(scanner_id=str(scanner.id))
+
+        assert "sampled at 0.4%" in content
+        assert "retries (20 of 50)" in content
+        assert "test 20 of 50" in content
 
 
 class TestCreateReplayVisionScannerTool(BaseTest):

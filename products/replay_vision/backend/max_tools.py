@@ -17,6 +17,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
@@ -276,7 +277,7 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
         return [("session_recording", "viewer")]
 
     async def _arun_impl(self, scanner_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        resolved_id = self.context.get("scanner_id") or scanner_id
+        resolved_id = scanner_id or self.context.get("scanner_id")
         if not resolved_id:
             return "No scanner specified. Please provide a scanner_id.", {"error": "invalid_context"}
         try:
@@ -288,6 +289,14 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             )
             return "Something went wrong comparing the variants. Please try again.", {"error": "fetch_failed"}
 
+    def _can_read_parent_project(self) -> bool:
+        # The readout reads scout records from the parent project, so a child environment needs the
+        # same parent membership the variants endpoint checks with ScoutCanonicalTeamAccessPermission.
+        parent = self._team.parent_team
+        if parent is None or parent.id == self._team.id:
+            return True
+        return UserPermissions(user=self._user).team(parent).effective_membership_level is not None
+
     @database_sync_to_async
     def _compare(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
         scanner = scanner_for_reading_observations(self._team.id, scanner_id)
@@ -295,9 +304,11 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # The same gate as the variants endpoint: the scanner's RBAC and its experiment's access,
         # with a denied scanner reading as not-found.
-        if not self.user_access_control.check_access_level_for_object(
-            scanner, "viewer"
-        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
+        if (
+            not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+            or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
+            or not self._can_read_parent_project()
+        ):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.EXPERIMENT:
             return (
@@ -317,7 +328,7 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
                 if variant.median_session_duration_s is not None
                 else ""
             )
-            + (f", sampled at {variant.sampling_rate:.0%}" if variant.sampling_rate is not None else "")
+            + (f", sampled at {variant.sampling_rate * 100:.3g}%" if variant.sampling_rate is not None else "")
             for variant in readout.variants
         ]
         sections = [
@@ -337,19 +348,25 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
                 "its schedule."
             )
         else:
+            # A theme added after the tally started is counted over fewer summaries than the variant total.
+            read_totals = {variant.key: variant.analysis_observations for variant in readout.variants}
             themes = [
                 f"- {variant.key} ({variant.analysis_observations} summaries read): {line.theme}: "
-                f"{line.statement} ({line.count})"
+                f"{line.statement} ({line.count} of {line.read if line.read is not None else variant.analysis_observations})"
                 for variant in readout.variants
                 for line in variant.digest or ()
             ]
             differences = [
-                f"- {difference.theme}: {difference.statement} "
-                f"({', '.join(f'{key} {count}' for key, count in difference.counts.items())})"
+                f"- {difference.theme}: {difference.statement} ("
+                + ", ".join(
+                    f"{key} {count} of {difference.read.get(key, read_totals.get(key))}"
+                    for key, count in difference.counts.items()
+                )
+                + ")"
                 for difference in readout.differences or ()
             ]
             sections.append(
-                "The variant analysis scout's latest reading. Its counts are out of the summaries it read per variant."
+                "The variant analysis scout's latest reading. Each count is out of the summaries it was counted over."
             )
             sections.append(as_untrusted_data("variant themes", themes or ["(no themes recorded)"]))
             sections.append(as_untrusted_data("differences", differences or ["(no differences recorded)"]))
