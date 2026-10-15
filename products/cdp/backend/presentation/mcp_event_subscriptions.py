@@ -7,15 +7,17 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from pydantic import JsonValue
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import User
 
-from products.cdp.backend.facade.contracts import (
+from products.cdp.backend.facade.mcp_event_types import (
     MCPCallbackError,
     MCPEventSubscriptionNotFoundError,
     MCPEventSubscriptionPermissionError,
@@ -232,6 +234,9 @@ class MCPEventPreviewSerializer(serializers.Serializer):
 
 
 class MCPEventDeliveryRequestSerializer(serializers.Serializer):
+    filter_bytecode = serializers.ListField(
+        child=serializers.JSONField(), help_text="Compiled filter that matched the queued event."
+    )
     generation = serializers.UUIDField(help_text="Subscription lifecycle generation carried by the queued destination.")
     function_id = serializers.UUIDField(help_text="Managed destination that queued the event.")
     url = serializers.URLField(max_length=4096, help_text="Callback URL carried by the queued destination.")
@@ -254,8 +259,18 @@ class MCPEventEmptySerializer(serializers.Serializer):
     pass
 
 
+class MCPEventSubscriptionPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+
+class MCPEventDeliveryThrottle(UserRateThrottle):
+    scope = "mcp_event_delivery"
+    rate = "600/min"
+
+
 class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    pagination_class = None
+    pagination_class = MCPEventSubscriptionPagination
     scope_object = "mcp_event_subscription"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["subscribe", "unsubscribe"]
@@ -272,7 +287,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         super().initial(request, *args, **kwargs)
         if not posthoganalytics.feature_enabled(
             "mcp-events",
-            str(request.user.pk),
+            cast(User, request.user).distinct_id or str(request.user.pk),
             groups={"organization": str(self.team.organization_id)},
             send_feature_flag_events=False,
         ):
@@ -294,7 +309,14 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @extend_schema(responses=MCPEventSubscriptionSerializer(many=True))
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
         service = MCPEventSubscriptionsAPI(team=self.team, user=cast(User, request.user), principal="")
-        return Response(self.get_serializer(service.list(), many=True).data)
+        paginator = self.paginator
+        assert isinstance(paginator, LimitOffsetPagination)
+        paginator.request = request
+        paginator.limit = paginator.get_limit(request) or 100
+        paginator.offset = paginator.get_offset(request)
+        page = service.list_subscriptions(limit=paginator.limit, offset=paginator.offset)
+        paginator.count = page.count
+        return paginator.get_paginated_response(self.get_serializer(page.results, many=True).data)
 
     @extend_schema(responses=MCPEventSubscriptionSerializer)
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -354,7 +376,12 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(MCPEventEmptySerializer({}).data)
 
     @extend_schema(request=MCPEventDeliveryRequestSerializer, responses=MCPEventDeliveryResponseSerializer)
-    @action(detail=True, methods=["POST"], required_scopes=["mcp_event_subscription:write", "query:read"])
+    @action(
+        detail=True,
+        methods=["POST"],
+        required_scopes=["mcp_event_subscription:write", "query:read"],
+        throttle_classes=[MCPEventDeliveryThrottle],
+    )
     def authorize_delivery(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = MCPEventDeliveryRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -366,6 +393,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 body=data["body"],
                 url=data["url"],
                 function_id=str(data["function_id"]),
+                filter_bytecode=data["filter_bytecode"],
             )
         except MCPEventSubscriptionNotFoundError:
             raise NotFound() from None

@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
                     "delivery",
                     posthog.helpers.encrypted_fields.EncryptedJSONStringField(),
                 ),
-                ("expires_at", models.DateTimeField(db_index=True)),
+                ("expires_at", models.DateTimeField()),
                 ("active", models.BooleanField(default=False)),
                 ("generation", models.UUIDField(default=posthog.uuidt.uuid7)),
                 ("verified_at", models.DateTimeField(null=True)),
@@ -68,6 +68,11 @@ class Migration(migrations.Migration):
             ],
             options={
                 "abstract": False,
+                "indexes": [
+                    models.Index(
+                        fields=["expires_at"], name="cdp_mcp_active_expiry_idx", condition=models.Q(active=True)
+                    )
+                ],
             },
         ),
     ]

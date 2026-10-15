@@ -10,6 +10,7 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { classifyHogError } from '../utils/hog-error-classification'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -234,6 +235,13 @@ describe('Hog Inputs', () => {
             globals = createHogExecutionGlobals()
         })
 
+        it('keeps the MCP credential out of persisted invocation globals', async () => {
+            hogFunction.encrypted_inputs = { mcp_credential: { value: 'phx_synthetic_mcp_credential' } }
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+            expect(result.inputs).not.toHaveProperty('mcp_credential')
+            expect(JSON.stringify(result)).not.toContain('phx_synthetic_mcp_credential')
+        })
+
         it('should template out hog inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)
@@ -317,12 +325,28 @@ describe('Hog Inputs', () => {
             expect(inputs.is_enabled).toBe(false)
         })
 
-        it('should not load integrations from a different team', async () => {
-            hogFunction.team_id = 100
+        it.each([
+            ['was deleted', (): void => void (hogFunction.inputs!.oauth = { value: 99999999 })],
+            ['belongs to a different team', (): void => void (hogFunction.team_id = 100)],
+        ])('fails instead of running without the integration when it %s', async (_name, setup) => {
+            setup()
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
 
-            expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+            expect(error.message).toContain("The integration for input 'oauth' no longer exists.")
+            // Anything but `config` parks the event and blocks DLQ replay on a failure no replay can fix.
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+        })
+
+        it('ignores a deleted integration on a mapping this invocation does not use', async () => {
+            hogFunction.mappings = [
+                { inputs: { slack: { value: 99999999 } }, inputs_schema: [{ key: 'slack', type: 'integration' }] },
+            ]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
+            await expect(
+                hogInputsService.buildInputs(hogFunction, globals, hogFunction.mappings[0].inputs ?? {})
+            ).rejects.toThrow("The integration for input 'slack' no longer exists.")
         })
 
         it('should not load a posthog connection', async () => {
@@ -380,7 +404,7 @@ describe('Hog Inputs', () => {
             expect(inputs.email.design).toBeUndefined()
         })
 
-        it('resolves push subscription inputs without a valid integration', async () => {
+        it('resolves push subscription inputs without a push integration', async () => {
             const hogFunction = createHogFunction({
                 id: 'hog-function-1',
                 team_id: team.id,
@@ -388,7 +412,7 @@ describe('Hog Inputs', () => {
                 enabled: true,
                 type: 'destination',
                 inputs: {
-                    push_provider: { value: 999 },
+                    push_provider: { value: integrationId1 },
                     push_subscription: { value: 'user-123' },
                 },
                 inputs_schema: [

@@ -840,7 +840,18 @@ export interface MCPEventSubscriptionApi {
     readonly created_at: string
 }
 
+export interface PaginatedMCPEventSubscriptionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MCPEventSubscriptionApi[]
+}
+
 export interface MCPEventDeliveryRequestApi {
+    /** Compiled filter that matched the queued event. */
+    filter_bytecode: unknown[]
     /** Subscription lifecycle generation carried by the queued destination. */
     generation: string
     /** Managed destination that queued the event. */
@@ -1247,6 +1258,17 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
 } as const
 
 export type HogFunctionsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type McpEventSubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */

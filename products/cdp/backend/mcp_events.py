@@ -13,10 +13,14 @@ from django.utils.dateparse import parse_datetime
 from pydantic import JsonValue
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from posthog.schema import CachedHogQLQueryResponse, HogQLQuery, HogQLQueryResponse
+
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.printer import to_printed_hogql
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
@@ -34,6 +38,7 @@ from products.cdp.backend.mcp_event_delivery import (
     verify_callback,
 )
 from products.cdp.backend.mcp_event_filters import MCPEventFilterAccessValidator
+from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.validation import HogFunctionFiltersSerializer
@@ -45,7 +50,9 @@ MAX_SUBSCRIPTIONS_PER_USER: Final = 20
 MAX_SUBSCRIPTIONS_PER_PROJECT: Final = 100
 MAX_TTL_MS: Final = 24 * 60 * 60 * 1000
 SECRET_ROTATION_GRACE: Final = timedelta(minutes=5)
-_DERIVED_FILTER_KEYS: Final = frozenset({"bytecode", "bytecode_error", "bytecode_contract", "transpiled"})
+_DERIVED_FILTER_KEYS: Final = frozenset(
+    {"bytecode", "bytecode_error", "bytecode_contract", "transpiled", "mcp_property_dependencies"}
+)
 
 
 class MCPEventSubscriptions:
@@ -94,8 +101,13 @@ class MCPEventSubscriptions:
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             limit=ast.Constant(value=5),
         )
-        with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.QUERY):
-            result = execute_hogql_query(query=query, team=self.team, user=self.user, query_type="mcp_event_preview")
+        with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.QUERY, api_queries_budgeted=True):
+            runner = HogQLQueryRunner(
+                query=HogQLQuery(query=to_printed_hogql(query, self.team)), team=self.team, user=self.user
+            )
+            runner.is_query_service = True
+            result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            assert isinstance(result, (HogQLQueryResponse, CachedHogQLQueryResponse))
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
         restricted_event_properties = split_restricted_property_names(restrictions).event
         examples: list[JsonValue] = []
@@ -111,9 +123,7 @@ class MCPEventSubscriptions:
                     "data": {
                         "event": str(row[1]),
                         "distinct_id": str(row[2]),
-                        "properties": {
-                            key: value for key, value in properties.items() if key not in restricted_event_properties
-                        },
+                        "properties": MCPEventPropertyAccess.redact(properties, set(restricted_event_properties)),
                     },
                     "cursor": None,
                 }
@@ -193,6 +203,12 @@ class MCPEventSubscriptions:
         )
         serializer.is_valid(raise_exception=True)
         subscription.hog_function = serializer.save(team=self.team, created_by=self.user)
+        compiled_filters = subscription.hog_function.filters or {}
+        MCPEventFilterAccessValidator.validate_snapshot(
+            compiled_filters["mcp_property_dependencies"], team=self.team, user=self.user
+        )
+        subscription.delivery["filter_bytecode"] = deepcopy(compiled_filters["bytecode"])
+        subscription.delivery["filter_dependencies"] = deepcopy(compiled_filters["mcp_property_dependencies"])
 
     def subscribe(
         self,
@@ -341,7 +357,14 @@ class MCPEventSubscriptions:
         return count
 
     def authorize_delivery(
-        self, *, subscription: MCPEventSubscription, generation: str, body: str, url: str, function_id: str
+        self,
+        *,
+        subscription: MCPEventSubscription,
+        generation: str,
+        body: str,
+        url: str,
+        function_id: str,
+        filter_bytecode: list[JsonValue],
     ) -> dict[str, JsonValue]:
         if (
             not subscription.active
@@ -351,7 +374,12 @@ class MCPEventSubscriptions:
             or str(subscription.hog_function_id) != function_id
         ):
             raise PermissionDenied("This subscription is no longer active.")
-        self.normalize_filters(subscription.arguments["filters"])
+        if filter_bytecode != subscription.delivery.get("filter_bytecode"):
+            raise PermissionDenied("The queued filter has changed. Renew the subscription.")
+        dependencies = subscription.delivery.get("filter_dependencies")
+        if not isinstance(dependencies, dict):
+            raise PermissionDenied("Renew the subscription before delivering events.")
+        MCPEventFilterAccessValidator.validate_snapshot(dependencies, team=self.team, user=self.user)
         if len(body.encode()) > MCP_EVENT_MAX_BYTES:
             raise ValidationError("The event exceeds the 256 KiB delivery limit.")
         try:
@@ -386,7 +414,7 @@ class MCPEventSubscriptions:
             raise ValidationError("The event timestamp must include a timezone.")
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
         restricted_names = split_restricted_property_names(restrictions).event
-        data["properties"] = {key: value for key, value in data["properties"].items() if key not in restricted_names}
+        data["properties"] = MCPEventPropertyAccess.redact(data["properties"], set(restricted_names))
         try:
             serialized = json.dumps(event, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         except ValueError:

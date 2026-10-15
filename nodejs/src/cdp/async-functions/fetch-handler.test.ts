@@ -48,9 +48,18 @@ describe('fetch handler', () => {
                 body: { eventId: 'event-123' },
                 standard_webhooks: { secret_input: 'signing_secret' },
             },
-            { globals: { inputs: { mcp_generation: generation, mcp_credential: 'phx_not_queued' } } }
+            {
+                globals: { inputs: { mcp_generation: generation } },
+                invocation: {
+                    hogFunction: {
+                        encrypted_inputs: { mcp_credential: { value: 'phx_not_queued' } },
+                        filters: { bytecode: ['_H', 1] },
+                    },
+                },
+            }
         )
-        expect(params.mcp_event_subscription).toEqual({ id, generation })
+        expect(params.type).toBe('mcp_event')
+        expect(params.mcp_event_subscription).toEqual({ id, generation, filter_bytecode: ['_H', 1] })
         expect(params.standard_webhooks?.webhook_id).toBe('event-123')
         expect(params).not.toHaveProperty('mcp_credential')
         expect(JSON.stringify(params)).not.toContain('phx_not_queued')

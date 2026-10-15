@@ -8,8 +8,9 @@ from pydantic import JsonValue
 from posthog.models import Team, User
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.facade.contracts import (
+from products.cdp.backend.facade.mcp_event_types import (
     MCPEventSubscriptionNotFoundError,
+    MCPEventSubscriptionPage,
     MCPEventSubscriptionPermissionError,
     MCPEventSubscriptionRecord,
 )
@@ -63,13 +64,16 @@ class MCPEventSubscriptionsAPI:
             raise MCPEventSubscriptionNotFoundError
         return subscription
 
-    def list(self) -> list[MCPEventSubscriptionRecord]:
+    def list_subscriptions(self, *, limit: int, offset: int) -> MCPEventSubscriptionPage:
         subscriptions = (
             MCPEventSubscription.objects.for_team(self._service.team.pk)
             .filter(created_by=self._service.user)
-            .order_by("-created_at")[:100]
+            .order_by("-created_at", "-id")
         )
-        return [_subscription_record(subscription) for subscription in subscriptions]
+        return MCPEventSubscriptionPage(
+            count=subscriptions.count(),
+            results=[_subscription_record(subscription) for subscription in subscriptions[offset : offset + limit]],
+        )
 
     def get(self, subscription_id: str) -> MCPEventSubscriptionRecord:
         return _subscription_record(self._get_subscription(subscription_id))
@@ -102,7 +106,14 @@ class MCPEventSubscriptionsAPI:
         self._service.unsubscribe(raw_filters=raw_filters, url=url)
 
     def authorize_delivery(
-        self, *, subscription_id: str, generation: str, body: str, url: str, function_id: str
+        self,
+        *,
+        subscription_id: str,
+        generation: str,
+        body: str,
+        url: str,
+        function_id: str,
+        filter_bytecode: list[JsonValue],
     ) -> dict[str, JsonValue]:
         subscription = self._get_subscription(subscription_id)
         if subscription.principal != self._service.principal:
@@ -113,4 +124,5 @@ class MCPEventSubscriptionsAPI:
             body=body,
             url=url,
             function_id=function_id,
+            filter_bytecode=filter_bytecode,
         )

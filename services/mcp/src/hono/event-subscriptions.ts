@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { McpEventSubscriptionsPreviewBody } from '@/generated/cdp/api'
 import { hasScopes } from '@/lib/api'
-import { PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError, PostHogRateLimitError, PostHogValidationError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 import { EVENT_SUBSCRIPTION_SCOPES } from '@/tools/toolDefinitions'
 
@@ -16,6 +16,7 @@ export const MCP_EVENTS_GUIDANCE =
     'For captured-event subscriptions, choose an explicit project and normal destination filters. ' +
     'Before events/subscribe, use mcp-events-preview with the same arguments when available to validate filters and inspect matching examples. ' +
     'In exec mode, call that tool through exec. Backend validation still runs on every subscription. ' +
+    'Use the client’s native event-triggered task or subscription interface. The events/subscribe protocol method is not an exec command or an ordinary MCP tool. ' +
     'Delivery includes future events only; missed events cannot be replayed.'
 
 const generatedArguments = McpEventSubscriptionsPreviewBody()
@@ -79,8 +80,17 @@ function parse<T extends z.ZodType>(schema: T, params: unknown): z.output<T> {
 }
 
 function translateApiError(error: unknown): never {
+    if (error instanceof PostHogRateLimitError) {
+        throw new McpEventRpcError(
+            -32000,
+            'PostHog rate limited this subscription request. Retry after the indicated delay.',
+            {
+                retryAfterSeconds: error.retryAfterSeconds,
+            }
+        )
+    }
     if (error instanceof PostHogValidationError) {
-        if (error.attr === 'callback.reason') {
+        if (error.attr === 'callback__reason') {
             throw new McpEventRpcError(-32015, 'Callback verification failed.', { reason: error.detail })
         }
         throw new McpEventRpcError(ErrorCode.InvalidParams, error.detail, { field: error.attr })

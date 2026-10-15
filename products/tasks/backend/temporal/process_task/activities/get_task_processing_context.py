@@ -77,6 +77,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -385,6 +386,7 @@ class TaskProcessingContext:
         }
 
 
+@StepTimer("flag_streaming")
 def _is_agent_proxy_keep_stream_open_enabled(
     *,
     distinct_id: str,
@@ -471,6 +473,7 @@ def _is_pi_acp_enabled(
         return False
 
 
+@StepTimer("flag_rtk")
 def _is_rtk_enabled(
     *,
     distinct_id: str,
@@ -530,6 +533,7 @@ _SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
 }
 
 
+@StepTimer("validate_subscription")
 def _ensure_subscription_allowed(
     *,
     adapter: str,
@@ -583,6 +587,7 @@ def _plan_owner_distinct_id(team: Team, owner_id: int | None) -> str | None:
     return team.all_users_with_access().filter(id=owner_id).values_list("distinct_id", flat=True).first()
 
 
+@StepTimer("validate_codex_account")
 def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
     integration = CodexUserIntegration.for_user(owner_id) if owner_id is not None else None
     if integration is None or not integration.is_connected():
@@ -594,6 +599,7 @@ def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
         )
 
 
+@StepTimer("flag_benjamin")
 def _is_benjamin_enabled(
     *,
     distinct_id: str,
@@ -654,6 +660,7 @@ def _benjamin_fraction_value(value: object) -> float:
     return float(value)
 
 
+@StepTimer("flag_event_ingest")
 def _is_sandbox_event_ingest_enabled(
     *,
     distinct_id: str,
@@ -706,6 +713,7 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
+@StepTimer("flag_agent_telemetry")
 def _is_agent_otel_telemetry_enabled(
     *,
     distinct_id: str,
@@ -759,6 +767,7 @@ def _require_template_compatible_with_custom_image(state: dict, custom_image_nam
     )
 
 
+@StepTimer("flag_sandbox_runtime")
 def _resolve_modal_vm_sandbox(
     *,
     distinct_id: str,
@@ -882,6 +891,7 @@ def _is_burstable_sandbox_resources_enabled(
     return True
 
 
+@StepTimer("flag_clone_overlap")
 def _is_overlap_clone_boot_enabled(
     *,
     distinct_id: str,
@@ -921,6 +931,7 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
+@StepTimer("flag_desktop_workspace")
 def _is_desktop_workspace_warm_enabled(
     *,
     distinct_id: str,
@@ -950,6 +961,7 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+@StepTimer("flag_dev_stack_preview")
 def _is_dev_stack_preview_enabled(
     *,
     distinct_id: str,
@@ -991,6 +1003,7 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
+@StepTimer("flag_network_allowlist")
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -1030,6 +1043,7 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
+@StepTimer("flag_sandbox_backend")
 def _resolve_sandbox_backend(
     *,
     distinct_id: str,
@@ -1119,6 +1133,7 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
+@StepTimer("flag_pr_babysit")
 def _is_pr_babysit_snapshot_enabled(
     *,
     distinct_id: str,
@@ -1202,18 +1217,24 @@ def _is_continue_as_new_enabled(
 @activity.defn
 @asyncify
 @close_db_connections
+@posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskProcessingContext:
     """Fetch task details and create the processing context for the workflow."""
     run_id = input.run_id
+    posthoganalytics.tag("run_id", run_id)
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
-        task_run = TaskRun.objects.select_related(
-            "task__created_by",
-            "task__team",
-            "task__github_integration",
-            "task__github_user_integration",
-        ).get(id=run_id)
+        with StepTimer("load_task_run"):
+            task_run = TaskRun.objects.select_related(
+                "task__created_by",
+                "task__team",
+                "task__github_integration",
+                "task__github_user_integration",
+            ).get(id=run_id)
+            posthoganalytics.tag("origin_product", task_run.task.origin_product)
+            posthoganalytics.tag("run_environment", task_run.environment)
+            posthoganalytics.tag("mode", (task_run.state or {}).get("mode", "background"))
     except ObjectDoesNotExist:
         # The row may simply not be visible yet (creating transaction not committed) or
         # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
@@ -1244,7 +1265,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     state = task_run.state or {}
     trial_origin = task.is_scout_experiment
-    actor_user = get_task_run_credential_user(task, state)
+    with StepTimer("resolve_actor"):
+        actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
             f"Task {task.id} has no valid Slack actor",
@@ -1260,7 +1282,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     environment_custom_image_name: str | None = None
 
     if sandbox_environment_id:
-        sandbox_environment = task_run.get_sandbox_environment()
+        with StepTimer("load_sandbox_environment"):
+            sandbox_environment = task_run.get_sandbox_environment()
         if sandbox_environment is None:
             raise TaskInvalidStateError(
                 f"Sandbox environment {sandbox_environment_id} not accessible for team {task.team_id}",
@@ -1309,9 +1332,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
     if state_custom_image_id:
-        state_custom_image = SandboxCustomImage.get_accessible_for_task(
-            image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
-        )
+        with StepTimer("load_custom_image"):
+            state_custom_image = SandboxCustomImage.get_accessible_for_task(
+                image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
+            )
         if state_custom_image is not None and state_custom_image.is_ready:
             environment_custom_image_name = state_custom_image.modal_image_name
         else:
@@ -1341,16 +1365,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
-    pr_loop_enabled = (
-        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-        or posthoganalytics.feature_enabled(
-            "tasks-pr-loop",
-            distinct_id=distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-        or False
-    )  # Ensure we get a boolean value even if the flag is missing
+    with StepTimer("flag_pr_loop"):
+        pr_loop_enabled = (
+            task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+            or posthoganalytics.feature_enabled(
+                "tasks-pr-loop",
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+            )
+            or False
+        )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
     include_live_context = state.get("include_live_context") is not False
@@ -1362,7 +1387,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             store_skills: list[dict[str, Any]] | None = []
             state[STORE_SKILLS_STATE_KEY] = []
         else:
-            store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+            with StepTimer("store_skills"):
+                store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None
@@ -1372,14 +1398,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
     try:
-        instruction_updates, state_remove_keys = agent_instructions_state_update(
-            task, actor_user, ai_stage=state.get("ai_stage")
-        )
+        with StepTimer("agent_instructions"):
+            instruction_updates, state_remove_keys = agent_instructions_state_update(
+                task, actor_user, ai_stage=state.get("ai_stage")
+            )
         state_updates.update(instruction_updates)
     except Exception as e:
         log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
     try:
-        TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
+        with StepTimer("persist_task_context"):
+            TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
 
@@ -1423,11 +1451,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
-    context_layer_enabled = (
-        include_live_context
-        and not trial_origin
-        and context_layer_facade.is_context_layer_enabled(organization_id=organization_id, distinct_id=distinct_id)
-    )
+    with StepTimer("flag_context_layer"):
+        context_layer_enabled = (
+            include_live_context
+            and not trial_origin
+            and context_layer_facade.is_context_layer_enabled(organization_id=organization_id, distinct_id=distinct_id)
+        )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1449,7 +1478,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     effective_network_policy: EffectiveNetworkPolicy | None = None
     if allowed_domains is not None:
         try:
-            effective_network_policy = _compile_effective_network_policy(allowed_domains)
+            with StepTimer("network_policy"):
+                effective_network_policy = _compile_effective_network_policy(allowed_domains)
         except NetworkPolicyValidationError as error:
             log_with_activity_context(
                 "sandbox_network_policy_invalid",

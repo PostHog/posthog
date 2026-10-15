@@ -14,7 +14,7 @@ const DeliveryResponse = z.object({
 
 export type McpEventDeliveryResult =
     | { ok: true; body: string; headers: Record<string, string> }
-    | { ok: false; status: number }
+    | { ok: false; status: number; retryAfterMs?: number }
 
 export async function prepareMcpEventDelivery({
     invocation,
@@ -40,6 +40,7 @@ export async function prepareMcpEventDelivery({
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
                 body: JSON.stringify({
                     generation: subscription.generation,
+                    filter_bytecode: subscription.filter_bytecode,
                     function_id: invocation.hogFunction.id,
                     url: params.url,
                     body: params.body,
@@ -48,9 +49,18 @@ export async function prepareMcpEventDelivery({
             }
         )
         if (response.status !== 200) {
+            const retryAfter = response.headers?.['retry-after']
+            const rawRetryAfter = Array.isArray(retryAfter) ? retryAfter[0] : retryAfter
+            const parsedDelay = rawRetryAfter
+                ? /^\d+(\.\d+)?$/.test(rawRetryAfter)
+                    ? Number(rawRetryAfter) * 1000
+                    : Date.parse(rawRetryAfter) - Date.now()
+                : NaN
+            const retryAfterMs = Number.isFinite(parsedDelay) ? Math.max(0, parsedDelay) : undefined
             await response.dump()
             return {
                 ok: false,
+                ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
                 status: [401, 403, 404].includes(response.status)
                     ? 410
                     : response.status >= 500 || response.status === 429

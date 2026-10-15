@@ -479,6 +479,7 @@ class ShadowLaneStopConfig(dagster.Config):
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
+    # Per deployment: the consumers get the full budget to drain before the processors scale.
     stop_timeout_seconds: int = 600
 
 
@@ -499,10 +500,6 @@ class ShadowDriftConfig(dagster.Config):
 @dagster.op
 def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStopConfig) -> None:
     apps = apps_api()
-    deployments = [config.consumer_deployment, config.processor_deployment]
-    for deployment in deployments:
-        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
-        scale_deployment(apps, config.namespace, deployment, 0)
 
     def is_stopped(deployment: str) -> bool:
         if deployment_pod_count(apps, config.namespace, deployment) > 0:
@@ -510,11 +507,17 @@ def stop_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStop
         context.log.info(f"{deployment} has no pods left")
         return True
 
-    pending = wait_for_deployments(deployments, is_stopped, timeout_seconds=config.stop_timeout_seconds)
-    if pending:
-        raise dagster.Failure(
-            description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
-        )
+    # Consumers first, and processors only once the consumers' pods are gone. A consumer drains its in-flight
+    # batches before it exits, so the processors then hold no un-acked work. A processor scaled down while a
+    # consumer still waits on it gets only its drain window to finish those batches, and fails what is left.
+    for deployment in (config.consumer_deployment, config.processor_deployment):
+        context.log.info(f"Scaling {config.namespace}/{deployment} to 0 replicas")
+        scale_deployment(apps, config.namespace, deployment, 0)
+        pending = wait_for_deployments([deployment], is_stopped, timeout_seconds=config.stop_timeout_seconds)
+        if pending:
+            raise dagster.Failure(
+                description=f"Pods still running after {config.stop_timeout_seconds}s: {', '.join(sorted(pending))}"
+            )
 
 
 @dagster.op(ins={"lane_stopped": dagster.In(dagster.Nothing)})

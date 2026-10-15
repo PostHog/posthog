@@ -6,6 +6,7 @@ import { BIResultFilter } from '~/queries/schema/schema-business-intelligence'
 
 import { biEditorLogic } from '../biEditorLogic'
 import { getBIResultFilterValidationError, getBIValuePillLabel } from '../biEditorTypes'
+import { getBIResultFilterLabel } from '../biFilterSummary'
 import { BIConditionGroups } from './BIConditionGroups'
 import { BIShelfCard } from './BIShelfCard'
 
@@ -27,6 +28,20 @@ function ResultFilterEditor({ filter }: { filter: BIResultFilter }): JSX.Element
     const error = getBIResultFilterValidationError(config, filter)
     return (
         <div className="flex w-64 max-w-full flex-col gap-2 p-2">
+            <LemonInput
+                value={filter.label ?? ''}
+                placeholder={getBIResultFilterLabel(config, { ...filter, label: undefined })}
+                onChange={(label) => updateResultFilter(filter.id, { label })}
+                aria-label="Result filter display name"
+                data-attr="bi-result-filter-name"
+            />
+            <LemonButton
+                size="xsmall"
+                onClick={() => updateResultFilter(filter.id, { label: undefined })}
+                disabledReason={!filter.label ? 'Using the default name' : undefined}
+            >
+                Reset name
+            </LemonButton>
             <LemonCheckbox
                 label="Apply result filter"
                 labelClassName="text-xs"
@@ -87,7 +102,7 @@ export function BIResultFiltersCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
     const { addResultFilter, setFilterGroup } = useActions(biEditorLogic)
     const label = (filter: BIResultFilter): string =>
-        `${config.values[filter.measureIndex] ? getBIValuePillLabel(config.values[filter.measureIndex]) : 'Count'} ${OPERATORS.find((operator) => operator.value === filter.operator)?.label.toLowerCase()} ${filter.value}${filter.operator === 'between' ? ` and ${filter.valueTo ?? ''}` : ''}`
+        `${getBIResultFilterLabel(config, filter)} ${OPERATORS.find((operator) => operator.value === filter.operator)?.label.toLowerCase()} ${filter.value}${filter.operator === 'between' ? ` and ${filter.valueTo ?? ''}` : ''}`
     return (
         <BIShelfCard title="Result filters">
             <p className="mb-1 text-xs text-secondary">Filter measures after aggregation and table calculations.</p>

@@ -23,6 +23,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { prepareMcpEventDelivery } from '../utils/mcp-event-delivery'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -125,7 +126,7 @@ export class HogExecutorAsyncService {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
 
             const queueParamsType = nextInvocation.queueParameters?.type
-            if (['fetch', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
+            if (['fetch', 'mcp_event', 'sendPushNotification', 'email'].includes(queueParamsType ?? '')) {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
@@ -143,7 +144,7 @@ export class HogExecutorAsyncService {
                 // will also handle fetches inline. The only reason to reschedule
                 // back to hogflow will be when overall execution time exceeds the
                 // budget, to avoid blocking the queue.
-                if (queueParamsType === 'fetch') {
+                if (queueParamsType === 'fetch' || queueParamsType === 'mcp_event') {
                     if (invocation.queue === 'email') {
                         // Intermediate results clone away queueMetadata (createInvocationResult
                         // drops it unless the target queue is passed explicitly), so read the
@@ -351,7 +352,7 @@ export class HogExecutorAsyncService {
         options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
-        if (invocation.queueParameters?.type !== 'fetch') {
+        if (invocation.queueParameters?.type !== 'fetch' && invocation.queueParameters?.type !== 'mcp_event') {
             throw new Error('Bad invocation')
         }
 
@@ -455,6 +456,17 @@ export class HogExecutorAsyncService {
         }
 
         let signedHeaders = headers
+
+        // Secret headers are merged before signing so that the signatures cover them, and they are never written
+        // back to queueParameters, so every attempt resolves them again from the hog function.
+        if (params.secret_headers_input) {
+            const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
+        }
+
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
@@ -464,7 +476,7 @@ export class HogExecutorAsyncService {
                 method,
                 url: params.url,
                 body: params.body ?? '',
-                headers,
+                headers: signedHeaders,
                 credentials: resolved.credentials,
             })
         }
@@ -489,11 +501,19 @@ export class HogExecutorAsyncService {
         }
 
         let authorizedBody = params.body
+        if ((params.type === 'mcp_event') !== !!params.mcp_event_subscription) {
+            return failSigning('MCP event delivery requires managed subscription metadata.')
+        }
         if (params.mcp_event_subscription) {
+            const authorizationStarted = performance.now()
             const prepared = await prepareMcpEventDelivery({
                 invocation,
                 params,
                 internalApiBaseUrl: this.config.internalApiBaseUrl,
+            })
+            result.invocation.state.timings.push({
+                kind: 'async_function',
+                duration_ms: performance.now() - authorizationStarted,
             })
             if (!prepared.ok) {
                 result.invocation.state.attempts++
@@ -507,7 +527,9 @@ export class HogExecutorAsyncService {
                         this.config.fetchBackoffBaseMs * 2 ** (result.invocation.state.attempts - 1),
                         this.config.fetchBackoffMaxMs
                     )
-                    result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoff })
+                    result.invocation.queueScheduledAt = DateTime.utc().plus({
+                        milliseconds: Math.max(backoff, prepared.retryAfterMs ?? 0),
+                    })
                 } else {
                     result.error = new Error('MCP event delivery could not be authorized.')
                     result.finished = true

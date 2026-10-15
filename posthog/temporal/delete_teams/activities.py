@@ -38,6 +38,17 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
 
 
 @temporalio.activity.defn
+async def delete_event_properties_activity(inputs: TeamDataActivityInputs) -> None:
+    async with Heartbeater():
+        from posthog.models.team.util import _delete_event_properties_for_teams
+
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_event_properties_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
+
+
+@temporalio.activity.defn
 async def delete_cohort_members_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_cohort_members_for_all_teams

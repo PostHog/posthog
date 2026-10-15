@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from pydantic import JsonValue
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.event.util import create_event
@@ -25,6 +26,7 @@ from posthog.models import PersonalAPIKey, PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signing_key, verify_callback
+from products.cdp.backend.mcp_event_properties import MCPEventPropertyAccess
 from products.cdp.backend.mcp_events import MCPEventSubscriptions
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -60,6 +62,43 @@ class TestMCPEventSigning(SimpleTestCase):
                 verify_callback(subscription_id="test-subscription", url="https://example.com/callback", secret=secret)
 
 
+class TestMCPEventPropertyMasking(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                {"$groups": {"organization": "hidden", "project": "visible"}},
+                {"$groups.organization"},
+                {"$groups": {"project": "visible"}},
+            ),
+            (
+                {"$groups.organization": "hidden", "$groups%2Eorganization": "hidden", "plan": "visible"},
+                {"$groups.organization"},
+                {"plan": "visible"},
+            ),
+            (
+                {"items": [{"secret": "hidden", "public": "visible"}]},
+                {"items.secret"},
+                {"items": [{"public": "visible"}]},
+            ),
+            (
+                {
+                    "$feature/secret": True,
+                    "$active_feature_flags": ["secret", "public"],
+                    "$feature_flags": {"secret": True, "public": False},
+                },
+                {"$feature/secret"},
+                {"$active_feature_flags": ["public"], "$feature_flags": {"public": False}},
+            ),
+        ]
+    )
+    def test_redacts_restricted_paths_and_feature_flag_aliases(
+        self, properties: dict[str, JsonValue], restrictions: set[str], expected: dict[str, JsonValue]
+    ) -> None:
+        original = json.loads(json.dumps(properties))
+        self.assertEqual(MCPEventPropertyAccess.redact(properties, restrictions), expected)
+        self.assertEqual(properties, original)
+
+
 class MCPEventSubscriptionTestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -67,7 +106,7 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
             "products.cdp.backend.presentation.mcp_event_subscriptions.posthoganalytics.feature_enabled",
             return_value=True,
         )
-        self.flag.start()
+        self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
         self.callback = patch("products.cdp.backend.mcp_events.verify_callback")
         self.callback.start()
@@ -121,11 +160,14 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
             "data": {"event": "example_event", "distinct_id": "sample-user", "properties": {"plan": "enterprise"}},
             "cursor": None,
         }
+        assert subscription.hog_function is not None
+        assert subscription.hog_function.filters is not None
         return self.client.post(
             self.url + str(subscription.pk) + "/authorize_delivery/",
             {
                 "generation": str(generation or subscription.generation),
                 "function_id": str(subscription.hog_function_id),
+                "filter_bytecode": subscription.hog_function.filters["bytecode"],
                 "url": self.callback_url,
                 "body": json.dumps(body),
             },
@@ -140,6 +182,7 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         first_function_id = subscription.hog_function_id
         first_generation = subscription.generation
         self.assertIn("mcpEventFetch(", subscription.hog_function.hog)
+        self.assertEqual(self.flag_mock.call_args.args[1], self.user.distinct_id)
         verified_at = timezone.now() - timedelta(minutes=30)
         subscription.verified_at = verified_at
         subscription.save(update_fields=["verified_at"])
@@ -277,6 +320,84 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self.assertEqual(json.loads(response.json()["body"])["data"]["properties"], {})
         forbidden = self.authorize(filtered_subscription)
         self.assertIn(forbidden.status_code, [400, 403], forbidden.json())
+
+    def test_queued_test_account_filter_keeps_its_original_permissions(self) -> None:
+        self.team.test_account_filters = [{"key": "plan", "type": "event", "operator": "exact", "value": "internal"}]
+        self.team.save()
+        self.payload["arguments"] = {
+            "project_id": self.team.pk,
+            "filters": {"events": [{"id": "example_event", "type": "events"}], "filter_test_accounts": True},
+        }
+        subscription = self.subscribe()
+        self.team.test_account_filters = []
+        self.team.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="plan", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+        self.assertEqual(self.authorize(subscription).status_code, 403)
+
+    def test_delivery_does_not_consume_the_client_api_throttle(self) -> None:
+        subscription = self.subscribe()
+        with (
+            patch("posthog.rate_limit.BurstRateThrottle.allow_request", return_value=False),
+            patch("posthog.rate_limit.BurstRateThrottle.wait", return_value=60),
+        ):
+            self.assertEqual(
+                self.client.get(self.url, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]).status_code, 429
+            )
+            response = self.authorize(subscription)
+        self.assertEqual(response.status_code, 200, response.json())
+
+    def test_delivery_rejects_a_different_compiled_filter(self) -> None:
+        subscription = self.subscribe()
+        assert subscription.hog_function is not None
+        assert subscription.hog_function.filters is not None
+        subscription.hog_function.filters["bytecode"] = ["_H", 1, 31, 1]
+        self.assertEqual(self.authorize(subscription).status_code, 403)
+
+    @parameterized.expand(["$active_feature_flags", "$feature_flags"])
+    def test_filter_cannot_read_a_restricted_flag_through_an_alias(self, alias: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$feature/secret", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+        self.payload["arguments"] = {
+            "project_id": self.team.pk,
+            "filters": {"properties": [{"key": alias, "type": "event", "operator": "is_set"}]},
+        }
+        response = self.client.post(
+            self.url + "subscribe/", self.payload, HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+        )
+        self.assertEqual(response.status_code, 403, response.json())
+
+    def test_deleting_subscriber_disables_the_managed_destination(self) -> None:
+        subscription = self.subscribe()
+        function_id = subscription.hog_function_id
+        assert function_id is not None
+        self.user.delete()
+        function = HogFunction.objects.get(pk=function_id)
+        self.assertFalse(function.enabled)
+        self.assertFalse(function.encrypted_inputs)
+
+    def test_list_is_paginated_without_hiding_older_active_subscriptions(self) -> None:
+        subscription = self.subscribe()
+        response = self.client.get(self.url + "?limit=1", HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"])
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(subscription.pk))
+        response = self.client.get(
+            self.url + "?limit=1&offset=1", HTTP_AUTHORIZATION=self.headers["HTTP_AUTHORIZATION"]
+        )
+        self.assertEqual(response.json()["results"], [])
 
     def test_worker_reload_is_scheduled_after_commit(self) -> None:
         with patch("products.cdp.backend.mcp_events.reload_hog_functions_on_workers") as reload:

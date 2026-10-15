@@ -30,20 +30,25 @@ const fetchHandler: AsyncFunctionHandler = {
         // on the parsed object, which would otherwise leak into every non-AWS
         // template's queueParameters snapshot.
         // The reserved input marks managed destinations without changing ordinary custom headers.
-        const managedMcp = Object.hasOwn(context.globals?.inputs ?? {}, 'mcp_credential')
+        const managedMcp = Object.hasOwn(context.invocation?.hogFunction?.encrypted_inputs ?? {}, 'mcp_credential')
         const mcpSubscription = managedMcp
-            ? { id: headers['X-MCP-Subscription-Id'], generation: context.globals?.inputs?.mcp_generation }
+            ? {
+                  id: headers['X-MCP-Subscription-Id'],
+                  generation: context.globals?.inputs?.mcp_generation,
+                  filter_bytecode: context.invocation.hogFunction.filters?.bytecode,
+              }
             : undefined
         const eventId = mcpSubscription && body ? parseJSON(body).eventId : undefined
 
         const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
-            type: 'fetch',
+            type: managedMcp ? 'mcp_event' : 'fetch',
             url,
             method,
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(mcpSubscription ? { mcp_event_subscription: mcpSubscription } : {}),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
+            ...(fetchOptions?.secret_headers_input ? { secret_headers_input: fetchOptions.secret_headers_input } : {}),
             // Receivers deduplicate retries by this id. Producers with a stable
             // event id can also deduplicate repeated processing of the source event.
             ...(fetchOptions?.standard_webhooks
@@ -81,7 +86,7 @@ const fetchHandler: AsyncFunctionHandler = {
 registerAsyncFunction('fetch', fetchHandler)
 registerAsyncFunction('mcpEventFetch', {
     execute: (args, context, result) => {
-        if (!Object.hasOwn(context.globals?.inputs ?? {}, 'mcp_credential')) {
+        if (!Object.hasOwn(context.invocation?.hogFunction?.encrypted_inputs ?? {}, 'mcp_credential')) {
             throw new Error('MCP event delivery requires a managed subscription.')
         }
         return fetchHandler.execute(args, context, result)

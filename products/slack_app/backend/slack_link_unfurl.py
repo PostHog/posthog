@@ -6,6 +6,7 @@ Ticket subjects and messages are customer-authored, so every one goes through `e
 from __future__ import annotations
 
 import re
+import json
 import asyncio
 import dataclasses
 from collections.abc import Callable
@@ -80,6 +81,8 @@ _MAX_GRID_TILES = 6
 _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
 
+ADHOC_INSIGHT_KIND = "adhoc_insight"
+
 _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
     "dashboard": OBJECT_URL_TEMPLATES["dashboard"],
@@ -108,9 +111,10 @@ _KIND_EMOJI: dict[str, str] = {
     "cohort": "👥",
     "error": "🐞",
     "report": "📥",
+    ADHOC_INSIGHT_KIND: "📈",
 }
 
-_SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access"]
+_SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
 
 _REJECTED_PAYLOAD_ERRORS = frozenset(
     {"cannot_parse_attachment", "invalid_unfurls_format", "invalid_arguments", "invalid_array_arg", "invalid_blocks"}
@@ -177,9 +181,30 @@ def link_url_region(url: str) -> str | None:
     return _APP_HOST_REGIONS.get(urlparse(url).hostname or "")
 
 
+def adhoc_insight_query(url: str) -> dict | None:
+    raw = parse_qs(urlparse(url).fragment).get("q")
+    if not raw:
+        return None
+    try:
+        query = json.loads(raw[0])
+    except ValueError:
+        return None
+    return query if isinstance(query, dict) else None
+
+
+def _is_adhoc_insight_url(url: str) -> bool:
+    segments = [segment for segment in urlparse(url).path.split("/") if segment]
+    if segments[:1] == ["project"]:
+        segments = segments[2:]
+    return segments[:2] == ["insights", "new"] and adhoc_insight_query(url) is not None
+
+
 def parse_posthog_resource_link(url: str) -> ObjectRef | None:
     """
     Parse a PostHog app URL into the object a card can unfurl.
+
+    An unsaved insight link (`/insights/new#q=<query>`) has the id "new", so logs never carry its
+    query. Read the query with `adhoc_insight_query`.
 
     A URL carrying `?unfurl=false` is not a resource here: links we post ourselves already
     sit beside the detail a card would add, so they opt out rather than repeat it.
@@ -189,6 +214,8 @@ def parse_posthog_resource_link(url: str) -> ObjectRef | None:
     """
     if "false" in parse_qs(urlparse(url).query).get(UNFURL_OPT_OUT_PARAM, []):
         return None
+    if _is_adhoc_insight_url(url):
+        return ObjectRef(kind=ADHOC_INSIGHT_KIND, id="new")
     return object_ref_for_url(url, _UNFURL_TEMPLATES)
 
 
@@ -226,18 +253,25 @@ def _extract_query_source_kind(query: dict) -> str | None:
     return None
 
 
+def _query_resource_label(query: dict) -> str | None:
+    inner = _extract_query_source_kind(query)
+    if not inner:
+        return None
+    short = _QUERY_KIND_TO_SHORT_NAME.get(inner)
+    if short:
+        return f"{short} insight"
+    if inner.endswith("Query"):
+        return f"{inner[: -len('Query')]} insight"
+    return f"{inner} insight"
+
+
 def _insight_resource_label(insight: Insight) -> str:
     """e.g. 'Trends insight', 'SQL insight' — from query JSON or legacy filters only (no execution)."""
     q = insight.query
     if isinstance(q, dict) and q:
-        inner = _extract_query_source_kind(q)
-        if inner:
-            short = _QUERY_KIND_TO_SHORT_NAME.get(inner)
-            if short:
-                return f"{short} insight"
-            if inner.endswith("Query"):
-                return f"{inner[: -len('Query')]} insight"
-            return f"{inner} insight"
+        label = _query_resource_label(q)
+        if label:
+            return label
 
     filters = insight.filters if isinstance(insight.filters, dict) else {}
     legacy = filters.get("insight")
@@ -318,6 +352,8 @@ class _UnfurlCard:
     timestamp_label: str = "Updated"
     button: _CardButton | None = None
     chart_insight_id: int | None = None
+    # Set for an ad hoc insight. Its card goes out only together with its chart.
+    chart_query: dict | None = None
 
 
 def _tracked_url(url: str, kind: str) -> str:
@@ -652,6 +688,24 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     )
 
 
+def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    query = adhoc_insight_query(url)
+    if query is None:
+        return "not_found"
+    # The card shows only with its chart, and the chart image opens without a PostHog login.
+    if not ctx.team.organization.allow_publicly_shared_resources:
+        return "public_sharing_disabled"
+    # Rendering an ad hoc query runs it, so it needs the same access as running it directly.
+    if not ctx.uac.check_access_level_for_resource("query", "viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label=_query_resource_label(query) or "Insight",
+        title="Unsaved insight",
+        details=tuple(filter(None, [_date_range(query)])),
+        chart_query=query,
+    )
+
+
 def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
     if not dashboard:
@@ -915,6 +969,7 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
 
 _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _SkipReason]] = {
     "insight": _insight_card,
+    ADHOC_INSIGHT_KIND: _adhoc_insight_card,
     "dashboard": _dashboard_card,
     "ticket": _ticket_card,
     "task": _task_card,
@@ -1119,14 +1174,34 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             continue
         cards[raw_url] = (ref.kind, card)
 
+    # A card shows a chart only when it is the only link. An ad hoc card has no card without its
+    # chart, because the flag check is a network call this webhook cannot afford before it acks.
+    adhoc = {url: entry for url, entry in cards.items() if entry[1].chart_query is not None}
+    if adhoc and len(cards) > 1:
+        skipped.extend({"kind": kind, "ref": "new", "reason": "multiple_links"} for kind, _ in adhoc.values())
+        cards = {url: entry for url, entry in cards.items() if url not in adhoc}
+        adhoc = {}
+
     logger.info(
         "slack_app_link_unfurl_result",
         team_id=team.pk,
         integration_id=integration.id,
         channel=channel,
-        unfurled=len(cards),
+        unfurled=len(cards) - len(adhoc),
+        deferred=len(adhoc),
         skipped=skipped,
     )
+
+    if adhoc:
+        url, (_, card) = next(iter(adhoc.items()))
+        _queue_unfurl_charts(
+            integration=integration,
+            user=user,
+            event=event,
+            unfurls=_unfurls(adhoc, compact=False, invite=None),
+            charts=[SlackUnfurlChartRequest(url=url, query=card.chart_query, title=card.title)],
+        )
+        return
 
     if not cards:
         return

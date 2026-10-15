@@ -72,7 +72,7 @@ import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js'
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { McpDispatcher } from '@/hono/dispatcher'
-import { PostHogValidationError } from '@/lib/errors'
+import { PostHogRateLimitError, PostHogValidationError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -330,7 +330,7 @@ describe('McpDispatcher event subscriptions', () => {
         requestApi.mockRejectedValue(
             new PostHogValidationError({
                 detail: 'timeout',
-                attr: 'callback.reason',
+                attr: 'callback__reason',
                 code: 'invalid_input',
                 extra: undefined,
                 url: 'https://example.com/api',
@@ -346,6 +346,27 @@ describe('McpDispatcher event subscriptions', () => {
             data: { reason: 'timeout' },
         })
         expect(JSON.stringify(body)).not.toContain(subscription.delivery.secret)
+    })
+
+    it('preserves upstream throttle delay without exposing request details', async () => {
+        requestApi.mockRejectedValue(
+            new PostHogRateLimitError({
+                retryAfterSeconds: 45,
+                body: 'private upstream details',
+                url: 'https://example.com/api',
+                method: 'POST',
+            })
+        )
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(eventRequest('events/subscribe', subscription), makeProps())
+        const body = (await response.json()) as any
+        expect(body.error).toEqual({
+            code: -32000,
+            message: 'PostHog rate limited this subscription request. Retry after the indicated delay.',
+            data: { retryAfterSeconds: 45 },
+        })
+        expect(JSON.stringify(body)).not.toContain('private upstream details')
+        expect(JSON.stringify(body)).not.toContain('https://example.com/api')
     })
 
     it('keeps legacy event requests unsupported', async () => {

@@ -1584,6 +1584,7 @@ describe('Hog Executor', () => {
             const subscription = {
                 id: '2de35c02-f8b8-4222-a777-cb4ac56edc13',
                 generation: '80bc1fd7-4a99-4aef-bdac-fc15f0970c3a',
+                filter_bytecode: ['_H', 1],
             }
             const pendingBody = JSON.stringify({ eventId: 'event-123', data: { properties: { secret: 'hidden' } } })
             const authorizedBody = JSON.stringify({ eventId: 'event-123', data: { properties: {} } })
@@ -1595,6 +1596,7 @@ describe('Hog Executor', () => {
                     body: pendingBody,
                     mcp_event_subscription: subscription,
                 })
+                invocation.queueParameters!.type = 'mcp_event'
                 invocation.hogFunction.encrypted_inputs = {
                     mcp_credential: { value: 'phx_test_mcp_delivery' },
                 }
@@ -1608,21 +1610,36 @@ describe('Hog Executor', () => {
                 )
             })
 
-            it.each([403, 500])('blocks external sending when authorization returns %s', async (status) => {
+            it.each([403, 429, 500])('blocks external sending when authorization returns %s', async (status) => {
                 ;(internalFetch as jest.Mock).mockResolvedValue({
                     status,
                     dump: jest.fn(),
+                    headers: { 'retry-after': '45' },
                 })
                 mockRequest.mockClear()
-                const result = await executor.executeFetch(await mcpInvocation())
+                const invocation = await mcpInvocation()
+                invocation.state.timings = []
+                const result = await executor.executeFetch(invocation)
                 expect(mockRequest).not.toHaveBeenCalled()
-                if (status === 500) {
+                expect(result.invocation.state.timings.some((timing) => timing.kind === 'async_function')).toBe(true)
+                if (status === 500 || status === 429) {
                     expect(result.finished).toBe(false)
-                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(
+                        result.invocation.queueScheduledAt!.toMillis() - DateTime.utc().toMillis()
+                    ).toBeGreaterThanOrEqual(45_000)
                 } else {
                     expect(result.finished).toBe(true)
                     expect(result.error).toBeDefined()
                 }
+            })
+
+            it('rejects an ordinary fetch carrying managed metadata', async () => {
+                const invocation = await mcpInvocation()
+                invocation.queueParameters!.type = 'fetch'
+                const result = await executor.executeFetch(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeDefined()
+                expect(mockRequest).not.toHaveBeenCalled()
             })
 
             it('sends the authorized bytes and blocks a retry after revocation', async () => {
@@ -1778,6 +1795,105 @@ describe('Hog Executor', () => {
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.error.message).toContain('Standard Webhooks signing failed')
                 expect(result.error.message).toContain('signing_secret')
+            })
+        })
+
+        describe('secret_headers_input', () => {
+            const seedSecretHeadersInput = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.encrypted_inputs = {
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                    secret_headers: { value: { authorization: 'Bearer sk_test_token', 'X-Api-Key': 'key_test_token' } },
+                } as any
+            }
+
+            it('merges the resolved headers into every attempt without persisting them to the queue payload', async () => {
+                const receivedHeaders: Record<string, string | string[] | undefined>[] = []
+                let callCount = 0
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedHeaders.push(req.headers)
+                    callCount++
+                    res.writeHead(callCount === 1 ? 500 : 200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/json', Authorization: 'plaintext' },
+                    secret_headers_input: 'secret_headers',
+                })
+                seedSecretHeadersInput(invocation)
+
+                let result = await executor.executeFetch(invocation)
+                expect(result.invocation.state.attempts).toBe(1)
+                expect(JSON.stringify(result.invocation.queueParameters)).not.toContain('sk_test_token')
+
+                result = await executor.executeFetch(result.invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(receivedHeaders).toHaveLength(2)
+                for (const headers of receivedHeaders) {
+                    expect(headers['authorization']).toBe('Bearer sk_test_token')
+                    expect(headers['x-api-key']).toBe('key_test_token')
+                    expect(headers['content-type']).toBe('application/json')
+                }
+            })
+
+            it('keeps the resolved headers inside an AWS SigV4 signed request', async () => {
+                let received: Record<string, string | string[] | undefined> = {}
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    received = req.headers
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: {
+                        service: 'kinesis',
+                        region: 'us-east-1',
+                        access_key_id_input: 'aws_access_key_id',
+                        secret_access_key_input: 'aws_secret_access_key',
+                    },
+                    secret_headers_input: 'secret_headers',
+                })
+                seedSecretHeadersInput(invocation)
+                invocation.hogFunction.encrypted_inputs = {
+                    ...invocation.hogFunction.encrypted_inputs,
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received['x-api-key']).toBe('key_test_token')
+                expect(received['authorization']).toMatch(/^AWS4-HMAC-SHA256 .*SignedHeaders=[a-z0-9;-]*x-api-key/)
+            })
+
+            it.each([
+                ['the secret headers input is missing', undefined],
+                ['a secret header value is not text', { value: { Authorization: 12345 } }],
+            ])('errors loudly instead of sending the request when %s', async (_name, secretHeaders) => {
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    secret_headers_input: 'secret_headers',
+                })
+                if (secretHeaders) {
+                    invocation.hogFunction.encrypted_inputs = { secret_headers: secretHeaders } as any
+                }
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('secret_headers')
             })
         })
 
