@@ -5,6 +5,11 @@ use std::sync::Arc;
 
 use crate::bytescan::{self as scan, Span};
 
+use super::cv::Expansion;
+
+/// The one `cv` version the player decompresses (`decompressEvent`). It leaves an event with any other as it is.
+pub const CV_VERSION: &str = "2024-10";
+
 /// A window ID is a UUID from posthog-js, so a much longer one is not real.
 pub const MAX_WINDOW_ID_BYTES: usize = 1024;
 
@@ -39,8 +44,10 @@ pub struct Event {
     pub data: Option<Span>,
     /// `data.source` of an incremental snapshot. Only the top level of `data` is read.
     pub source: Option<u8>,
-    /// The event carries `cv`: its data is gzip or zstd stored as latin-1 codepoints.
+    /// The event carries `cv` [`CV_VERSION`]: parts of its data are gzip or zstd stored as latin-1 codepoints.
     pub compressed: bool,
+    /// The compressed strings decoded, once per event by [`Message::decode_compressed`]. `None` until then.
+    pub expansion: Option<Expansion>,
 }
 
 #[derive(Debug)]
@@ -212,6 +219,7 @@ fn read_event(inner: &[u8], span: Span) -> Result<Event, ReadError> {
         data: None,
         source: None,
         compressed: false,
+        expansion: None,
     };
     for entry in scan::object_entries(inner, span)? {
         let entry = entry?;
@@ -225,7 +233,10 @@ fn read_event(inner: &[u8], span: Span) -> Result<Event, ReadError> {
                     scan::parse_number(inner, entry.value).filter(|ts| ts.abs() <= MAX_TIMESTAMP_MS)
             }
             b"data" => event.data = Some(entry.value),
-            b"cv" => event.compressed = true,
+            b"cv" => {
+                event.compressed = scan::is_string(inner, entry.value)
+                    && scan::unescape(inner, entry.value).is_ok_and(|v| v == CV_VERSION)
+            }
             _ => {}
         }
     }
@@ -281,7 +292,8 @@ mod tests {
                 "$snapshot_items": [
                     {"type": 4, "timestamp": 1000, "data": {"href": "https://example.com/\"quoted\"", "width": 1280}},
                     {"type": 2, "timestamp": 1001, "data": "\u{1f}\u{8b}gzip-as-latin1", "cv": "2024-10"},
-                    {"type": 3, "timestamp": 1002.5, "data": {"source": 0, "adds": [{"node": {"source": 9}}]}}
+                    {"type": 3, "timestamp": 1002.5, "data": {"source": 0, "adds": [{"node": {"source": 9}}]}},
+                    {"type": 3, "timestamp": 1003, "data": {"source": 1}, "cv": null}
                 ]
             }
         });
@@ -302,6 +314,7 @@ mod tests {
                 (Some(2), Some(1001.0), None, true),
                 // The nested `source: 9` inside a mutation is not the event's source.
                 (Some(3), Some(1002.5), Some(0), false),
+                (Some(3), Some(1003.0), Some(1), false),
             ]
         );
         let meta = &message.events[0];
