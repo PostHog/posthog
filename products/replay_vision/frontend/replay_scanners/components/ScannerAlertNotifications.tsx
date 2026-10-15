@@ -22,7 +22,11 @@ function pendingDestinationView(notification: PendingVisionAlertNotification): {
     return { title: 'Webhook', detail: notification.webhookUrl }
 }
 
-export function ScannerAlertNotifications(): JSX.Element {
+export function ScannerAlertNotifications({
+    savesAutomatically = false,
+}: {
+    savesAutomatically?: boolean
+}): JSX.Element {
     const {
         existingHogFunctionsLoading,
         destinationGroups,
@@ -72,7 +76,11 @@ export function ScannerAlertNotifications(): JSX.Element {
 
     return (
         <AlertNotificationDestinationEditor
-            description="Each destination receives every notification this alert sends."
+            description={
+                savesAutomatically
+                    ? 'Each destination receives every notification this alert sends. Added and removed destinations save automatically.'
+                    : 'Each destination receives every notification this alert sends.'
+            }
             destinations={{
                 showExisting: true,
                 existingLoading: existingHogFunctionsLoading,

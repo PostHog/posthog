@@ -131,7 +131,7 @@ function ScannerAlertEditModalContent({
             ),
             content: (
                 <div className="pt-3">
-                    <ScannerAlertNotifications />
+                    <ScannerAlertNotifications savesAutomatically />
                 </div>
             ),
         },
@@ -205,12 +205,14 @@ function ScannerAlertEditModalContent({
                         isEditing
                         isSubmitting={isAlertFormSubmitting}
                         hasChanges={alertFormChanged}
+                        noChangesReason="No changes to save. Destination and Enabled changes save automatically."
                         onSubmitAttempted={() => touchAlertFormField('name')}
                         leadingActions={leadingActions}
                         trailingActions={
                             <LemonSwitch
                                 checked={alert.enabled ?? true}
                                 label="Enabled"
+                                tooltip="Saves automatically"
                                 onChange={() => toggleAlertEnabled(alert)}
                             />
                         }
