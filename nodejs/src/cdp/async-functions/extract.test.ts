@@ -37,9 +37,9 @@ describe('postHogExtract', () => {
         ],
     }
 
-    const invokeLive = async (args: Record<string, unknown>): Promise<void> => {
+    const invokeLive = async (args: Record<string, unknown>, flow = hogFlow): Promise<void> => {
         const example = createExampleInvocation()
-        const invocation = { ...example, hogFlow, state: { ...example.state, actionId: 'extract_1' } }
+        const invocation = { ...example, hogFlow: flow, state: { ...example.state, actionId: 'extract_1' } }
         await getAsyncFunctionHandler('postHogExtract')!.execute(
             [args],
             {
@@ -90,6 +90,24 @@ describe('postHogExtract', () => {
         await invokeLive({ ...payload, context: null, task_run_id: 'run-1' })
 
         expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: 'run-1' })
+    })
+
+    it('fails rather than store one field into variables of different types', async () => {
+        const mixedTypes = {
+            ...hogFlow,
+            actions: [
+                {
+                    id: 'extract_1',
+                    output_variable: [
+                        { key: 'pr_url', result_path: 'files_changed' },
+                        { key: 'changed', result_path: 'files_changed' },
+                    ],
+                },
+            ],
+        }
+
+        await expect(invokeLive(payload, mixedTypes)).rejects.toThrow(/files_changed.*variables of one type/)
+        expect(fetchSpy).not.toHaveBeenCalled()
     })
 
     it('returns no value for any field when mocked', () => {

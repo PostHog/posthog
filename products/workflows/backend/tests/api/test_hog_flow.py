@@ -7412,7 +7412,7 @@ class TestExtractActionValidation(APIBaseTest):
         ]
         sync_template_to_db(template)
 
-    def _post_flow(self, fields: Any, variable_type: str = "string"):
+    def _post_flow(self, fields: Any, variables: list[dict] | None = None, mappings: list[dict] | None = None):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -7430,7 +7430,7 @@ class TestExtractActionValidation(APIBaseTest):
                 "template_id": "template-posthog-extract",
                 "inputs": {"context": {"value": {"message": "Opened a PR"}}, "fields": {"value": fields}},
             },
-            "output_variable": [{"key": "pr_url", "result_path": "pr_url"}],
+            "output_variable": mappings or [{"key": "pr_url", "result_path": "pr_url"}],
         }
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
@@ -7439,13 +7439,19 @@ class TestExtractActionValidation(APIBaseTest):
                     "name": "Test Flow",
                     "actions": [trigger_action, action],
                     "edges": [],
-                    "variables": [{"key": "pr_url", "type": variable_type, "label": "PR URL"}],
+                    "variables": variables or [{"key": "pr_url", "type": "string", "label": "PR URL"}],
                 },
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
-    def test_accepts_named_fields_mapped_into_typed_variables(self):
-        response = self._post_flow({"pr_url": "The URL of the pull request"}, variable_type="number")
+    @parameterized.expand(
+        [
+            ("number_variable", [{"key": "pr_url", "type": "number"}], None),
+            ("result_path_that_is_not_text", None, [{"key": "pr_url", "result_path": ["pr_url"]}]),
+        ]
+    )
+    def test_accepts_named_fields_mapped_into_typed_variables(self, _name, variables, mappings):
+        response = self._post_flow({"pr_url": "The URL of the pull request"}, variables, mappings)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -7465,8 +7471,18 @@ class TestExtractActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == attr
 
-    def test_rejects_a_field_mapped_into_a_variable_type_it_cannot_fill(self):
-        response = self._post_flow({"pr_url": "The URL of the pull request"}, variable_type="json")
+    @parameterized.expand(
+        [
+            ("json_variable", [{"key": "pr_url", "type": "json"}], None),
+            (
+                "number_and_text_variables",
+                [{"key": "pr_url", "type": "string"}, {"key": "pr_count", "type": "number"}],
+                [{"key": "pr_url", "result_path": "pr_url"}, {"key": "pr_count", "result_path": "pr_url"}],
+            ),
+        ]
+    )
+    def test_rejects_a_field_mapped_into_variable_types_it_cannot_fill(self, _name, variables, mappings):
+        response = self._post_flow({"pr_url": "The URL of the pull request"}, variables, mappings)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions"

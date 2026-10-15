@@ -582,17 +582,27 @@ def _output_mappings(action: dict) -> list[dict]:
     return [mapping for mapping in mappings if isinstance(mapping, dict)]
 
 
+def _extract_field_types(step: dict, variable_types: dict[str, str]) -> dict[str, set[str]]:
+    fields = _extract_fields(step)
+    types: dict[str, set[str]] = {}
+    for mapping in _output_mappings(step):
+        field = mapping.get("result_path")
+        variable_type = variable_types.get(mapping.get("key"))
+        if isinstance(field, str) and field in fields and variable_type is not None:
+            types.setdefault(field, set()).add(variable_type)
+    return types
+
+
 def _extract_fields_in_unfillable_variables(actions: list[dict], variables: list[dict] | None) -> list[str]:
     variable_types = {variable.get("key"): variable.get("type") for variable in variables or []}
     unfillable: list[str] = []
     for step in actions:
         if (step.get("config") or {}).get("template_id") != _EXTRACT_TEMPLATE_ID:
             continue
-        fields = _extract_fields(step)
-        for mapping in _output_mappings(step):
-            variable_type = variable_types.get(mapping.get("key"))
-            if mapping.get("result_path") in fields and variable_type not in (None, *ExtractionFieldType.values):
-                unfillable.append(f"{mapping['result_path']} ({variable_type} variable {mapping['key']})")
+        for field, types in _extract_field_types(step, variable_types).items():
+            if len(types) > 1 or not types <= set(ExtractionFieldType.values):
+                labels = sorted(dict(ExtractionFieldType.choices).get(type_, type_).lower() for type_ in types)
+                unfillable.append(f"{field} ({' and '.join(labels)} variables)")
     return unfillable
 
 
@@ -3161,8 +3171,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if unfillable:
                 raise serializers.ValidationError(
                     {
-                        "actions": "Extract with AI fills only text, number, and true or false variables. "
-                        f"Change the variable type for: {', '.join(unfillable)}."
+                        "actions": "Extract with AI fills each field into text, number, or true or false variables "
+                        f"of one type. Change the output variables for: {', '.join(unfillable)}."
                     }
                 )
 

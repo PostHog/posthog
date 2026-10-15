@@ -28,7 +28,8 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 const MAX_INSTRUCTION_LENGTH = 500
 
 type FieldType = 'string' | 'number' | 'boolean'
-const FIELD_TYPES: ReadonlySet<string> = new Set<FieldType>(['string', 'number', 'boolean'])
+const FIELD_TYPE_LABELS: Record<FieldType, string> = { string: 'text', number: 'number', boolean: 'true or false' }
+const FIELD_TYPES: ReadonlySet<string> = new Set(Object.keys(FIELD_TYPE_LABELS))
 
 type ExtractPayload = { context: unknown; taskRunId: string | null; fields: Record<string, string> }
 
@@ -74,9 +75,16 @@ const fieldTypesFromOutputVariables = (
     const types = new Map<string, FieldType>()
     for (const mapping of mappings) {
         const type = variableTypes.get(mapping.key)
-        if (mapping.result_path && type && FIELD_TYPES.has(type)) {
-            types.set(mapping.result_path, type as FieldType)
+        if (!mapping.result_path || !type || !FIELD_TYPES.has(type)) {
+            continue
         }
+        const earlierType = types.get(mapping.result_path)
+        if (earlierType && earlierType !== type) {
+            throw new Error(
+                `Map ${mapping.result_path} into variables of one type. It goes into both a ${FIELD_TYPE_LABELS[earlierType]} and a ${FIELD_TYPE_LABELS[type as FieldType]} variable.`
+            )
+        }
+        types.set(mapping.result_path, type as FieldType)
     }
     return types
 }
