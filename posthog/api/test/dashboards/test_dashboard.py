@@ -1,5 +1,6 @@
 import json
 import datetime
+from collections.abc import Callable
 
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -7,6 +8,7 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -3179,6 +3181,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         other_tile.refresh_from_db()
         assert other_tile.dashboard_id == other_dashboard.id
+
+    @parameterized.expand([("text", "patch"), ("text", "update_text_tile"), ("button_tile", "patch")])
+    def test_update_tile_rejects_move_before_lock(self, content_field: str, endpoint: str) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Source")
+        destination = Dashboard.objects.create(team=self.team, name="Destination")
+        if content_field == "text":
+            content: Text | ButtonTile = Text.objects.create(team=self.team, body="Original")
+            content_data = {"id": content.id, "body": "Updated"}
+        else:
+            content = ButtonTile.objects.create(team=self.team, url="https://example.com/original", text="Original")
+            content_data = {"id": str(content.id), "url": "https://example.com/updated", "text": "Updated"}
+        tile = DashboardTile.objects.create(dashboard=dashboard, **{content_field: content})
+        moved = False
+
+        def move_before_lock(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: dict[str, object]
+        ) -> object:
+            nonlocal moved
+            if not moved and "FOR UPDATE" in sql and DashboardTile._meta.db_table in sql:
+                moved = True
+                DashboardTile.objects.filter(pk=tile.pk).update(dashboard=destination)
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(move_before_lock):
+            if endpoint == "patch":
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+                    {"tiles": [{"id": tile.id, content_field: content_data}]},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.json()["attr"], content_field)
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/update_text_tile/",
+                    {"tile_id": tile.id, "body": "Updated"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        self.assertTrue(moved)
+        content.refresh_from_db()
+        self.assertEqual(content.body if isinstance(content, Text) else content.text, "Original")
 
     def test_update_rolls_back_earlier_tile_text_copy_when_a_later_tile_fails(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

@@ -1565,7 +1565,11 @@ def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
 def _copy_text_if_shared(tile: DashboardTile) -> Text:
     # Locks the tile against a concurrent `copy_to_dashboard` adding a second reference to this
     # text, so the sharing check below can't race a duplication that hasn't committed yet.
-    tile = DashboardTile.objects.select_for_update(of=("self",)).select_related("text").get(pk=tile.pk)
+    tile = (
+        DashboardTile.objects.select_for_update(of=("self",))
+        .select_related("text")
+        .get(pk=tile.pk, dashboard_id=tile.dashboard_id)
+    )
     text = cast(Text, tile.text)
     is_shared = DashboardTile.objects_including_soft_deleted.filter(text_id=text.id).exclude(id=tile.id).exists()
     # A tile moved to another team's dashboard (`move_tile`) keeps its text reference, so a
@@ -1587,7 +1591,11 @@ def _copy_text_if_shared(tile: DashboardTile) -> Text:
 
 
 def _copy_button_if_shared(tile: DashboardTile) -> ButtonTile:
-    tile = DashboardTile.objects.select_for_update(of=("self",)).select_related("button_tile").get(pk=tile.pk)
+    tile = (
+        DashboardTile.objects.select_for_update(of=("self",))
+        .select_related("button_tile")
+        .get(pk=tile.pk, dashboard_id=tile.dashboard_id)
+    )
     button = cast(ButtonTile, tile.button_tile)
     is_shared = (
         DashboardTile.objects_including_soft_deleted.filter(button_tile_id=button.id).exclude(id=tile.id).exists()
@@ -3569,7 +3577,10 @@ class DashboardsViewSet(
         with transaction.atomic():
             text_fields = [field for field in ("body", "agent_context") if field in validated]
             if text_fields:
-                text = _copy_text_if_shared(tile)
+                try:
+                    text = _copy_text_if_shared(tile)
+                except DashboardTile.DoesNotExist:
+                    raise exceptions.NotFound()
                 for field in text_fields:
                     setattr(text, field, validated[field])
                 text.last_modified_by = user

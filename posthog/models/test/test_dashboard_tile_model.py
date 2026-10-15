@@ -65,8 +65,10 @@ class TestDashboardTileModel(APIBaseTest):
         tile.save()
         self.assertEqual(tile.team_id, self.team.id)
 
-    @parameterized.expand([("text",), ("button_tile",)])
-    def test_copy_uses_current_content_after_reference_changes(self, content_field: str) -> None:
+    @parameterized.expand(
+        [(content, deleted) for content in ("text", "button_tile") for deleted in ("neither", "tile", "dashboard")]
+    )
+    def test_copy_uses_current_content_after_reference_changes(self, content_field: str, deleted: str) -> None:
         if content_field == "text":
             original: Text | ButtonTile = Text.objects.create(team=self.team, body="Original")
             updated: Text | ButtonTile = Text.objects.create(team=self.team, body="Updated")
@@ -76,6 +78,10 @@ class TestDashboardTileModel(APIBaseTest):
         source = DashboardTile.objects.create(dashboard=self.dashboard, **{content_field: original})
         source = DashboardTile.objects.select_related(content_field).get(pk=source.pk)
         DashboardTile.objects.filter(pk=source.pk).update(**{content_field: updated})
+        if deleted == "tile":
+            DashboardTile.objects.filter(pk=source.pk).update(deleted=True)
+        elif deleted == "dashboard":
+            Dashboard.objects.filter(pk=self.dashboard.pk).update(deleted=True)
         destination = Dashboard.objects.create(team=self.team, name="Destination")
 
         source.copy_to_dashboard(destination)
