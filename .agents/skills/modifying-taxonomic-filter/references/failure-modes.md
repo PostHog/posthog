@@ -40,7 +40,7 @@ Most empty searches are real words that exist somewhere else.
 - **Fix direction:** same as above, and measure recovery directly.
   See [measuring-changes](measuring-changes.md).
 
-## 4. Failures that look like something else
+## 4. Failed requests
 
 - **Signal:** `taxonomic filter fetch failed` ~0.2 times per 100 legacy search queries (query 10).
   One search can send several events, so this is not a share of failed searches.
@@ -48,11 +48,10 @@ Most empty searches are real words that exist somewhere else.
   Events, cohorts, person properties and flags fail most.
   Some pseudo-category groups fail more often than they are picked.
   First-load failures have only been captured since 2026-09-13, so compare from then on.
-- **Why:** the two surfaces fail differently.
-  Legacy ends loading and shows `InfiniteListErrorState` with a retry.
-  The rebuild ends loading but `hooks/useGroupList.ts` drops `remote.error` and shows an empty list, so a failure looks like "no results" and has no retry.
-- **Fix direction:** in the rebuild, show the error and offer a retry, and send `taxonomic filter fetch failed`.
-  Keep the legacy error state.
+- **Why it matters:** a failure that looks like loading or like "no results" sends users away, and a 403 must not look like a slow request.
+- **Current state:** both surfaces end loading and show "Couldn't load results" with a retry.
+  Legacy does it in `InfiniteList.tsx` (`InfiniteListErrorState`), the rebuild in `menu/Combobox.tsx` from `showErrorState` in `hooks/useGroupList.ts`.
+  Keep the two in parity, and reduce the failures themselves.
   See [performance](performance.md).
 
 ## 5. Slow tails on a few groups

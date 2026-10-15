@@ -27,6 +27,7 @@ The references hold the detail and the evidence.
 4. **Telemetry is a public contract.**
    Dashboards and replay scanners read these events.
    Never rename or repurpose a property silently.
+   `telemetryContract.test.ts` fails when a capture call and the contract disagree, so update the contract in the same PR.
    See [telemetry-contract](references/telemetry-contract.md).
 
 ## The picture in five lines (refreshed 2026-10-15)
@@ -40,6 +41,8 @@ The references hold the detail and the evidence.
 - Customers report broken UI and missing items far more than slowness.
 
 Detail, windows and caveats: [product-reality](references/product-reality.md).
+These numbers are a snapshot.
+For current values, run the `taxonomic_filter_*` metrics in the PostHog data catalog (see [refreshing-product-reality](references/refreshing-product-reality.md#live-metrics)).
 
 ## Route by what you are changing
 

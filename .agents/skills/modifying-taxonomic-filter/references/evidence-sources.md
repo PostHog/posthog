@@ -10,6 +10,7 @@ Use the PostHog MCP (`posthog:execute-sql`, dashboards, vision scanners, convers
 
 - Events: see [telemetry-contract](telemetry-contract.md) for names and properties.
 - Queries: [refreshing-product-reality](refreshing-product-reality.md).
+- Live values: the `taxonomic_filter_*` metrics in the data catalog, run with `posthog:data-catalog-metric-run`.
 - **Good for:** sizing a problem, comparing surfaces, before and after.
 - **Bad for:** intent.
   A close without a pick can be success (the user only looked) or failure.

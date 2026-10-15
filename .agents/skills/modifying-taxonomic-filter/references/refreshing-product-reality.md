@@ -10,6 +10,26 @@ Queries 13 and 14 use 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
+## Live metrics
+
+Nine of these queries are saved as metrics in the PostHog data catalog for project 2.
+Run a metric with `posthog:data-catalog-metric-run` to get the current value instead of reading a figure from this skill.
+The metrics are proposed until a person approves them in the data catalog, so treat their results as noncanonical until then.
+The metric and the query here hold the same SQL.
+When you change one, change the other in the same PR (`posthog:data-catalog-metric-update` for the metric).
+
+| Query | Metric                                               |
+| ----- | ---------------------------------------------------- |
+| 4     | `taxonomic_filter_engaged_selection_rate_by_surface` |
+| 5     | `taxonomic_filter_selection_mix_legacy`              |
+| 6     | `taxonomic_filter_row_position_share_legacy`         |
+| 8     | `taxonomic_filter_category_trap`                     |
+| 9     | `taxonomic_filter_search_latency_by_group`           |
+| 10    | `taxonomic_filter_fetch_failures_by_group`           |
+| 11    | `taxonomic_filter_assistive_funnels`                 |
+| 12    | `taxonomic_filter_empty_result_recovery_by_surface`  |
+| 13    | `taxonomic_filter_tab_use_legacy`                    |
+
 ### 1. Selection breakdown by source group type
 
 Share of `taxonomic filter item selected` by `sourceGroupType`.
@@ -261,8 +281,8 @@ LIMIT 15
 
 ### 10. Fetch failures by group
 
-Only the legacy `infiniteListLogic` sends fetch failures, but both surfaces send `taxonomic_filter_search_query`.
-Filter both sides to `legacy-pill` so the rate does not fall as rebuild use grows.
+Both surfaces send fetch failures and `taxonomic_filter_search_query`, but the rebuild sends no `groupType` on its meta-scopes.
+Filter both sides to `legacy-pill` so the per-group ranking stays clean and the rate does not move as rebuild use grows.
 There is no honest rate per group: a list also fails while it feeds Suggested, and then the failure logs its own group but the search logs `suggested_filters`.
 Rank groups by share of failures, and report one overall rate.
 Failures also fire on the first load, when the query is empty, and no search event matches those.
@@ -435,7 +455,7 @@ LIMIT 30
 
 ## Updating the doc
 
-1. Run each query via the PostHog MCP `posthog:execute-sql` against project 2 on us.posthog.com.
+1. Run each metric in the table above with `posthog:data-catalog-metric-run`, and the other queries via the PostHog MCP `posthog:execute-sql` against project 2 on us.posthog.com.
 2. Convert results to ratios.
    Drop absolute event and user counts.
 3. Update [product-reality](product-reality.md) and the five-line picture in `SKILL.md`, and bump the "last refreshed" date.

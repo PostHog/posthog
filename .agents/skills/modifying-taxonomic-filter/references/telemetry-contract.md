@@ -2,8 +2,8 @@
 
 Dashboards, experiments and replay scanners read these events.
 Treat property shapes as a public API.
-The lists below match the code on 2026-10-15.
-The `posthog.capture` call is the source of truth, so read it before you remove or rename a property.
+`frontend/src/lib/components/TaxonomicFilter/telemetryContract.test.ts` reads every `taxonomic filter` capture call and fails when an event or property is missing here, or when an event listed here is no longer sent.
+When it fails, update this file in the same PR.
 
 - **Adding** a property: fine.
 - **Removing** a dead one: fine, once nothing reads it.
@@ -54,6 +54,10 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
   Legacy sends it only from a remote list on the active tab.
   Suggested is a local list, so its empty state sends nothing.
   Add coverage there before you measure a change to the Suggested empty state.
+- `taxonomic filter fetch failed`: `groupType`, `searchQuery`.
+  Each surface sends it once per group or scope and query while the request keeps failing.
+  Legacy has also sent it on first-load failures since 2026-09-13, so legacy rates from before then are not comparable.
+  The rebuild sends no `groupType` on its `all`, `recent` and `pinned` scopes.
 - `taxonomic filter include stale toggled`: `includeStaleEvents`, `groupType`, `searchQuery`.
   Only the rebuild sends `surface` on this one.
 
@@ -61,10 +65,6 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
 
 - `taxonomic filter search latency`: `groupType`, `searchQuery`, `resultCount`, `time_to_see_data_ms`.
   The rebuild does not send it yet (see `hooks/useGroupList.ts`).
-- `taxonomic filter fetch failed`: `groupType`, `searchQuery`.
-  It has also fired on first-load failures since 2026-09-13.
-  Rates from before then are not comparable.
-  The rebuild does not send it.
 - `taxonomic filter search intent predicted`: `query`, `activeTab`, `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`, `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`, `shown`.
   The banner funnel in [refreshing-product-reality](refreshing-product-reality.md) reads `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`, `toGroupType`.
@@ -107,8 +107,10 @@ Do not add `surface = 'rebuild-menu'` to a query on them: it returns no rows.
 - `taxonomic filter menu category changed`: `fromChip`, `toChip`, `via`, and `direction` when `via` is `tab`.
 - `taxonomic filter menu pin toggled`: `groupType`, `pinned`.
 
-`taxonomic filter menu preference changed` (`useNewMenu`, no `surface`) comes from the classic/new toggle.
-It fires on either surface for users who have the rebuild flag.
+## Toggle, either surface, without `surface`
+
+- `taxonomic filter menu preference changed`: `useNewMenu`.
+  It comes from the classic/new toggle and fires on either surface for users who have the rebuild flag.
 
 ## Before changing telemetry
 

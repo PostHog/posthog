@@ -6,6 +6,8 @@ Ratios only: this is a public repo.
 **Last refreshed 2026-10-15.**
 Telemetry is a 90-day window unless a line says otherwise.
 Re-run with [refreshing-product-reality](refreshing-product-reality.md) when this is older than about three months.
+Most figures here have a live `taxonomic_filter_*` metric in the PostHog data catalog (listed in that guide).
+The numbers below are a snapshot for orientation: before a figure drives a decision, run its metric for the current value.
 
 ## How users pick
 
