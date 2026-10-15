@@ -133,4 +133,18 @@ describe('credentialReviewLogic', () => {
             REVIEW_COMPLETE_URL,
         ])
     })
+
+    test('Disconnect is ignored while the review is being saved', async () => {
+        connectedApps = [UNVERIFIED_PARTNER_A]
+        const logic = credentialReviewLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.keepPartnerConnected(UNVERIFIED_PARTNER_A.id)
+        logic.actions.markComplete()
+        logic.actions.disconnectPartner(UNVERIFIED_PARTNER_A.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(postedUrls()).toEqual([REVIEW_COMPLETE_URL])
+    })
 })

@@ -9,7 +9,7 @@ import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 import { credentialReviewLogic } from './credentialReviewLogic'
 
 export function PartnerAccessChoice({ app }: { app: ConnectedAppApi }): JSX.Element {
-    const { keptPartnerIds, revokingAppId } = useValues(credentialReviewLogic)
+    const { keptPartnerIds, revokingAppId, isCompleting } = useValues(credentialReviewLogic)
     const { keepPartnerConnected, disconnectPartner } = useActions(credentialReviewLogic)
 
     // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).
@@ -43,7 +43,13 @@ export function PartnerAccessChoice({ app }: { app: ConnectedAppApi }): JSX.Elem
                     size="small"
                     loading={isRevoking}
                     onClick={() => disconnectPartner(app.id)}
-                    disabledReason={revokingAppId && !isRevoking ? 'Wait for the other app to disconnect' : null}
+                    disabledReason={
+                        isCompleting
+                            ? 'Saving your review'
+                            : revokingAppId && !isRevoking
+                              ? 'Wait for the other app to disconnect'
+                              : null
+                    }
                     data-attr="credential-review-disconnect-partner"
                 >
                     Disconnect

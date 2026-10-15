@@ -235,7 +235,7 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
             posthog.capture(PARTNER_ACCESS_CHOSEN_EVENT, { choice: 'keep', application_id: appId })
         },
         disconnectPartner: ({ appId }) => {
-            if (values.revokingAppId) {
+            if (values.revokingAppId || values.isCompleting) {
                 return
             }
             posthog.capture(PARTNER_ACCESS_CHOSEN_EVENT, { choice: 'disconnect', application_id: appId })
