@@ -370,7 +370,7 @@ class SignalReportSummaryWorkflow:
         signal_count = len(fetch_result.signals)
         source_products = sorted({s.source_product for s in fetch_result.signals})
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
-        await workflow.execute_activity(
+        report_left_candidate = await workflow.execute_activity(
             mark_report_in_progress_activity,
             MarkReportInProgressInput(
                 team_id=inputs.team_id,
@@ -381,6 +381,9 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        if report_left_candidate:
+            # A stale promotion started this run after an earlier run already finished the report.
+            return False
         try:
             # 3. Run safety judge first to avoid passing unsafe report into the agentic research
             safety_result = await workflow.execute_activity(
@@ -792,27 +795,30 @@ class MarkReportInProgressInput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
+async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> bool:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
     Advancing signals_at_run ensures that if the report is reset to potential after this run,
     it won't immediately re-promote — it must accumulate 3 new signals beyond the current count
     before the promotion gate passes again.
+
+    Returns True when the report is no longer candidate or in_progress, so the run must stop.
+    True means skip because histories recorded before this return value replay a None result.
     """
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, SignalReport.Status | None]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            if report.status == SignalReport.Status.IN_PROGRESS:
-                return report.run_count, True
+            if report.status != SignalReport.Status.CANDIDATE:
+                return report.run_count, SignalReport.Status(report.status)
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
             report.save(update_fields=updated_fields)
-            return report.run_count, False
+            return report.run_count, None
 
-        run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, skipped_status = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as in_progress: {e}",
@@ -820,12 +826,20 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         )
         raise
 
-    if was_already_in_progress:
+    if skipped_status == SignalReport.Status.IN_PROGRESS:
         logger.info(
             f"Report {input.report_id} already in in_progress status, skipping duplicate transition",
             report_id=input.report_id,
         )
-        return
+        return False
+    if skipped_status is not None:
+        logger.warning(
+            "Report is no longer candidate, skipping stale summary run",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            status=skipped_status,
+        )
+        return True
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -842,6 +856,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         report_id=input.report_id,
         signal_count=input.signal_count,
     )
+    return False
 
 
 @frozen

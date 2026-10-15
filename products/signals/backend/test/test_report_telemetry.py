@@ -155,10 +155,19 @@ async def test_failed_is_idempotent_when_already_failed(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
+@pytest.mark.parametrize(
+    "preexisting_status,expected_skip",
+    [
+        (SignalReport.Status.IN_PROGRESS, False),
+        (SignalReport.Status.PENDING_INPUT, True),
+        (SignalReport.Status.READY, True),
+        (SignalReport.Status.FAILED, True),
+    ],
+)
+async def test_in_progress_leaves_non_candidate_report_unchanged(ateam, preexisting_status, expected_skip):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=preexisting_status,
         signal_count=2,
         total_weight=1.0,
         run_count=4,
@@ -167,7 +176,7 @@ async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
     report_id = str(report.id)
 
     with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
-        await mark_report_in_progress_activity(
+        skip = await mark_report_in_progress_activity(
             MarkReportInProgressInput(
                 team_id=ateam.id,
                 report_id=report_id,
@@ -176,9 +185,10 @@ async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
             )
         )
 
+    assert skip is expected_skip
     capture.assert_not_called()
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
-    assert refreshed.status == SignalReport.Status.IN_PROGRESS
+    assert refreshed.status == preexisting_status
     # Run count and signals_at_run must not be advanced again on retry.
     assert refreshed.run_count == 4
     assert refreshed.signals_at_run == 5
