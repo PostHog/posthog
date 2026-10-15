@@ -93,9 +93,11 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
         if str(outcome.configuration_id) not in announced:
             continue
         # A failed check reports on the outcome and carries no groups, so a broken alert signals from there.
-        verdicts: list[tuple[AlertEventKind, float | None]] = [(group.kind, group.value) for group in outcome.groups]
+        verdicts: list[tuple[AlertEventKind, float | None, str, dict[str, str]]] = [
+            (group.kind, group.value, group.grouping_key, group.labels) for group in outcome.groups
+        ]
         if outcome.failure is not None:
-            verdicts.append((outcome.failure.kind, None))
+            verdicts.append((outcome.failure.kind, None, "", {}))
         signals.extend(
             PlatformAlertSignal(
                 alert_id=announced[str(outcome.configuration_id)],
@@ -103,8 +105,10 @@ def platform_signals(evaluation: SourceBatchEvaluation) -> list[PlatformAlertSig
                 result_count=int(value) if value is not None else None,
                 consecutive_failures=outcome.consecutive_failures,
                 evaluation_key=outcome.evaluation_key,
+                grouping_key=grouping_key,
+                labels=labels,
             )
-            for kind, value in verdicts
+            for kind, value, grouping_key, labels in verdicts
             if kind in _SIGNAL_ACTIONS
         )
     return signals

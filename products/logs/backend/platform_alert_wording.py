@@ -41,6 +41,14 @@ def describe_logs_transition(*, project_id: int, transition: AnnouncedTransition
     )
 
 
+# The grouping columns a grouped alert splits on, as a reader knows them, and the logs scene filter
+# that narrows a link to one group.
+_GROUP_COLUMNS: Final = {
+    "service_name": ("Service", "serviceNames"),
+    "severity_text": ("Severity", "severityLevels"),
+}
+
+
 def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
     if transition.value is None:
         return ()
@@ -53,7 +61,13 @@ def _details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
         f"{count} {noun} in {condition['window_minutes']}m "
         f"(threshold: {condition['threshold_operator']} {condition['threshold_count']})"
     )
-    return (MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary),)
+    # A grouped alert sends one message per group, so each one names the group it is about.
+    group = tuple(
+        MessageDetail(label=label, value=transition.labels[column])
+        for column, (label, _) in _GROUP_COLUMNS.items()
+        if column in transition.labels
+    )
+    return (*group, MessageDetail(label=_LABELS.get(transition.kind, "Count"), value=summary))
 
 
 def _context(filters: dict[str, Any]) -> tuple[str, ...]:
@@ -89,7 +103,20 @@ def _window_params(transition: AnnouncedTransition) -> str:
     window_end = window_end_of(transition.evaluation_key)
     date_to = _in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
-    return build_logs_url_params(transition.source_config, date_from=date_from, date_to=date_to)
+    return build_logs_url_params(_group_filters(transition), date_from=date_from, date_to=date_to)
+
+
+def _group_filters(transition: AnnouncedTransition) -> dict[str, Any]:
+    """The alert's filters narrowed to the group a transition is about, so a link opens its logs only.
+
+    The group's value replaces the alert's own list for that column. The alert counted only logs
+    inside its list, so the group's value is always one of them.
+    """
+    filters = dict(transition.source_config)
+    for column, (_, filter_key) in _GROUP_COLUMNS.items():
+        if column in transition.labels:
+            filters[filter_key] = [transition.labels[column]]
+    return filters
 
 
 _LEGACY_WEBHOOK_TYPES: Final = {

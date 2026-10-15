@@ -86,15 +86,42 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
 
         assert description.context == expected
 
-    def test_the_link_opens_the_logs_the_check_counted(self) -> None:
-        description = describe_logs_transition(project_id=7, transition=_transition(filters={"serviceNames": ["api"]}))
+    @parameterized.expand(
+        [
+            ("ungrouped", {}, (), ["api", "worker"], ["error", "warn"]),
+            (
+                "grouped",
+                {"service_name": "worker", "severity_text": "error"},
+                (MessageDetail(label="Service", value="worker"), MessageDetail(label="Severity", value="error")),
+                ["worker"],
+                ["error"],
+            ),
+        ]
+    )
+    def test_a_message_names_the_group_and_links_to_the_logs_the_check_counted(
+        self,
+        _name: str,
+        labels: dict[str, str],
+        group_details: tuple[MessageDetail, ...],
+        service_names: list[str],
+        severity_levels: list[str],
+    ) -> None:
+        filters = {"serviceNames": ["api", "worker"], "severityLevels": ["error", "warn"]}
+        transition = replace(_transition(filters=filters), labels=labels)
 
+        description = describe_logs_transition(project_id=7, transition=transition)
+
+        assert description.details == (
+            *group_details,
+            MessageDetail(label="Threshold breached", value="11 logs in 10m (threshold: above 10)"),
+        )
         assert description.data_link is not None
         assert description.data_link.label == "View logs"
         url = urlsplit(description.data_link.url)
         params = parse_qs(url.query)
         assert url.path == "/project/7/logs"
-        assert json.loads(params["serviceNames"][0]) == ["api"]
+        assert json.loads(params["serviceNames"][0]) == service_names
+        assert json.loads(params["severityLevels"][0]) == severity_levels
         assert json.loads(params["dateRange"][0]) == {
             "date_from": "2026-10-08T17:55:00+00:00",
             "date_to": "2026-10-08T18:05:00+00:00",

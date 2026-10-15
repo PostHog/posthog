@@ -1,5 +1,6 @@
 import time
 import datetime as dt
+import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -625,8 +626,9 @@ class GroupedAlertCheckQuery:
     One query per alert rather than a column in `BatchedAlertCheckQuery`, because a batched cohort
     reads one row per alert and a grouped alert needs one row per group.
 
-    Rows come back with the open groups first and then worst first, and `limit` cuts the rest. An
-    open group has to come back whatever its count, or a check could not resolve it.
+    Rows come back with the open groups first, then the groups that breach `datapoints_to_alarm`
+    of the periods, then worst first, and `limit` cuts the rest. An open group has to come back
+    whatever its count, or a check could not resolve it.
     """
 
     def __init__(
@@ -639,6 +641,8 @@ class GroupedAlertCheckQuery:
         group_by: Sequence[str],
         open_groups: Sequence[dict[str, str]],
         worst_is_highest: bool,
+        threshold_count: int,
+        datapoints_to_alarm: int,
         limit: int,
         max_execution_time: int,
         ch_user: ClickHouseUser,
@@ -653,6 +657,8 @@ class GroupedAlertCheckQuery:
         self.group_by = tuple(group_by)
         self.open_groups = list(open_groups)
         self.worst_is_highest = worst_is_highest
+        self.threshold_count = threshold_count
+        self.datapoints_to_alarm = datapoints_to_alarm
         self.limit = limit
         self._ch_user = ch_user
         self._settings = _bounded_settings(max_execution_time)
@@ -684,10 +690,38 @@ class GroupedAlertCheckQuery:
     def _build_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
         columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in self.group_by]
         periods = _period_count_columns(ranges)
+        breach_op = ast.CompareOperationOp.Gt if self.worst_is_highest else ast.CompareOperationOp.Lt
+        breaches: list[ast.Expr] = [
+            ast.Call(
+                name="toInt",
+                args=[
+                    ast.CompareOperation(
+                        op=breach_op,
+                        left=ast.Field(chain=[f"period_{i}"]),
+                        right=ast.Constant(value=self.threshold_count),
+                    )
+                ],
+            )
+            for i in range(len(ranges))
+        ]
+        breached_periods = functools.reduce(
+            lambda total, breach: ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=total, right=breach),
+            breaches,
+        )
         order_by = [
+            # Ranked by the N-of-M verdict before the worst count, so a steady breach the limit
+            # would otherwise cut is not displaced by groups that spiked once and do not breach.
+            ast.OrderExpr(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=breached_periods,
+                    right=ast.Constant(value=self.datapoints_to_alarm),
+                ),
+                order="DESC",
+            ),
             ast.OrderExpr(
                 expr=ast.Field(chain=[f"period_{len(ranges) - 1}"]), order="DESC" if self.worst_is_highest else "ASC"
-            )
+            ),
         ]
         if self.open_groups:
             group = ast.Tuple(exprs=[ast.Field(chain=[column]) for column in self.group_by])

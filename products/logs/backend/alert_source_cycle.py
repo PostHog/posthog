@@ -767,8 +767,12 @@ def _evaluate_grouped(
             group_by=check.grouping.keys,
             open_groups=[labels for key in open_keys if (labels := _labels_of(key)) is not None],
             worst_is_highest=condition.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE,
-            # Room for every open group and a full cap of new ones, so admission sees the worst.
-            limit=limit,
+            threshold_count=condition.threshold_count,
+            datapoints_to_alarm=check.datapoints_to_alarm,
+            # Room for every open group and a full cap of new ones, so admission sees the worst. The
+            # one row past that tells a cut result from one that fits, and when it breaches, admission
+            # finds no room for it and reports the cut as overflow.
+            limit=limit + 1,
             max_execution_time=query_seconds,
             ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(
@@ -781,7 +785,7 @@ def _evaluate_grouped(
     counts = {grouping_key_of(group.labels): group for group in result.groups}
     # A hashed key keeps no labels, so the query cannot put that open group first, and the limit can
     # cut it while it still breaches. Its absence means no matching log only when nothing was cut.
-    truncated = len(result.groups) >= limit
+    truncated = len(result.groups) > limit
 
     def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
         current_breached, *prior_breached = _derive_breaches(
