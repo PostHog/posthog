@@ -22,20 +22,22 @@ logger = structlog.get_logger(__name__)
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
-    from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
+    from products.data_modeling.backend.facade.api import HasDependentsError, check_saved_query_deletable
 
     if saved_query.managed_viewset is not None:
         raise serializers.ValidationError(
             "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
         )
 
+    # Only check here. `soft_delete()` deletes the DAG nodes after it commits, so a delete that
+    # stops before the soft delete does not leave a live view without a node.
     try:
-        delete_node_from_dag(saved_query)
+        check_saved_query_deletable(saved_query)
     except HasDependentsError:
         raise
     except Exception as e:
         capture_exception(e)
-        logger.exception("Failed to delete node for saved query", saved_query_name=saved_query.name)
+        logger.exception("Failed to check dependents of saved query", saved_query_name=saved_query.name)
 
     for join in DataWarehouseJoin.objects.filter(
         Q(team_id=saved_query.team_id)
