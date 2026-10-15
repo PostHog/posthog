@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -11,6 +12,7 @@ import {
     workflowDataSuggestionsCurrent,
     workflowDataSuggestionsGenerate,
 } from '../../generated/api'
+import { workflowsOnboardingWizardLogic } from '../wizard/workflowsOnboardingWizardLogic'
 import { SuggestionCard } from './suggestionCards'
 import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
@@ -82,7 +84,11 @@ describe('workflowDataSuggestionsLogic', () => {
         }
     })
 
-    it('opens the saved draft after a successful build', async () => {
+    it.each([
+        ['empty_state', false],
+        ['onboarding_wizard', true],
+    ] as const)('opens the saved draft after a successful build on the %s', async (surface, finishesWizard) => {
+        const capture = jest.spyOn(posthog, 'capture')
         jest.mocked(workflowDataSuggestionsBuild).mockResolvedValue({
             status: 'ready',
             workflow: { name: 'Welcome new users' },
@@ -91,7 +97,10 @@ describe('workflowDataSuggestionsLogic', () => {
             missing_inputs: [],
         })
         jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
-        const logic = workflowDataSuggestionsLogic({ surface: 'empty_state' })
+        if (finishesWizard) {
+            workflowsOnboardingWizardLogic.mount()
+        }
+        const logic = workflowDataSuggestionsLogic({ surface })
         logic.mount()
 
         await logic.asyncActions.startSuggestion(card)
@@ -104,6 +113,12 @@ describe('workflowDataSuggestionsLogic', () => {
         expect(router.values.location.pathname).toContain('workflow-1')
         expect(loadEntrySource('workflow-1')).toBe('data_suggestion')
         expect(logic.values.buildingKey).toBeNull()
+        const wizardFinished = capture.mock.calls.filter(([event]) => event === 'workflows onboarding wizard finished')
+        expect(wizardFinished).toEqual(
+            finishesWizard
+                ? [['workflows onboarding wizard finished', { path: 'messaging', template_id: 'data_suggestion' }]]
+                : []
+        )
     })
 
     it.each([
