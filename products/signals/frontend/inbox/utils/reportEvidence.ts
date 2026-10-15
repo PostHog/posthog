@@ -59,22 +59,37 @@ function evidenceUrl(href: string, projectUrl: string, entityLink: boolean = fal
     }
 }
 
-function signalSpecificUrls(signal: SignalNodeApi): string[] {
+function signalSpecificUrls(signal: SignalNodeApi): { urls: string[]; ignoreSearch: boolean } | null {
     const extra: Record<string, unknown> = isObject(signal.extra) ? signal.extra : {}
     const alertId = typeof extra.alert_id === 'string' ? extra.alert_id : null
     if (signal.source_product === 'logs') {
-        return alertId ? [urls.logsAlertDetail(alertId)] : []
+        return { urls: alertId ? [urls.logsAlertDetail(alertId)] : [], ignoreSearch: false }
     }
     if (signal.source_product === 'analytics') {
         const notebookShortId = typeof extra.notebook_short_id === 'string' ? extra.notebook_short_id : null
         const insightShortId = typeof extra.insight_short_id === 'string' ? extra.insight_short_id : null
-        return [
-            alertId ? urls.alert(alertId) : null,
-            notebookShortId ? urls.notebook(notebookShortId) : null,
-            insightShortId ? urls.insightView(insightShortId as InsightShortId) : null,
-        ].filter((url): url is string => url !== null)
+        return {
+            urls: [
+                alertId ? urls.alert(alertId) : null,
+                notebookShortId ? urls.notebook(notebookShortId) : null,
+                insightShortId ? urls.insightView(insightShortId as InsightShortId) : null,
+            ].filter((url): url is string => url !== null),
+            ignoreSearch: false,
+        }
     }
-    return []
+    if (signal.source_product === 'replay_vision') {
+        return {
+            urls: typeof extra.session_id === 'string' ? [urls.replaySingle(extra.session_id)] : [],
+            ignoreSearch: true,
+        }
+    }
+    if (signal.source_product === 'llm_analytics' && signal.source_type === 'evaluation_report') {
+        return {
+            urls: typeof extra.evaluation_id === 'string' ? [urls.aiObservabilityEvaluation(extra.evaluation_id)] : [],
+            ignoreSearch: true,
+        }
+    }
+    return null
 }
 
 export function citedReportEvidence(markdown: string, signals: SignalNodeApi[], projectUrl: string): SignalNodeApi[] {
@@ -99,11 +114,11 @@ export function citedReportEvidence(markdown: string, signals: SignalNodeApi[], 
     tree.children.forEach(visit)
     const cited = signals.filter((signal) => {
         const specificUrls = signalSpecificUrls(signal)
-        if (specificUrls.some((href) => links.has(evidenceUrl(href, projectUrl)!))) {
-            return true
-        }
-        if (signal.source_product === 'logs' || signal.source_product === 'analytics') {
-            return false
+        if (specificUrls !== null) {
+            return specificUrls.urls.some((href) => {
+                const url = evidenceUrl(href, projectUrl, specificUrls.ignoreSearch)
+                return url !== null && (specificUrls.ignoreSearch ? entityLinks : links).has(url)
+            })
         }
         const entityUrls = [signalEntityUrl(signal.source_product, signal.source_id)]
         if (signal.source_product === 'conversations') {

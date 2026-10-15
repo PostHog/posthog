@@ -68,6 +68,42 @@ describe('report evidence', () => {
         ).toEqual([repeated])
     })
 
+    const replayVisionSignal = {
+        ...signals[0],
+        source_product: 'replay_vision',
+        source_type: 'scanner_finding',
+        source_id: 'observation:obs-1:0',
+        extra: {
+            scanner_id: 'scanner-1',
+            scanner_name: 'Checkout scanner',
+            scanner_type: 'monitor',
+            observation_id: 'obs-1',
+            session_id: 'session-1',
+            confidence: 0.9,
+            problem_type: 'broken_flow',
+            start_time: 12,
+            end_time: 18,
+            url: 'https://app.example.com/checkout',
+            exported_asset_id: 1,
+        },
+    } satisfies SignalNodeApi
+
+    const llmEvaluationReportSignal = {
+        ...signals[0],
+        source_product: 'llm_analytics',
+        source_type: 'evaluation_report',
+        source_id: 'eval-1:report:run-1',
+        extra: {
+            evaluation_id: 'eval-1',
+            evaluation_name: 'Helpful response',
+            evaluation_description: 'Checks whether the response helps the user.',
+            report_id: 'report-1',
+            report_run_id: 'run-1',
+            period_start: '2026-06-01T00:00:00Z',
+            period_end: '2026-06-08T00:00:00Z',
+        },
+    } satisfies SignalNodeApi
+
     it.each([
         [
             'an analytics landing page',
@@ -108,6 +144,14 @@ describe('report evidence', () => {
             '[Logs alert](/logs/alerts/alert-1)',
             true,
         ],
+        ['a Replay Vision recording', replayVisionSignal, '[Recording](/replay/session-1?t=12)', true],
+        [
+            'a Replay Vision affected website page',
+            replayVisionSignal,
+            '[Checkout](https://app.example.com/checkout)',
+            false,
+        ],
+        ['an LLM evaluation report', llmEvaluationReportSignal, '[Evaluation](/ai-evals/evaluations/eval-1)', true],
     ])('matches only source-specific evidence for %s', (_name, signal, markdown, isCited) => {
         expect(citedReportEvidence(markdown, [signal], projectUrl)).toEqual(isCited ? [signal] : [])
     })
