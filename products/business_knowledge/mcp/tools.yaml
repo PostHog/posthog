@@ -38,6 +38,79 @@ tools:
             for a listwise LLM rerank pass when top-result precision matters. Pass library_id to search one library, and
             pass that same id to repository search and file read. Omit library_id to search every ready source.
         feature_flag: product-business-knowledge
+    business-knowledge-libraries-create:
+        operation: business_knowledge_libraries_create
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a business knowledge library
+        description: >
+            Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update
+            library_ids, then pass the library id to document search, repository search, and file read.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-destroy:
+        operation: business_knowledge_libraries_destroy
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a business knowledge library
+        description: >
+            Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a
+            library id still sees them.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-list:
+        operation: business_knowledge_libraries_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List business knowledge libraries
+        description: >
+            List libraries in this project. A library limits document search, repository search, and file read to its
+            members. Pass the same library id to all three. The default library is first. Omit a library id on those
+            tools to search everything.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-partial-update:
+        operation: business_knowledge_libraries_partial_update
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a business knowledge library
+        description: >
+            Rename a library, replace its sources, or replace this environment's repositories in it. Send only the
+            fields to change. source_ids replaces every source. repos replaces repositories this environment allows and
+            leaves repositories that only another environment allows.
+        feature_flag: product-business-knowledge
+    business-knowledge-libraries-retrieve:
+        operation: business_knowledge_libraries_retrieve
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a business knowledge library
+        description: >
+            Get one library by id, including how many sources it has and which selected repositories it includes for
+            this environment.
+        feature_flag: product-business-knowledge
     business-knowledge-repositories-file-retrieve:
         operation: business_knowledge_repositories_file_retrieve
         enabled: true
@@ -178,77 +251,4 @@ tools:
             is fetched, parsed, chunked, and made searchable. Optionally set a refresh interval so the source is
             re-fetched automatically. Returns the created source with its processing status (initially "processing"
             while the URL is fetched in the background).
-        feature_flag: product-business-knowledge
-    business-knowledge-libraries-list:
-        operation: business_knowledge_libraries_list
-        enabled: true
-        scopes:
-            - business_knowledge:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List business knowledge libraries
-        description: >
-            List libraries in this project. A library limits document search, repository search, and file read to its
-            members. Pass the same library id to all three. The default library is first. Omit a library id on those
-            tools to search everything.
-        feature_flag: product-business-knowledge
-    business-knowledge-libraries-retrieve:
-        operation: business_knowledge_libraries_retrieve
-        enabled: true
-        scopes:
-            - business_knowledge:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get a business knowledge library
-        description: >
-            Get one library by id, including how many sources it has and which selected repositories it includes for
-            this environment.
-        feature_flag: product-business-knowledge
-    business-knowledge-libraries-create:
-        operation: business_knowledge_libraries_create
-        enabled: true
-        scopes:
-            - business_knowledge:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create a business knowledge library
-        description: >
-            Create a library. It does not copy sources. Add sources with business-knowledge-sources-partial-update
-            library_ids, then pass the library id to document search, repository search, and file read.
-        feature_flag: product-business-knowledge
-    business-knowledge-libraries-partial-update:
-        operation: business_knowledge_libraries_partial_update
-        enabled: true
-        scopes:
-            - business_knowledge:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update a business knowledge library
-        description: >
-            Rename a library, replace its sources, or replace this environment's repositories in it. Send only the
-            fields to change. source_ids replaces every source. repos replaces repositories this environment allows and
-            leaves repositories that only another environment allows.
-        feature_flag: product-business-knowledge
-    business-knowledge-libraries-destroy:
-        operation: business_knowledge_libraries_destroy
-        enabled: true
-        scopes:
-            - business_knowledge:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete a business knowledge library
-        description: >
-            Delete a library and its links. Sources, documents, chunks, and selected repositories stay. Search without a
-            library id still sees them.
         feature_flag: product-business-knowledge
