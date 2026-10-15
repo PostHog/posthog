@@ -8,4 +8,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class GoogleAnalyticsSourceConfig(config.Config):
     property_id: str
     google_analytics_integration_id: int = config.value(converter=config.str_to_int)
+    history_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     custom_reports: str | None = None

@@ -1,1 +1,1 @@
-0008_platformalertconfiguration_switched_off_at
+0009_platformalertconfiguration_switched_off_at

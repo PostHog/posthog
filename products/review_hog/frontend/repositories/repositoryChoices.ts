@@ -16,9 +16,9 @@ export interface ChoiceOption<T extends string> {
 }
 
 export const FLASH_FOR_OPTIONS: ChoiceOption<AutomaticFlashForEnumApi>[] = [
-    { value: 'everyone', label: 'Automatic Flash for everyone' },
-    { value: 'listed', label: 'Automatic Flash for these people' },
-    { value: 'off', label: 'Automatic Flash: opt-in only' },
+    { value: 'everyone', label: 'Automatic review for everyone' },
+    { value: 'listed', label: 'Automatic review for these people' },
+    { value: 'off', label: 'Only people who opt in' },
 ]
 
 export function flashForLabel(flashFor: AutomaticFlashForEnumApi): string {
@@ -26,10 +26,14 @@ export function flashForLabel(flashFor: AutomaticFlashForEnumApi): string {
 }
 
 export const DEFAULT_REVIEW_MODE_OPTIONS: ChoiceOption<DefaultReviewModeEnumApi>[] = [
-    { value: 'follow', label: 'Follow each repository' },
-    { value: 'flash', label: 'Flash everywhere' },
+    { value: 'follow', label: 'Let each repository decide' },
+    { value: 'flash', label: 'On everywhere' },
     { value: 'off', label: 'Off everywhere' },
 ]
+
+export function defaultReviewModeLabel(mode: DefaultReviewModeEnumApi): string {
+    return DEFAULT_REVIEW_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode
+}
 
 /** The people list a rule reads: the except list for "everyone", the people list for "listed", none for "off". */
 export function peopleKindFor(flashFor: AutomaticFlashForEnumApi): ReviewRepositoryPersonKindEnumApi | null {
@@ -39,30 +43,57 @@ export function peopleKindFor(flashFor: AutomaticFlashForEnumApi): ReviewReposit
     return flashFor === 'listed' ? 'listed' : null
 }
 
-const REASONS: Record<AutomaticReviewReasonEnumApi, string> = {
-    own_repository_choice: 'Your choice for this repository',
-    own_default: 'Your default',
-    repository_everyone: "This repository's exception: everyone",
-    repository_excepted: "This repository's exception: you are on the except list",
-    repository_listed: "This repository's exception: you are on the list",
-    repository_not_listed: "This repository's exception: you are not on the list",
-    repository_opt_in: "This repository's exception: opt-in only",
-    project_everyone: 'Project settings: everyone',
-    project_excepted: 'Project settings: you are on the except list',
-    project_listed: 'Project settings: you are on the list',
-    project_not_listed: 'Project settings: you are not on the list',
-    project_opt_in: 'Project settings: opt-in only',
-    bot_reviewed: 'The project reviews bot pull requests',
-    bot_skipped: 'The project does not review bot pull requests',
-    not_in_project: 'Not part of this project',
+const SOURCES: Record<AutomaticReviewReasonEnumApi, string> = {
+    own_repository_choice: 'your choice',
+    own_default: 'your default',
+    repository_everyone: 'repository exception',
+    repository_excepted: 'repository exception',
+    repository_listed: 'repository exception',
+    repository_not_listed: 'repository exception',
+    repository_opt_in: 'repository exception',
+    project_everyone: 'project',
+    project_excepted: 'project',
+    project_listed: 'project',
+    project_not_listed: 'project',
+    project_opt_in: 'project',
+    bot_reviewed: 'project',
+    bot_skipped: 'project',
+    not_in_project: 'not part of this project',
 }
 
-export function describeReason(decision: AutomaticReviewDecisionApi): string {
-    return REASONS[decision.reason]
+/** Where a result comes from, in the words the "My pull requests" pane uses. */
+export function describeSource(decision: AutomaticReviewDecisionApi): string {
+    return SOURCES[decision.reason]
 }
 
 export function describeResult(decision: AutomaticReviewDecisionApi): string {
-    return decision.flash ? 'Automatic Flash' : 'No automatic Flash'
+    return decision.flash ? 'Automatic review' : 'No automatic review'
+}
+
+/** The note under a repository's own choice, or null when the select already says enough. */
+export function myChoiceNote(entry: ReviewRepositoryOverviewEntryApi): string | null {
+    const inherited = entry.inherited_result
+    if (entry.my_choice !== null) {
+        return `Your choice. Without it: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
+    }
+    // Rows on the project rule get no note: the notice under My default already covers them.
+    const repositoryResult = entry.repository_result
+    if (inherited.reason === 'own_default' && entry.exception !== null && repositoryResult.flash !== inherited.flash) {
+        return `The repository alone gives: ${describeResult(repositoryResult).toLowerCase()}`
+    }
+    return null
+}
+
+/** The notice for a default that overrides every repository, or null while the default lets each one decide. */
+export function myDefaultNotice(mode: DefaultReviewModeEnumApi, choicesUnlikeDefault: number | null): string | null {
+    if (mode === 'follow') {
+        return null
+    }
+    const notice = `Your default, ${defaultReviewModeLabel(mode)}, applies to your PRs in every repository`
+    if (!choicesUnlikeDefault) {
+        return `${notice}.`
+    }
+    return `${notice}, except ${choicesUnlikeDefault} where you picked something else.`
 }
 
 export type MyChoiceValue = ReviewUserRepositoryChoiceModeEnumApi | 'follow'
@@ -72,7 +103,7 @@ export function myChoiceValue(entry: ReviewRepositoryOverviewEntryApi): MyChoice
 }
 
 const CHOICE_LABELS: Record<ReviewUserRepositoryChoiceModeEnumApi, string> = {
-    flash: 'Flash for me',
+    flash: 'On for me',
     off: 'Off for me',
 }
 
@@ -84,7 +115,7 @@ export function myChoiceOptions(entry: ReviewRepositoryOverviewEntryApi): Choice
     const inherited = entry.inherited_result
     const opposite: ReviewUserRepositoryChoiceModeEnumApi = inherited.flash ? 'off' : 'flash'
     const options: ChoiceOption<MyChoiceValue>[] = [
-        { value: 'follow', label: `${describeResult(inherited)} (follow)` },
+        { value: 'follow', label: `${describeResult(inherited)} (${describeSource(inherited)})` },
         { value: opposite, label: CHOICE_LABELS[opposite] },
     ]
     if (entry.my_choice !== null && entry.my_choice !== opposite) {

@@ -73,11 +73,11 @@ export interface reviewHogRepositoriesLogicActions {
     } // reviewHogProjectSettingsLogic
     loadProjectSettings: () => any // reviewHogProjectSettingsLogic
     loadProjectSettingsSuccess: (
-        projectSettings: ReviewProjectSettingsApi,
+        projectSettings: ReviewProjectSettingsApi | null,
         payload?: any
     ) => {
         payload?: any
-        projectSettings: ReviewProjectSettingsApi
+        projectSettings: ReviewProjectSettingsApi | null
     } // reviewHogProjectSettingsLogic
     removeProjectPersonSuccess: (
         projectSettings: ReviewProjectSettingsApi,

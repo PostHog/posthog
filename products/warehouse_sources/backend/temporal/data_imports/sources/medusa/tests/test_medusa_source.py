@@ -5,7 +5,11 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.medusa import MedusaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.source import MedusaSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.medusa.source import (
+    HTTPS_REQUIRED_MESSAGE,
+    INVALID_URL_MESSAGE,
+    MedusaSource,
+)
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.medusa.source"
 
@@ -41,20 +45,21 @@ class TestMedusaSource:
         assert self.source.connection_host_fields == ["base_url"]
 
     @pytest.mark.parametrize(
-        "base_url",
+        ("base_url", "expected_message"),
         [
-            "",
-            "http://store.example.com",
-            "https://user:pass@store.example.com",
+            ("", INVALID_URL_MESSAGE),
+            ("http://store.example.com", HTTPS_REQUIRED_MESSAGE),
+            ("https://user:pass@store.example.com", INVALID_URL_MESSAGE),
         ],
     )
-    def test_validate_credentials_rejects_unsafe_urls_before_probing(self, base_url: str) -> None:
+    def test_validate_credentials_rejects_unsafe_urls_before_probing(
+        self, base_url: str, expected_message: str
+    ) -> None:
         config = MedusaSourceConfig(base_url=base_url, api_key="sk_test")
         with mock.patch(f"{SOURCE_MODULE}.validate_medusa_credentials") as mock_probe:
             is_valid, message = self.source.validate_credentials(config, self.team_id)
 
-        assert is_valid is False
-        assert message
+        assert (is_valid, message) == (False, expected_message)
         mock_probe.assert_not_called()
 
     def test_validate_credentials_rejects_disallowed_hosts_before_probing(self) -> None:

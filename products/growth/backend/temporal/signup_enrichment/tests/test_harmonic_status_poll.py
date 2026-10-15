@@ -3,7 +3,7 @@ import datetime as dt
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -345,7 +345,7 @@ class TestPollStatusBatchActivity(BaseTest):
         assert not OrganizationEnrichment.objects.filter(organization=organization).exists()
 
 
-class TestReportStatusPollRunActivity(BaseTest):
+class TestReportStatusPollRunActivity(SimpleTestCase):
     def test_emits_one_event_with_the_counts(self):
         capture = MagicMock()
         scoped_capture = MagicMock()

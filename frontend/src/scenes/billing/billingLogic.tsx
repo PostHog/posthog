@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
+import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -300,6 +301,7 @@ export interface billingLogicValues {
     startupProgramLabelCurrent: StartupProgramLabel | null
     startupProgramLabelPrevious: StartupProgramLabel | null
     supportPlans: BillingPlanType[]
+    supportResponseTime: string | null
     switchPlanLoading: string | null
     timeRemainingInSeconds: number
     timeTotalInSeconds: number
@@ -644,6 +646,12 @@ export interface billingLogicMeta {
         ) => number
         creditDiscount: (computedDiscount: number | null) => number
         billingPlan: (billing: BillingType | null) => BillingPlan | null
+        supportResponseTime: (
+            billing: BillingType | null,
+            billingPlan: BillingPlan | null,
+            supportPlans: BillingPlanType[],
+            currentOrganization: OrganizationType | null
+        ) => string | null
         startupProgramLabelCurrent: (billing: BillingType | null) => StartupProgramLabel | null
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
@@ -1203,6 +1211,21 @@ export const billingLogic = kea<billingLogicType>([
         billingPlan: [
             (s) => [s.billing],
             (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
+        supportResponseTime: [
+            (s) => [s.billing, s.billingPlan, s.supportPlans, s.currentOrganization],
+            (
+                billing: BillingType | null,
+                billingPlan: BillingPlan | null,
+                supportPlans: BillingPlanType[],
+                currentOrganization: OrganizationType | null
+            ): string | null =>
+                getSupportResponseTime({
+                    billing,
+                    billingPlan,
+                    supportPlans,
+                    organizationId: currentOrganization?.id,
+                }),
         ],
         startupProgramLabelCurrent: [
             (s) => [s.billing],

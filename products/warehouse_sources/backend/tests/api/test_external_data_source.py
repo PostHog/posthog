@@ -13477,7 +13477,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
 
 
-class TestGetOAuthIntegrationKinds(APIBaseTest):
+class TestGetOAuthIntegrationKinds(SimpleTestCase):
     """These kinds are what the OAuth accounts endpoint pins a caller-supplied integration id against, so
     a source whose OAuth field this fails to find would have its account listing rejected."""
 

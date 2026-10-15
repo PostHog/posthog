@@ -24,6 +24,7 @@ from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolu
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, run_outcome_markers
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -103,7 +104,7 @@ def _patch_open_branch_and_opted_in_owner(test: SimpleTestCase) -> Mock:
     test.enterContext(
         patch(
             f"{_RESOLUTION}.ResolutionGate.load",
-            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True, internal_features=True),
+            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True),
         )
     )
     return test.enterContext(
@@ -464,7 +465,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=123))
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
-        assert "stopped at 1/3" in status_comment.call_args.args[2]
+        assert "Stopped at 1/3" in status_comment.call_args.args[2]
 
         # Crash before prepare queued anything: no run anchor, so no section to replace.
         report.pr_number = 124
@@ -538,8 +539,12 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert result.skipped_reason == "no_unresolved_threads"
         report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
         assert report.status == ReviewReport.Status.IDLE
-        note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
+        note = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=report.id, type="note", content__contains=RESOLUTION_RUN_NOTE_AUTHOR
+        )
         assert "0 thread(s) triaged" in note.content
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", "no_unresolved_threads")]
         # No queued threads means no progress anchor — a total=0 run artefact would render this
         # clean no-op as a crashed run once it aged past the staleness window.
         assert (
@@ -789,7 +794,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
                 "pr_in_merge_queue",
                 "submitted to the merge queue",
             ),
-            ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
+            ("stacked", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
         ]
     )
     def test_hold_appearing_mid_run_stops_the_session_before_the_next_turn(
@@ -821,7 +826,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         continue_turn.assert_not_called()
         assert result.triaged == 1
         assert result.stopped_reason == reason
-        assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
+        assert "| stopped | Stopped at 1/2 because" in status_comment.call_args.args[2]
         assert section_text in status_comment.call_args.args[2]
         assert self._report_status() == ReviewReport.Status.IDLE
 
@@ -829,15 +834,14 @@ class TestFailedRunActivity(NonAtomicBaseTest):
 class TestResolutionOwnerGate(BaseTest):
     @parameterized.expand(
         [
-            ("owner_opted_in", "octocat", True, True, True),
-            ("owner_did_not_opt_in", "octocat", False, True, False),
-            ("internal_flag_off", "octocat", True, False, False),
+            ("owner_opted_in", "octocat", True, True),
+            ("owner_did_not_opt_in", "octocat", False, False),
             # The run user's opt-in never writes to a pull request nobody owns.
-            ("no_owner", "ghost", True, True, False),
+            ("no_owner", "ghost", True, False),
         ]
     )
     def test_resolution_writes_only_where_the_pr_owner_opted_in(
-        self, _name: str, author_login: str, opted_in: bool, internal: bool, prepared: bool
+        self, _name: str, author_login: str, opted_in: bool, prepared: bool
     ) -> None:
         sync_canonical_resolution(self.team)
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
@@ -851,7 +855,6 @@ class TestResolutionOwnerGate(BaseTest):
         )
         metadata = _pr_metadata().model_copy(update={"author": author_login})
         with (
-            patch("products.review_hog.backend.internal_features.posthog_feature_flag_enabled", return_value=internal),
             patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
@@ -874,3 +877,42 @@ class TestResolutionOwnerGate(BaseTest):
         else:
             assert isinstance(result, ResolutionRunResult)
             assert result.skipped_reason == "resolution_not_opted_in"
+
+    @parameterized.expand(
+        [
+            ("closed_pr", "closed", True, "pr_not_open"),
+            ("owner_did_not_opt_in", "open", True, "resolution_not_opted_in"),
+            ("no_report_yet", "open", False, None),
+        ]
+    )
+    def test_gate_skip_records_its_reason_on_the_report(
+        self, _name: str, state: str, has_report: bool, expected_reason: str | None
+    ) -> None:
+        report = None
+        if has_report:
+            report = ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team, repository="PostHog/posthog", pr_number=123, pr_url="u"
+            )
+        metadata = _pr_metadata().model_copy(update={"author": "ghost", "state": state})
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
+        ):
+            result = _prepare_run(
+                ResolveThreadsInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    acting_user_id=None,
+                    owner="posthog",
+                    repo="posthog",
+                    pr_number=123,
+                )
+            )
+
+        assert isinstance(result, ResolutionRunResult)
+        stored = ReviewReportArtefact.objects.for_team(self.team.id).filter(type="note")
+        if report is None:
+            assert not stored.exists()
+            return
+        markers = run_outcome_markers(self.team.id, [str(report.id)])[str(report.id)]
+        assert [(m.stage, m.outcome, m.reason) for m in markers] == [("resolution", "skipped", expected_reason)]

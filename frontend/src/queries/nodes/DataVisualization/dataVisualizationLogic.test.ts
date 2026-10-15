@@ -9,6 +9,7 @@ import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import {
     AxisSeriesSettings,
     DataVisualizationLogicProps,
@@ -54,6 +55,65 @@ describe('dataVisualizationLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('shows grouped BI categories as bars and toggles color without dropping groups or explicit chart choices', () => {
+        logic.unmount()
+        const field = { source: { table: 'events' }, type: 'string' as const }
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: field.source,
+            rows: [{ ...field, id: 'event', name: 'event', expression: 'event' }],
+            columns: [{ ...field, id: 'browser', name: 'browser', expression: 'properties.browser' }],
+        }
+        const generated = buildBIQuery(config)!.node
+        const query: VisualizationNode = { ...generated, kind: NodeKind.BIVisualizationNode, config }
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query,
+            dataNodeCollectionId,
+            cachedResults: {
+                columns: ['bi_row_event', 'bi_column_browser', 'count'],
+                types: [
+                    ['bi_row_event', 'String'],
+                    ['bi_column_browser', 'String'],
+                    ['count', 'Int64'],
+                ],
+                results: [
+                    ['signup', 'Safari', 10],
+                    ['purchase', 'Safari', 20],
+                ],
+            },
+        })
+        logic.mount()
+        const breakdown = seriesBreakdownLogic({ key: testKey })
+        breakdown.mount()
+        try {
+            expect(logic.values.effectiveVisualizationType).toBe(ChartDisplayType.ActionsBar)
+            expect(logic.values.autoVisualizationType).toBe(ChartDisplayType.ActionsBar)
+            const data = breakdown.values.seriesBreakdownData.seriesData.map((series) => series.data)
+            logic.actions._setQuery({ ...query, config: { ...config, colorBy: null } })
+            expect(breakdown.values.seriesBreakdownData.seriesData.map((series) => series.data)).toEqual(data)
+            const colors = breakdown.values.seriesBreakdownData.seriesData.map(
+                (series) => series.settings?.display?.color
+            )
+            expect(colors).toHaveLength(2)
+            expect(colors[0]).toBeTruthy()
+            expect(new Set(colors).size).toBe(1)
+            logic.actions._setQuery({
+                ...query,
+                display: ChartDisplayType.ActionsTable,
+                config: { ...config, chartType: ChartDisplayType.ActionsTable },
+            })
+            expect(logic.values.effectiveVisualizationType).toBe(ChartDisplayType.ActionsTable)
+            expect(
+                breakdown.values.seriesBreakdownData.seriesData.every(
+                    (series) => series.settings?.display?.color === undefined
+                )
+            ).toBe(true)
+        } finally {
+            breakdown.unmount()
+        }
     })
 
     test.each([

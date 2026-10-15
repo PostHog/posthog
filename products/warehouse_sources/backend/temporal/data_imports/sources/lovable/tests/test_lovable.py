@@ -1,83 +1,41 @@
-import json
 from typing import Any
 
-from unittest import mock
-
-import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lovable import (
+    LovableSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import (
     LovableResumeConfig,
     _ParentRef,
     check_endpoint_permissions,
-    lovable_source,
     resume_position,
     validate_credentials,
 )
-
-CLIENT_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client."
-    "make_tracked_session"
-)
-PROBE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.source import LovableSource
 
 
-def _page(rows: list[dict[str, Any]], next_cursor: str | None = None, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(
-        {"data": rows, "pagination": {"has_more": next_cursor is not None, "next_cursor": next_cursor}}
-    ).encode()
-    return response
-
-
-def _error(status_code: int, error_type: str = "payment_required") -> Response:
-    response = Response()
-    response.status_code = status_code
-    response.url = "https://api.lovable.dev/v1/workspaces"
-    response._content = json.dumps(
-        {"status": status_code, "type": error_type, "title": "Nope", "request_id": "req-1"}
-    ).encode()
-    return response
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
-    """Point a mocked session at `responses` and record the URL of every request it sends."""
-    real_session = requests.Session()
-    urls: list[str] = []
-    session.headers = {}
-
-    def _prepare(request: Any) -> Any:
-        prepared = real_session.prepare_request(request)
-        urls.append(prepared.url or "")
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return urls
-
-
-def _manager(resume_state: LovableResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, manager: mock.MagicMock | None = None, api_version: str = "v1") -> Any:
-    return lovable_source(
-        api_key="lov_key",
-        api_version=api_version,
-        endpoint=endpoint,
-        resumable_source_manager=manager or _manager(),
+def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"data": rows, "pagination": {"has_more": next_cursor is not None, "next_cursor": next_cursor}}
     )
+
+
+def _error(status_code: int, error_type: str = "payment_required") -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status_code,
+        json={"status": status_code, "type": error_type, "title": "Nope", "request_id": "req-1"},
+    )
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(LovableSource(), LovableSourceConfig(api_key="lov_key"))
 
 
 class TestLovableSourceTransport:
@@ -87,29 +45,31 @@ class TestLovableSourceTransport:
             ("dated_version_pins_the_header", "2026-09-11", {"Lovable-Version": "2026-09-11"}),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_version_selects_the_header_on_the_v1_path(
-        self, _name: str, api_version: str, expected_headers: dict[str, str], mock_session: mock.MagicMock
+        self, _name: str, api_version: str, expected_headers: dict[str, str]
     ) -> None:
-        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
+        result = _driver().run("Workspaces", [_page([{"id": "ws-1"}])], api_version=api_version)
 
-        _rows(_run("Workspaces", api_version=api_version))
+        assert result.raised is None
+        assert result.urls == ["https://api.lovable.dev/v1/workspaces?limit=100"]
+        assert result.requests[0].headers["accept"] == "application/json"
+        assert result.requests[0].headers["lovable-api-key"] == "lov_key"
+        if expected_headers:
+            assert result.requests[0].headers["lovable-version"] == expected_headers["Lovable-Version"]
+        else:
+            assert "lovable-version" not in result.requests[0].headers
 
-        assert urls == ["https://api.lovable.dev/v1/workspaces?limit=100"]
-        assert mock_session.return_value.headers == {"Accept": "application/json", **expected_headers}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_account_endpoint_follows_the_cursor(self, mock_session: mock.MagicMock) -> None:
-        urls = _wire(
-            mock_session.return_value,
+    def test_account_endpoint_follows_the_cursor(self) -> None:
+        result = _driver().run(
+            "Workspaces",
             [_page([{"id": "ws-1"}], next_cursor="c1"), _page([{"id": "ws-2"}])],
+            api_version="v1",
         )
 
-        rows = _rows(_run("Workspaces"))
-
-        assert [row["id"] for row in rows] == ["ws-1", "ws-2"]
-        assert urls[0] == "https://api.lovable.dev/v1/workspaces?limit=100"
-        assert "cursor=c1" in urls[1]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ws-1", "ws-2"]
+        assert result.urls[0] == "https://api.lovable.dev/v1/workspaces?limit=100"
+        assert result.requests[1].param("cursor") == "c1"
 
     @parameterized.expand(
         [
@@ -117,49 +77,41 @@ class TestLovableSourceTransport:
             ("WorkspaceMembers", "https://api.lovable.dev/v1/workspaces/ws-1/members?limit=50"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_dated_version_drops_the_filters_it_no_longer_accepts(
-        self, endpoint: str, expected_url: str, mock_session: mock.MagicMock
-    ) -> None:
-        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}]), _page([{"id": "row-1"}])])
+    def test_dated_version_drops_the_filters_it_no_longer_accepts(self, endpoint: str, expected_url: str) -> None:
+        result = _driver().run(endpoint, [_page([{"id": "ws-1"}]), _page([{"id": "row-1"}])], api_version="2026-09-11")
 
-        _rows(_run(endpoint, api_version="2026-09-11"))
+        assert result.raised is None
+        assert result.urls[1] == expected_url
 
-        assert urls[1] == expected_url
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_project_endpoint_fans_out_through_workspaces_and_stamps_both_parents(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        urls = _wire(
-            mock_session.return_value,
+    def test_project_endpoint_fans_out_through_workspaces_and_stamps_both_parents(self) -> None:
+        result = _driver().run(
+            "ProjectCollaborators",
             [
                 _page([{"id": "ws-1"}]),
                 _page([{"id": "p-1"}, {"id": "p-2"}]),
                 _page([{"user_id": "u-1"}]),
                 _page([{"user_id": "u-2"}]),
             ],
+            api_version="v1",
         )
 
-        rows = _rows(_run("ProjectCollaborators"))
-
-        assert [(row["workspace_id"], row["project_id"], row["user_id"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["workspace_id"], row["project_id"], row["user_id"]) for row in result.rows] == [
             ("ws-1", "p-1", "u-1"),
             ("ws-1", "p-2", "u-2"),
         ]
-        assert urls[2].startswith("https://api.lovable.dev/v1/projects/p-1/collaborators?")
-        assert urls[3].startswith("https://api.lovable.dev/v1/projects/p-2/collaborators?")
+        assert result.paths[2:] == ["/v1/projects/p-1/collaborators", "/v1/projects/p-2/collaborators"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_parents_without_an_id_are_skipped(self, mock_session: mock.MagicMock) -> None:
-        _wire(
-            mock_session.return_value,
+    def test_parents_without_an_id_are_skipped(self) -> None:
+        result = _driver().run(
+            "WorkspaceMembers",
             [_page([{"name": "no id here"}, {"id": "ws-2"}]), _page([{"user_id": "u-1"}])],
+            api_version="v1",
         )
 
-        rows = _rows(_run("WorkspaceMembers"))
-
-        assert [row["workspace_id"] for row in rows] == ["ws-2"]
+        assert result.raised is None
+        assert [row["workspace_id"] for row in result.rows] == ["ws-2"]
+        assert result.paths == ["/v1/workspaces", "/v1/workspaces/ws-2/members"]
 
     @parameterized.expand(
         [
@@ -180,8 +132,11 @@ class TestLovableSourceTransport:
     def test_primary_keys_and_partitioning_per_endpoint(
         self, api_version: str, endpoint: str, primary_keys: list[str], partition_key: str | None
     ) -> None:
-        response = _run(endpoint, api_version=api_version)
+        result = _driver().run(endpoint, always(_page([])), api_version=api_version)
 
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)
@@ -216,17 +171,18 @@ class TestValidateCredentials:
             ),
         ]
     )
-    @mock.patch(PROBE_SESSION_PATCH)
     def test_probe_targets_an_endpoint_the_version_serves(
-        self, api_version: str, expected_url: str, expected_headers: dict[str, str], mock_session: mock.MagicMock
+        self, api_version: str, expected_url: str, expected_headers: dict[str, str]
     ) -> None:
-        response = Response()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("lov_key", api_version) == (True, None)
 
-        assert validate_credentials("lov_key", api_version) == (True, None)
-        assert mock_session.return_value.get.call_args.args[0] == expected_url
-        assert mock_session.return_value.get.call_args.kwargs["headers"] == expected_headers
+        assert network.requests_log[0].url == expected_url
+        assert network.requests_log[0].headers["lovable-api-key"] == expected_headers["Lovable-API-Key"]
+        if "Lovable-Version" in expected_headers:
+            assert network.requests_log[0].headers["lovable-version"] == expected_headers["Lovable-Version"]
+        else:
+            assert "lovable-version" not in network.requests_log[0].headers
 
     @parameterized.expand(
         [
@@ -247,20 +203,17 @@ class TestValidateCredentials:
             ("server_error", 500, False, "Could not connect to Lovable. Check the API key and try again."),
         ]
     )
-    @mock.patch(PROBE_SESSION_PATCH)
     def test_status_maps_to_message(
         self,
         _name: str,
         status_code: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: mock.MagicMock,
     ) -> None:
-        response = Response()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("lov_key", "2026-09-11") == (expected_valid, expected_message)
+        response = ScriptedResponse(status=status_code)
+        script = always(response) if status_code == 500 else [response]
+        with scripted_network(script):
+            assert validate_credentials("lov_key", "2026-09-11") == (expected_valid, expected_message)
 
 
 class TestCheckEndpointPermissions:
@@ -277,39 +230,31 @@ class TestCheckEndpointPermissions:
             ("unexpected_status", _error(404, "not_found"), None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_probe_status_maps_to_a_reason(
-        self, _name: str, probe_response: Response, expected_reason: str | None, mock_session: mock.MagicMock
+        self, _name: str, probe_response: ScriptedResponse, expected_reason: str | None
     ) -> None:
-        _wire(mock_session.return_value, [_page([{"id": "ws-1"}]), probe_response])
+        with scripted_network([_page([{"id": "ws-1"}]), probe_response]):
+            assert check_endpoint_permissions("lov_key", "v1", ["WorkspaceMembers"]) == {
+                "WorkspaceMembers": expected_reason
+            }
 
-        assert check_endpoint_permissions("lov_key", "v1", ["WorkspaceMembers"]) == {
-            "WorkspaceMembers": expected_reason
-        }
+    def test_account_with_no_workspaces_reports_no_reason(self) -> None:
+        with scripted_network([_page([])]):
+            assert check_endpoint_permissions("lov_key", "v1", ["WorkspaceMembers"]) == {"WorkspaceMembers": None}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_account_with_no_workspaces_reports_no_reason(self, mock_session: mock.MagicMock) -> None:
-        _wire(mock_session.return_value, [_page([])])
+    def test_table_the_version_dropped_reports_no_reason_without_a_probe(self) -> None:
+        with scripted_network([_page([{"id": "ws-1"}])]) as network:
+            assert check_endpoint_permissions("lov_key", "2026-09-11", ["WorkspaceCreditHistory"]) == {
+                "WorkspaceCreditHistory": None
+            }
 
-        assert check_endpoint_permissions("lov_key", "v1", ["WorkspaceMembers"]) == {"WorkspaceMembers": None}
+        assert [request.url for request in network.requests_log] == ["https://api.lovable.dev/v1/workspaces?limit=1"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_table_the_version_dropped_reports_no_reason_without_a_probe(self, mock_session: mock.MagicMock) -> None:
-        urls = _wire(mock_session.return_value, [_page([{"id": "ws-1"}])])
-
-        assert check_endpoint_permissions("lov_key", "2026-09-11", ["WorkspaceCreditHistory"]) == {
-            "WorkspaceCreditHistory": None
-        }
-        assert urls == ["https://api.lovable.dev/v1/workspaces?limit=1"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_project_scoped_table_probes_a_project(self, mock_session: mock.MagicMock) -> None:
-        urls = _wire(
-            mock_session.return_value,
+    def test_project_scoped_table_probes_a_project(self) -> None:
+        with scripted_network(
             [_page([{"id": "ws-1"}]), _page([{"id": "p-1"}]), _error(402)],
-        )
-
-        permissions = check_endpoint_permissions("lov_key", "v1", ["ProjectSecurityScans"])
+        ) as network:
+            permissions = check_endpoint_permissions("lov_key", "v1", ["ProjectSecurityScans"])
 
         assert permissions == {"ProjectSecurityScans": "This table needs Lovable's Business plan or higher."}
-        assert urls[2].startswith("https://api.lovable.dev/v1/projects/p-1/security-scans?")
+        assert network.requests_log[2].path == "/v1/projects/p-1/security-scans"

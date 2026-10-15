@@ -125,9 +125,13 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub router_initial_connection_window_bytes: WindowSize,
 
-    /// Per-call timeout for leader-routed property writes (ms).
+    /// Per-attempt timeout for leader-routed property writes and strong reads (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
+
+    /// Attempts per leader-routed write or strong read, each under `leader_request_timeout_ms`.
+    #[envconfig(default = "2")]
+    pub leader_request_attempts: u32,
 
     /// etcd endpoints, comma separated. The delete saga groups its fence
     /// calls by leader partition, and the partition count lives in etcd.

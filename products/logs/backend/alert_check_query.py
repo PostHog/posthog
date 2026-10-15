@@ -595,7 +595,9 @@ class BatchedAlertCheckQuery:
 CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
 
 
-def fetch_live_logs_checkpoint(team: Team, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dt.datetime | None:
+def fetch_live_logs_checkpoint(
+    team: Team, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT, max_execution_time: int | None = None
+) -> dt.datetime | None:
     tag_queries(
         product=Product.LOGS,
         feature=Feature.ALERTING,
@@ -609,6 +611,9 @@ def fetch_live_logs_checkpoint(team: Team, *, ch_user: ClickHouseUser = ClickHou
         workload=Workload.LOGS,
         ch_user=ch_user,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        settings=None
+        if max_execution_time is None
+        else HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
     )
     if not response.results or response.results[0][0] is None:
         return None
@@ -649,7 +654,10 @@ def is_projection_eligible(filters: dict) -> bool:
         return True
     if not isinstance(filter_group, dict):
         return False
-    for group in filter_group.get("values", []):
+    groups = filter_group.get("values", [])
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
         if not isinstance(group, dict):
             return False
         if group.get("values"):

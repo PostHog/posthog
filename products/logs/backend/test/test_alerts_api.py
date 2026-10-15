@@ -3,17 +3,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.templates.fixtures import template_pagerduty, template_slack
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -23,6 +24,9 @@ from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
@@ -35,6 +39,7 @@ from products.logs.backend.presentation.views.alerts_api import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
+from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -435,6 +440,30 @@ class TestLogsAlertAPI(APIBaseTest):
             ).configurations
         assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
 
+    def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
+        self._create_via_api(name="Already on the platform")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
+        LogsAlertConfiguration.objects.filter(id=alert_id).update(enabled=True)
+
+        with (
+            patch(
+                "products.logs.backend.platform_alert_backfill.upsert_if_running",
+                side_effect=OperationalError("connection reset"),
+            ),
+            pytest.raises(Retry),
+        ):
+            follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+        # Celery's eager mode stops at the retry, so the second attempt runs by hand.
+        retried = follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert retried.state == "SUCCESS"
+        assert {str(view.legacy_configuration_id): view.enabled for view in copies}.get(alert_id) is True
+
     # --- first_enabled_at stamping ---
 
     def test_first_enabled_at_stamped_on_first_enable(self):
@@ -722,27 +751,29 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disable", lambda: {"enabled": False}, True, "disabled"),
+            ("disable", lambda: {"enabled": False}, True, "disabled", "source"),
             (
                 "snooze",
                 lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
                 True,
                 "snoozed",
+                "source",
             ),
-            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed"),
-            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed"),
-            ("window_change", lambda: {"window_minutes": 10}, True, None),
-            ("rename", lambda: {"name": "Renamed"}, True, None),
-            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None),
+            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed", "source"),
+            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed", "source"),
+            ("window_change", lambda: {"window_minutes": 10}, True, None, "source"),
+            ("rename", lambda: {"name": "Renamed"}, True, None, "source"),
+            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None, "source"),
+            ("disable_owned_by_the_platform", lambda: {"enabled": False}, True, None, "platform"),
         ]
     )
     def test_leaving_firing_through_the_api_closes_the_incident(
-        self, _name, make_payload, has_pagerduty, expected_reason
+        self, _name, make_payload, has_pagerduty, expected_reason, owner
     ):
         created = self._create_via_api()
         if has_pagerduty:
             self._add_pagerduty_destination(created["id"])
-        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing", owner=owner)
         payload = make_payload()
 
         with (

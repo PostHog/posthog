@@ -1,4 +1,3 @@
-import json
 import socket
 
 import pytest
@@ -6,27 +5,37 @@ import unittest.mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce import auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.source import SalesforceSource
+
+# The waits between attempts of the token refresh loop: 0.5s, 1.0s and 1.5s.
+REFRESH_BACKOFF_SECONDS = 3.0
+
+
+def _token_response(status_code: int, body: dict) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
+
+
+def _html_error_response(status_code: int, text: str) -> ScriptedResponse:
+    # Salesforce's maintenance/outage pages come back as HTML, not JSON.
+    return ScriptedResponse(status=status_code, body=text.encode("utf-8"))
 
 
 def test_salesforce_refresh_access_token_raises_on_client_failure():
-    status_code = 400
     error_description = "Bad client!"
 
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps({"error_description": error_description}).encode("utf-8")
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
+        scripted_network([_token_response(400, {"error_description": error_description})]),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
-    assert exc.value.response == response
+    assert exc.value.response.status_code == 400
     assert "Client Error" in str(exc.value)
     assert error_description in str(exc.value)
 
@@ -34,105 +43,45 @@ def test_salesforce_refresh_access_token_raises_on_client_failure():
 def test_salesforce_refresh_access_token_raises_on_server_failure():
     # A 5xx is retried like a transient outage (see test_refresh_retries_transient_server_error_*
     # below), so a session that always returns 500 exhausts the retry budget before raising.
-    status_code = 500
     response_body = "something went terribly wrong"
 
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = response_body.encode("utf-8")
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ),
+        scripted_network(always(_html_error_response(500, response_body))),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
-    assert exc.value.response == response
+    assert exc.value.response.status_code == 500
     assert "Server Error" in str(exc.value)
     assert response_body in str(exc.value)
 
 
 def test_get_salesforce_access_token_from_code_raises_on_client_failure():
-    status_code = 400
     error_description = "Bad client!"
 
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps({"error_description": error_description}).encode("utf-8")
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
+        scripted_network([_token_response(400, {"error_description": error_description})]),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.get_salesforce_access_token_from_code("something", "something", "https://login.salesforce.com")
 
-    assert exc.value.response == response
+    assert exc.value.response.status_code == 400
     assert "Client Error" in str(exc.value)
     assert error_description in str(exc.value)
 
 
 def test_get_salesforce_access_token_from_code_raises_on_server_failure():
-    status_code = 500
     response_body = "something went terribly wrong"
 
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = response_body.encode("utf-8")
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
+        scripted_network(always(_html_error_response(500, response_body))),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.get_salesforce_access_token_from_code("something", "something", "https://login.salesforce.com")
 
-    assert exc.value.response == response
+    assert exc.value.response.status_code == 500
     assert "Server Error" in str(exc.value)
     assert response_body in str(exc.value)
-
-
-def _token_response(status_code: int, body: dict) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode("utf-8")
-    return response
-
-
-def _html_error_response(status_code: int, text: str) -> requests.Response:
-    # Salesforce's maintenance/outage pages come back as HTML, not JSON.
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = text.encode("utf-8")
-    return response
-
-
-def _session_returning(responses: list[requests.Response]):
-    it = iter(responses)
-    return type("_S", (), {"post": staticmethod(lambda *a, **k: next(it))})()
-
-
-def _session_with_side_effects(items: list):
-    # Each item is either a Response to return or an Exception to raise, in order.
-    it = iter(items)
-
-    def _post(*a, **k):
-        item = next(it)
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-    return type("_S", (), {"post": staticmethod(_post)})()
 
 
 @pytest.mark.parametrize(
@@ -145,40 +94,23 @@ def _session_with_side_effects(items: list):
     ids=["host_resolves", "resolver_blip", "resolver_failure"],
 )
 def test_refresh_raises_transport_error_after_exhausting_retries(lookup_error):
-    items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_with_side_effects(items),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ) as mock_sleep,
+        scripted_network(always(ConnectionResetError("reset"))) as network,
         unittest.mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.socket.getaddrinfo",
             side_effect=lookup_error,
         ),
-        pytest.raises(requests.exceptions.ProxyError),
+        pytest.raises(requests.exceptions.ConnectionError),
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
-    assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
+    assert len(network.requests_log) >= auth._MAX_TOKEN_REFRESH_ATTEMPTS
+    assert network.elapsed >= REFRESH_BACKOFF_SECONDS
 
 
 def test_refresh_stops_retrying_when_instance_host_does_not_exist():
-    from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.source import SalesforceSource
-
-    items = [requests.exceptions.ProxyError("Cannot connect to proxy") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)]
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_with_side_effects(items),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ),
+        scripted_network(always(ConnectionResetError("reset"))),
         unittest.mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.socket.getaddrinfo",
             side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
@@ -193,25 +125,17 @@ def test_refresh_stops_retrying_when_instance_host_does_not_exist():
 
 
 def test_refresh_raises_transient_token_request_after_exhausting_retries():
-    responses = [
-        _token_response(400, {"error_description": "token request is already being processed"})
-        for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)
-    ]
+    transient = _token_response(400, {"error_description": "token request is already being processed"})
 
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_returning(responses),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ) as mock_sleep,
+        scripted_network(always(transient)) as network,
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert "token request is already being processed" in str(exc.value)
-    assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
+    assert len(network.requests_log) == auth._MAX_TOKEN_REFRESH_ATTEMPTS
+    assert network.elapsed == REFRESH_BACKOFF_SECONDS
 
 
 def test_refresh_retries_transient_server_error_then_succeeds():
@@ -223,40 +147,24 @@ def test_refresh_retries_transient_server_error_then_succeeds():
         _token_response(200, {"access_token": "fresh-token"}),
     ]
 
-    with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_returning(responses),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ) as mock_sleep,
-    ):
+    with scripted_network(responses) as network:
         token = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert token == "fresh-token"
-    assert mock_sleep.call_count == 2
+    assert len(network.requests_log) == 3
+    assert network.elapsed == 0.5 + 1.0
 
 
 def test_refresh_raises_transient_server_error_after_exhausting_retries():
-    responses = [
-        _html_error_response(503, "We are down for maintenance.") for _ in range(auth._MAX_TOKEN_REFRESH_ATTEMPTS)
-    ]
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_returning(responses),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ) as mock_sleep,
+        scripted_network(always(_html_error_response(503, "We are down for maintenance."))) as network,
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert "Server Error" in str(exc.value)
-    assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
+    assert len(network.requests_log) == auth._MAX_TOKEN_REFRESH_ATTEMPTS
+    assert network.elapsed == REFRESH_BACKOFF_SECONDS
 
 
 def test_refresh_does_not_retry_non_transient_error():
@@ -268,19 +176,14 @@ def test_refresh_does_not_retry_non_transient_error():
     ]
 
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=_session_returning(responses),
-        ),
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ) as mock_sleep,
+        scripted_network(responses) as network,
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert "expired access/refresh token" in str(exc.value)
-    assert mock_sleep.call_count == 0
+    assert len(network.requests_log) == 1
+    assert network.elapsed == 0
 
 
 @pytest.mark.parametrize(
@@ -293,17 +196,8 @@ def test_refresh_does_not_retry_non_transient_error():
 def test_auth_error_is_non_retryable(error_description: str):
     """SalesforceAuthRequestErrors raised for permanent auth failures (expired/revoked token,
     deactivated user) must match a non-retryable pattern, otherwise the job retries forever."""
-    from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.source import SalesforceSource
-
-    response = requests.Response()
-    response.status_code = 400
-    response._content = json.dumps({"error_description": error_description}).encode("utf-8")
-
     with (
-        unittest.mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
+        scripted_network([_token_response(400, {"error_description": error_description})]),
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")

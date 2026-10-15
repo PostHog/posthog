@@ -59,7 +59,7 @@ export const OBJECT_KIND_DATA = {
         idPattern: null,
         block: false,
         idIsBody: false,
-        urlAliases: [],
+        urlAliases: ['/error-tracking/{id}'],
     },
     replay: {
         kindLabel: 'Session replay',

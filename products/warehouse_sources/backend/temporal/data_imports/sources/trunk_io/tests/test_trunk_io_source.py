@@ -1,33 +1,12 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
     TrunkIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-
-
-def _make_inputs(schema_name: str, **overrides) -> SourceInputs:
-    defaults: dict = {
-        "schema_name": schema_name,
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestTrunkIoSource:
@@ -103,32 +82,26 @@ class TestTrunkIoSource:
 
     @parameterized.expand(
         [
-            ("UnhealthyTests", "unhealthy_tests", "v1"),
-            ("QuarantinedTests", "quarantined_tests", "v1"),
-            ("FailingTests", "failing_tests", "v1"),
-            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v1"),
-            ("UnhealthyTests", "unhealthy_tests", "v2"),
-            ("QuarantinedTests", "quarantined_tests", "v2"),
-            ("FailingTests", "failing_tests", "v2"),
-            ("MergeQueuePullRequests", "merge_queue_pull_requests", "v2"),
-            ("TestCollections", "list_test_collections", "v2"),
-            ("Tests", "list_tests", "v2"),
+            ("UnhealthyTests", "/v1/flaky-tests/list-unhealthy-tests", "v1"),
+            ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v1"),
+            ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v1"),
+            ("MergeQueuePullRequests", "/v1/listPullRequests", "v1"),
+            ("UnhealthyTests", "/v1/flaky-tests/list-unhealthy-tests", "v2"),
+            ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v2"),
+            ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v2"),
+            ("MergeQueuePullRequests", "/v1/listPullRequests", "v2"),
+            ("TestCollections", "/v2/test-collections", "v2"),
+            ("Tests", "/v2/tests", "v2"),
         ]
     )
     def test_source_for_pipeline_dispatches_to_expected_transport(
-        self, schema_name: str, transport_fn: str, api_version: str
+        self, schema_name: str, expected_path: str, api_version: str
     ):
-        inputs = _make_inputs(schema_name, api_version=api_version)
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(schema_name, [], api_version=api_version)
 
-        with patch(
-            f"products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source.{transport_fn}"
-        ) as mock_transport:
-            mock_transport.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_transport.assert_called_once()
-        assert response.name == schema_name
+        assert result.response is not None
+        assert result.response.name == schema_name
+        assert result.paths[0] == expected_path
 
     @parameterized.expand(
         [
@@ -140,11 +113,10 @@ class TestTrunkIoSource:
     def test_source_for_pipeline_rejects_tables_the_pin_does_not_serve(
         self, _label: str, schema_name: str, api_version: str
     ):
-        inputs = _make_inputs(schema_name, api_version=api_version)
-        manager = MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(schema_name, [], api_version=api_version)
 
-        with pytest.raises(ValueError):
-            self.source.source_for_pipeline(self.config, manager, inputs)
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
 
     @parameterized.expand(
         [
@@ -157,24 +129,10 @@ class TestTrunkIoSource:
         ]
     )
     def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
-        inputs = _make_inputs(schema_name)
-        manager = MagicMock(spec=ResumableSourceManager)
-        transport_fn = {
-            "UnhealthyTests": "unhealthy_tests",
-            "QuarantinedTests": "quarantined_tests",
-            "FailingTests": "failing_tests",
-            "MergeQueuePullRequests": "merge_queue_pull_requests",
-            "TestCollections": "list_test_collections",
-            "Tests": "list_tests",
-        }[schema_name]
+        result = SourceDriver(self.source, self.config).run(schema_name, [])
 
-        with patch(
-            f"products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source.{transport_fn}"
-        ) as mock_transport:
-            mock_transport.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert response.primary_keys == expected_keys
+        assert result.response is not None
+        assert result.response.primary_keys == expected_keys
 
     @parameterized.expand([("unset", None), ("blank", "   ")])
     def test_merge_queue_without_target_branch_fails_permanently(self, _label: str, target_branch):
@@ -188,9 +146,7 @@ class TestTrunkIoSource:
             repo_name="my-repo",
             merge_queue_target_branch=target_branch,
         )
-        inputs = _make_inputs("MergeQueuePullRequests")
+        result = SourceDriver(self.source, config).run("MergeQueuePullRequests", [])
 
-        with pytest.raises(ValueError) as excinfo:
-            self.source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), inputs)
-
-        assert any(key in str(excinfo.value) for key in self.source.get_non_retryable_errors())
+        assert isinstance(result.raised, ValueError)
+        assert any(key in str(result.raised) for key in self.source.get_non_retryable_errors())

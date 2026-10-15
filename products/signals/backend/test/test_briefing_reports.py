@@ -15,6 +15,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.models import Team
+
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
@@ -94,8 +96,24 @@ class TestReportsForBriefing(BaseTest):
         )
         SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - age)
 
-    def test_report_details_keep_only_metrics_with_a_saved_snapshot(self) -> None:
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY, False, "ready"),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, "monitoring"),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, "resolved"),
+            (
+                "monitoring_unavailable",
+                SignalReport.Status.MONITORING,
+                RuntimeError("flag service unavailable"),
+                "resolved",
+            ),
+        ]
+    )
+    def test_report_details_keep_only_metrics_with_a_saved_snapshot(
+        self, _name: str, status: str, flag_result: bool | Exception, expected_status: str
+    ) -> None:
         report = self._urgent_report("Checkout fails")
+        report.status = status
         query = trends_metric_query(
             series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
         )
@@ -121,12 +139,45 @@ class TestReportsForBriefing(BaseTest):
             {"chart_id": "broken"},
             {"chart_id": "form-errors", "title": "Form errors", "query": query},
         ]
-        report.save(update_fields=["metrics", "charts", "summary"])
+        report.save(update_fields=["status", "metrics", "charts", "summary"])
+        other_reports = [self._urgent_report(f"Other report {index}") for index in range(2)]
+        SignalReport.objects.filter(id__in=[other.id for other in other_reports]).update(status=status)
+        report_ids = [str(item.id) for item in [report, *other_reports]]
 
         viewer = ReportMetricAccessPolicy(
             request=cast(Request, SimpleNamespace(user=self.user, successful_authenticator=None)), team=self.team
         )
-        [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)], metric_access=viewer)
+        # A newer judgment stored under another team must not leak into this team's details.
+        cross_team = SignalReportArtefact.objects.create(
+            team=Team.objects.create(organization=self.organization),
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P4"}),
+        )
+        SignalReportArtefact.objects.filter(pk=cross_team.pk).update(created_at=timezone.now() + timedelta(hours=1))
+
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                return_value=flag_result if isinstance(flag_result, bool) else False,
+                side_effect=flag_result if isinstance(flag_result, Exception) else None,
+            ) as evaluate,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            results = report_details(team_id=self.team.id, report_ids=report_ids, metric_access=viewer)
+        assert len(results) == len(report_ids)
+        assert {item.status for item in results} == {expected_status}
+        team_gate_reads = [
+            query
+            for query in queries
+            if query["sql"].startswith("SELECT")
+            and 'FROM "posthog_team"' in query["sql"]
+            and '"organization_id"' in query["sql"]
+        ]
+        expected_gate_reads = int(status == SignalReport.Status.MONITORING)
+        assert evaluate.call_count == expected_gate_reads
+        assert len(team_gate_reads) == expected_gate_reads
+        details = next(item for item in results if item.report_id == str(report.id))
         # Without a viewer the policy reads nothing, so the briefing must hide every metric, as the Inbox does.
         [unreadable] = report_details(
             team_id=self.team.id,
@@ -134,7 +185,7 @@ class TestReportsForBriefing(BaseTest):
             metric_access=ReportMetricAccessPolicy(request=None, team=self.team),
         )
 
-        assert (details.status, details.priority, details.pull_request_state) == ("ready", "P0", None)
+        assert (details.status, details.priority, details.pull_request_state) == (expected_status, "P0", None)
         assert [(m.metric_id, m.value, m.series, m.query) for m in details.metrics] == [
             ("measured", 17, [3.0, 9.0, 17.0], query)
         ]

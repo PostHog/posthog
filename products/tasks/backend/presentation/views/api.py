@@ -80,6 +80,7 @@ from products.tasks.backend.facade.access import (
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
+    TASK_CLIENT_PROVENANCE_HEADER,
     get_task_client_provenance,
     is_sandbox_oauth_request,
     is_sandbox_origin_request,
@@ -738,7 +739,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 str,
                 OpenApiParameter.HEADER,
                 description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
-            )
+            ),
+            OpenApiParameter(
+                TASK_CLIENT_PROVENANCE_HEADER,
+                str,
+                OpenApiParameter.HEADER,
+                enum=tasks_facade.TaskClientProvenance.values,
+                description="First-party client creating the task. Accepted only with an interactive PostHog OAuth grant.",
+            ),
         ],
         responses={
             201: TaskCreateResponseSerializer,
@@ -3235,7 +3243,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Fetch the logs for a task run as JSONL. If the run resumes from "
             "another (state.resume_from_run_id), each ancestor's log is "
             "concatenated first (oldest ancestor → ... → this run) so resume "
-            "consumers see a single continuous history."
+            "consumers see a single continuous history. A resumed Pi run "
+            "includes the earlier runs of its task session the same way, each "
+            "preceded by a pi_run_started entry that names its run."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3243,7 +3253,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 
@@ -3432,6 +3442,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_runtime == tasks_facade.TaskRuntime.PI and method not in {
             "user_message",
             "cancel",
+            "permission_response",
+            "set_config_option",
             "pi/rpc",
             "queue_get",
             "queue_clear",

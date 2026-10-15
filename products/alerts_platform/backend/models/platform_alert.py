@@ -16,6 +16,7 @@ from posthog.models.utils import UUIDModel
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertOwner,
     PlatformAlertState,
 )
 
@@ -38,6 +39,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # the way every other model in the repo does.
     SourceKind = PlatformAlertConfigurationSourceKind
     RecurrenceUnit = PlatformAlertConfigurationRecurrenceUnit
+    Owner = PlatformAlertOwner
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -80,6 +82,14 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     # When an operator switched this copy off. A write in the source never turns such a copy back
     # on, so a rollout that retires a copy keeps it retired. Only a backfill run clears it.
     switched_off_at = models.DateTimeField(null=True, blank=True)
+
+    # The source's own row records the same owner. Only the cutover and rollback commands write
+    # the two, in one transaction, so each stack can decide from its own row without reading the
+    # other product's table.
+    owner = models.CharField(
+        max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         # Pinned: the name predates this app, and removing this renames a live table.

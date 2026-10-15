@@ -9,6 +9,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
@@ -144,7 +145,56 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.audienceProperties).toEqual(properties)
         expect(logic.values.name).toEqual('Fix shipped')
         expect(logic.values.entrySource).toEqual('cohort')
-        expect(router.values.searchParams).toEqual({})
+
+        // A reload remounts the wizard from the same URL, and nothing was saved yet.
+        logic.unmount()
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['prefillFromLink'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
+    })
+
+    it.each([
+        {
+            link: 'a draft email and one verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: true,
+            step: 'review',
+        },
+        {
+            link: 'a draft email but no verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: false,
+            step: 'content',
+        },
+        { link: 'no email', email: undefined, verified: true, step: 'content' },
+    ])('opens a link with $link on the $step step without creating a draft', async ({ email, verified, step }) => {
+        const createDraft = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified } }],
+                    count: 1,
+                },
+            },
+            post: { '/api/projects/:team_id/hog_flows/': () => createDraft() },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'error_tracking', email })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['landOnStep'])
+
+        expect(logic.values.currentStep).toEqual(step)
+        expect(logic.values.email.subject).toEqual(email?.subject ?? '')
+        expect(createDraft).not.toHaveBeenCalled()
     })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
@@ -433,6 +483,48 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.stepValidationErrors.content).toEqual(expected)
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
+
+    it('counts the audience missing the To field property on the review step only, and never for an unfiltered audience', async () => {
+        const missingByProperty: Record<string, number> = { email: 98, $email: 0 }
+        const checkedFilters: { key: string; operator?: string }[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    const { filters } = (await request.json()) as {
+                        filters: { properties: { key: string; operator?: string }[] }
+                    }
+                    const last = filters.properties[filters.properties.length - 1]
+                    if (!last || last.operator !== PropertyOperator.IsNotSet) {
+                        return [200, { affected: 98, total: 1000 }]
+                    }
+                    checkedFilters.push(filters.properties)
+                    return [200, { affected: missingByProperty[last.key], total: 1000 }]
+                },
+            },
+        })
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+        expect(checkedFilters).toEqual([])
+
+        logic.actions.setStep('review')
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 98 })
+        expect(checkedFilters.at(-1)).toEqual([
+            ...LOCAL_AUDIENCE,
+            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+        ])
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: '{{ person.properties.$email }}' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: 0 })
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, to: { email: 'team@example.com' } })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+
+        const requestsBefore = checkedFilters.length
+        logic.actions.setEmail(DEFAULT_BROADCAST_EMAIL)
+        logic.actions.setAudienceProperties([])
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
+        expect(checkedFilters).toHaveLength(requestsBefore)
     })
 
     it('starts a new broadcast with the only verified sender without creating a draft', async () => {

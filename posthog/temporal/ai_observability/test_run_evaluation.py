@@ -439,11 +439,12 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "usage": usage,
     }
     response = httpx.Response(200, stream=httpx.ByteStream(json.dumps(response_body).encode()))
+    prompt = "Is the response polite? Return N/A when no response text is supplied."
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
-        "evaluation_config": {"prompt": "Is the response polite?"},
+        "evaluation_config": {"prompt": prompt},
     }
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
@@ -471,14 +472,22 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     assert request.call_args.args[0].headers.get("Authorization") == (
         f"Bearer {connection_config['api_key']}" if connection_config["api_key"] else None
     )
-    assert json.loads(request.call_args.args[0].content)["model"] == model
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result.get("probability") == (probability if verdict is not None else None)
     assert result["model"] == model
     assert result["total_tokens"] == sum(usage.values())
     if allows_na:
+        instructions = sent["questions"]["applicable"]["instructions"]
+        assert "those instructions require N/A" in instructions
+        assert "essential context or evidence is missing" in instructions
+        assert "even if the result would be a fail" in instructions
+        assert instructions.endswith(prompt)
         assert result["applicable"] is (applicability >= 0.5)
+    else:
+        assert "applicable" not in sent["questions"]
     properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
     assert properties["$ai_input_tokens"] == usage.get("input_tokens")
     assert properties["$ai_output_tokens"] == usage.get("output_tokens")
@@ -3120,7 +3129,7 @@ class TestExecuteHogEvalActivity:
         team = setup_data["team"]
 
         # Compile source to bytecode for the test
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3146,7 +3155,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_returns_false(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return false", "destination")
 
@@ -3171,7 +3180,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_non_bool_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 42", "destination")
 
@@ -3201,7 +3210,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_captures_print_as_reasoning(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         source = "print('checking output'); return true"
         bytecode = compile_hog(source, "destination")
@@ -3268,7 +3277,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_accesses_globals(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         source = """
             return output == 'test output'
@@ -3299,7 +3308,7 @@ class TestExecuteHogEvalActivity:
     async def test_hog_eval_runtime_error_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3338,7 +3347,7 @@ class TestExecuteHogEvalActivity:
     )
     async def test_hog_eval_null_comparisons_evaluate_to_false(self, source):
         # A missing value is no match, not a runtime error, so the eval completes with a verdict.
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog(source, "destination")
         evaluation = {
@@ -3380,7 +3389,7 @@ class TestExecuteHogEvalActivity:
         ids=["invalid-regex", "list-regex-input", "array-assignment-index"],
     )
     async def test_hog_eval_vm_user_errors_return_skipped(self, source, properties, expected_reasoning):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog(source, "destination")
         evaluation = {
@@ -3406,7 +3415,7 @@ class TestExecuteHogEvalActivity:
 
     @pytest.mark.asyncio
     async def test_hog_eval_unexpected_error_raises(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3779,7 +3788,7 @@ class TestEvalResultModels:
 class TestRunHogEvalAllowsNA:
     @pytest.fixture(autouse=True)
     def _compile(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         self.compile_hog = compile_hog
 
@@ -3844,7 +3853,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_null_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "destination")
 
@@ -3871,7 +3880,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_bool_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
@@ -3898,7 +3907,7 @@ class TestExecuteHogEvalActivityAllowsNA:
     async def test_hog_eval_null_return_without_allows_na_returns_skipped(self, setup_data):
         team = setup_data["team"]
 
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "destination")
 
@@ -4234,7 +4243,7 @@ class TestRunLocalEvaluationActivity:
     START_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
     def _create_hog_evaluation(self, team, source: str):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         return Evaluation.objects.create(
             team=team,

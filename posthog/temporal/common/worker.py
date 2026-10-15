@@ -12,7 +12,13 @@ from prometheus_client import REGISTRY
 from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import (
+    PollerBehaviorAutoscaling,
+    ResourceBasedSlotConfig,
+    UnsandboxedWorkflowRunner,
+    Worker,
+    WorkerTuner,
+)
 
 from posthog.temporal.ai_observability.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
@@ -217,6 +223,29 @@ class ManagedWorker:
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
+
+
+def build_poller_autoscaling(
+    task_type: str, minimum: int | None, maximum: int | None
+) -> PollerBehaviorAutoscaling | None:
+    """Return an autoscaling poller behavior, or None to keep the SDK default when maximum is unset."""
+    if maximum is None:
+        if minimum is not None:
+            logger.warning(
+                "poller_autoscaling_minimum_ignored",
+                task_type=task_type,
+                minimum=minimum,
+                reason="maximum is not set, so the SDK default poller behavior is used",
+            )
+        return None
+    effective_minimum = PollerBehaviorAutoscaling.minimum if minimum is None else minimum
+    if effective_minimum < 1:
+        raise ValueError(f"{task_type} poller autoscaling minimum must be at least 1, got {effective_minimum}")
+    if maximum < effective_minimum:
+        raise ValueError(
+            f"{task_type} poller autoscaling maximum ({maximum}) must be at least the minimum ({effective_minimum})"
+        )
+    return PollerBehaviorAutoscaling(minimum=effective_minimum, maximum=maximum, initial=effective_minimum)
 
 
 async def create_worker(
@@ -458,6 +487,22 @@ async def create_worker(
         min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
     )
 
+    poller_kwargs: dict[str, typing.Any] = {}
+    activity_poller_behavior = build_poller_autoscaling(
+        "activity",
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX,
+    )
+    if activity_poller_behavior is not None:
+        poller_kwargs["activity_task_poller_behavior"] = activity_poller_behavior
+    workflow_poller_behavior = build_poller_autoscaling(
+        "workflow",
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN,
+        settings.TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX,
+    )
+    if workflow_poller_behavior is not None:
+        poller_kwargs["workflow_task_poller_behavior"] = workflow_poller_behavior
+
     if target_memory_usage is not None:
         worker = Worker(
             client,
@@ -482,6 +527,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            **poller_kwargs,
         )
     else:
         worker = Worker(
@@ -498,6 +544,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            **poller_kwargs,
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)

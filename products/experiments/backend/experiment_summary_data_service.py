@@ -35,7 +35,7 @@ from products.experiments.backend.hogql_queries.utils import get_experiment_stat
 from products.experiments.backend.metric_resolution import (
     METRIC_BUILDERS,
     ExperimentMetric,
-    resolve_saved_metric_definition,
+    apply_saved_metric_overrides,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
@@ -272,7 +272,7 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
-            query = resolve_saved_metric_definition(query, link.metadata)
+            query = apply_saved_metric_overrides(query, link.metadata)
             # The display name lives on the saved metric model, not in its query dict —
             # without it the summary falls back to raw event names.
             if link.saved_metric.name:

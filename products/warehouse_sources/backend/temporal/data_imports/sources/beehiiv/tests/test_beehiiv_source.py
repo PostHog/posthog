@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import BeehiivResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.canonical_descriptions import (
@@ -9,13 +9,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source import BeehiivSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.beehiiv import (
     BeehiivSourceConfig,
-)
-
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.source.validate_beehiiv_credentials"
 )
 
 
@@ -78,12 +79,12 @@ class TestBeehiivValidateCredentialsWiring:
     def test_rejects_publication_ids_that_are_not_a_single_path_segment(
         self, publication_id: str, expected_error: str
     ) -> None:
-        with patch(VALIDATE_PATCH) as mock_validate:
+        with scripted_network([]) as network:
             is_valid, error = self.source.validate_credentials(_config(publication_id), team_id=7)
 
         assert is_valid is False
         assert error == expected_error
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize(
         ("schema_name", "expected_allow_missing_scope"),
@@ -92,22 +93,26 @@ class TestBeehiivValidateCredentialsWiring:
     def test_missing_scope_is_only_tolerated_at_source_create(
         self, schema_name: str | None, expected_allow_missing_scope: bool
     ) -> None:
-        with patch(VALIDATE_PATCH, return_value=(True, None)) as mock_validate:
-            self.source.validate_credentials(_config(), team_id=7, schema_name=schema_name)
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            is_valid, error = self.source.validate_credentials(_config(), team_id=7, schema_name=schema_name)
 
-        assert mock_validate.call_args.kwargs["allow_missing_scope"] is expected_allow_missing_scope
+        assert is_valid is expected_allow_missing_scope
+        assert (error is None) is expected_allow_missing_scope
+        assert [request.path for request in network.requests_log] == ["/v2/publications/pub_123"]
 
     def test_publication_id_is_trimmed_before_use(self) -> None:
-        with patch(VALIDATE_PATCH, return_value=(True, None)) as mock_validate:
-            self.source.validate_credentials(_config("  pub_123  "), team_id=7)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            is_valid, error = self.source.validate_credentials(_config("  pub_123  "), team_id=7)
 
-        assert mock_validate.call_args.kwargs["publication_id"] == "pub_123"
+        assert (is_valid, error) == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v2/publications/pub_123"]
 
     def test_falls_back_to_the_default_api_version(self) -> None:
-        with patch(VALIDATE_PATCH, return_value=(True, None)) as mock_validate:
-            self.source.validate_credentials(_config(), team_id=7, api_version=None)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            is_valid, error = self.source.validate_credentials(_config(), team_id=7, api_version=None)
 
-        assert mock_validate.call_args.kwargs["api_version"] == "v2"
+        assert (is_valid, error) == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v2/publications/pub_123"]
 
 
 class TestBeehiivPipelineDispatch:
@@ -127,11 +132,14 @@ class TestBeehiivPipelineDispatch:
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_source_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
         endpoint_config = ENDPOINTS[endpoint]
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+        result = SourceDriver(self.source, _config()).run(
+            endpoint,
+            [ScriptedResponse(json={"data": [], "total_pages": 1, "has_more": False, "next_cursor": None})],
+        )
 
-        response = self.source.source_for_pipeline(_config(), manager, _source_inputs(endpoint))
-
+        assert result.raised is None
+        assert result.response is not None
+        response = result.response
         assert response.name == endpoint
         assert response.primary_keys == [endpoint_config.primary_key]
         assert response.sort_mode == endpoint_config.sort_mode

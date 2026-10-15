@@ -3,9 +3,12 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Person
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.util import get_person_by_distinct_id, get_person_by_id
+from posthog.models.utils import UUIDT
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person
 
@@ -230,6 +233,31 @@ class TestSplitPerson(BaseTest):
             with self.assertRaises(KeyError):
                 person.split_person(main_distinct_id=None, distinct_ids_to_split=["id1", "not_on_this_person"])
 
+        mock_create_pdi.assert_not_called()
+        mock_create_person.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("every_id", {"main_distinct_id": None, "distinct_ids_to_split": ["id2", "id1", "id1"]}),
+            ("unknown_main_id", {"main_distinct_id": "not_on_this_person"}),
+            ("main_id_of_another_person", {"main_distinct_id": "other_persons_id"}),
+        ]
+    )
+    def test_split_rejects_leaving_the_person_with_no_distinct_id(
+        self, mock_create_pdi, mock_create_person, _name: str, split_kwargs: dict
+    ):
+        with fake_personhog_client() as fake:
+            person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person)
+            fake.add_person(
+                team_id=self.team.id, person_id=person.id + 1, uuid=str(UUIDT()), distinct_ids=["other_persons_id"]
+            )
+
+            with self.assertRaises(ValueError):
+                person.split_person(**split_kwargs)
+
+            fake.assert_not_called("split_person")
+            assert fake._persons_by_distinct_id[(self.team.id, "id1")].id == person.id
+            assert fake._persons_by_distinct_id[(self.team.id, "id2")].id == person.id
         mock_create_pdi.assert_not_called()
         mock_create_person.assert_not_called()
 

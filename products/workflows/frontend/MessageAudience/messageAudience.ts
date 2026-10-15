@@ -4,6 +4,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
+import { MessageDraft } from './messageDrafts'
 
 export type MessageAudienceDestination = 'broadcast' | 'workflow'
 
@@ -13,6 +14,8 @@ export interface MessageAudience {
     broadcastName?: string
     /** The workflow to start. Without one, the workflow sends to the same people with a batch trigger. */
     workflowTrigger?: WorkflowTriggerConfig
+    broadcastEmail?: MessageDraft
+    workflowEmail?: MessageDraft
 }
 
 export function cohortAudienceProperties(cohort: { id: number; name?: string | null }): AnyPropertyFilter[] {
@@ -33,11 +36,13 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             properties: audience.properties,
             name: audience.broadcastName,
             source: audience.source,
+            email: audience.broadcastEmail,
         })
     }
     return urlForNewWorkflowWithTrigger(
         audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } },
-        audience.source
+        audience.source,
+        audience.workflowEmail
     )
 }
 

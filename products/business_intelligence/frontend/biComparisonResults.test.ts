@@ -4,7 +4,33 @@ import { ChartDisplayType } from '~/types'
 
 import { buildBIComparisonRows, getBIComparisonValues } from './biComparisonResults'
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
-import { getBIVisualizationResponse } from './biQueryResults'
+import { getBIResultSummary, getBIVisualizationResponse } from './biQueryResults'
+
+it('counts groups and nonempty marks separately from source rows, excluding totals and the probe', () => {
+    const config = {
+        ...DEFAULT_BI_CONFIG,
+        source: { table: 'events' },
+        limit: 100 as const,
+        rows: [
+            { id: 'event', name: 'event', expression: 'event', type: 'string' as const, source: { table: 'events' } },
+        ],
+    }
+    const query: BIVisualizationNode = {
+        kind: NodeKind.BIVisualizationNode,
+        config,
+        source: buildBIQuery(config)!.node.source,
+    }
+    const response: HogQLQueryResponse = {
+        columns: ['event', 'count', 'bi_grouping'],
+        types: [],
+        results: [
+            ...Array.from({ length: 99 }, (_, i) => [`group-${i}`, i === 0 ? null : 1000, 0]),
+            [null, 99000, 1],
+            ['probe', 3, 0],
+        ],
+    }
+    expect(getBIResultSummary(query, response)).toEqual({ groups: 99, marks: 98, limited: true })
+})
 
 it.each([
     ['positive', 150, 100, 50, 0.5],

@@ -1,26 +1,47 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.gnews import gnews
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gnews import GNewsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnews import (
     GNewsResumeConfig,
     _build_params,
     _flatten_article,
     _format_from_value,
-    get_rows,
-    gnews_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.settings import GNEWS_ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.gnews.source import GNewsSource
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gnews.gnews"
+
+def _driver() -> SourceDriver:
+    return SourceDriver(GNewsSource(), GNewsSourceConfig(api_key="some-key", query="posthog", category="general"))
+
+
+def _page(num_articles: int, start: int = 0) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "totalArticles": 9999,
+            "articles": [
+                {
+                    "title": f"a{start + i}",
+                    "url": f"https://example.com/{start + i}",
+                    "publishedAt": "2026-01-01T00:00:00Z",
+                }
+                for i in range(num_articles)
+            ],
+        }
+    )
 
 
 class TestFormatFromValue:
@@ -81,20 +102,18 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, body: dict, expected_valid: bool) -> None:
-        response = MagicMock(status_code=status)
-        response.json.return_value = body
-        session = MagicMock()
-        session.get.return_value = response
-        with patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
             valid, message = validate_credentials("some-key")
+
         assert valid is expected_valid
         if not expected_valid:
             assert message
+        assert network.requests_log[0].path == "/api/v4/top-headlines"
+        assert network.requests_log[0].param("max") == "1"
+        assert network.requests_log[0].headers["x-api-key"] == "some-key"
 
     def test_request_exception_returns_error(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.exceptions.ConnectionError("boom")
-        with patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionResetError("boom"))):
             valid, message = validate_credentials("some-key")
         assert valid is False
         assert "boom" in (message or "")
@@ -103,136 +122,72 @@ class TestValidateCredentials:
 class TestCredentialHardening:
     # The API key rides in a custom X-Api-Key header, so both call sites must redact it from
     # captured samples/logs and refuse redirects (else a 30x replays the key to another host).
-    # These have no observable effect at runtime, so guard the session construction directly.
+    # Guard the session options recorded by the real request stack.
     def test_validate_credentials_session_is_hardened(self) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=200)
-        with patch(f"{_MODULE}.make_tracked_session", return_value=session) as factory:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("some-key")
-        factory.assert_called_once_with(redact_values=("some-key",), allow_redirects=False)
+        assert network.session_options == [{"redact_values": ("some-key",), "allow_redirects": False}]
 
     def test_get_rows_session_is_hardened(self) -> None:
-        with patch(f"{_MODULE}.make_tracked_session", return_value=MagicMock()) as factory:
-            with patch(f"{_MODULE}._fetch_page", return_value=_page(1)):
-                _collect(get_rows("some-key", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
-        factory.assert_called_once_with(redact_values=("some-key",), allow_redirects=False)
-
-
-def _resume_manager(state: GNewsResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = state is not None
-    manager.load_state.return_value = state
-    return manager
-
-
-def _page(num_articles: int, start: int = 0) -> dict:
-    return {
-        "totalArticles": 9999,
-        "articles": [
-            {"title": f"a{start + i}", "url": f"https://example.com/{start + i}", "publishedAt": "2026-01-01T00:00:00Z"}
-            for i in range(num_articles)
-        ],
-    }
-
-
-def _collect(rows_iter) -> list[dict]:
-    out: list[dict] = []
-    for table in rows_iter:
-        out.extend(table.to_pylist() if hasattr(table, "to_pylist") else table)
-    return out
+        result = _driver().run("articles", [_page(1)])
+        assert result.raised is None
+        assert result.session_options == [{"redact_values": ("some-key",), "allow_redirects": False}]
 
 
 class TestGetRows:
     def test_resumes_from_saved_page(self) -> None:
-        with patch(f"{_MODULE}._fetch_page", return_value=_page(2)):
-            with patch(f"{_MODULE}._build_params", wraps=gnews._build_params) as build:
-                _collect(
-                    get_rows(
-                        "k",
-                        "articles",
-                        "posthog",
-                        None,
-                        None,
-                        None,
-                        MagicMock(),
-                        _resume_manager(GNewsResumeConfig(page_to_refetch=5)),
-                    )
-                )
-        # First (and only, since page 2 rows < PAGE_SIZE) request starts at the saved page.
-        assert build.call_args_list[0].args[-1] == 5
+        result = _driver().run("articles", [_page(2)], resume_state=GNewsResumeConfig(page_to_refetch=5))
+        # The short page makes the request at the saved page the only request.
+        assert result.params("page") == ["5"]
+        assert result.raised is None
 
     def test_incremental_passes_from_filter(self) -> None:
-        with patch(f"{_MODULE}._fetch_page", return_value=_page(1)):
-            with patch(f"{_MODULE}._build_params", wraps=gnews._build_params) as build:
-                _collect(
-                    get_rows(
-                        "k",
-                        "articles",
-                        "posthog",
-                        None,
-                        None,
-                        None,
-                        MagicMock(),
-                        _resume_manager(),
-                        should_use_incremental_field=True,
-                        db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                        incremental_field="publishedAt",
-                    )
-                )
+        result = _driver().run(
+            "articles",
+            [_page(1)],
+            incremental_field="publishedAt",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
         # from_value threaded into the params.
-        assert build.call_args_list[0].args[5] == "2026-01-01T00:00:00Z"
+        assert result.params("from") == ["2026-01-01T00:00:00Z"]
+        assert result.raised is None
 
     def test_pagination_403_beyond_first_page_stops_gracefully(self) -> None:
-        forbidden = requests.HTTPError(response=MagicMock(status_code=403))
         # Page 1 is full (forces a page 2 request); page 2 is a plan-restricted 403.
-        with patch(f"{_MODULE}._fetch_page", side_effect=[_page(PAGE_SIZE), forbidden]):
-            rows = _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
+        result = _driver().run("articles", [_page(PAGE_SIZE), ScriptedResponse(status=403)])
         # We keep page 1's rows rather than failing the whole sync.
-        assert len(rows) == PAGE_SIZE
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert sum(table.num_rows for table in result.rows) == PAGE_SIZE
 
     def test_403_on_first_page_raises(self) -> None:
-        forbidden = requests.HTTPError(response=MagicMock(status_code=403))
-        with patch(f"{_MODULE}._fetch_page", side_effect=forbidden):
-            with pytest.raises(requests.HTTPError):
-                _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
-
-
-class _FakeBatcher:
-    """Yields after every batched row so the save-state-after-yield contract is observable."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self._pending: list[dict] = []
-
-    def batch(self, row: dict) -> None:
-        self._pending.append(row)
-
-    def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return bool(self._pending)
-
-    def get_table(self) -> list[dict]:
-        out, self._pending = self._pending, []
-        return out
+        result = _driver().run("articles", [ScriptedResponse(status=403)])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.params("page") == ["1"]
 
 
 class TestResumableStateSaving:
     def test_state_saved_with_current_page_after_yield(self) -> None:
-        manager = _resume_manager()
-        # Two full pages then a short page, so page 1 and 2 each checkpoint before advancing.
-        pages = [_page(PAGE_SIZE, 0), _page(PAGE_SIZE, PAGE_SIZE), _page(1, 2 * PAGE_SIZE)]
-        with patch(f"{_MODULE}.Batcher", _FakeBatcher):
-            with patch(f"{_MODULE}._fetch_page", side_effect=pages):
-                _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), manager))
-        saved_pages = [call.args[0].page_to_refetch for call in manager.save_state.call_args_list]
+        # These full pages reach the batcher's yield threshold before a short final page.
+        pages = [_page(2000, 0), _page(2000, 2000), _page(1, 4000)]
+        result = _driver().run("articles", pages)
+        saved_pages = [state.page_to_refetch for state in result.saved_states]
         # Checkpoints record the page that produced the batch (current page), never a page ahead.
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
         assert 1 in saved_pages
         assert 2 in saved_pages
         assert max(saved_pages) <= 2
+        assert result.committed_states == [GNewsResumeConfig(page_to_refetch=1), GNewsResumeConfig(page_to_refetch=2)]
 
 
 class TestGnewsSource:
     @parameterized.expand([("articles",), ("top_headlines",)])
     def test_source_response_contract(self, endpoint: str) -> None:
-        response = gnews_source("k", endpoint, "posthog", "general", None, None, MagicMock(), _resume_manager())
+        result = _driver().run(endpoint, [_page(0)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["url"]
         # GNews only offers newest-first ordering; asc would corrupt the incremental watermark.
