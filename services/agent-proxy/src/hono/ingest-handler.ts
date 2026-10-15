@@ -108,7 +108,7 @@ export async function handleIngest(
         return c.json({ error: 'Token does not match run' }, 403)
     }
 
-    const agentSendsCallbacks = c.req.header(AGENT_CALLBACKS_HEADER) === '1'
+    const agentSendsCallbacks = claims.agentSendsCallbacks && c.req.header(AGENT_CALLBACKS_HEADER) === '1'
     observeIngestRequest(agentSendsCallbacks ? 'agent' : 'ingest', claims.originProduct)
 
     // No run-existence check. The run-scoped sandbox_event_ingest JWT is the

@@ -1170,11 +1170,19 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["error"], "Too many events in request")
         self.assertEqual(body["last_accepted_seq"], MAX_EVENTS_PER_REQUEST)
 
-    @parameterized.expand([("agent_sends_callbacks", True), ("ingest_sends_callbacks", False)])
+    @parameterized.expand(
+        [
+            ("agent_sends_callbacks", True, True, True),
+            ("old_agent_on_opted_in_run", True, False, False),
+            ("header_without_signed_claim", False, True, False),
+            ("ingest_sends_callbacks", False, False, False),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_ingest_reports_turn_lifecycle_only_for_agents_that_do_not(
-        self, _case_name: str, agent_sends_callbacks: bool
+        self, _case_name: str, claim: bool, header: bool, agent_sends_callbacks: bool
     ) -> None:
+        self.task_run.state = {**(self.task_run.state or {}), "agent_sends_callbacks": claim}
         token = self._create_token()
         lines = [
             {
@@ -1203,7 +1211,7 @@ class TestTaskRunEventIngest(TestCase):
             status, body = self._call_ingest(
                 token,
                 lines,
-                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_sends_callbacks else [],
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if header else [],
             )
 
         self.assertEqual(status, 200)

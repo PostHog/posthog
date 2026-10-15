@@ -121,6 +121,7 @@ export interface SandboxEventIngestTokenPayload {
     presenceGated: boolean
     thinTail: boolean
     originProduct: string
+    agentSendsCallbacks: boolean
 }
 
 // ---------------------------------------------------------------------------

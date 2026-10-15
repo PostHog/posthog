@@ -308,6 +308,7 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         presenceGated: false,
         thinTail: false,
         originProduct: 'unknown',
+        agentSendsCallbacks: false,
         ...overrides,
     }
 }
@@ -653,50 +654,61 @@ describe('ingest-handler', () => {
         }
     })
 
-    it('sends no callbacks for an agent that sends its own and still tracks its activity', async () => {
-        const callback = vi
-            .spyOn(globalThis, 'fetch')
-            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
-        try {
-            const events = [
-                {
-                    type: 'notification',
-                    notification: {
-                        method: 'session/update',
-                        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+    it.each([
+        { name: 'with the signed claim sends no callbacks', claim: true, expectCallbacks: false },
+        { name: 'without the signed claim still gets callbacks', claim: false, expectCallbacks: true },
+    ])(
+        'an agent sending the callbacks header $name and still tracks its activity',
+        async ({ claim, expectCallbacks }) => {
+            mockValidate.mockResolvedValue(makeClaims({ agentSendsCallbacks: claim }))
+            const callback = vi
+                .spyOn(globalThis, 'fetch')
+                .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+            try {
+                const events = [
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: 'session/update',
+                            params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                        },
                     },
-                },
-                {
-                    type: 'notification',
-                    notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
-                },
-                { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
-                {
-                    type: 'notification',
-                    notification: {
-                        method: 'session/update',
-                        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                    {
+                        type: 'notification',
+                        notification: { method: '_posthog/turn_complete', params: { stopReason: 'end_turn' } },
                     },
-                },
-            ]
-            const body = makeStringBody(
-                events.map((event, index) => JSON.stringify({ seq: index + 1, event }) + '\n').join('')
-            )
+                    { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } },
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: 'session/update',
+                            params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                        },
+                    },
+                ]
+                const body = makeStringBody(
+                    events.map((event, index) => JSON.stringify({ seq: index + 1, event }) + '\n').join('')
+                )
 
-            const response = await handleIngest(
-                makeContext({ body, headers: { 'x-posthog-agent-callbacks': '1' } }),
-                fakeRedis as unknown as Redis,
-                makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' }),
-                [] as CryptoKey[]
-            )
+                const response = await handleIngest(
+                    makeContext({ body, headers: { 'x-posthog-agent-callbacks': '1' } }),
+                    fakeRedis as unknown as Redis,
+                    makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' }),
+                    [] as CryptoKey[]
+                )
 
-            expect(await decodeJson(response)).toMatchObject({ accepted: 4 })
-            expect(callback).not.toHaveBeenCalled()
-            expect(await redisStream.getAgentActive()).toBe(true)
-        } finally {
-            callback.mockRestore()
+                expect(await decodeJson(response)).toMatchObject({ accepted: 4 })
+                if (expectCallbacks) {
+                    await vi.waitFor(() => expect(callback).toHaveBeenCalled())
+                } else {
+                    expect(callback).not.toHaveBeenCalled()
+                }
+                expect(await redisStream.getAgentActive()).toBe(true)
+            } finally {
+                callback.mockRestore()
+            }
         }
-    })
+    )
 
     it('forwards a process kill once, without the command line', async () => {
         const callback = vi

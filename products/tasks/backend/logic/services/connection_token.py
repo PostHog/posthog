@@ -50,6 +50,7 @@ class SandboxEventIngestTokenPayload:
     presence_gated: bool = False
     thin_tail: bool = False
     origin_product: str | None = None
+    agent_sends_callbacks: bool = False
 
 
 @dataclass(frozen=True)
@@ -307,6 +308,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     presence_gated = payload.get("presence_gated", False)
     thin_tail = payload.get("thin_tail", False)
     origin_product = payload.get("origin_product")
+    agent_sends_callbacks = payload.get(AGENT_SENDS_CALLBACKS_STATE_KEY, False)
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
@@ -318,6 +320,8 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
     if origin_product is not None and not isinstance(origin_product, str):
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if not isinstance(agent_sends_callbacks, bool):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(
         run_id=run_id,
@@ -327,6 +331,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         presence_gated=presence_gated,
         thin_tail=thin_tail,
         origin_product=origin_product,
+        agent_sends_callbacks=agent_sends_callbacks,
     )
 
 

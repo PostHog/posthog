@@ -162,7 +162,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         thin_tail=claims.thin_tail,
         origin_product=claims.origin_product,
     )
-    agent_sends_callbacks = _get_header(scope, AGENT_CALLBACKS_HEADER) == "1"
+    agent_sends_callbacks = claims.agent_sends_callbacks and _get_header(scope, AGENT_CALLBACKS_HEADER) == "1"
     observe_ingest_request("agent" if agent_sends_callbacks else "ingest", claims.origin_product)
 
     try:
