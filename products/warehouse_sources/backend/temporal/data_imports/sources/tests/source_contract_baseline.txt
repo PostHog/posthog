@@ -56,6 +56,7 @@ Avalara fail:stall-budget
 Aviationstack fail:stall-budget
 Aviator fail:rate-limit-budget,stall-budget
 Awin fail:rate-limit-budget,stall-budget
+AwsAthena not-checkable:schemas
 AwsBatch fail:rate-limit-budget
 AwsBudgets fail:rate-limit-budget
 AwsCloudTrail fail:rate-limit-budget
