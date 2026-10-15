@@ -67,8 +67,8 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # Create-time region selector. The template defines `workspace_region` with a
 # us-east-1 default; eu-central-1 became a valid option when the EU
 # infrastructure went live. The value is immutable after creation, so it is
-# forwarded on `coder create` only -- never on `coder update` or the pre-start
-# parameter sync. Coder carries an immutable parameter's value forward on its
+# forwarded on `coder create` only, never on `coder update`. Coder carries an
+# immutable parameter's value forward on its
 # own during an update and *rejects* any explicit `--parameter
 # workspace_region=` with "parameter is immutable and cannot be updated". The
 # option-change re-prompt that no flag can bypass only applies to *mutable*
@@ -311,8 +311,7 @@ def _run_with_param_retry(
     Coder validates ``--parameter`` keys client-side before any provisioning
     starts, so retrying after a `parameter "X" is not present in the
     template` error is cheap and safe. All other failures bubble up
-    unchanged. Used by every write path that forwards parameters (`coder
-    create`, `coder update`) so callers never have to know which keys the
+    unchanged, so `coder create` callers never have to know which keys the
     chosen template happens to accept.
     """
     remaining = dict(parameters)
@@ -1287,10 +1286,9 @@ def resolve_template_preset(template: str, requested: str) -> str:
 
 
 def _start_app_param(start_app: bool | None) -> dict[str, str]:
-    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is).
+    """Map the tri-state --start-app flag to a creation parameter dict.
 
-    ``None`` (flag omitted) returns ``{}`` so the value stays sticky on an
-    existing workspace and falls back to the template default on creation.
+    ``None`` (flag omitted) returns ``{}`` so creation uses the template default.
     ``True``/``False`` are written explicitly so the choice survives even if the
     template default changes.
     """
@@ -1495,43 +1493,27 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
         raise SystemExit(result.returncode)
 
 
-def update_workspace(
-    name: str,
-    parameters: dict[str, str] | None = None,
-    *,
-    verbose: bool = False,
-) -> None:
-    """Update a workspace to the latest template version.
+def update_workspace(name: str, *, verbose: bool = False) -> None:
+    """Update a workspace to the latest template version and start it.
 
-    ``--use-parameter-defaults`` lets coder fall back to the template's own
-    defaults for any parameter not explicitly supplied here, so we never
-    need a hogli-side defaults dict. Parameters carried over from a
-    previous template (e.g. a saved ``dotfiles_uri`` that the new template
-    does not declare) are dropped by the retry shim instead of aborting
-    the update.
+    ``--use-parameter-defaults`` fills any parameter the new template version
+    adds with its default instead of prompting behind the spinner.
     """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters or {}, verbose=verbose)
+    result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+    # `coder update` only streams the build logs, so it exits 0 when the build fails.
+    workspace = get_workspace(name)
+    if workspace is not None and get_workspace_status(workspace) == "failed":
+        if not verbose:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(result.stdout, nl=False)
+        raise SystemExit(1)
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
     """Delete a workspace."""
     result = _run_build(["coder", "delete", name, "--yes"], verbose=verbose)
-    if result.returncode != 0:
-        raise SystemExit(result.returncode)
-
-
-def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
-    """Update mutable workspace parameters.
-
-    Goes through the same retry shim as ``create_workspace`` so a stale
-    local config key (for example, a saved ``dotfiles_uri`` after the user
-    switches templates) does not abort the pre-start sync.
-    """
-    base_args = ["coder", "update", name, "--use-parameter-defaults"]
-    result = _run_with_param_retry(base_args, parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

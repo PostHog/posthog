@@ -94,7 +94,7 @@ Use this section only when the user wants the app, for example to QA a change or
 
 ### Start the stack
 
-- **New or stopped box:** `hogli devbox:start --start-app`. The flag stays set on the workspace, so every later start brings the stack up in the background until `hogli devbox:start --no-start-app` turns it off. Either flag takes effect only when the box is created or starts from stopped; on a running box hogli skips it and prints a note.
+- **New box:** `hogli devbox:start --start-app`. The setting stays on the workspace, so every later start brings the stack up in the background. The flag applies only when hogli creates the box; on an existing box hogli refuses it, because the Coder CLI keeps a parameter's last-build value. Change it on an existing box in the Coder dashboard under the workspace's parameters.
 - **Running box:** `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'`.
 
 ### Wait for it
@@ -152,7 +152,7 @@ Pass `--port 8011` when a local stack already uses 8010.
 - **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
 - **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
 - **Build and agent logs:** `hogli devbox:logs -f`.
-- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A new repo URL reaches a box when it next starts from stopped or runs `devbox:update`, not on `devbox:restart`. Neither is required, so don't push one over the other.
+- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A saved repo URL applies to boxes hogli creates. To change it on an existing box, edit the workspace's parameters in the Coder dashboard.
 
 ## Gotchas
 
