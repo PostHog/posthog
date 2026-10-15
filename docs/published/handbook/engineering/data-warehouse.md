@@ -334,3 +334,11 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
+
+## SQL big number formatting
+
+SQL big number tiles use the first result cell and its column formatting from `tableSettings.columns`.
+When that column has no table settings, the tile uses `chartSettings.yAxis` formatting for the same column name.
+An existing table column entry takes priority, including an explicit choice of no formatting.
+The Series panel shows the effective formatting, and saving a column edit stores it in table settings.
+Other SQL tables keep their own column formatting.

@@ -964,6 +964,114 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    test.each([
+        {
+            name: 'uses chart separators and affixes',
+            display: ChartDisplayType.BoldNumber,
+            value: 12345.5,
+            formatting: { style: 'number' as const, prefix: '$', suffix: ' total', decimalPlaces: 1 },
+            expected: '$12,345.5 total',
+        },
+        {
+            name: 'scales chart percentages once',
+            display: ChartDisplayType.BoldNumber,
+            value: 0.375,
+            formatting: { style: 'percent' as const, decimalPlaces: 1 },
+            expected: '37.5%',
+        },
+        {
+            name: 'supports automatic big numbers',
+            display: ChartDisplayType.Auto,
+            value: 12345.5,
+            formatting: { prefix: '$' },
+            expected: '$12345.5',
+        },
+        {
+            name: 'preserves explicit table formatting',
+            display: ChartDisplayType.BoldNumber,
+            value: 12345.5,
+            formatting: { prefix: '$' },
+            tableSettings: { columns: [{ column: 'value', settings: { formatting: { suffix: ' units' } } }] },
+            expected: '12345.5 units',
+        },
+        {
+            name: 'preserves an explicit unformatted table column',
+            display: ChartDisplayType.BoldNumber,
+            value: 12345.5,
+            formatting: { prefix: '$' },
+            tableSettings: { columns: [{ column: 'value', settings: { formatting: { style: 'none' as const } } }] },
+            expected: '12345.5',
+        },
+        {
+            name: 'keeps ordinary tables independent',
+            display: ChartDisplayType.ActionsTable,
+            value: 12345.5,
+            formatting: { prefix: '$' },
+            expected: '12345.5',
+        },
+    ])('$name', async ({ display, value, formatting, tableSettings, expected }) => {
+        logic.unmount()
+        const query: VisualizationNode = {
+            ...defaultQuery,
+            display,
+            chartSettings: {
+                yAxis: [
+                    ...(display === ChartDisplayType.Auto
+                        ? []
+                        : [{ column: 'other', settings: { formatting: { prefix: 'wrong' } } }]),
+                    { column: 'value', settings: { formatting } },
+                ],
+            },
+            tableSettings,
+        }
+        logic = dataVisualizationLogic({ key: testKey, query, dataNodeCollectionId })
+        logic.mount()
+        dataNodeLogic({ key: testKey, query: query.source, dataNodeCollectionId }).actions.setResponse({
+            columns: display === ChartDisplayType.Auto ? ['value'] : ['value', 'other'],
+            types:
+                display === ChartDisplayType.Auto
+                    ? [['value', 'Float64']]
+                    : [
+                          ['value', 'Float64'],
+                          ['other', 'Float64'],
+                      ],
+            results: [display === ChartDisplayType.Auto ? [value] : [value, 1]],
+        })
+        await expectLogic(logic).toMatchValues({
+            tabularData: [expect.arrayContaining([expect.objectContaining({ value, formattedValue: expected })])],
+        })
+    })
+
+    it('keeps inherited formatting after editing and reloading a big number', async () => {
+        logic.unmount()
+        const query: VisualizationNode = {
+            ...defaultQuery,
+            display: ChartDisplayType.BoldNumber,
+            chartSettings: { yAxis: [{ column: 'value', settings: { formatting: { prefix: '$' } } }] },
+        }
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query,
+            dataNodeCollectionId,
+            setQuery: (setter) => logic.actions._setQuery(setter(logic.values.query)),
+        })
+        logic.mount()
+        const response = { columns: ['value'], types: [['value', 'Float64']], results: [[12.5]] }
+        dataNodeLogic({ key: testKey, query: query.source, dataNodeCollectionId }).actions.setResponse(response)
+        await expectLogic(logic).toMatchValues({
+            tabularData: [[expect.objectContaining({ formattedValue: '$12.5' })]],
+        })
+        logic.actions.updateSeries('value', { formatting: { prefix: '', suffix: ' units' } })
+        const savedQuery = logic.values.query
+        logic.unmount()
+        logic = dataVisualizationLogic({ key: testKey, query: savedQuery, dataNodeCollectionId })
+        logic.mount()
+        dataNodeLogic({ key: testKey, query: query.source, dataNodeCollectionId }).actions.setResponse(response)
+        await expectLogic(logic).toMatchValues({
+            tabularData: [[expect.objectContaining({ formattedValue: '12.5 units' })]],
+        })
+    })
+
     it('ignores retained decimal places under the short style for table values', async () => {
         const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
         logic.unmount()
