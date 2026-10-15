@@ -2,6 +2,7 @@ import time
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,8 @@ from posthog.temporal.ai_observability.team_capture import (
     raise_emit_failure,
 )
 from posthog.temporal.common.errors import NonReportableApplicationError
+
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _emit(team_id: int) -> None:
@@ -128,8 +131,8 @@ class TestRaiseEmitFailure(SimpleTestCase):
             attempt=attempt,
             retry_policy=EMIT_EVENT_RETRY_POLICY,
             schedule_to_close_timeout=schedule_to_close,
-            scheduled_time=datetime.now(UTC) - schedule_to_close + timedelta(seconds=seconds_to_deadline),
+            scheduled_time=NOW - schedule_to_close + timedelta(seconds=seconds_to_deadline),
         )
-        with self.assertRaises(Exception) as ctx:
+        with time_machine.travel(NOW, tick=False), self.assertRaises(Exception) as ctx:
             env.run(raise_emit_failure, CaptureInternalError("blip"))
         assert type(ctx.exception) is expected_error

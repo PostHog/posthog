@@ -2,12 +2,14 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 
 from temporalio.common import RetryPolicy
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.ai_observability.retries import is_last_attempt
 
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 SCHEDULE_TO_CLOSE = timedelta(seconds=600)
 POLICY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=10), backoff_coefficient=2.0)
 UNLIMITED_POLICY = RetryPolicy(maximum_attempts=0, initial_interval=timedelta(seconds=10))
@@ -37,7 +39,8 @@ def test_is_last_attempt(
         attempt=attempt,
         retry_policy=policy,
         schedule_to_close_timeout=SCHEDULE_TO_CLOSE,
-        scheduled_time=datetime.now(UTC) - SCHEDULE_TO_CLOSE + timedelta(seconds=seconds_to_deadline),
+        scheduled_time=NOW - SCHEDULE_TO_CLOSE + timedelta(seconds=seconds_to_deadline),
     )
 
-    assert env.run(is_last_attempt, next_retry_delay) is expected
+    with time_machine.travel(NOW, tick=False):
+        assert env.run(is_last_attempt, next_retry_delay) is expected
