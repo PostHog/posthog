@@ -9267,6 +9267,9 @@ export namespace Schemas {
                          * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
                          */
                         prompt: string;
+                        judge_method?:
+                            | (("llm" | "decision") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -19182,7 +19185,10 @@ export namespace Schemas {
         status_reason_detail: string | null;
         evaluation_type: EvaluationTypeEnum;
         evaluation_config:
-            | { prompt: string }
+            | {
+                  prompt: string;
+                  judge_method?: (("llm" | "decision") | null) | undefined;
+              }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
