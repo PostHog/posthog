@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 TIMESTAMP_CITATION_RE = re.compile(r"\s*\(\s*t\s*(\d+(?:\s*,\s*t?\s*\d+)*)\s*\)")
 
 
+def citation_seconds(match: re.Match[str]) -> list[int]:
+    """The seconds one `TIMESTAMP_CITATION_RE` match cites, several for a comma-joined marker."""
+    return [int(raw) for raw in re.findall(r"\d+", match.group(1))]
+
+
 def strip_citation_markers(value: str) -> str:
     """Remove leaked `(t …)` markers, and the double spaces they leave, from a field meant to carry none."""
     return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
@@ -161,6 +166,7 @@ class MissionStep:
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
     `plan_instruction`, when set, runs a lookup round with that instruction before the step answers.
     `prepare`, when set, builds the instruction from the earlier steps' outputs, and returning None skips the step.
+    `merge`, when set, folds the step's validated output into the earlier outputs instead of keying it by name.
     """
 
     name: str
@@ -170,6 +176,7 @@ class MissionStep:
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
     plan_instruction: str | None = None
     prepare: Callable[[dict[str, BaseModel]], Awaitable[str | None]] | None = None
+    merge: Callable[[dict[str, BaseModel], BaseModel], Awaitable[dict[str, BaseModel]]] | None = None
 
 
 _CONFIDENCE_DESCRIPTION = (

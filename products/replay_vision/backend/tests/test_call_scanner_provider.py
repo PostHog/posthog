@@ -448,7 +448,7 @@ async def test_contradicted_citations_get_one_more_turn_to_be_placed(
         patch(f"{module}.GoogleGenAIClient"),
         patch(f"{module}.build_events_index", return_value=EventsIndex(offsets=[], events=[])),
         patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
-        patch("products.replay_vision.backend.temporal.citation_review.decision_api", decision_api),
+        patch("products.replay_vision.backend.temporal.jev.decision_api", decision_api),
     ):
         outcome = await _run_mission(
             scanner=scanner,

@@ -85,6 +85,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
     TextSegment,
+    citation_seconds,
     render_signals_instruction,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
@@ -382,8 +383,7 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
         if chunk:
             segments.append(TextSegment(value=chunk))
         # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
-        for raw_seconds in re.findall(r"\d+", match.group(1)):
-            video_s = float(raw_seconds)
+        for video_s in citation_seconds(match):
             # Drop citations past the video's end (a time the model invented) before converting, because the
             # clock clamps past its last span and would turn any such value into the recording endpoint. No
             # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
@@ -650,17 +650,18 @@ async def _run_mission(
                 validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
             )
         steps.append(step)
-    review = CitationReview(
-        citation_fields=scanner.citation_fields,
-        navigation=navigation,
-        events_index=events_index,
-        last_video_second=_last_video_second(signal_duration_s),
-        team_id=team_id,
-        scanner_type=scanner_type,
-        model=snapshot.model,
-        trace_id=trace_id,
+    steps.append(
+        CitationReview(
+            citation_fields=scanner.citation_fields,
+            navigation=navigation,
+            events_index=events_index,
+            last_video_second=_last_video_second(signal_duration_s),
+            team_id=team_id,
+            scanner_type=scanner_type,
+            model=snapshot.model,
+            trace_id=trace_id,
+        ).step()
     )
-    steps.append(review.step())
 
     run = functools.partial(
         _run_steps,
@@ -680,7 +681,6 @@ async def _run_mission(
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
-    step_outputs = await review.apply(step_outputs)
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(
         finalized=finalized,
@@ -814,7 +814,10 @@ async def _run_steps(
             if step.required:
                 raise _exhausted_step_error(step, result)
             continue
-        step_outputs[step.name] = result.output
+        if step.merge is not None:
+            step_outputs = await step.merge(step_outputs, result.output)
+        else:
+            step_outputs[step.name] = result.output
     return step_outputs
 
 

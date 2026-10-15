@@ -33,7 +33,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         if last_change and last_change.window_number == change.window_number and last_change.url == change.url:
             continue
         last_change = change
-        url = change.url if len(change.url) <= _MAX_NAVIGATION_URL_LEN else change.url[:_MAX_NAVIGATION_URL_LEN] + "…"
+        url = clip_url(change.url)
         new_window = bool(seen_tabs) and change.window_number not in seen_tabs
         seen_tabs.add(change.window_number)
         entries.append(
@@ -48,6 +48,10 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         kept.append(entry)
         url_chars += len(entry.url)
     return kept, len(entries) - len(kept)
+
+
+def clip_url(url: str) -> str:
+    return url if len(url) <= _MAX_NAVIGATION_URL_LEN else url[:_MAX_NAVIGATION_URL_LEN] + "…"
 
 
 def is_navigable_url(url: str) -> bool:

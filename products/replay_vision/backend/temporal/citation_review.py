@@ -8,10 +8,11 @@ A moved citation that Jev still flags is removed. Where Jev is unavailable, ever
 
 import re
 import json
+import heapq
 import bisect
 import asyncio
 from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -19,18 +20,16 @@ from pydantic import BaseModel, Field
 from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange
 
-from products.ml_inference.backend.facade import api as decision_api
-from products.ml_inference.backend.facade.contracts import DecisionQuestion, DecisionRequest
-from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.temporal.events_tool import EventsIndex, get_events_around
+from products.replay_vision.backend.temporal.jev import yes_probabilities
 from products.replay_vision.backend.temporal.metrics import record_citation_review
-from products.replay_vision.backend.temporal.navigation import is_navigable_url
-from products.replay_vision.backend.temporal.pii_check import JEV_MODEL
+from products.replay_vision.backend.temporal.navigation import clip_url, is_navigable_url
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CITATIONS,
     STEP_CORE,
     TIMESTAMP_CITATION_RE,
     MissionStep,
+    citation_seconds,
     strip_citation_markers,
 )
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
@@ -42,12 +41,11 @@ _ResponseT = TypeVar("_ResponseT", bound=BaseModel)
 # Jev takes at most 32 questions per request; an answer with more citations than this has its tail left as written.
 _MAX_CITATIONS = 24
 FLAG_PROBABILITY = 0.5
-_JEV_TIMEOUT_SECONDS = 10.0
 # Each question reads the whole state, and the model rejects a prompt past its context window (8k tokens for Jeeves,
 # 16k for JevK5), so the state stays well under the smaller one.
 _MAX_STATE_CHARS = 16_000
 _MAX_CLAIM_CHARS = 400
-_MAX_VALUE_CHARS = 150
+_MAX_EVENT_VALUE_CHARS = 150
 _EVENTS_WINDOW_S = 10
 _MAX_EVENTS_PER_CITATION = 4
 _EVENT_FIELDS = ("event", "$current_url", "$event_type", "$exception_types", "$exception_values")
@@ -83,7 +81,10 @@ class CitationPlacementResponse(BaseModel, frozen=True):
 
 
 class CitationReview:
-    """Checks the core answer's citations once per mission pass, and holds what it flagged until the answer is fixed."""
+    """The mission step that checks the core answer's citations and folds the model's re-placements back into it.
+
+    `_flagged` is set by each pass's `prepare`, so a re-run mission pass starts from its own core answer.
+    """
 
     def __init__(
         self,
@@ -99,7 +100,6 @@ class CitationReview:
     ) -> None:
         self._fields = tuple(citation_fields)
         self._navigation = sorted(navigation, key=lambda change: change.video_s)
-        self._navigation_starts = [change.video_s for change in self._navigation]
         self._events_index = events_index
         self._last_video_second = last_video_second
         self._team_id = team_id
@@ -116,6 +116,7 @@ class CitationReview:
             required=False,
             validate=self._validate,
             prepare=self._prepare,
+            merge=self._merge,
         )
 
     async def _prepare(self, step_outputs: dict[str, BaseModel]) -> str | None:
@@ -132,6 +133,8 @@ class CitationReview:
             return None
         flagged = [c for c in citations if probabilities.get(c.n, 0.0) >= FLAG_PROBABILITY]
         self._record("clean", len(citations) - len(flagged))
+        # Flagged citations the turn never answers (it failed) stay as written: flagged minus kept, moved and removed.
+        self._record("flagged", len(flagged))
         if not flagged:
             return None
         self._flagged = {c.n: c for c in flagged}
@@ -142,40 +145,29 @@ class CitationReview:
         )
         return render_prompt(
             "citations_step.jinja",
-            citations=[{"n": c.n, "claim": c.claim, "t": c.video_s, "page": self.page_at(c.video_s)} for c in flagged],
+            citations=[{"n": c.n, "claim": c.claim, "t": c.video_s, "page": self._page_at(c.video_s)} for c in flagged],
             last_video_second=self._last_video_second,
         )
 
     def _validate(self, parsed: BaseModel) -> str | None:
-        if not isinstance(parsed, CitationPlacementResponse):
-            return None
-        unknown = sorted({p.n for p in parsed.citations} - self._flagged.keys())
+        placements = cast(CitationPlacementResponse, parsed).citations
+        unknown = sorted({p.n for p in placements} - self._flagged.keys())
         if unknown:
             return f"Citations {unknown} are not in the list. Answer only for the numbered citations."
         last = self._last_video_second
-        if last is not None and any(p.t is not None and not 0 <= p.t <= last for p in parsed.citations):
+        if last is not None and any(p.t is not None and not 0 <= p.t <= last for p in placements):
             return f"Every second must be between 0 and {last}, the video's last second, or null."
         return None
 
-    async def apply(self, step_outputs: dict[str, BaseModel]) -> dict[str, BaseModel]:
-        """The step outputs with the core answer's flagged citations moved or removed as the review turn decided."""
-        if not self._flagged:
-            return step_outputs
-        placed = step_outputs.get(STEP_CITATIONS)
-        core = step_outputs.get(STEP_CORE)
-        if not isinstance(placed, CitationPlacementResponse) or core is None:
-            # The turn failed, so nobody looked again; the citations stay as written.
-            self._record("kept", len(self._flagged))
-            return step_outputs
-        answers = {p.n: p.t for p in placed.citations if p.n in self._flagged}
+    async def _merge(self, step_outputs: dict[str, BaseModel], placed: BaseModel) -> dict[str, BaseModel]:
+        """The outputs with the core answer's flagged citations moved or removed as the review turn decided."""
+        answers = {p.n: p.t for p in cast(CitationPlacementResponse, placed).citations}
         moves = {n: t for n, t in answers.items() if t is None or t != self._flagged[n].video_s}
-        self._record("kept", len(self._flagged) - len(moves))
+        self._record("kept", len(answers) - len(moves))
         moved = [Citation(n=n, claim=self._flagged[n].claim, video_s=t) for n, t in moves.items() if t is not None]
-        if moved:
-            recheck = await asyncio.to_thread(self._contradiction_probabilities, moved)
-            for citation in moved:
-                if recheck is not None and recheck.get(citation.n, 0.0) >= FLAG_PROBABILITY:
-                    moves[citation.n] = None
+        recheck = await asyncio.to_thread(self._contradiction_probabilities, moved) if moved else None
+        if recheck:
+            moves.update({n: None for n, p in recheck.items() if p >= FLAG_PROBABILITY})
         self._record("moved", sum(1 for t in moves.values() if t is not None))
         self._record("removed", sum(1 for t in moves.values() if t is None))
         logger.info(
@@ -184,73 +176,51 @@ class CitationReview:
         )
         if not moves:
             return step_outputs
-        return {**step_outputs, STEP_CORE: replace_citations(core, self._fields, moves)}
+        return {**step_outputs, STEP_CORE: replace_citations(step_outputs[STEP_CORE], self._fields, moves)}
 
-    def page_at(self, video_s: int) -> str | None:
+    def _page_at(self, video_s: int) -> str | None:
         """The URL on screen at `video_s`, when the rendered video recorded one fit for a prompt."""
-        index = bisect.bisect_right(self._navigation_starts, video_s) - 1
+        index = bisect.bisect_right(self._navigation, float(video_s), key=lambda change: change.video_s) - 1
         if index < 0:
             return None
         url = self._navigation[index].url
-        return _clip(url) if is_navigable_url(url) else None
+        return clip_url(url) if is_navigable_url(url) else None
 
     def _contradiction_probabilities(self, citations: Sequence[Citation]) -> dict[int, float] | None:
-        if not decision_api.decisions_available_here():
+        entries = self._state_entries(citations)
+        answers = yes_probabilities(
+            team_id=self._team_id,
+            state={"citations": entries},
+            questions={f"c{entry['n']}": _FLAG_QUESTION.format(n=entry["n"]) for entry in entries},
+            trace_id=self._trace_id,
+        )
+        if answers is None:
             return None
-        state = self._state(citations)
-        in_state = {entry["n"] for entry in state["citations"]}
-        checked = [c for c in citations if c.n in in_state]
-        try:
-            result = decision_api.decide_when_available(
-                DecisionRequest(
-                    team_id=self._team_id,
-                    state=state,
-                    questions={
-                        f"c{c.n}": DecisionQuestion(
-                            type=DecisionQuestionType.NOUL, instructions=_FLAG_QUESTION.format(n=c.n)
-                        )
-                        for c in checked
-                    },
-                    model=JEV_MODEL,
-                    ai_product="replay_vision",
-                    trace_id=self._trace_id,
-                    # The state is recording-derived, which stays out of the internal AI observability project.
-                    privacy_mode=True,
-                ),
-                timeout_seconds=_JEV_TIMEOUT_SECONDS,
-            )
-        except Exception:
-            logger.warning("replay_vision.citation_review.unavailable", team_id=self._team_id, exc_info=True)
-            return None
-        probabilities: dict[int, float] = {}
-        for c in checked:
-            probability = getattr(result.answers.get(f"c{c.n}"), "probability", None)
-            if isinstance(probability, float | int):
-                probabilities[c.n] = float(probability)
-        return probabilities
+        return {int(key[1:]): probability for key, probability in answers.items()}
 
-    def _state(self, citations: Sequence[Citation]) -> dict[str, Any]:
-        entries = [
-            {
+    def _state_entries(self, citations: Sequence[Citation]) -> list[dict[str, Any]]:
+        """One entry per citation, dropping the tail that would push the state past the model's context window."""
+        entries: list[dict[str, Any]] = []
+        size = 0
+        for c in citations:
+            entry = {
                 "n": c.n,
                 "claim": c.claim,
                 "t": c.video_s,
-                "page_on_screen": self.page_at(c.video_s),
+                "page_on_screen": self._page_at(c.video_s),
                 "events_nearby": self._events_near(c.video_s),
             }
-            for c in citations
-        ]
-        while len(entries) > 1 and len(json.dumps(entries, ensure_ascii=False)) > _MAX_STATE_CHARS:
-            entries.pop()
-        return {"citations": entries}
+            size += len(json.dumps(entry, ensure_ascii=False)) + 1
+            if entries and size > _MAX_STATE_CHARS:
+                break
+            entries.append(entry)
+        return entries
 
     def _events_near(self, video_s: int) -> list[dict[str, Any]]:
-        nearest = sorted(
-            get_events_around(self._events_index, video_s, _EVENTS_WINDOW_S),
-            key=lambda event: abs(event["vid_t"] - video_s),
-        )[:_MAX_EVENTS_PER_CITATION]
+        window = get_events_around(self._events_index, video_s, _EVENTS_WINDOW_S)
+        nearest = heapq.nsmallest(_MAX_EVENTS_PER_CITATION, window, key=lambda event: abs(event["vid_t"] - video_s))
         return [
-            {"t": event["vid_t"], **{f: _clip(str(event[f])) for f in _EVENT_FIELDS if event.get(f)}}
+            {"t": event["vid_t"], **{f: _clip_value(str(event[f])) for f in _EVENT_FIELDS if event.get(f)}}
             for event in sorted(nearest, key=lambda event: event["vid_t"])
         ]
 
@@ -268,33 +238,36 @@ def citations_in(response: BaseModel, fields: Sequence[str]) -> list[Citation]:
             continue
         for match in TIMESTAMP_CITATION_RE.finditer(text):
             claim = _sentence_before(text, match.start())
-            for raw in re.findall(r"\d+", match.group(1)):
-                citations.append(Citation(n=len(citations) + 1, claim=claim, video_s=int(raw)))
+            for video_s in citation_seconds(match):
+                citations.append(Citation(n=len(citations) + 1, claim=claim, video_s=video_s))
     return citations
 
 
 def replace_citations(response: _ResponseT, fields: Sequence[str], moves: dict[int, int | None]) -> _ResponseT:
-    """`response` with each numbered cited second moved to its new second, or removed when that is None."""
+    """`response` with each numbered cited second moved to its new second, or removed when that is None.
+
+    Numbers each second the way `citations_in` does, so the two must walk the same fields in the same order.
+    """
     n = 0
-    updates: dict[str, str] = {}
 
     def _rewrite(match: re.Match[str]) -> str:
         nonlocal n
-        seconds: list[str] = []
-        for raw in re.findall(r"\d+", match.group(1)):
+        kept: list[int] = []
+        for video_s in citation_seconds(match):
             n += 1
-            new = moves[n] if n in moves else int(raw)
+            new = moves[n] if n in moves else video_s
             if new is not None:
-                seconds.append(str(new))
-        if not seconds:
+                kept.append(new)
+        if not kept:
             return ""
-        leading = match.group(0)[: len(match.group(0)) - len(match.group(0).lstrip())]
-        return leading + " ".join(f"(t {second})" for second in seconds)
+        marker = match.group(0)
+        return marker[: len(marker) - len(marker.lstrip())] + " ".join(f"(t {second})" for second in kept)
 
-    for field_name in fields:
-        text = getattr(response, field_name, None)
-        if isinstance(text, str):
-            updates[field_name] = TIMESTAMP_CITATION_RE.sub(_rewrite, text)
+    updates = {
+        field_name: TIMESTAMP_CITATION_RE.sub(_rewrite, text)
+        for field_name in fields
+        if isinstance(text := getattr(response, field_name, None), str)
+    }
     return response.model_copy(update=updates)
 
 
@@ -308,5 +281,5 @@ def _sentence_before(text: str, end: int) -> str:
     return ""
 
 
-def _clip(value: str) -> str:
-    return value if len(value) <= _MAX_VALUE_CHARS else value[:_MAX_VALUE_CHARS] + "…"
+def _clip_value(value: str) -> str:
+    return value if len(value) <= _MAX_EVENT_VALUE_CHARS else value[:_MAX_EVENT_VALUE_CHARS] + "…"

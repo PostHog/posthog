@@ -18,24 +18,20 @@ from posthoganalytics.ai.gemini import genai
 from prometheus_client import Counter
 from pydantic import BaseModel
 
-from products.ml_inference.backend.facade import api as decision_api
-from products.ml_inference.backend.facade.contracts import DecisionQuestion, DecisionRequest
-from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.jev import yes_probabilities
 
 logger = structlog.get_logger(__name__)
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
-JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 # Calibrated offline on production answers: at these values the detector caught 96% of answers that repeated the
 # subject's email unasked, most other flags were real names, and a question that asks for identity scored 0.86.
 PII_FLAG_PROBABILITY = 0.8
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
-_JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
 _TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
 
@@ -93,26 +89,8 @@ def answer_text(output: BaseModel) -> dict[str, str]:
 
 
 def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, trace_id: str) -> float | None:
-    if not decision_api.decisions_available_here():
-        return None
-    try:
-        result = decision_api.decide_when_available(
-            DecisionRequest(
-                team_id=team_id,
-                state=state,
-                questions={"q": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions)},
-                model=JEV_MODEL,
-                ai_product="replay_vision",
-                trace_id=trace_id,
-                # The state is recording-derived prose, which stays out of the internal AI observability project.
-                privacy_mode=True,
-            ),
-            timeout_seconds=_JEV_TIMEOUT_SECONDS,
-        )
-    except Exception:
-        logger.warning("replay_vision.pii_check.unavailable", team_id=team_id, exc_info=True)
-        return None
-    return getattr(result.answers.get("q"), "probability", None)
+    answers = yes_probabilities(team_id=team_id, state=state, questions={"q": instructions}, trace_id=trace_id)
+    return None if answers is None else answers.get("q")
 
 
 def asks_for_identity(*, team_id: int, question: str, trace_id: str) -> bool | None:
