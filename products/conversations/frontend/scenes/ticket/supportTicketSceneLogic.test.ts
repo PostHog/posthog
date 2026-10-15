@@ -537,6 +537,36 @@ describe('getImpersonationTicketContext', () => {
             }),
             { ticketId: 'ticket-1', email: 'customer@example.com', isEmailUnverified: true },
         ],
+        [
+            'outbound email ticket verified by a reply looks up its sender',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'recipient-analytics-id',
+                anonymous_traits: { email: 'customer@example.com' },
+                email_from: 'customer@example.com',
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'non-string traits email falls back to email_from',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: { email: 42 },
+                email_from: 'customer@example.com',
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
     ])('%s', (_name, ticket, expected) => {
         expect(getImpersonationTicketContext(ticket)).toEqual(expected)
     })

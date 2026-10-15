@@ -141,9 +141,9 @@ function regionFromUrl(url?: string): Region | undefined {
     return undefined
 }
 
-// A verified ticket on these channels holds the attested identity in distinct_id, in a form the admin
-// user search matches: the signed distinct ID of a widget request, or the sender's address. A GitHub
-// ticket holds a GitHub login there, which matches no PostHog user.
+// A verified ticket on these channels holds an attested identity that the admin user search matches:
+// the signed distinct ID of a widget request, or the sender's address. A GitHub ticket holds a GitHub
+// login in distinct_id, which matches no PostHog user.
 const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
 
 export function getImpersonationTicketContext(
@@ -158,12 +158,18 @@ export function getImpersonationTicketContext(
         | 'session_context'
     >
 ): ImpersonationTicketContext {
+    // The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
+    const traitEmail = ticket.anonymous_traits?.email
     // email_from is the customer's address on email tickets, and it's the only
     // place it lives on tickets whose traits were never populated.
-    const email: string = ticket.anonymous_traits?.email || ticket.email_from || ''
+    const email = (typeof traitEmail === 'string' && traitEmail) || ticket.email_from || ''
+    // An outbound email ticket keeps the recipient's analytics ID in distinct_id. A later authenticated
+    // reply from email_from verifies the ticket, so email_from is the attested identity on email tickets.
+    const attestedIdentity =
+        ticket.channel_source === 'email' ? ticket.email_from || ticket.distinct_id : ticket.distinct_id
     const verifiedDistinctId =
         ticket.identity_verified === true && ATTESTED_LOOKUP_CHANNELS.includes(ticket.channel_source)
-            ? ticket.distinct_id || undefined
+            ? attestedIdentity || undefined
             : undefined
     return {
         ticketId: ticket.id,
