@@ -34,6 +34,10 @@ import { buildTraceDialogRows, countDescendantsById, type TraceDialogRow } from 
 // Tracing, which pages in on scroll.
 const TRACE_DIALOG_MAX_PAGES = 5
 
+// Pinned: autocapture and the span keys both match on the dialog's data-attr.
+export const TRACE_DIALOG_DATA_ATTR = 'trace-dialog'
+const TRACE_DIALOG_SELECTOR = `[data-attr="${TRACE_DIALOG_DATA_ATTR}"]`
+
 // The trace API returns hex span ids in uppercase, and logs and metrics carry them in lowercase. The
 // dialog matches the opened span against the loaded spans exactly, so it keeps the API's case.
 function inApiCase(spanId: string | null | undefined): string | null {
@@ -480,8 +484,10 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             cache.disposables.add(() => {
                 const onKeyDown = (event: KeyboardEvent): void => {
                     const target = event.target as HTMLElement | null
+                    // A field behind the dialog can still hold focus, such as one that autofocused
+                    // while the trace loaded. The person cannot see it, so the key is theirs to step with.
                     const typing =
-                        !!target &&
+                        !!target?.closest(TRACE_DIALOG_SELECTOR) &&
                         (['input', 'textarea', 'select'].includes(target.tagName.toLowerCase()) ||
                             target.isContentEditable)
                     if (typing || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {

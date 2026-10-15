@@ -297,14 +297,23 @@ describe('traceDialogLogic', () => {
             expect(logic.values.selectedSpan?.span_id).toBe('a')
         })
 
-        it('leaves keys typed into an input alone', () => {
-            const input = document.createElement('input')
-            document.body.appendChild(input)
-            press('j', input)
-            input.remove()
+        it('leaves keys typed into an input in the dialog alone, but not one hidden behind it', () => {
+            const dialog = document.createElement('div')
+            dialog.setAttribute('data-attr', 'trace-dialog')
+            const inDialog = document.createElement('input')
+            const behind = document.createElement('textarea')
+            dialog.appendChild(inDialog)
+            document.body.append(dialog, behind)
 
+            press('j', inDialog)
             expect(logic.values.selectedSpan?.span_id).toBe('a')
             expect(pageListener).toHaveBeenCalledTimes(1)
+
+            press('j', behind)
+            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            expect(pageListener).toHaveBeenCalledTimes(1)
+            dialog.remove()
+            behind.remove()
         })
 
         it('stops listening once the dialog closes', () => {

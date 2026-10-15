@@ -12,7 +12,7 @@ import { SpanInspector } from 'products/tracing/frontend/components/SpanInspecto
 import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { TRACE_DIALOG_DATA_ATTR, traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogOpenedFromLog } from './TraceDialogOpenedFromLog'
 import { TraceDialogShortcuts } from './TraceDialogShortcuts'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
@@ -65,6 +65,7 @@ export function TraceDialog(): JSX.Element | null {
                 </div>
             }
             forceAbovePopovers
+            data-attr={TRACE_DIALOG_DATA_ATTR}
             width="90vw"
             maxWidth={1600}
             footer={
